@@ -54,7 +54,7 @@ def _fetch_feedback(conn, limit=500):
 
 conn_fb = _init_db()
 
-# Public-facing box (always visible; only you know about the secret unlock)
+# Public-facing box
 st.markdown("### Found a problem? Let me (Patrik) know here:")
 fb_col1, fb_col2 = st.columns([3,1])
 with fb_col1:
@@ -73,14 +73,13 @@ if st.button("Send", disabled=send_disabled, key="fb_send"):
     try:
         _insert_feedback(conn_fb, user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
         st.success("Thanks! Your message has been recorded.")
-        # Clear inputs safely
-        for k in ["feedback_text", "feedback_name", "feedback_email"]:
-            if k in st.session_state:
-                del st.session_state[k]
-        st.rerun()
+
+        # ✅ Clear inputs without rerun (so CSVs & state don’t disappear)
+        st.session_state["feedback_text"] = ""
+        st.session_state["feedback_name"] = ""
+        st.session_state["feedback_email"] = ""
     except Exception as e:
         st.error(f"Could not save your message. {e}")
-
 
 st.markdown("---")
 
@@ -653,7 +652,6 @@ if working_df is not None:
 # --------------------------------
 # Admin access (bottom of page)
 # --------------------------------
-st.markdown("---")
 st.write("### Admin Access")
 
 if "show_pw" not in st.session_state:
@@ -662,17 +660,15 @@ if "admin_unlocked" not in st.session_state:
     st.session_state["admin_unlocked"] = False
 
 if not st.session_state["show_pw"]:
-    if st.button("View admin box"):
+    if st.button("View admin box", key="show_admin_btn"):
         st.session_state["show_pw"] = True
-        st.rerun()
 
 if st.session_state["show_pw"] and not st.session_state["admin_unlocked"]:
-    password = st.text_input("Enter password", type="password")
-    if st.button("Unlock"):
+    password = st.text_input("Enter password", type="password", key="admin_pw")
+    if st.button("Unlock", key="unlock_btn"):
         if password == "Nova@2025":
             st.session_state["admin_unlocked"] = True
             st.success("Admin inbox unlocked")
-            st.rerun()
         else:
             st.error("Incorrect password")
 
@@ -684,27 +680,33 @@ if st.session_state["admin_unlocked"]:
         df_fb = pd.DataFrame(rows, columns=["ID", "Created (UTC)", "Name", "Email", "Message"])
         st.dataframe(df_fb, use_container_width=True, hide_index=True)
 
-        # Export
+        # ✅ Unique key for download button
         csv = df_fb.to_csv(index=False).encode("utf-8")
-        st.download_button("Download CSV", data=csv, file_name="feedback_export.csv", mime="text/csv")
+        st.download_button(
+            "Download CSV",
+            data=csv,
+            file_name="feedback_export.csv",
+            mime="text/csv",
+            key="feedback_download"
+        )
 
         # Delete single entry
         st.markdown("### Delete an entry")
-        del_id = st.text_input("Enter ID to delete", value="", key="del_id")
-        if st.button("Delete", key="del_btn"):
-            import sqlite3
+        del_id = st.text_input("Enter ID to delete", value="", key="del_id_admin")
+        if st.button("Delete", key="del_btn_admin"):
             try:
                 if del_id.strip().isdigit():
                     with sqlite3.connect("feedback.db") as _c:
                         _c.execute("DELETE FROM feedback WHERE id = ?", (int(del_id.strip()),))
                         _c.commit()
-                    st.success(f"Entry {del_id} deleted. Refresh to update the table.")
+                    st.success(f"Entry {del_id} deleted. Refresh the page to update the table.")
                 else:
                     st.warning("Please enter a numeric ID.")
             except Exception as e:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
