@@ -398,9 +398,9 @@ if working_df is not None:
     st.markdown("---")
     st.write("### Search Terms and Recurrence Interval (editable)")
     st.info(
-        "💡 1) See all current Search Terms, set their recurrence interval, and delete if necessary.\n\n"
-        "2) Decide if the Quantity column should be considered (e.g. 1× Bravecto = 90 days, 2× Bravecto = 180 days).\n"
-        "3) View and edit the Visible Text which will appear in the WhatsApp template message."
+        "1. See all current Search Terms, set their recurrence interval, and delete if necessary.\n\"
+        "2. Decide if the Quantity column should be considered (e.g. 1× Bravecto = 90 days, 2× Bravecto = 180 days).\n"
+        "3. View and edit the Visible Text which will appear in the WhatsApp template message."
     )
 
     # Header row
@@ -533,4 +533,5 @@ if working_df is not None:
                     st.info("This exclusion already exists.")
             else:
                 st.error("Enter a valid exclusion term")
+
 
