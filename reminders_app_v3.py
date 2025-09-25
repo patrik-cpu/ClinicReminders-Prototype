@@ -77,13 +77,13 @@ if st.button("Send", key="fb_send"):
             _insert_feedback(conn_fb, user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
             st.success("Thanks! Your message has been recorded.")
 
-            # ✅ Clear inputs safely and rerun
-            for k in ["feedback_text", "feedback_name", "feedback_email"]:
-                if k in st.session_state:
-                    del st.session_state[k]
-            st.rerun()
+            # ✅ Clear inputs without rerun (keeps CSVs visible)
+            st.session_state["feedback_text"] = ""
+            st.session_state["feedback_name"] = ""
+            st.session_state["feedback_email"] = ""
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 st.markdown("---")
 
@@ -711,6 +711,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
