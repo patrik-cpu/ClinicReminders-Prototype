@@ -283,15 +283,13 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             cols[j].markdown(vals[h])
 
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
-            # ✅ strip spaces from client + animal names
             first_name = vals['Client Name'].split()[0].strip() if vals['Client Name'] else "there"
             animal_name = vals['Animal Name'].strip() if vals['Animal Name'] else "your pet"
-
             plan_for_msg = vals["Plan Item"].strip()
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
             closing = " Get in touch with us any time for scheduling, and we look forward to hearing from you soon! 🐱🐶"
-
+        
             if user:
                 st.session_state[msg_key] = (
                     f"Hi {first_name}, this is {user} reminding you that "
@@ -302,6 +300,10 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     f"Hi {first_name}, this is a reminder letting you know that "
                     f"{animal_name} is due their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
+        
+            # ✅ Inline confirmation (works local + cloud)
+            st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
+            st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
     # WhatsApp composer section with right-hand tip
     comp_main, comp_tip = st.columns([4,1])
@@ -534,3 +536,4 @@ if working_df is not None:
                     st.info("This exclusion already exists.")
             else:
                 st.error("Enter a valid exclusion term")
+
