@@ -11,66 +11,8 @@ from datetime import timedelta, date
 title_col, tut_col = st.columns([4,1])
 with title_col:
     st.title("ClinicReminders Prototype v3.2 (stable)")
-st.markdown("---")
-# --------------------------------
-# Secret unlock title (C -> R -> P -> R -> C)
-# --------------------------------
-SECRET_SEQUENCE = ["C", "R", "P", "R", "C"]
-st.session_state.setdefault("secret_progress", [])
-st.session_state.setdefault("admin_unlocked", False)
-st.session_state.setdefault("secret_last_ts", None)
 
-from datetime import datetime, timedelta
 
-def _push_secret(letter):
-    # optional inactivity timeout (8s)
-    now = datetime.utcnow()
-    last = st.session_state.get("secret_last_ts")
-    if last and (now - last) > timedelta(seconds=8):
-        st.session_state["secret_progress"] = []
-    st.session_state["secret_last_ts"] = now
-
-    prog = st.session_state["secret_progress"] + [letter]
-    need = SECRET_SEQUENCE[: len(prog)]
-
-    if prog == need:
-        st.session_state["secret_progress"] = prog
-        if len(prog) == len(SECRET_SEQUENCE):
-            st.session_state["admin_unlocked"] = True
-            st.session_state["secret_progress"] = []
-            st.toast("🔐 Admin inbox unlocked")
-    else:
-        st.session_state["secret_progress"] = [letter] if letter == SECRET_SEQUENCE[0] else []
-
-# Render the title with hidden buttons on C, R, P
-title_row = st.columns([0.04, 0.04, 0.16, 0.04, 0.32, 0.04, 0.36])
-# C
-with title_row[0]:
-    if st.button("C", key="secret_C", help="", use_container_width=True):
-        _push_secret("C")
-    st.markdown("<style>button[kind='secondary']#secret_C{opacity:0; position:absolute; width:0; height:0;}</style>", unsafe_allow_html=True)
-    st.markdown('<span style="font-size:1.6rem; font-weight:700;">C</span>', unsafe_allow_html=True)
-# linic
-with title_row[1]:
-    st.markdown('<span style="font-size:1.6rem; font-weight:700;">linic</span>', unsafe_allow_html=True)
-# R
-with title_row[2]:
-    if st.button("R", key="secret_R1", help="", use_container_width=True):
-        _push_secret("R")
-    st.markdown("<style>button[kind='secondary']#secret_R1{opacity:0; position:absolute; width:0; height:0;}</style>", unsafe_allow_html=True)
-    st.markdown('<span style="font-size:1.6rem; font-weight:700;">R</span>', unsafe_allow_html=True)
-# eminders␠
-with title_row[3]:
-    st.markdown('<span style="font-size:1.6rem; font-weight:700;">eminders </span>', unsafe_allow_html=True)
-# P
-with title_row[4]:
-    if st.button("P", key="secret_P", help="", use_container_width=True):
-        _push_secret("P")
-    st.markdown("<style>button[kind='secondary']#secret_P{opacity:0; position:absolute; width:0; height:0;}</style>", unsafe_allow_html=True)
-    st.markdown('<span style="font-size:1.6rem; font-weight:700;">P</span>', unsafe_allow_html=True)
-# rototype v3.2 (stable)
-with title_row[5]:
-    st.markdown('<span style="font-size:1.6rem; font-weight:700;">rototype v3.2 (stable)</span>', unsafe_allow_html=True)
 
 st.markdown("---")
 # --------------------------------
@@ -131,12 +73,14 @@ if st.button("Send", disabled=send_disabled, key="fb_send"):
     try:
         _insert_feedback(conn_fb, user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
         st.success("Thanks! Your message has been recorded.")
-        # Clear inputs
-        st.session_state["feedback_text"] = ""
-        st.session_state["feedback_name"] = ""
-        st.session_state["feedback_email"] = ""
+        # Clear inputs safely
+        for k in ["feedback_text", "feedback_name", "feedback_email"]:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.rerun()
     except Exception as e:
         st.error(f"Could not save your message. {e}")
+
 
 st.markdown("---")
 
@@ -705,6 +649,62 @@ if working_df is not None:
             else:
                 st.error("Enter a valid exclusion term")
 
+
+# --------------------------------
+# Admin access (bottom of page)
+# --------------------------------
+st.markdown("---")
+st.write("### Admin Access")
+
+if "show_pw" not in st.session_state:
+    st.session_state["show_pw"] = False
+if "admin_unlocked" not in st.session_state:
+    st.session_state["admin_unlocked"] = False
+
+if not st.session_state["show_pw"]:
+    if st.button("View admin box"):
+        st.session_state["show_pw"] = True
+        st.rerun()
+
+if st.session_state["show_pw"] and not st.session_state["admin_unlocked"]:
+    password = st.text_input("Enter password", type="password")
+    if st.button("Unlock"):
+        if password == "Nova@2025":
+            st.session_state["admin_unlocked"] = True
+            st.success("Admin inbox unlocked")
+            st.rerun()
+        else:
+            st.error("Incorrect password")
+
+if st.session_state["admin_unlocked"]:
+    st.markdown("## 🔐 Admin — Feedback Inbox")
+    rows = _fetch_feedback(conn_fb, limit=500)
+    if rows:
+        import pandas as pd
+        df_fb = pd.DataFrame(rows, columns=["ID", "Created (UTC)", "Name", "Email", "Message"])
+        st.dataframe(df_fb, use_container_width=True, hide_index=True)
+
+        # Export
+        csv = df_fb.to_csv(index=False).encode("utf-8")
+        st.download_button("Download CSV", data=csv, file_name="feedback_export.csv", mime="text/csv")
+
+        # Delete single entry
+        st.markdown("### Delete an entry")
+        del_id = st.text_input("Enter ID to delete", value="", key="del_id")
+        if st.button("Delete", key="del_btn"):
+            import sqlite3
+            try:
+                if del_id.strip().isdigit():
+                    with sqlite3.connect("feedback.db") as _c:
+                        _c.execute("DELETE FROM feedback WHERE id = ?", (int(del_id.strip()),))
+                        _c.commit()
+                    st.success(f"Entry {del_id} deleted. Refresh to update the table.")
+                else:
+                    st.warning("Please enter a numeric ID.")
+            except Exception as e:
+                st.error(f"Delete failed: {e}")
+    else:
+        st.info("No feedback yet.")
 
 
 
