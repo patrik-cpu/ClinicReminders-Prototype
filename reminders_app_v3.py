@@ -59,8 +59,8 @@ DEFAULT_RULES = {
     "librela": {"days": 30, "use_qty": False, "visible_text": "Librela"},
     "solensia": {"days": 30, "use_qty": False, "visible_text": "Solensia"},
     "samylin": {"days": 30, "use_qty": True, "visible_text": "Samylin"},
-    "cystaid": {"days": 30, "use_qty": True, "visible_text": "Cystaid"},
-    "kennel cough": {"days": 30, "use_qty": True, "visible_text": "Kennel Cough"},
+    "cystaid": {"days": 30, "use_qty": False, "visible_text": "Cystaid"},
+    "kennel cough": {"days": 30, "use_qty": False, "visible_text": "Kennel Cough"},
 }
 
 # --------------------------------
@@ -533,3 +533,4 @@ if working_df is not None:
                     st.info("This exclusion already exists.")
             else:
                 st.error("Enter a valid exclusion term")
+
