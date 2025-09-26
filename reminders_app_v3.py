@@ -388,6 +388,18 @@ def process_file(file, rules):
     pms_name = detect_pms(df)
     if not pms_name:
         return df, None  # undetected PMS
+    # --- Date parsing ---
+    if "Planitem Performed" in df.columns:
+        if pms_name == "VETport":
+            # Hardcode the known format for VETport
+            df["Planitem Performed"] = pd.to_datetime(
+                df["Planitem Performed"].astype(str).str.strip(),
+                format="%d/%b/%Y %H:%M %S",
+                errors="coerce"
+            )
+        else:
+            # All other PMS can use the generic parser
+            df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
 
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
 
@@ -927,6 +939,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
