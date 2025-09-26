@@ -241,6 +241,7 @@ st.session_state.setdefault("form_version", 0)
 # --------------------------------
 # Helpers
 # --------------------------------
+
 def simplify_vaccine_text(text: str) -> str:
     if not isinstance(text, str): return text
     if text.lower().count("vaccine") <= 1: return text
@@ -291,6 +292,19 @@ def map_intervals(df, rules):
             df.loc[mask, "IntervalDays"] = settings["days"]
     return df
 
+def parse_dates(series):
+    """Try common date formats for PMS exports."""
+    # Ensure strings
+    series = series.astype(str).str.strip()
+    # Try common patterns
+    formats = ["%d/%b/%Y", "%d-%b-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%Y %H:%M:%S"]
+    for fmt in formats:
+        parsed = pd.to_datetime(series, format=fmt, errors="coerce")
+        if parsed.notna().sum() > 0:
+            return parsed
+    # Fallback: let pandas guess
+    return pd.to_datetime(series, errors="coerce")
+
 
 # --------------------------------
 # Cached CSV processor
@@ -322,8 +336,8 @@ def process_file(file, rules):
     # --- Date parsing ---
     date_col = mappings["date"]
     if date_col in df.columns:
-        parsed = pd.to_datetime(df[date_col], errors="coerce")
-        df[date_col] = parsed
+        df[date_col] = parse_dates(df[date_col])
+
 
     # --- Quantity ---
     qty_col = mappings.get("qty")
@@ -851,6 +865,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
