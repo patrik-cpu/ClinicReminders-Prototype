@@ -51,10 +51,10 @@ st.markdown(
 # Defaults
 # --------------------------------
 DEFAULT_RULES = {
-    "vaccine": {"days": 365, "use_qty": False, "visible_text": ""},
-    "rabies": {"days": 365, "use_qty": False, "visible_text": ""},
-    "dhpp": {"days": 365, "use_qty": False, "visible_text": ""},
-    "tricat": {"days": 365, "use_qty": False, "visible_text": ""},
+    "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies Vaccine"},
+    "dhpp": {"days": 365, "use_qty": False, "visible_text": "DHPPIL Vaccine"},
+    "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia Vaccine"},
+    "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat Vaccine"},
     "dental cat": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
     "dental dog": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
     "caniverm": {"days": 90, "use_qty": False, "visible_text": "Caniverm"},
@@ -66,7 +66,7 @@ DEFAULT_RULES = {
     "solensia": {"days": 30, "use_qty": False, "visible_text": "Solensia"},
     "samylin": {"days": 30, "use_qty": True, "visible_text": "Samylin"},
     "cystaid": {"days": 30, "use_qty": False, "visible_text": "Cystaid"},
-    "kennel cough": {"days": 30, "use_qty": False, "visible_text": "Kennel Cough"},
+    "kennel cough": {"days": 30, "use_qty": False, "visible_text": "Kennel Cough Vaccine"},
 }
 
 # --------------------------------
@@ -714,6 +714,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
