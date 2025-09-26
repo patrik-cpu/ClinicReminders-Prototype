@@ -144,6 +144,9 @@ def load_settings():
 # --------------------------------
 # PMS definitions
 # --------------------------------
+# --------------------------------
+# PMS definitions
+# --------------------------------
 PMS_DEFINITIONS = {
     "VETport": {
         "columns": [
@@ -151,9 +154,63 @@ PMS_DEFINITIONS = {
             "Patient ID", "Plan Item ID", "Plan Item Name", "Plan Item Quantity",
             "Performed Staff", "Plan Item Amount", "Returned Quantity",
             "Returned Date", "Invoice No",
-        ]
+        ],
+        "mappings": {
+            "date": "Planitem Performed",
+            "client": "Client Name",
+            "animal": "Patient Name",
+            "item": "Plan Item Name",
+            "qty": "Plan Item Quantity",
+        }
+    },
+    "Xpress": {
+        "columns": [
+            "Date", "Client ID", "Client Name", "SLNo", "Doctor",
+            "Animal Name", "Item Name", "Item ID", "Qty", "Rate",
+            "Amount", "Year"
+        ],
+        "mappings": {
+            "date": "Date",
+            "client": "Client Name",
+            "animal": "Animal Name",
+            "item": "Item Name",
+            "qty": "Qty",
+        }
+    },
+    "ezyVet": {
+        "columns": [
+            "Invoice #", "Invoice Date", "Type", "Parent Line ID",
+            "Invoice Line Date: Created", "Invoice Line Time: Created",
+            "Created By", "Invoice Line Date: Last Modified",
+            "Invoice Line Time: Last Modified", "Last Modified By",
+            "Invoice Line Date", "Invoice Line Time", "Department ID",
+            "Department", "Inventory Location", "Client Contact Code",
+            "Business Name", "First Name", "Last Name", "Email",
+            "Animal Code", "Patient Name", "Species", "Breed",
+            "Invoice Line ID", "Invoice Line Reference", "Product Code",
+            "Product Name", "Product Description", "Account", "Product Cost",
+            "Product Group", "Staff Member ID", "Staff Member",
+            "Salesperson is Vet", "Consult ID", "Consult Number",
+            "Case Owner", "Qty", "Standard Price(incl)", "Discount(%)",
+            "Discount(د.إ)", "User Reason", "Surcharge Adjustment",
+            "Surcharge Name", "Discount Adjustment", "Discount Name",
+            "Rounding Adjustment", "Rounding Name",
+            "Price After Discount(excl)", "Tax per Qty After Discount",
+            "Price After Discount(incl)", "Total Invoiced (excl)",
+            "Total Tax Amount", "Total Invoiced (incl)",
+            "Total Earned(excl)", "Total Earned(incl)", "Payment Terms"
+        ],
+        "mappings": {
+            "date": "Invoice Date",                         # → Planitem Performed
+            "client_first": "First Name",                   # combine First + Last
+            "client_last": "Last Name",
+            "animal": "Patient Name",                       # → Patient Name
+            "item": "Product Name",                         # → Plan Item Name
+            "qty": "Qty",                                   # → Quantity
+        }
     }
 }
+
 
 def detect_pms(df: pd.DataFrame) -> str:
     for pms_name, definition in PMS_DEFINITIONS.items():
@@ -230,28 +287,62 @@ def map_intervals(df, rules):
 # Cached CSV processor
 # --------------------------------
 @st.cache_data
+@st.cache_data
 def process_csv(file, rules):
     df = pd.read_csv(file)
     df.columns = [c.strip() for c in df.columns]
-    date_col = "Planitem Performed"
+
+    # Detect PMS
+    pms_name = detect_pms(df)
+    if not pms_name:
+        return df  # fallback
+
+    mappings = PMS_DEFINITIONS[pms_name]["mappings"]
+
+    # Date parsing
+    date_col = mappings["date"]
     if date_col in df.columns:
-        extracted = df[date_col].astype(str).str.extract(r"(\d{2}/[A-Za-z]{3}/\d{4})")[0]
-        parsed = pd.to_datetime(extracted, format="%d/%b/%Y", errors="coerce")
-        if parsed.notna().sum() == 0:
-            parsed = pd.to_datetime(df[date_col], errors="coerce")
+        parsed = pd.to_datetime(df[date_col], errors="coerce")
         df[date_col] = parsed
-    if "Plan Item Quantity" in df.columns:
-        df["Quantity"] = pd.to_numeric(df["Plan Item Quantity"], errors="coerce").fillna(1)
+
+    # Quantity
+    qty_col = mappings.get("qty")
+    if qty_col and qty_col in df.columns:
+        df["Quantity"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
     else:
         df["Quantity"] = 1
+
+    # Normalize columns
+    if pms_name == "ezyVet":
+        # build client name from First + Last
+        df["Client Name"] = (
+            df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
+            df[mappings["client_last"]].fillna("").astype(str).str.strip()
+        ).str.strip()
+        df.rename(columns={
+            mappings["date"]: "Planitem Performed",
+            mappings["animal"]: "Patient Name",
+            mappings["item"]: "Plan Item Name",
+        }, inplace=True)
+    else:
+        df.rename(columns={
+            mappings["date"]: "Planitem Performed",
+            mappings["client"]: "Client Name",
+            mappings["animal"]: "Patient Name",
+            mappings["item"]: "Plan Item Name",
+        }, inplace=True)
+
+    # Standardize for downstream
     df = map_intervals(df, rules)
-    df["NextDueDate"] = df[date_col] + pd.to_timedelta(df["IntervalDays"], unit="D")
-    df["ChargeDateFmt"] = df[date_col].dt.strftime("%d %b %Y")
+    df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
+    df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
     df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
     df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
+
     return df
+
 
 # --------------------------------
 # File uploader + summary
@@ -727,3 +818,4 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
