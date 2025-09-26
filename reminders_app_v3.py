@@ -213,8 +213,16 @@ PMS_DEFINITIONS = {
 
 
 def normalize_columns(cols):
-    """Lowercase + strip spaces for robust comparison."""
-    return [c.strip().lower() for c in cols]
+    """Lowercase, collapse spaces, strip BOM/nbsp for robust comparison."""
+    cleaned = []
+    for c in cols:
+        if not isinstance(c, str):
+            c = str(c)
+        c = c.replace("\u00a0", " ").replace("\ufeff", "")
+        c = re.sub(r"\s+", " ", c).strip().lower()
+        cleaned.append(c)
+    return cleaned
+
 
 def detect_pms(df: pd.DataFrame) -> str:
     df_cols = set(normalize_columns(df.columns))
@@ -292,9 +300,45 @@ def map_intervals(df, rules):
             df.loc[mask, "IntervalDays"] = settings["days"]
     return df
 
-def parse_dates(series):
-    """Try multiple formats for PMS date fields without printing."""
-    series = series.astype(str).str.strip()
+def parse_dates(series: pd.Series) -> pd.Series:
+    """
+    Robust parser:
+      - If already datetime, return as-is.
+      - If numeric (Excel serial), convert (tries 1900 and 1904 systems).
+      - Else try multiple explicit formats, then pandas with dayfirst=True, then fallback.
+    """
+    # Already datetime?
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return pd.to_datetime(series, errors="coerce")
+
+    # Try numeric Excel serials first (before string-casting)
+    numeric = pd.to_numeric(series, errors="coerce")
+    if numeric.notna().sum() > 0:
+        # Consider rows that look purely numeric (e.g., "45234" or 45234.0)
+        # If majority are numeric, treat as Excel serials
+        numeric_like = series.astype(str).str.fullmatch(r"\d+(\.0+)?", na=False)
+        if numeric_like.sum() >= max(1, int(0.6 * len(series.dropna()))):
+            base_1900 = pd.Timestamp("1899-12-30")
+            dt_1900 = base_1900 + pd.to_timedelta(numeric, unit="D")
+            valid_1900 = dt_1900.dt.year.between(1990, 2100)
+
+            base_1904 = pd.Timestamp("1904-01-01")
+            dt_1904 = base_1904 + pd.to_timedelta(numeric, unit="D")
+            valid_1904 = dt_1904.dt.year.between(1990, 2100)
+
+            # Choose the system with more plausible dates
+            if valid_1904.sum() > valid_1900.sum():
+                return dt_1904
+            else:
+                return dt_1900
+
+    # Clean strings and try explicit formats
+    s = (
+        series.astype(str)
+        .str.replace("\u00a0", " ", regex=False)
+        .str.replace("\ufeff", "", regex=False)
+        .str.strip()
+    )
     formats = [
         "%d/%b/%Y",      # 12/Jan/2024
         "%d-%b-%Y",      # 12-Jan-2024
@@ -304,13 +348,21 @@ def parse_dates(series):
         "%Y-%m-%d",      # 2024-01-12
         "%Y.%m.%d",      # 2024.01.12
         "%d/%m/%Y %H:%M",    # 12/01/2024 00:00
-        "%d/%m/%Y %H:%M:%S"  # 12/01/2024 00:00:00
+        "%d/%m/%Y %H:%M:%S", # 12/01/2024 00:00:00
+        "%Y-%m-%d %H:%M:%S", # 2024-06-28 18:18:16 (ezyVet exports)
+        "%Y-%m-%d %H:%M",    # 2024-06-28 18:18
     ]
     for fmt in formats:
-        parsed = pd.to_datetime(series, format=fmt, errors="coerce")
+        parsed = pd.to_datetime(s, format=fmt, errors="coerce")
         if parsed.notna().sum() > 0:
             return parsed
-    return pd.to_datetime(series, errors="coerce")  # fallback
+
+    # Try pandas inference with dayfirst preference, then without
+    parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    if parsed.notna().sum() > 0:
+        return parsed
+    return pd.to_datetime(s, errors="coerce")
+
 
 
 
@@ -329,40 +381,48 @@ def process_file(file, rules):
     else:
         raise ValueError("Unsupported file type")
 
-    # Clean column names
+    # Clean column names (surface level)
     df.columns = [c.strip() for c in df.columns]
 
-    # Detect PMS
+    # Detect PMS on *normalized* headers
     pms_name = detect_pms(df)
     if not pms_name:
         return df, None  # undetected PMS
 
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
 
-    # --- Normalize columns first ---
+    # --- Normalize columns FIRST ---
     if pms_name == "ezyVet":
+        # Build client name
         df["Client Name"] = (
             df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
             df[mappings["client_last"]].fillna("").astype(str).str.strip()
         ).str.strip()
-        df.rename(columns={
-            mappings["date"]: "Planitem Performed",
-            mappings["animal"]: "Patient Name",
-            mappings["item"]: "Plan Item Name",
-        }, inplace=True)
-    else:
-        df.rename(columns={
-            mappings["date"]: "Planitem Performed",
-            mappings["client"]: "Client Name",
-            mappings["animal"]: "Patient Name",
-            mappings["item"]: "Plan Item Name",
-        }, inplace=True)
 
-    # --- Date parsing (always on unified column) ---
+        df.rename(
+            columns={
+                mappings["date"]: "Planitem Performed",
+                mappings["animal"]: "Patient Name",
+                mappings["item"]: "Plan Item Name",
+            },
+            inplace=True,
+        )
+    else:
+        df.rename(
+            columns={
+                mappings["date"]: "Planitem Performed",
+                mappings["client"]: "Client Name",
+                mappings["animal"]: "Patient Name",
+                mappings["item"]: "Plan Item Name",
+            },
+            inplace=True,
+        )
+
+    # --- Date parsing on unified column ---
     if "Planitem Performed" in df.columns:
         df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
 
-    # --- Quantity ---
+    # --- Quantity (kept on original source column name) ---
     qty_col = mappings.get("qty")
     if qty_col and qty_col in df.columns:
         df["Quantity"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
@@ -376,7 +436,7 @@ def process_file(file, rules):
     df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
-    df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
+    df["_item_lower"] = df["Plan Item Name"].astype(str).str.lower()
 
     return df, pms_name
 
@@ -867,6 +927,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
