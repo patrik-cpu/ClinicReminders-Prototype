@@ -388,18 +388,34 @@ with tut_col:
     )
 
 datasets, summary_rows, working_df = [], [], None
+
 if files:
     for file in files:
         df, pms_name = process_file(file, st.session_state["rules"])
         pms_name = pms_name or "Undetected"
-        from_date, to_date = df["Planitem Performed"].min(), df["Planitem Performed"].max()
+
+        from_date, to_date = None, None
+        if "Planitem Performed" in df.columns:
+            from_date, to_date = df["Planitem Performed"].min(), df["Planitem Performed"].max()
+
         summary_rows.append({
-            "CSV name": file.name,
+            "File name": file.name,
             "PMS": pms_name,
             "From": from_date.strftime("%d %b %Y") if pd.notna(from_date) else "-",
             "To": to_date.strftime("%d %b %Y") if pd.notna(to_date) else "-"
         })
         datasets.append((pms_name, df))
+
+    st.write("### Uploaded Files Summary")
+    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
+
+    all_pms = {p for p, _ in datasets}
+    if len(all_pms) == 1 and "Undetected" not in all_pms:
+        working_df = pd.concat([df for _, df in datasets], ignore_index=True)
+        st.success(f"All files detected as {list(all_pms)[0]} — merging datasets.")
+    else:
+        st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
+
 
 # --------------------------------
 # Render Tables
@@ -835,6 +851,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
