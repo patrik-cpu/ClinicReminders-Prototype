@@ -167,7 +167,7 @@ PMS_DEFINITIONS = {
         "columns": [
             "Date", "Client ID", "Client Name", "SLNo", "Doctor",
             "Animal Name", "Item Name", "Item ID", "Qty", "Rate",
-            "Amount", "Year"
+            "Amount"
         ],
         "mappings": {
             "date": "Date",
@@ -941,6 +941,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
