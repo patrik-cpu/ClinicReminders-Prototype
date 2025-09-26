@@ -579,13 +579,14 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         phone_val = st.session_state.get(phone_key, "").strip()
         phone_clean = phone_val.replace(" ", "").replace("-", "").lstrip("+")
         wa_web = f"https://wa.me/{phone_clean}?text={encoded}" if phone_clean else "#"
-        wa_app = f"whatsapp://send?phone={phone_clean}&text={encoded}" if phone_clean else "#"
-
+        wa_app = f"https://api.whatsapp.com/send?phone={phone_clean}&text={encoded}" if phone_clean else "#"
+        
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown(f"[WhatsApp Web]({wa_web})", unsafe_allow_html=True)
+            st.markdown(f"[Open in WhatsApp Web]({wa_web})", unsafe_allow_html=True)
         with c2:
-            st.markdown(f"[WhatsApp Desktop]({wa_app})", unsafe_allow_html=True)
+            st.markdown(f"[Open in WhatsApp App/Desktop]({wa_app})", unsafe_allow_html=True)
+
 
     with comp_tip:
         st.markdown("### 💡 Tip")
@@ -939,14 +940,3 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
-
-
-
-
-
-
-
-
-
-
-
