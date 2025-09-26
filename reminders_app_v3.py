@@ -317,9 +317,7 @@ def parse_dates(series):
 # --------------------------------
 # Cached CSV processor
 # --------------------------------
-@st.cache_data
-@st.cache_data
-@st.cache_data
+
 @st.cache_data
 def process_file(file, rules):
     # Choose parser based on extension
@@ -341,20 +339,7 @@ def process_file(file, rules):
 
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
 
-    # --- Date parsing ---
-    date_col = mappings["date"]
-    if date_col in df.columns:
-        df[date_col] = parse_dates(df[date_col])
-
-
-    # --- Quantity ---
-    qty_col = mappings.get("qty")
-    if qty_col and qty_col in df.columns:
-        df["Quantity"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
-    else:
-        df["Quantity"] = 1
-
-    # --- Normalize columns ---
+    # --- Normalize columns first ---
     if pms_name == "ezyVet":
         df["Client Name"] = (
             df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
@@ -373,6 +358,17 @@ def process_file(file, rules):
             mappings["item"]: "Plan Item Name",
         }, inplace=True)
 
+    # --- Date parsing (always on unified column) ---
+    if "Planitem Performed" in df.columns:
+        df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
+
+    # --- Quantity ---
+    qty_col = mappings.get("qty")
+    if qty_col and qty_col in df.columns:
+        df["Quantity"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
+    else:
+        df["Quantity"] = 1
+
     # --- Standardize downstream fields ---
     df = map_intervals(df, rules)
     df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
@@ -383,8 +379,6 @@ def process_file(file, rules):
     df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
 
     return df, pms_name
-
-
 
 # --------------------------------
 # File uploader + summary
@@ -873,6 +867,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
