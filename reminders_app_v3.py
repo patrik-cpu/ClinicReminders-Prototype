@@ -251,7 +251,7 @@ with tut_col:
     st.info(
         "1. How it works: ClinicReminders checks when an item was purchased (e.g. Bravecto), and sets a reminder for a set number of days ahead (e.g. 90 days).\n"
         "2. To start, upload your Invoice Transactions CSV(s), and check that the PMS and date range is correct.\n"
-        "3. Click on "Start Date 7-day Window" to set the first day. You will see reminders coming up for the next 7 days.\n"
+        "3. Click on 'Start Date 7-day Window' to set the first day. You will see reminders coming up for the next 7 days.\n"
         "4. Review the list of upcoming reminders. To generate a template WhatsApp message, click the WA button and review the output before sending.\n"
         "5. Review the Search Terms list below the main table to customise the terms, their recurring interval, and other specifics.\n"
         "6. You can also Add new terms or Delete terms.\n"
@@ -713,6 +713,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
