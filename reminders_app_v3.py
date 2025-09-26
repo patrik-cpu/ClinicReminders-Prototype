@@ -75,6 +75,7 @@ DEFAULT_RULES = {
     "vaccination": {"days": 365, "use_qty": False, "visible_text": "Vaccine(s)"},
     "revolution": {"days": 30, "use_qty": True, "visible_text": "Revolution"},
     "librela": {"days": 30, "use_qty": False, "visible_text": "Librela"},
+    "cytopoint": {"days": 30, "use_qty": False, "visible_text": "Cytopoint"},
     "solensia": {"days": 30, "use_qty": False, "visible_text": "Solensia"},
     "samylin": {"days": 30, "use_qty": True, "visible_text": "Samylin"},
     "cystaid": {"days": 30, "use_qty": False, "visible_text": "Cystaid"},
@@ -726,19 +727,3 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
