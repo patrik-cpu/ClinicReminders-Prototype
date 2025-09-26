@@ -437,6 +437,7 @@ if working_df is not None:
                 "Plan Item Name":"Plan Item","Quantity":"Qty"
             })
             filtered["Days"] = pd.to_numeric(filtered["IntervalDays"], errors="coerce").fillna(0).astype(int)
+            filtered["Qty"] = pd.to_numeric(filtered["Qty"], errors="coerce").fillna(0).astype(int)
             filtered = filtered[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
             render_table(filtered, "Search Results", "search", "search_message", st.session_state["rules"])
         else:
@@ -713,6 +714,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
