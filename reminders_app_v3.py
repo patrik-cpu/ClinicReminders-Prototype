@@ -222,6 +222,8 @@ def detect_pms(df: pd.DataFrame) -> str:
         required = set(normalize_columns(definition["columns"]))
         if required.issubset(df_cols):
             return pms_name
+
+    
     return None
 
 
@@ -296,6 +298,7 @@ def map_intervals(df, rules):
 @st.cache_data
 @st.cache_data
 @st.cache_data
+@st.cache_data
 def process_file(file, rules):
     # Choose parser based on extension
     name = file.name.lower()
@@ -312,7 +315,7 @@ def process_file(file, rules):
     # Detect PMS
     pms_name = detect_pms(df)
     if not pms_name:
-        return df  # fallback (undetected PMS)
+        return df, None  # undetected PMS
 
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
 
@@ -357,7 +360,8 @@ def process_file(file, rules):
     df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
     df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
 
-    return df
+    return df, pms_name
+
 
 
 # --------------------------------
@@ -386,8 +390,8 @@ with tut_col:
 datasets, summary_rows, working_df = [], [], None
 if files:
     for file in files:
-        df = process_file(file, st.session_state["rules"])
-        pms_name = detect_pms(df) or "Undetected"
+        df, pms_name = process_file(file, st.session_state["rules"])
+        pms_name = pms_name or "Undetected"
         from_date, to_date = df["Planitem Performed"].min(), df["Planitem Performed"].max()
         summary_rows.append({
             "CSV name": file.name,
@@ -396,14 +400,6 @@ if files:
             "To": to_date.strftime("%d %b %Y") if pd.notna(to_date) else "-"
         })
         datasets.append((pms_name, df))
-    st.write("### Uploaded Files Summary")
-    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
-    all_pms = {p for p, _ in datasets}
-    if len(all_pms) == 1 and "Undetected" not in all_pms:
-        working_df = pd.concat([df for _, df in datasets], ignore_index=True)
-        st.success(f"All files detected as {list(all_pms)[0]} — merging datasets.")
-    else:
-        st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
 
 # --------------------------------
 # Render Tables
@@ -839,6 +835,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
