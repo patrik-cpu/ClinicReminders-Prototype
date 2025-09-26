@@ -582,10 +582,22 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         wa_app = f"https://api.whatsapp.com/send?phone={phone_clean}&text={encoded}" if phone_clean else "#"
         
         c1, c2 = st.columns(2)
+
         with c1:
-            st.markdown(f"[Open in WhatsApp Web]({wa_web})", unsafe_allow_html=True)
+            st.markdown(
+                f'<a href="{wa_web}" target="_blank" rel="noopener noreferrer">'
+                f'<button style="padding:6px 12px; font-size:14px; border:none; border-radius:6px; background-color:#25D366; color:white; cursor:pointer;">'
+                f'Open in WhatsApp Web</button></a>',
+                unsafe_allow_html=True
+            )
+        
         with c2:
-            st.markdown(f"[Open in WhatsApp App/Desktop]({wa_app})", unsafe_allow_html=True)
+            st.markdown(
+                f'<a href="{wa_app}" target="_blank" rel="noopener noreferrer">'
+                f'<button style="padding:6px 12px; font-size:14px; border:none; border-radius:6px; background-color:#128C7E; color:white; cursor:pointer;">'
+                f'Open in WhatsApp App/Desktop</button></a>',
+                unsafe_allow_html=True
+            )
 
 
     with comp_tip:
@@ -940,3 +952,4 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
