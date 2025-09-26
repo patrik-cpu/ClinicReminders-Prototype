@@ -288,33 +288,42 @@ def map_intervals(df, rules):
 # --------------------------------
 @st.cache_data
 @st.cache_data
-def process_csv(file, rules):
-    df = pd.read_csv(file)
+@st.cache_data
+def process_file(file, rules):
+    # Choose parser based on extension
+    name = file.name.lower()
+    if name.endswith(".csv"):
+        df = pd.read_csv(file)
+    elif name.endswith((".xls", ".xlsx")):
+        df = pd.read_excel(file)
+    else:
+        raise ValueError("Unsupported file type")
+
+    # Clean column names
     df.columns = [c.strip() for c in df.columns]
 
     # Detect PMS
     pms_name = detect_pms(df)
     if not pms_name:
-        return df  # fallback
+        return df  # fallback (undetected PMS)
 
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
 
-    # Date parsing
+    # --- Date parsing ---
     date_col = mappings["date"]
     if date_col in df.columns:
         parsed = pd.to_datetime(df[date_col], errors="coerce")
         df[date_col] = parsed
 
-    # Quantity
+    # --- Quantity ---
     qty_col = mappings.get("qty")
     if qty_col and qty_col in df.columns:
         df["Quantity"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
     else:
         df["Quantity"] = 1
 
-    # Normalize columns
+    # --- Normalize columns ---
     if pms_name == "ezyVet":
-        # build client name from First + Last
         df["Client Name"] = (
             df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
             df[mappings["client_last"]].fillna("").astype(str).str.strip()
@@ -332,7 +341,7 @@ def process_csv(file, rules):
             mappings["item"]: "Plan Item Name",
         }, inplace=True)
 
-    # Standardize for downstream
+    # --- Standardize downstream fields ---
     df = map_intervals(df, rules)
     df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
     df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
@@ -349,7 +358,12 @@ def process_csv(file, rules):
 # --------------------------------
 csv_col, tut_col = st.columns([4,4])
 with csv_col:
-    files = st.file_uploader("Upload Sales Plan CSV(s)", type="csv", accept_multiple_files=True)
+    files = st.file_uploader(
+    "Upload Sales Plan file(s)",
+    type=["csv", "xls", "xlsx"],
+    accept_multiple_files=True
+)
+
 with tut_col:
     st.markdown("### Read me! How to Use.")
     st.info(
@@ -818,4 +832,5 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
