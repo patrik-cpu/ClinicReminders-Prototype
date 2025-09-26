@@ -56,11 +56,23 @@ DEFAULT_RULES = {
     "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia Vaccine"},
     "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat Vaccine"},
     "dental cat": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
+    "groom": {"days": 90, "use_qty": False, "visible_text": "Groom"},
+    "feliway": {"days": 60, "use_qty": True, "visible_text": "Feliway"},
+    "dermoscent": {"days": 30, "use_qty": True, "visible_text": "Dermoscent"},
     "dental dog": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
-    "caniverm": {"days": 90, "use_qty": False, "visible_text": "Caniverm"},
+    "dental descale": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
+    "dental package": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
+    "dental scale and polish": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
+    "cardiac ultrasound": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
+    "ultrasound - cardiac": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
+    "caniverm": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
+    "milbem": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
+    "milpro": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "bravecto plus": {"days": 60, "use_qty": True, "visible_text": "Bravecto Plus"},
     "bravecto": {"days": 90, "use_qty": True, "visible_text": "Bravecto"},
     "frontline": {"days": 30, "use_qty": True, "visible_text": "Frontline"},
+    "cardisure": {"days": 30, "use_qty": False, "visible_text": "Cardisure"},
+    "vaccination": {"days": 365, "use_qty": False, "visible_text": "Vaccine(s)"},
     "revolution": {"days": 30, "use_qty": True, "visible_text": "Revolution"},
     "librela": {"days": 30, "use_qty": False, "visible_text": "Librela"},
     "solensia": {"days": 30, "use_qty": False, "visible_text": "Solensia"},
@@ -714,6 +726,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
