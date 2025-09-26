@@ -11,89 +11,11 @@ from datetime import timedelta, date
 title_col, tut_col = st.columns([4,1])
 with title_col:
     st.title("ClinicReminders Prototype v3.2 (stable)")
-
-
-
 st.markdown("---")
-# --------------------------------
-# Feedback storage (SQLite) + public submit box
-# --------------------------------
-import sqlite3
-from datetime import datetime
-
-# DB helpers
-def _init_db():
-    conn = sqlite3.connect("feedback.db")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS feedback (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT NOT NULL,
-            user_name TEXT,
-            user_email TEXT,
-            message TEXT NOT NULL
-        )
-        """
-    )
-    conn.commit()
-    return conn
-
-def _insert_feedback(conn, name, email, message):
-    conn.execute(
-        "INSERT INTO feedback (created_at, user_name, user_email, message) VALUES (?, ?, ?, ?)",
-        (datetime.utcnow().isoformat(timespec="seconds")+"Z", name or None, email or None, message),
-    )
-    conn.commit()
-
-def _fetch_feedback(conn, limit=500):
-    cur = conn.execute(
-        "SELECT id, created_at, COALESCE(user_name, ''), COALESCE(user_email, ''), message "
-        "FROM feedback ORDER BY id DESC LIMIT ?", (limit,)
-    )
-    return cur.fetchall()
-
-conn_fb = _init_db()
-
-# Public-facing box
-st.markdown("### Found a problem? Let me (Patrik) know here:")
-fb_col1, fb_col2 = st.columns([3,1])
-with fb_col1:
-    feedback_text = st.text_area(
-        "Describe the issue or suggestion",
-        key="feedback_text",
-        height=120,
-        placeholder="What did you try? What happened? Any screenshots or CSV names?",
-    )
-with fb_col2:
-    user_name_for_feedback = st.text_input("Your name (optional)", key="feedback_name", placeholder="Clinic / Your name")
-    user_email_for_feedback = st.text_input("Your email (optional)", key="feedback_email", placeholder="you@example.com")
-
-# Always-enabled button → validate after click
-if st.button("Send", key="fb_send"):
-    if not feedback_text.strip():
-        st.error("Please enter a message before sending.")
-    else:
-        try:
-            _insert_feedback(conn_fb, user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
-            st.success("Thanks! Your message has been recorded.")
-
-            # ✅ Clear inputs by deleting keys, no overwrite
-            for k in ["feedback_text", "feedback_name", "feedback_email"]:
-                if k in st.session_state:
-                    del st.session_state[k]
-        except Exception as e:
-            st.error(f"Could not save your message. {e}")
-
-
-
-st.markdown("---")
-
-
 
 # --------------------------------
 # CSS Styling
 # --------------------------------
-
 st.markdown(
     """
     <style>
@@ -281,13 +203,15 @@ def get_visible_plan_item(item_name: str, rules: dict) -> str:
 
 def map_intervals(df, rules):
     df["IntervalDays"] = pd.NA
-    for rule, settings in rules.items():
-        mask = df["Plan Item Name"].str.contains(rule, case=False, na=False)
+    # Sort rules by length (longest first) to avoid overwriting
+    for rule, settings in sorted(rules.items(), key=lambda x: -len(x[0])):
+        mask = df["Plan Item Name"].str.contains(rf"\b{re.escape(rule)}\b", case=False, na=False)
         if settings["use_qty"]:
             df.loc[mask, "IntervalDays"] = df.loc[mask, "Quantity"] * settings["days"]
         else:
             df.loc[mask, "IntervalDays"] = settings["days"]
     return df
+
 
 # --------------------------------
 # Cached CSV processor
@@ -654,6 +578,75 @@ if working_df is not None:
             else:
                 st.error("Enter a valid exclusion term")
 
+# --------------------------------
+# Feedback storage (SQLite) + public submit box
+# --------------------------------
+import sqlite3
+from datetime import datetime
+
+# DB helpers
+def _init_db():
+    conn = sqlite3.connect("feedback.db")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            user_name TEXT,
+            user_email TEXT,
+            message TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    return conn
+
+def _insert_feedback(conn, name, email, message):
+    conn.execute(
+        "INSERT INTO feedback (created_at, user_name, user_email, message) VALUES (?, ?, ?, ?)",
+        (datetime.utcnow().isoformat(timespec="seconds")+"Z", name or None, email or None, message),
+    )
+    conn.commit()
+
+def _fetch_feedback(conn, limit=500):
+    cur = conn.execute(
+        "SELECT id, created_at, COALESCE(user_name, ''), COALESCE(user_email, ''), message "
+        "FROM feedback ORDER BY id DESC LIMIT ?", (limit,)
+    )
+    return cur.fetchall()
+
+conn_fb = _init_db()
+
+# Public-facing box
+st.markdown("### Found a problem? Let me (Patrik) know here:")
+fb_col1, fb_col2 = st.columns([3,1])
+with fb_col1:
+    feedback_text = st.text_area(
+        "Describe the issue or suggestion",
+        key="feedback_text",
+        height=120,
+        placeholder="What did you try? What happened? Any screenshots or CSV names?",
+    )
+with fb_col2:
+    user_name_for_feedback = st.text_input("Your name (optional)", key="feedback_name", placeholder="Clinic / Your name")
+    user_email_for_feedback = st.text_input("Your email (optional)", key="feedback_email", placeholder="you@example.com")
+
+# Always-enabled button → validate after click
+if st.button("Send", key="fb_send"):
+    if not feedback_text.strip():
+        st.error("Please enter a message before sending.")
+    else:
+        try:
+            _insert_feedback(conn_fb, user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
+            st.success("Thanks! Your message has been recorded.")
+
+            # ✅ Clear inputs by deleting keys, no overwrite
+            for k in ["feedback_text", "feedback_name", "feedback_email"]:
+                if k in st.session_state:
+                    del st.session_state[k]
+        except Exception as e:
+            st.error(f"Could not save your message. {e}")
+st.markdown("---")
 
 # --------------------------------
 # Admin access (bottom of page)
@@ -712,6 +705,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
