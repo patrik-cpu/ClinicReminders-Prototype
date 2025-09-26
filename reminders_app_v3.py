@@ -293,17 +293,25 @@ def map_intervals(df, rules):
     return df
 
 def parse_dates(series):
-    """Try common date formats for PMS exports."""
-    # Ensure strings
+    """Try multiple formats for PMS date fields without printing."""
     series = series.astype(str).str.strip()
-    # Try common patterns
-    formats = ["%d/%b/%Y", "%d-%b-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%Y %H:%M:%S"]
+    formats = [
+        "%d/%b/%Y",      # 12/Jan/2024
+        "%d-%b-%Y",      # 12-Jan-2024
+        "%d-%b-%y",      # 12-Jan-24
+        "%d/%m/%Y",      # 12/01/2024
+        "%m/%d/%Y",      # 01/12/2024
+        "%Y-%m-%d",      # 2024-01-12
+        "%Y.%m.%d",      # 2024.01.12
+        "%d/%m/%Y %H:%M",    # 12/01/2024 00:00
+        "%d/%m/%Y %H:%M:%S"  # 12/01/2024 00:00:00
+    ]
     for fmt in formats:
         parsed = pd.to_datetime(series, format=fmt, errors="coerce")
         if parsed.notna().sum() > 0:
             return parsed
-    # Fallback: let pandas guess
-    return pd.to_datetime(series, errors="coerce")
+    return pd.to_datetime(series, errors="coerce")  # fallback
+
 
 
 # --------------------------------
@@ -865,6 +873,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
