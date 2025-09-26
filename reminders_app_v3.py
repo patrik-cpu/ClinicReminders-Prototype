@@ -379,7 +379,7 @@ with tut_col:
 datasets, summary_rows, working_df = [], [], None
 if files:
     for file in files:
-        df = process_csv(file, st.session_state["rules"])
+        df = process_file(file, st.session_state["rules"])
         pms_name = detect_pms(df) or "Undetected"
         from_date, to_date = df["Planitem Performed"].min(), df["Planitem Performed"].max()
         summary_rows.append({
@@ -832,5 +832,6 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
