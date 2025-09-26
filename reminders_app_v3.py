@@ -212,11 +212,18 @@ PMS_DEFINITIONS = {
 }
 
 
+def normalize_columns(cols):
+    """Lowercase + strip spaces for robust comparison."""
+    return [c.strip().lower() for c in cols]
+
 def detect_pms(df: pd.DataFrame) -> str:
+    df_cols = set(normalize_columns(df.columns))
     for pms_name, definition in PMS_DEFINITIONS.items():
-        if list(df.columns[:len(definition["columns"])]) == definition["columns"]:
+        required = set(normalize_columns(definition["columns"]))
+        if required.issubset(df_cols):
             return pms_name
     return None
+
 
 # --------------------------------
 # Session state init
@@ -832,6 +839,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
