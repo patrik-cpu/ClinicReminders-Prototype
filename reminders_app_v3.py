@@ -622,10 +622,11 @@ if working_df is not None:
     due = df[(df["NextDueDate"] >= pd.to_datetime(start_date)) & (df["NextDueDate"] <= pd.to_datetime(end_date))]
 
     grouped = (
-        due.groupby(["DueDateFmt","Client Name","Patient Name"], dropna=False)
+        due.groupby(["DueDateFmt", "Client Name"], dropna=False)
         .agg({
             "ChargeDateFmt": "max",
-            "Plan Item Name": lambda x: format_items(x.unique()),
+            "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
+            "Plan Item Name": lambda x: format_items(sorted(set(x.dropna()))),
             "Quantity": "sum",
             "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
         })
@@ -640,6 +641,10 @@ if working_df is not None:
             "Quantity": "Qty",
         })
     )
+
+grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
+grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+
     grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
     grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
 
@@ -659,15 +664,32 @@ if working_df is not None:
         )
         filtered = df[mask].sort_values("NextDueDate")
         if not filtered.empty:
-            filtered = filtered.rename(columns={
-                "DueDateFmt":"Due Date","ChargeDateFmt":"Charge Date",
-                "Client Name":"Client Name","Patient Name":"Animal Name",
-                "Plan Item Name":"Plan Item","Quantity":"Qty"
-            })
-            filtered["Days"] = pd.to_numeric(filtered["IntervalDays"], errors="coerce").fillna(0).astype(int)
-            filtered["Qty"] = pd.to_numeric(filtered["Qty"], errors="coerce").fillna(0).astype(int)
-            filtered = filtered[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
-            render_table(filtered, "Search Results", "search", "search_message", st.session_state["rules"])
+            grouped_search = (
+                filtered.groupby(["DueDateFmt", "Client Name"], dropna=False)
+                .agg({
+                    "ChargeDateFmt": "max",
+                    "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
+                    "Plan Item Name": lambda x: format_items(sorted(set(x.dropna()))),
+                    "Quantity": "sum",
+                    "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
+                })
+                .reset_index()
+                .rename(columns={
+                    "DueDateFmt": "Due Date",
+                    "ChargeDateFmt": "Charge Date",
+                    "Client Name": "Client Name",
+                    "Patient Name": "Animal Name",
+                    "Plan Item Name": "Plan Item",
+                    "IntervalDays": "Days",
+                    "Quantity": "Qty",
+                })
+            )
+
+grouped_search["Days"] = pd.to_numeric(grouped_search["Days"], errors="coerce").fillna(0).astype(int)
+grouped_search["Qty"] = pd.to_numeric(grouped_search["Qty"], errors="coerce").fillna(0).astype(int)
+grouped_search = grouped_search[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+
+render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
         else:
             st.info("No matches found.")
 
@@ -942,6 +964,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
