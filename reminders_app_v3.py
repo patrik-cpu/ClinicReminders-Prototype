@@ -544,7 +544,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             plan_for_msg = vals["Plan Item"].strip()
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
-            closing = " Get in touch with us any time, and we look forward to hearing from you soon! 🐾🐕🐈"
+            closing = " Get in touch with us any time, and we look forward to hearing from you soon! \U0001F43E\U0001F436\U0001F431"
         
             # singular/plural verb
             verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
@@ -964,6 +964,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
