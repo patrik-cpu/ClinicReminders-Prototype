@@ -601,20 +601,31 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 unsafe_allow_html=True
             )
 
-        # Copy to Clipboard button
+        # 📋 Copy to Clipboard
         with colB:
-            st.markdown(
-                f'''
-                <button onclick="navigator.clipboard.writeText(`{current_message}`); 
-                                 alert('Message copied to clipboard!');"
-                        style="background-color:#555;color:white;padding:10px 20px;
-                               border:none;border-radius:8px;cursor:pointer;">
-                    📋 Copy to Clipboard
-                </button>
-                ''',
-                unsafe_allow_html=True
-            )
-
+            if st.button("📋 Copy to Clipboard"):
+                safe_message = json.dumps(current_message)  # ensures quotes/newlines safe
+                components.html(
+                    f"""
+                    <script>
+                    navigator.clipboard.writeText({safe_message}).then(function() {{
+                        var copied = window.parent.document.createElement("div");
+                        copied.innerText = "Copied!";
+                        copied.style.position = "fixed";
+                        copied.style.bottom = "20px";
+                        copied.style.right = "20px";
+                        copied.style.background = "#4CAF50";
+                        copied.style.color = "white";
+                        copied.style.padding = "8px 12px";
+                        copied.style.borderRadius = "6px";
+                        copied.style.fontSize = "14px";
+                        window.parent.document.body.appendChild(copied);
+                        setTimeout(() => copied.remove(), 1500);
+                    }});
+                    </script>
+                    """,
+                    height=0,
+                )
 
 
 
@@ -989,6 +1000,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
