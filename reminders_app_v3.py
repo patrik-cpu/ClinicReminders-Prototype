@@ -13,7 +13,7 @@ st.sidebar.info(f"🛠️ Streamlit version: **{st.__version__}**")
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders Prototype v3.31")
+    st.title("ClinicReminders Prototype v3.4 (stable)")
 st.markdown("---")
 
 # --------------------------------
@@ -1060,5 +1060,6 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
