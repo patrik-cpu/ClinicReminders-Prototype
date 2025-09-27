@@ -5,6 +5,7 @@ import re
 import json, os
 from datetime import timedelta, date
 import streamlit.components.v1 as components
+st.sidebar.info(f"🛠️ Streamlit version: **{st.__version__}**")
 
 
 # --------------------------------
@@ -1016,6 +1017,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
