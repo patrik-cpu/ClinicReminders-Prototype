@@ -544,7 +544,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             plan_for_msg = vals["Plan Item"].strip()
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
-            closing = " Get in touch with us any time, and we look forward to hearing from you soon! \U0001F43E\U0001F436\U0001F431"
+            closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
         
             # singular/plural verb
             verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
@@ -585,11 +585,36 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         wa_web = f"https://wa.me/{phone_clean}?text={encoded}" if phone_clean else "#"
         wa_app = f"https://api.whatsapp.com/send?phone={phone_clean}&text={encoded}" if phone_clean else "#"
         
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f"[WhatsApp Web]({wa_web})", unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"[WhatsApp Desktop]({wa_app})", unsafe_allow_html=True)
+                colA, colB = st.columns(2)
+
+        # Open in WhatsApp (single button, works for web + desktop)
+        with colA:
+            st.markdown(
+                f'''
+                <a href="{wa_app}" target="_blank">
+                    <button style="background-color:#25D366;color:white;padding:10px 20px;
+                                   border:none;border-radius:8px;cursor:pointer;">
+                        📲 Open in WhatsApp
+                    </button>
+                </a>
+                ''',
+                unsafe_allow_html=True
+            )
+
+        # Copy to Clipboard button
+        with colB:
+            st.markdown(
+                f'''
+                <button onclick="navigator.clipboard.writeText(`{current_message}`); 
+                                 alert('Message copied to clipboard!');"
+                        style="background-color:#555;color:white;padding:10px 20px;
+                               border:none;border-radius:8px;cursor:pointer;">
+                    📋 Copy to Clipboard
+                </button>
+                ''',
+                unsafe_allow_html=True
+            )
+
 
 
 
@@ -964,6 +989,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
