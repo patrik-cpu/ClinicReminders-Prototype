@@ -571,7 +571,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         # Ensure key exists and bind textarea to session_state
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
-        st.text_area("Message:", key=msg_key, height=100)
+        st.text_area("Message:", key=msg_key, height=170)
 
         # Phone input bound to session_state (no Enter required)
         phone_key = f"{key_prefix}_phone"
@@ -964,6 +964,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
