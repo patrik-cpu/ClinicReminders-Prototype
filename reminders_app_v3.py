@@ -603,31 +603,19 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 unsafe_allow_html=True
             )
 
-        # 📋 Copy to Clipboard
+        # Copy to Clipboard button (simple, works reliably)
         with colB:
-            if st.button("📋 Copy to Clipboard"):
-                safe_message = json.dumps(current_message)  # ensures quotes/newlines safe
-                components.html(
-                    f"""
-                    <script>
-                    navigator.clipboard.writeText({safe_message}).then(function() {{
-                        var copied = window.parent.document.createElement("div");
-                        copied.innerText = "Copied!";
-                        copied.style.position = "fixed";
-                        copied.style.bottom = "20px";
-                        copied.style.right = "20px";
-                        copied.style.background = "#4CAF50";
-                        copied.style.color = "white";
-                        copied.style.padding = "8px 12px";
-                        copied.style.borderRadius = "6px";
-                        copied.style.fontSize = "14px";
-                        window.parent.document.body.appendChild(copied);
-                        setTimeout(() => copied.remove(), 1500);
-                    }});
-                    </script>
-                    """,
-                    height=0,
-                )
+            safe_message = json.dumps(current_message)  # safely escape quotes/newlines
+            components.html(
+                f"""
+                <button onclick="navigator.clipboard.writeText({safe_message})"
+                        style="background-color:#555;color:white;padding:10px 20px;
+                               border:none;border-radius:8px;cursor:pointer;">
+                    📋 Copy to Clipboard
+                </button>
+                """,
+                height=60,
+            )
     with comp_tip:
         st.markdown("### 💡 Tip")
         st.info("Review and edit the message, enter the phone **with country code**, then click WhatsApp Web or Desktop to send.")
@@ -999,6 +987,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
