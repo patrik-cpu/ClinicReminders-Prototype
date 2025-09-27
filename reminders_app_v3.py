@@ -4,6 +4,8 @@ import urllib.parse
 import re
 import json, os
 from datetime import timedelta, date
+import streamlit.components.v1 as components
+
 
 # --------------------------------
 # Title
@@ -626,9 +628,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     """,
                     height=0,
                 )
-
-
-
     with comp_tip:
         st.markdown("### 💡 Tip")
         st.info("Review and edit the message, enter the phone **with country code**, then click WhatsApp Web or Desktop to send.")
@@ -1000,6 +999,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
