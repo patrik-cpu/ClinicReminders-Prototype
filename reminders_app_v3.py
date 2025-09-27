@@ -549,17 +549,18 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             due_date_fmt = format_due_date(vals['Due Date'])
             closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
 
+            # Grammar: is/are + "due for their"
             verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
 
             if user:
                 st.session_state[msg_key] = (
                     f"Hi {first_name}, this is {user} reminding you that "
-                    f"{animal_name} {verb} due their {plan_for_msg} {due_date_fmt}.{closing}"
+                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
             else:
                 st.session_state[msg_key] = (
                     f"Hi {first_name}, this is a reminder letting you know that "
-                    f"{animal_name} {verb} due their {plan_for_msg} {due_date_fmt}.{closing}"
+                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
 
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
@@ -590,28 +591,99 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
         colA, colB = st.columns(2)
 
-        # 📲 Open in WhatsApp
+        # 📲 Open in WhatsApp (green, aligned, consistent font)
         with colA:
             if wa_url:
-                st.link_button("📲 Open in WhatsApp", wa_url)
+                st.markdown(
+                    f'''
+                    <style>
+                    .wa-btn {{
+                        background-color: #25D366 !important;  /* WhatsApp green */
+                        color: white !important;
+                        border: none !important;
+                        border-radius: 6px !important;
+                        font-size: 14px !important;
+                        font-weight: 600 !important;
+                        font-family: "Source Sans Pro", sans-serif !important;
+                        height: 44px !important;
+                        width: 100% !important;
+                        cursor: pointer !important;
+                    }}
+                    </style>
+                    <a href="{wa_url}" target="_blank" rel="noopener noreferrer">
+                      <button class="wa-btn">📲 Open in WhatsApp</button>
+                    </a>
+                    ''',
+                    unsafe_allow_html=True,
+                )
             else:
                 st.button("📲 Open in WhatsApp", disabled=True)
 
-        # 📋 Copy to Clipboard
+        # 📋 Copy to Clipboard (working, depress effect, consistent font)
         with colB:
             if current_message:
-                safe_message = json.dumps(current_message)  # safely escape quotes/newlines
                 components.html(
-                    f"""
-                    <html><body>
-                      <button onclick="navigator.clipboard.writeText({safe_message})"
-                              style="background-color:#555;color:white;padding:10px 20px;
-                                     border:none;border-radius:8px;cursor:pointer;">
-                        📋 Copy to Clipboard
-                      </button>
-                    </body></html>
-                    """,
-                    height=60,
+                    f'''
+                    <html>
+                      <head>
+                        <meta charset="utf-8">
+                        <style>
+                          body, button, input, textarea {{
+                            font-family: "Source Sans Pro", sans-serif !important;
+                            font-size: 14px !important;
+                          }}
+                          .copy-btn {{
+                            background-color:#555;
+                            color:white;
+                            padding:10px 20px;
+                            border:none;
+                            border-radius:6px;
+                            cursor:pointer;
+                            font-size: 14px;
+                            font-weight: 600;
+                            height: 44px;
+                            width: 100%;
+                          }}
+                          .copy-btn:active {{
+                            transform: translateY(2px);
+                            filter: brightness(85%);
+                          }}
+                        </style>
+                      </head>
+                      <body>
+                        <button class="copy-btn" id="copyBtn">📋 Copy to Clipboard</button>
+                        <script>
+                          async function copy() {{
+                            const text = {json.dumps(current_message)};
+                            try {{
+                              await navigator.clipboard.writeText(text);
+                              const btn = document.getElementById('copyBtn');
+                              const old = btn.innerText;
+                              btn.innerText = '✅ Copied!';
+                              setTimeout(() => {{ btn.innerText = old; }}, 1500);
+                            }} catch (e) {{
+                              // Fallback for older browsers
+                              const ta = document.createElement('textarea');
+                              ta.value = text;
+                              document.body.appendChild(ta);
+                              ta.select();
+                              try {{
+                                document.execCommand('copy');
+                                const btn = document.getElementById('copyBtn');
+                                const old = btn.innerText;
+                                btn.innerText = '✅ Copied!';
+                                setTimeout(() => {{ btn.innerText = old; }}, 1500);
+                              }} finally {{
+                                document.body.removeChild(ta);
+                              }}
+                            }}
+                          }}
+                          document.getElementById('copyBtn').addEventListener('click', copy);
+                        </script>
+                      </body>
+                    </html>
+                    ''',
+                    height=100,
                 )
             else:
                 st.button("📋 Copy to Clipboard", disabled=True)
@@ -619,6 +691,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     with comp_tip:
         st.markdown("### 💡 Tip")
         st.info("Review and edit the message, enter the phone **with country code**, then click WhatsApp or Copy.")
+
 
 
 # --------------------------------
@@ -988,6 +1061,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
