@@ -524,7 +524,6 @@ def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
         st.info("All rows excluded by exclusion list."); return
     render_table_with_buttons(df, key_prefix, msg_key)
-
 def render_table_with_buttons(df, key_prefix, msg_key):
     # Column layout
     col_widths = [2, 2, 5, 2, 5, 1, 1, 2]
@@ -540,6 +539,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         for j, h in enumerate(headers[:-1]):
             cols[j].markdown(vals[h])
 
+        # WA button -> prepare message + inline feedback
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
             first_name  = vals['Client Name'].split()[0].strip() if vals['Client Name'] else "there"
             animal_name = vals['Animal Name'].strip() if vals['Animal Name'] else "your pet"
@@ -563,7 +563,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
-    # Composer
+    # Composer (message text via Streamlit; phone input + buttons handled in one HTML block for instant updates)
     comp_main, comp_tip = st.columns([4,1])
     with comp_main:
         st.write("### WhatsApp Composer")
@@ -572,41 +572,39 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.session_state[msg_key] = ""
         st.text_area("Message:", key=msg_key, height=200)
 
-        # phone input with instant update
-        phone_key = f"{key_prefix}_phone"
-        def update_phone():
-            st.session_state[phone_key] = st.session_state[phone_key]
-
-        st.text_input("Phone (+countrycode)", 
-                      key=phone_key, 
-                      on_change=update_phone)
-
-        current_message = st.session_state.get(msg_key, "").strip()
-        encoded = urllib.parse.quote(current_message) if current_message else ""
-        phone_val = st.session_state.get(phone_key, "").strip()
-        phone_clean = phone_val.replace(" ", "").replace("-", "").lstrip("+")
-
-        # WhatsApp URL — works even with no phone or message
-        if phone_clean and encoded:
-            wa_url = f"https://api.whatsapp.com/send?phone={phone_clean}&text={encoded}"
-        elif phone_clean:
-            wa_url = f"https://api.whatsapp.com/send?phone={phone_clean}"
-        elif encoded:
-            wa_url = f"https://api.whatsapp.com/send?text={encoded}"
-        else:
-            wa_url = "https://api.whatsapp.com"
-
-        # 📲 WhatsApp + 📋 Copy buttons
+        current_message = st.session_state.get(msg_key, "")
+        # Buttons + phone input rendered together so JS can read live value (no Enter needed)
         components.html(
             f'''
             <html>
               <head>
+                <meta charset="utf-8">
                 <style>
+                  .composer-wrap {{
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    font-family: "Source Sans Pro", sans-serif;
+                  }}
+                  .phone-row {{
+                    display: flex;
+                    gap: 12px;
+                    align-items: center;
+                  }}
+                  .phone-row input {{
+                    flex: 1;
+                    height: 44px;
+                    padding: 0 12px;
+                    border: 1px solid #ccc;
+                    border-radius: 6px;
+                    font-size: 16px;
+                    font-family: inherit;
+                  }}
                   .button-row {{
                     display: flex;
                     gap: 12px;
                     align-items: center;
-                    margin-top: 8px;
+                    margin-top: 2px;
                   }}
                   .button-row button {{
                     height: 52px;
@@ -620,7 +618,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     flex: 1;
                   }}
                   .wa-btn {{
-                    background-color: #25D366;
+                    background-color: #25D366; /* WhatsApp green */
                     color: white;
                   }}
                   .copy-btn {{
@@ -634,35 +632,67 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 </style>
               </head>
               <body>
-                <div class="button-row">
-                  <a href="{wa_url}" target="_blank" rel="noopener noreferrer">
-                    <button class='wa-btn'>📲 Open in WhatsApp</button>
-                  </a>
-                  <button class="copy-btn" id="copyBtn">📋 Copy to Clipboard</button>
+                <div class="composer-wrap">
+                  <div class="phone-row">
+                    <input id="phoneInput" type="text" inputmode="tel" placeholder="+9715XXXXXXXX"
+                           aria-label="Phone number (with country code)">
+                  </div>
+
+                  <div class="button-row">
+                    <button class="wa-btn" id="waBtn">📲 Open in WhatsApp</button>
+                    <button class="copy-btn" id="copyBtn">📋 Copy to Clipboard</button>
+                  </div>
                 </div>
 
                 <script>
-                  document.getElementById("copyBtn").addEventListener("click", async function() {{
-                    const text = {json.dumps(current_message)};
+                  // Use the latest message from Python; encode when needed
+                  const MESSAGE_RAW = {json.dumps(current_message)};
+                  function buildWaUrl() {{
+                    const rawPhone = document.getElementById('phoneInput').value || '';
+                    const phoneClean = (rawPhone || '').replace(/[^0-9]/g, ''); // wa.me expects digits only
+                    const encMsg = encodeURIComponent(MESSAGE_RAW || '');
+                    if (phoneClean && encMsg) return `https://wa.me/${{phoneClean}}?text=${{encMsg}}`;
+                    if (phoneClean)         return `https://wa.me/${{phoneClean}}`;
+                    if (encMsg)             return `https://wa.me/?text=${{encMsg}}`; // forward/search with prefilled message
+                    return 'https://wa.me/';                                        // just open WhatsApp
+                  }}
+
+                  document.getElementById('waBtn').addEventListener('click', function(e) {{
+                    e.preventDefault();
+                    const url = buildWaUrl();              // computed at click → first click works
+                    window.open(url, '_blank', 'noopener'); // no double-click needed
+                  }});
+
+                  document.getElementById('copyBtn').addEventListener('click', async function() {{
                     try {{
-                      await navigator.clipboard.writeText(text);
-                      this.innerText = "✅ Copied!";
-                      setTimeout(() => this.innerText = "📋 Copy to Clipboard", 1500);
+                      await navigator.clipboard.writeText(MESSAGE_RAW || '');
+                      const old = this.innerText;
+                      this.innerText = '✅ Copied!';
+                      setTimeout(() => this.innerText = old, 1500);
                     }} catch (err) {{
-                      console.error("Clipboard copy failed", err);
+                      // Fallback for older browsers
+                      const ta = document.createElement('textarea');
+                      ta.value = MESSAGE_RAW || '';
+                      document.body.appendChild(ta);
+                      ta.select();
+                      try {{ document.execCommand('copy'); }} finally {{
+                        document.body.removeChild(ta);
+                      }}
+                      const old = this.innerText;
+                      this.innerText = '✅ Copied!';
+                      setTimeout(() => this.innerText = old, 1500);
                     }}
                   }});
                 </script>
               </body>
             </html>
             ''',
-            height=120,
+            height=200,
         )
 
     with comp_tip:
         st.markdown("### 💡 Tip")
-        st.info("You can leave the phone number blank to open WhatsApp and choose a recipient manually.")
-
+        st.info("Type a phone or leave it blank to open WhatsApp and search by name. The message is prefilled on the forward screen.")
 
 # --------------------------------
 # Main
@@ -1031,30 +1061,3 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
