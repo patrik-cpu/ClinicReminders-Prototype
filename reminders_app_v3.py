@@ -585,7 +585,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         wa_web = f"https://wa.me/{phone_clean}?text={encoded}" if phone_clean else "#"
         wa_app = f"https://api.whatsapp.com/send?phone={phone_clean}&text={encoded}" if phone_clean else "#"
         
-                colA, colB = st.columns(2)
+        colA, colB = st.columns(2)
 
         # Open in WhatsApp (single button, works for web + desktop)
         with colA:
@@ -989,6 +989,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
