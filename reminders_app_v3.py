@@ -590,19 +590,13 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         
         colA, colB = st.columns(2)
 
-        # Open in WhatsApp (single button, works for web + desktop)
+        # Open in WhatsApp (native Streamlit button, works first click)
         with colA:
-            st.markdown(
-                f'''
-                <a href="{wa_app}" target="_blank">
-                    <button style="background-color:#25D366;color:white;padding:10px 20px;
-                                   border:none;border-radius:8px;cursor:pointer;">
-                        📲 Open in WhatsApp
-                    </button>
-                </a>
-                ''',
-                unsafe_allow_html=True
-            )
+            if phone_clean and current_message:
+                st.link_button("📲 Open in WhatsApp", wa_url)
+            else:
+                st.button("📲 Open in WhatsApp", disabled=True)
+
 
         # Copy to Clipboard button (simple, works reliably)
         with colB:
@@ -1017,6 +1011,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
