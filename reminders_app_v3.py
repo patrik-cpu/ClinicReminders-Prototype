@@ -544,19 +544,22 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             plan_for_msg = vals["Plan Item"].strip()
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
-            closing = " Get in touch with us any time for scheduling, and we look forward to hearing from you soon! 🐱🐶"
-
+            closing = " Get in touch with us any time, and we look forward to hearing from you soon! 🐱🐶"
+        
+            # singular/plural verb
+            verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
+        
             if user:
                 st.session_state[msg_key] = (
                     f"Hi {first_name}, this is {user} reminding you that "
-                    f"{animal_name} is due their {plan_for_msg} {due_date_fmt}.{closing}"
+                    f"{animal_name} {verb} due their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
             else:
                 st.session_state[msg_key] = (
                     f"Hi {first_name}, this is a reminder letting you know that "
-                    f"{animal_name} is due their {plan_for_msg} {due_date_fmt}.{closing}"
+                    f"{animal_name} {verb} due their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
-
+        
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
@@ -961,6 +964,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
