@@ -602,7 +602,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                         color: white !important;
                         border: none !important;
                         border-radius: 6px !important;
-                        font-size: 14px !important;
+                        font-size: 18px !important;
                         font-weight: 600 !important;
                         font-family: "Source Sans Pro", sans-serif !important;
                         height: 44px !important;
@@ -635,11 +635,11 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                           .copy-btn {{
                             background-color:#555;
                             color:white;
-                            padding:10px 20px;
+                            padding:0px 0px;
                             border:none;
                             border-radius:6px;
                             cursor:pointer;
-                            font-size: 14px;
+                            font-size: 18px;
                             font-weight: 600;
                             height: 44px;
                             width: 100%;
@@ -1061,6 +1061,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
