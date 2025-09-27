@@ -548,10 +548,9 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
             closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
-        
-            # singular/plural verb
+
             verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
-        
+
             if user:
                 st.session_state[msg_key] = (
                     f"Hi {first_name}, this is {user} reminding you that "
@@ -562,7 +561,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     f"Hi {first_name}, this is a reminder letting you know that "
                     f"{animal_name} {verb} due their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
-        
+
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
@@ -571,78 +570,56 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     with comp_main:
         st.write("### WhatsApp Composer")
 
-        # Ensure key exists and bind textarea to session_state
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
-        st.text_area("Message:", key=msg_key, height=170)
+        st.text_area("Message:", key=msg_key, height=200)
 
-        # Phone input bound to session_state (no Enter required)
         phone_key = f"{key_prefix}_phone"
         st.text_input("Phone (+countrycode)", key=phone_key)
 
-        # Always re-encode latest message & phone on each rerun
         current_message = st.session_state.get(msg_key, "").strip()
         encoded = urllib.parse.quote(current_message) if current_message else ""
         phone_val = st.session_state.get(phone_key, "").strip()
         phone_clean = phone_val.replace(" ", "").replace("-", "").lstrip("+")
-        wa_web = f"https://wa.me/{phone_clean}?text={encoded}" if phone_clean else "#"
-        wa_app = f"https://api.whatsapp.com/send?phone={phone_clean}&text={encoded}" if phone_clean else "#"
-        
+
+        # Single WhatsApp URL (works Web + Desktop)
+        wa_url = (
+            f"https://api.whatsapp.com/send?phone={phone_clean}&text={encoded}"
+            if phone_clean and current_message else None
+        )
+
         colA, colB = st.columns(2)
 
-        # Open in WhatsApp (native Streamlit button, works first click)
+        # 📲 Open in WhatsApp
         with colA:
-            if phone_clean and current_message:
+            if wa_url:
                 st.link_button("📲 Open in WhatsApp", wa_url)
             else:
                 st.button("📲 Open in WhatsApp", disabled=True)
 
-
-        # Copy to Clipboard button (simple, works reliably)
+        # 📋 Copy to Clipboard
         with colB:
             if current_message:
-                safe_message = json.dumps(current_message)
+                safe_message = json.dumps(current_message)  # safely escape quotes/newlines
                 components.html(
                     f"""
-                    <html>
-                      <body>
-                        <textarea id="msg" style="position:absolute; left:-9999px;">{current_message}</textarea>
-                        <button id="copyBtn"
-                                style="background-color:#555;color:white;padding:10px 20px;
-                                       border:none;border-radius:8px;cursor:pointer;">
-                          📋 Copy to Clipboard
-                        </button>
-                        <script>
-                          const btn = document.getElementById("copyBtn");
-                          const msg = document.getElementById("msg");
-        
-                          btn.addEventListener("click", async () => {{
-                            try {{
-                              if (navigator.clipboard && navigator.clipboard.writeText) {{
-                                await navigator.clipboard.writeText(msg.value);
-                                console.log("Copied with navigator.clipboard");
-                              }} else {{
-                                // Fallback for stricter environments
-                                msg.select();
-                                document.execCommand("copy");
-                                console.log("Copied with execCommand");
-                              }}
-                            }} catch (err) {{
-                              console.error("Clipboard copy failed", err);
-                            }}
-                          }});
-                        </script>
-                      </body>
-                    </html>
+                    <html><body>
+                      <button onclick="navigator.clipboard.writeText({safe_message})"
+                              style="background-color:#555;color:white;padding:10px 20px;
+                                     border:none;border-radius:8px;cursor:pointer;">
+                        📋 Copy to Clipboard
+                      </button>
+                    </body></html>
                     """,
-                    height=80,
+                    height=60,
                 )
             else:
-                st.info("⚠️ No message to copy yet.")
+                st.button("📋 Copy to Clipboard", disabled=True)
 
     with comp_tip:
         st.markdown("### 💡 Tip")
-        st.info("Review and edit the message, enter the phone **with country code**, then click WhatsApp Web or Desktop to send.")
+        st.info("Review and edit the message, enter the phone **with country code**, then click WhatsApp or Copy.")
+
 
 # --------------------------------
 # Main
@@ -1011,6 +988,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
