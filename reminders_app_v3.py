@@ -605,17 +605,46 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
         # Copy to Clipboard button (simple, works reliably)
         with colB:
-            safe_message = json.dumps(current_message)  # safely escape quotes/newlines
-            components.html(
-                f"""
-                <button onclick="navigator.clipboard.writeText({safe_message})"
-                        style="background-color:#555;color:white;padding:10px 20px;
-                               border:none;border-radius:8px;cursor:pointer;">
-                    📋 Copy to Clipboard
-                </button>
-                """,
-                height=60,
-            )
+            if current_message:
+                safe_message = json.dumps(current_message)
+                components.html(
+                    f"""
+                    <html>
+                      <body>
+                        <textarea id="msg" style="position:absolute; left:-9999px;">{current_message}</textarea>
+                        <button id="copyBtn"
+                                style="background-color:#555;color:white;padding:10px 20px;
+                                       border:none;border-radius:8px;cursor:pointer;">
+                          📋 Copy to Clipboard
+                        </button>
+                        <script>
+                          const btn = document.getElementById("copyBtn");
+                          const msg = document.getElementById("msg");
+        
+                          btn.addEventListener("click", async () => {{
+                            try {{
+                              if (navigator.clipboard && navigator.clipboard.writeText) {{
+                                await navigator.clipboard.writeText(msg.value);
+                                console.log("Copied with navigator.clipboard");
+                              }} else {{
+                                // Fallback for stricter environments
+                                msg.select();
+                                document.execCommand("copy");
+                                console.log("Copied with execCommand");
+                              }}
+                            }} catch (err) {{
+                              console.error("Clipboard copy failed", err);
+                            }}
+                          }});
+                        </script>
+                      </body>
+                    </html>
+                    """,
+                    height=80,
+                )
+            else:
+                st.info("⚠️ No message to copy yet.")
+
     with comp_tip:
         st.markdown("### 💡 Tip")
         st.info("Review and edit the message, enter the phone **with country code**, then click WhatsApp Web or Desktop to send.")
@@ -987,6 +1016,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
