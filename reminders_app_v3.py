@@ -645,9 +645,6 @@ if working_df is not None:
     grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
     grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
 
-    grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
-    grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
-
     render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
 
     # Search
@@ -684,12 +681,12 @@ if working_df is not None:
                     "Quantity": "Qty",
                 })
             )
+            
+            grouped_search["Qty"] = pd.to_numeric(grouped_search["Qty"], errors="coerce").fillna(0).astype(int)
+            grouped_search = grouped_search[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+            
+            render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
 
-grouped_search["Days"] = pd.to_numeric(grouped_search["Days"], errors="coerce").fillna(0).astype(int)
-grouped_search["Qty"] = pd.to_numeric(grouped_search["Qty"], errors="coerce").fillna(0).astype(int)
-grouped_search = grouped_search[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
-
-render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
         else:
             st.info("No matches found.")
 
@@ -964,6 +961,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
