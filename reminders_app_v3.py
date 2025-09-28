@@ -482,7 +482,8 @@ st.info(
 # --------------------------------
 # Upload Data section
 # --------------------------------
-st.markdown("<h2 id='upload-data'>📂 Upload Data - Do this first!</h2>", unsafe_allow_html=True)
+st.markdown("<a id='upload-data'></a>", unsafe_allow_html=True)
+st.markdown("## 📂 Upload Data - Do this first!")
 
 files = st.file_uploader(
     "Upload Sales Plan file(s)",
@@ -1077,6 +1078,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
