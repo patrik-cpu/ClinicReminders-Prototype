@@ -6,15 +6,21 @@ import json, os
 from datetime import timedelta, date
 import streamlit.components.v1 as components
 
-# Sidebar "table of contents"
-st.sidebar.markdown("## 📂 Navigation")
-st.sidebar.markdown("- [📖 How to Use](#upload-data)")
-st.sidebar.markdown("- [📂 Upload Data](#upload-data)")
-st.sidebar.markdown("- [📅 Weekly Reminders](#weekly-reminders)")
-st.sidebar.markdown("- [🔍 Search](#search)")
-st.sidebar.markdown("- [📝 Search Terms](#search-terms)")
-st.sidebar.markdown("- [🚫 Exclusions](#exclusions)")
-st.sidebar.markdown("- [💬 Feedback](#feedback)")
+st.sidebar.markdown(
+    """
+    <div style="font-size:18px; font-weight:bold;">📂 Navigation</div>
+    <ul style="list-style-type:none; padding-left:0; line-height:1.8;">
+      <li><a href="#upload-data" style="text-decoration:none;">📖 How to Use</a></li>
+      <li><a href="#upload-data" style="text-decoration:none;">📂 Upload Data</a></li>
+      <li><a href="#weekly-reminders" style="text-decoration:none;">📅 Weekly Reminders</a></li>
+      <li><a href="#search" style="text-decoration:none;">🔍 Search</a></li>
+      <li><a href="#search-terms" style="text-decoration:none;">📝 Search Terms</a></li>
+      <li><a href="#exclusions" style="text-decoration:none;">🚫 Exclusions</a></li>
+      <li><a href="#feedback" style="text-decoration:none;">💬 Feedback</a></li>
+    </ul>
+    """,
+    unsafe_allow_html=True,
+)
 
 # --------------------------------
 # Title
@@ -496,7 +502,7 @@ if files:
         })
         datasets.append((pms_name, df))
 
-    st.markdown("## <a name='upload-data'></a>📖 How to Use / 📂 Upload Data", unsafe_allow_html=True)
+    st.markdown("<h2 id='upload-data'>📖 How to Use / 📂 Upload Data</h2>", unsafe_allow_html=True)
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
     all_pms = {p for p, _ in datasets}
@@ -708,7 +714,7 @@ if working_df is not None:
 
     # Weekly Reminders
     st.markdown("---")
-    st.markdown("## <a name='weekly-reminders'></a>📅 Weekly Reminders", unsafe_allow_html=True)
+    st.markdown("<h2 id='weekly-reminders'>📅 Weekly Reminders</h2>", unsafe_allow_html=True)
     st.info("💡 Pick a Start Date to see reminders for the next 7-day window. Click WA to prepare a message.")
 
     latest_date = df["Planitem Performed"].max()
@@ -746,7 +752,7 @@ if working_df is not None:
 
     # Search
     st.markdown("---")
-    st.markdown("## <a name='search'></a>🔍 Search", unsafe_allow_html=True)
+    st.markdown("<h2 id='search'>🔍 Search</h2>", unsafe_allow_html=True)
     st.info("💡 Search by client, animal, or plan item to find upcoming reminders.")
     search_term = st.text_input("Enter text to search (client, animal, or plan item)")
     if search_term:
@@ -789,7 +795,7 @@ if working_df is not None:
 
     # Rules editor
     st.markdown("---")
-    st.markdown("## <a name='search-terms'></a>📝 Search Terms", unsafe_allow_html=True)
+    st.markdown("<h2 id='search-terms'>📝 Search Terms</h2>", unsafe_allow_html=True)
     st.info(
         "1. See all current Search Terms, set their recurrence interval, and delete if necessary.\n"
         "2. Decide if the Quantity column should be considered (e.g. 1× Bravecto = 90 days, 2× Bravecto = 180 days).\n"
@@ -899,7 +905,7 @@ if working_df is not None:
     # Exclusions
     # --------------------------------
     st.markdown("---")
-    st.markdown("## <a name='exclusions'></a>🚫 Exclusions", unsafe_allow_html=True)
+    st.markdown("<h2 id='exclusions'>🚫 Exclusions</h2>", unsafe_allow_html=True)
     st.info("💡 Add terms here to automatically hide reminders that contain them.")
     
     if st.session_state["exclusions"]:
@@ -1004,8 +1010,7 @@ st.markdown("---")
 # --------------------------------
 # Admin access (bottom of page)
 # --------------------------------
-st.markdown("## <a name='feedback'></a>💬 Feedback", unsafe_allow_html=True)
-
+st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
 if "show_pw" not in st.session_state:
     st.session_state["show_pw"] = False
 if "admin_unlocked" not in st.session_state:
@@ -1058,6 +1063,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
