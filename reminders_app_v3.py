@@ -35,13 +35,12 @@ st.markdown("---")
 # CSS Styling
 # --------------------------------
 st.markdown(
-    """
+    '''
     <style>
-    /* Secret title helpers (optional) */
     .block-container h1, .block-container h2, .block-container h3 {
         margin-top: 0.2rem;
     }
-        div[data-testid="stButton"] {
+    div[data-testid="stButton"] {
         min-height: 0px !important;
         height: auto !important;
     }
@@ -50,8 +49,11 @@ st.markdown(
         padding-left: 2rem;
         padding-right: 2rem;
     }
+    h2[id] {
+        scroll-margin-top: 80px; /* ensures sidebar links scroll correctly */
+    }
     </style>
-    """,
+    ''',
     unsafe_allow_html=True,
 )
 
@@ -1068,6 +1070,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
