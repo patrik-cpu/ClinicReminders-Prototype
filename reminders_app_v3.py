@@ -695,7 +695,12 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             ''',
             height=220,
         )
-
+    # ⚠️ Warning note under buttons
+    st.markdown(
+        "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
+        "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
+        unsafe_allow_html=True
+    )
     with comp_tip:
         st.markdown("### 💡 Tip")
         st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
@@ -1070,6 +1075,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
