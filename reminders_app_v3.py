@@ -50,7 +50,7 @@ st.markdown(
         padding-right: 2rem;
     }
     h2[id] {
-        scroll-margin-top: 80px; /* ensures sidebar links scroll correctly */
+        scroll-margin-top: 140px;  /* bigger buffer so Upload Data anchor is visible */
     }
     </style>
     ''',
@@ -1077,6 +1077,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
