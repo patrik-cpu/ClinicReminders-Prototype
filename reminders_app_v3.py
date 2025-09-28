@@ -5,8 +5,16 @@ import re
 import json, os
 from datetime import timedelta, date
 import streamlit.components.v1 as components
-st.sidebar.info(f"🛠️ Streamlit version: **{st.__version__}**")
 
+# Sidebar "table of contents"
+st.sidebar.markdown("## 📂 Navigation")
+st.sidebar.markdown("- [📖 How to Use](#upload-data)")
+st.sidebar.markdown("- [📂 Upload Data](#upload-data)")
+st.sidebar.markdown("- [📅 Weekly Reminders](#weekly-reminders)")
+st.sidebar.markdown("- [🔍 Search](#search)")
+st.sidebar.markdown("- [📝 Search Terms](#search-terms)")
+st.sidebar.markdown("- [🚫 Exclusions](#exclusions)")
+st.sidebar.markdown("- [💬 Feedback](#feedback)")
 
 # --------------------------------
 # Title
@@ -26,17 +34,7 @@ st.markdown(
     .block-container h1, .block-container h2, .block-container h3 {
         margin-top: 0.2rem;
     }
-
-    /* Target only buttons with "WA" label (Chrome/Edge support) */
-    div[data-testid="stButton"] button:has(span:contains("WA")) {
-        font-size: 10px !important;
-        padding: 0px 4px !important;
-        height: 18px !important;
-        min-height: 18px !important;
-        line-height: 1 !important;
-    }
-    
-    div[data-testid="stButton"] {
+        div[data-testid="stButton"] {
         min-height: 0px !important;
         height: auto !important;
     }
@@ -498,7 +496,7 @@ if files:
         })
         datasets.append((pms_name, df))
 
-    st.write("### Uploaded Files Summary")
+    st.markdown("## <a name='upload-data'></a>📖 How to Use / 📂 Upload Data", unsafe_allow_html=True)
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
     all_pms = {p for p, _ in datasets}
@@ -710,7 +708,7 @@ if working_df is not None:
 
     # Weekly Reminders
     st.markdown("---")
-    st.write("### Weekly Reminders")
+    st.markdown("## <a name='weekly-reminders'></a>📅 Weekly Reminders", unsafe_allow_html=True)
     st.info("💡 Pick a Start Date to see reminders for the next 7-day window. Click WA to prepare a message.")
 
     latest_date = df["Planitem Performed"].max()
@@ -748,7 +746,7 @@ if working_df is not None:
 
     # Search
     st.markdown("---")
-    st.write("### Search Table")
+    st.markdown("## <a name='search'></a>🔍 Search", unsafe_allow_html=True)
     st.info("💡 Search by client, animal, or plan item to find upcoming reminders.")
     search_term = st.text_input("Enter text to search (client, animal, or plan item)")
     if search_term:
@@ -791,7 +789,7 @@ if working_df is not None:
 
     # Rules editor
     st.markdown("---")
-    st.write("### Search Terms and Recurrence Interval (editable)")
+    st.markdown("## <a name='search-terms'></a>📝 Search Terms", unsafe_allow_html=True)
     st.info(
         "1. See all current Search Terms, set their recurrence interval, and delete if necessary.\n"
         "2. Decide if the Quantity column should be considered (e.g. 1× Bravecto = 90 days, 2× Bravecto = 180 days).\n"
@@ -901,7 +899,7 @@ if working_df is not None:
     # Exclusions
     # --------------------------------
     st.markdown("---")
-    st.write("### Exclusion List (remove reminders containing these terms)")
+    st.markdown("## <a name='exclusions'></a>🚫 Exclusions", unsafe_allow_html=True)
     st.info("💡 Add terms here to automatically hide reminders that contain them.")
     
     if st.session_state["exclusions"]:
@@ -1006,7 +1004,7 @@ st.markdown("---")
 # --------------------------------
 # Admin access (bottom of page)
 # --------------------------------
-st.write("### Admin Access")
+st.markdown("## <a name='feedback'></a>💬 Feedback", unsafe_allow_html=True)
 
 if "show_pw" not in st.session_state:
     st.session_state["show_pw"] = False
@@ -1060,6 +1058,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
