@@ -482,8 +482,7 @@ st.info(
 # --------------------------------
 # Upload Data section
 # --------------------------------
-st.markdown("<a id='upload-data'></a>", unsafe_allow_html=True)
-st.markdown("## 📂 Upload Data - Do this first!")
+st.markdown("<h2 id='upload-data' style='scroll-margin-top: 100px;'>📂 Upload Data - Do this first!</h2>", unsafe_allow_html=True)
 
 files = st.file_uploader(
     "Upload Sales Plan file(s)",
@@ -518,6 +517,7 @@ if files:
         st.success(f"All files detected as {list(all_pms)[0]} — merging datasets.")
     else:
         st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
+
 
 # --------------------------------
 # Render Tables
@@ -720,7 +720,7 @@ if working_df is not None:
     st.markdown("---")
     name_col, tut_col = st.columns([4,1])
     with name_col:
-        st.session_state["user_name"] = st.text_input("Your name / clinic", value=st.session_state["user_name"])
+        st.session_state["user_name"] = st.text_input("### Your name / clinic", value=st.session_state["user_name"])
     with tut_col:
         st.markdown("### 💡 Tip")
         st.info("This name will appear in your WhatsApp reminders")
@@ -1078,6 +1078,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
