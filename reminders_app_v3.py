@@ -37,20 +37,34 @@ st.markdown("---")
 st.markdown(
     '''
     <style>
+    /* Adjust headings spacing */
     .block-container h1, .block-container h2, .block-container h3 {
         margin-top: 0.2rem;
     }
+
+    /* Reset Streamlit button height */
     div[data-testid="stButton"] {
         min-height: 0px !important;
         height: auto !important;
     }
+
+    /* Make page use full width */
     .block-container {
         max-width: 100% !important;
         padding-left: 2rem;
         padding-right: 2rem;
     }
+
+    /* Ensure anchor headers are not hidden under Streamlit's padding */
     h2[id] {
-        scroll-margin-top: 140px;  /* bigger buffer so Upload Data anchor is visible */
+        scroll-margin-top: 80px;
+    }
+
+    /* Extra anchor offset trick for Upload Data */
+    .anchor-offset {
+        position: relative;
+        top: -100px;   /* pull the anchor up so title aligns like other sections */
+        height: 0;
     }
     </style>
     ''',
@@ -482,7 +496,8 @@ st.info(
 # --------------------------------
 # Upload Data section
 # --------------------------------
-st.markdown("<h2 id='upload-data' style='scroll-margin-top: 100px;'>📂 Upload Data - Do this first!</h2>", unsafe_allow_html=True)
+st.markdown("<div id='upload-data' class='anchor-offset'></div>", unsafe_allow_html=True)  # stable scroll target
+st.markdown("## 📂 Upload Data - Do this first!")
 
 files = st.file_uploader(
     "Upload Sales Plan file(s)",
@@ -1078,6 +1093,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
