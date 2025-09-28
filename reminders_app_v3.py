@@ -693,7 +693,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
               </body>
             </html>
             ''',
-            height=220,
+            height=160,
         )
     # ⚠️ Warning note under buttons
     st.markdown(
@@ -1077,6 +1077,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
