@@ -6,12 +6,12 @@ import json, os
 from datetime import timedelta, date
 import streamlit.components.v1 as components
 
+# Sidebar "table of contents"
 st.sidebar.markdown(
     """
     <div style="font-size:18px; font-weight:bold;">📂 Navigation</div>
     <ul style="list-style-type:none; padding-left:0; line-height:1.8;">
-      <li><a href="#upload-data" style="text-decoration:none;">📖 How to Use</a></li>
-      <li><a href="#upload-data" style="text-decoration:none;">📂 Upload Data</a></li>
+      <li><a href="#upload-data" style="text-decoration:none;">📂 Upload Data / 📖 How to Use</a></li>
       <li><a href="#weekly-reminders" style="text-decoration:none;">📅 Weekly Reminders</a></li>
       <li><a href="#search" style="text-decoration:none;">🔍 Search</a></li>
       <li><a href="#search-terms" style="text-decoration:none;">📝 Search Terms</a></li>
@@ -463,18 +463,23 @@ def process_file(file, rules):
 # --------------------------------
 # File uploader + summary
 # --------------------------------
+# Upload Data / How to Use (always visible above uploader + tutorial)
+st.markdown("<h2 id='upload-data'>📂 Upload Data / 📖 How to Use</h2>", unsafe_allow_html=True)
+
+# Upload + tutorial side by side
 csv_col, tut_col = st.columns([4,4])
 with csv_col:
     files = st.file_uploader(
-    "Upload Sales Plan file(s)",
-    type=["csv", "xls", "xlsx"],
-    accept_multiple_files=True
-)
+        "Upload Sales Plan file(s)",
+        type=["csv", "xls", "xlsx"],
+        accept_multiple_files=True
+    )
 
 with tut_col:
     st.markdown("### Read me! How to Use.")
     st.info(
-        "1. How it works: ClinicReminders checks when an item was purchased (e.g. Bravecto), and sets a reminder for a set number of days ahead (e.g. 90 days).\n"
+        "1. How it works: ClinicReminders checks when an item was purchased (e.g. Bravecto), "
+        "and sets a reminder for a set number of days ahead (e.g. 90 days).\n"
         "2. To start, upload your Invoice Transactions CSV(s), and check that the PMS and date range is correct.\n"
         "3. Click on 'Start Date 7-day Window' to set the first day. You will see reminders coming up for the next 7 days.\n"
         "4. Review the list of upcoming reminders. To generate a template WhatsApp message, click the WA button and review the output before sending.\n"
@@ -482,6 +487,7 @@ with tut_col:
         "6. You can also Add new terms or Delete terms.\n"
         "7. There's a bit more you can do, but this should be enough to get you started!"
     )
+
 
 datasets, summary_rows, working_df = [], [], None
 
@@ -1063,6 +1069,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
