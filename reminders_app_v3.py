@@ -11,7 +11,8 @@ st.sidebar.markdown(
     """
     <div style="font-size:18px; font-weight:bold;">📂 Navigation</div>
     <ul style="list-style-type:none; padding-left:0; line-height:1.8;">
-      <li><a href="#upload-data" style="text-decoration:none;">📂 Upload Data / 📖 How to Use</a></li>
+      <li><a href="#tutorial" style="text-decoration:none;">📖 Tutorial</a></li>
+      <li><a href="#upload-data" style="text-decoration:none;">📂 Upload Data</a></li>
       <li><a href="#weekly-reminders" style="text-decoration:none;">📅 Weekly Reminders</a></li>
       <li><a href="#search" style="text-decoration:none;">🔍 Search</a></li>
       <li><a href="#search-terms" style="text-decoration:none;">📝 Search Terms</a></li>
@@ -461,33 +462,31 @@ def process_file(file, rules):
     return df, pms_name
 
 # --------------------------------
-# File uploader + summary
+# Tutorial section
 # --------------------------------
-# Upload Data / How to Use (always visible above uploader + tutorial)
-st.markdown("<h2 id='upload-data'>📂 Upload Data / 📖 How to Use</h2>", unsafe_allow_html=True)
+st.markdown("<h2 id='tutorial'>📖 Tutorial</h2>", unsafe_allow_html=True)
 
-# Upload + tutorial side by side
-csv_col, tut_col = st.columns([4,4])
-with csv_col:
-    files = st.file_uploader(
-        "Upload Sales Plan file(s)",
-        type=["csv", "xls", "xlsx"],
-        accept_multiple_files=True
-    )
+st.info(
+    "1. How it works: ClinicReminders checks when an item was purchased (e.g. Bravecto), "
+    "and sets a reminder for a set number of days ahead (e.g. 90 days).\n"
+    "2. To start, upload your Invoice Transactions CSV(s), and check that the PMS and date range is correct.\n"
+    "3. Click on 'Start Date 7-day Window' to set the first day. You will see reminders coming up for the next 7 days.\n"
+    "4. Review the list of upcoming reminders. To generate a template WhatsApp message, click the WA button and review the output before sending.\n"
+    "5. Review the Search Terms list below the main table to customise the terms, their recurring interval, and other specifics.\n"
+    "6. You can also Add new terms or Delete terms.\n"
+    "7. There's a bit more you can do, but this should be enough to get you started!"
+)
 
-with tut_col:
-    st.markdown("### Read me! How to Use.")
-    st.info(
-        "1. How it works: ClinicReminders checks when an item was purchased (e.g. Bravecto), "
-        "and sets a reminder for a set number of days ahead (e.g. 90 days).\n"
-        "2. To start, upload your Invoice Transactions CSV(s), and check that the PMS and date range is correct.\n"
-        "3. Click on 'Start Date 7-day Window' to set the first day. You will see reminders coming up for the next 7 days.\n"
-        "4. Review the list of upcoming reminders. To generate a template WhatsApp message, click the WA button and review the output before sending.\n"
-        "5. Review the Search Terms list below the main table to customise the terms, their recurring interval, and other specifics.\n"
-        "6. You can also Add new terms or Delete terms.\n"
-        "7. There's a bit more you can do, but this should be enough to get you started!"
-    )
+# --------------------------------
+# Upload Data section
+# --------------------------------
+st.markdown("<h2 id='upload-data'>📂 Upload Data</h2>", unsafe_allow_html=True)
 
+files = st.file_uploader(
+    "Upload Sales Plan file(s)",
+    type=["csv", "xls", "xlsx"],
+    accept_multiple_files=True
+)
 
 datasets, summary_rows, working_df = [], [], None
 
@@ -508,7 +507,6 @@ if files:
         })
         datasets.append((pms_name, df))
 
-    st.markdown("<h2 id='upload-data'>📖 How to Use / 📂 Upload Data</h2>", unsafe_allow_html=True)
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
     all_pms = {p for p, _ in datasets}
@@ -517,7 +515,6 @@ if files:
         st.success(f"All files detected as {list(all_pms)[0]} — merging datasets.")
     else:
         st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
-
 
 # --------------------------------
 # Render Tables
@@ -982,8 +979,10 @@ def _fetch_feedback(conn, limit=500):
 
 conn_fb = _init_db()
 
-# Public-facing box
+# Feedback section
+st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
 st.markdown("### Found a problem? Let me (Patrik) know here:")
+
 fb_col1, fb_col2 = st.columns([3,1])
 with fb_col1:
     feedback_text = st.text_area(
@@ -1016,7 +1015,7 @@ st.markdown("---")
 # --------------------------------
 # Admin access (bottom of page)
 # --------------------------------
-st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
+st.markdown("### 🔐 Admin Access")
 if "show_pw" not in st.session_state:
     st.session_state["show_pw"] = False
 if "admin_unlocked" not in st.session_state:
@@ -1069,6 +1068,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
