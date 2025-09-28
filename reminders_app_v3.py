@@ -734,11 +734,22 @@ if working_df is not None:
     # Your name / clinic
     st.markdown("---")
     name_col, tut_col = st.columns([4,1])
+    
     with name_col:
-        st.session_state["user_name"] = st.text_input("### Your name / clinic", value=st.session_state["user_name"])
+        # Make the label big using Markdown
+        st.markdown("### Your name / clinic")
+        # Render the text input without its label
+        st.session_state["user_name"] = st.text_input(
+            "", 
+            value=st.session_state["user_name"], 
+            key="user_name_input",
+            label_visibility="collapsed"   # hides the empty label
+        )
+    
     with tut_col:
         st.markdown("### 💡 Tip")
         st.info("This name will appear in your WhatsApp reminders")
+
 
     # Weekly Reminders
     st.markdown("---")
@@ -1093,3 +1104,4 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
