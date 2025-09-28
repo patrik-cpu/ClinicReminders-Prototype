@@ -39,7 +39,7 @@ st.markdown(
         height: auto !important;
     }
     .block-container {
-        max-width: 60% !important;
+        max-width: 100% !important;
         padding-left: 2rem;
         padding-right: 2rem;
     }
@@ -1058,6 +1058,7 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
+
 
 
 
