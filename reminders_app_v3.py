@@ -4,46 +4,70 @@ import urllib.parse
 import re
 import json, os
 from datetime import timedelta, date
+import streamlit.components.v1 as components
+
+# Sidebar "table of contents"
+st.sidebar.markdown(
+    """
+    <div style="font-size:18px; font-weight:bold;">📂 Navigation</div>
+    <ul style="list-style-type:none; padding-left:0; line-height:1.8;">
+      <li><a href="#tutorial" style="text-decoration:none;">📖 Tutorial</a></li>
+      <li><a href="#upload-data" style="text-decoration:none;">📂 Upload Data</a></li>
+      <li><a href="#weekly-reminders" style="text-decoration:none;">📅 Weekly Reminders</a></li>
+      <li><a href="#search" style="text-decoration:none;">🔍 Search</a></li>
+      <li><a href="#search-terms" style="text-decoration:none;">📝 Search Terms</a></li>
+      <li><a href="#exclusions" style="text-decoration:none;">🚫 Exclusions</a></li>
+      <li><a href="#feedback" style="text-decoration:none;">💬 Feedback</a></li>
+    </ul>
+    """,
+    unsafe_allow_html=True,
+)
 
 # --------------------------------
 # Title
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders Prototype v3.3 (stable)")
+    st.title("ClinicReminders Prototype v3.4 (stable)")
 st.markdown("---")
 
 # --------------------------------
 # CSS Styling
 # --------------------------------
 st.markdown(
-    """
+    '''
     <style>
-    /* Secret title helpers (optional) */
+    /* Adjust headings spacing */
     .block-container h1, .block-container h2, .block-container h3 {
         margin-top: 0.2rem;
     }
 
-    /* Target only buttons with "WA" label (Chrome/Edge support) */
-    div[data-testid="stButton"] button:has(span:contains("WA")) {
-        font-size: 10px !important;
-        padding: 0px 4px !important;
-        height: 18px !important;
-        min-height: 18px !important;
-        line-height: 1 !important;
-    }
-    
+    /* Reset Streamlit button height */
     div[data-testid="stButton"] {
         min-height: 0px !important;
         height: auto !important;
     }
+
+    /* Make page use full width */
     .block-container {
-        max-width: 60% !important;
+        max-width: 100% !important;
         padding-left: 2rem;
         padding-right: 2rem;
     }
+
+    /* Ensure anchor headers are not hidden under Streamlit's padding */
+    h2[id] {
+        scroll-margin-top: 80px;
+    }
+
+    /* Extra anchor offset trick for Upload Data */
+    .anchor-offset {
+        position: relative;
+        top: -100px;   /* pull the anchor up so title aligns like other sections */
+        height: 0;
+    }
     </style>
-    """,
+    ''',
     unsafe_allow_html=True,
 )
 
@@ -454,27 +478,32 @@ def process_file(file, rules):
     return df, pms_name
 
 # --------------------------------
-# File uploader + summary
+# Tutorial section
 # --------------------------------
-csv_col, tut_col = st.columns([4,4])
-with csv_col:
-    files = st.file_uploader(
+st.markdown("<h2 id='tutorial'>📖 Tutorial</h2>", unsafe_allow_html=True)
+
+st.info(
+    "1. How it works: ClinicReminders checks when an item was purchased (e.g. Bravecto), "
+    "and sets a reminder for a set number of days ahead (e.g. 90 days).\n"
+    "2. To start, upload your Invoice Transactions CSV(s), and check that the PMS and date range is correct.\n"
+    "3. Click on 'Start Date 7-day Window' to set the first day. You will see reminders coming up for the next 7 days.\n"
+    "4. Review the list of upcoming reminders. To generate a template WhatsApp message, click the WA button and review the output before sending.\n"
+    "5. Review the Search Terms list below the main table to customise the terms, their recurring interval, and other specifics.\n"
+    "6. You can also Add new terms or Delete terms.\n"
+    "7. There's a bit more you can do, but this should be enough to get you started!"
+)
+
+# --------------------------------
+# Upload Data section
+# --------------------------------
+st.markdown("<div id='upload-data' class='anchor-offset'></div>", unsafe_allow_html=True)  # stable scroll target
+st.markdown("## 📂 Upload Data - Do this first!")
+
+files = st.file_uploader(
     "Upload Sales Plan file(s)",
     type=["csv", "xls", "xlsx"],
     accept_multiple_files=True
 )
-
-with tut_col:
-    st.markdown("### Read me! How to Use.")
-    st.info(
-        "1. How it works: ClinicReminders checks when an item was purchased (e.g. Bravecto), and sets a reminder for a set number of days ahead (e.g. 90 days).\n"
-        "2. To start, upload your Invoice Transactions CSV(s), and check that the PMS and date range is correct.\n"
-        "3. Click on 'Start Date 7-day Window' to set the first day. You will see reminders coming up for the next 7 days.\n"
-        "4. Review the list of upcoming reminders. To generate a template WhatsApp message, click the WA button and review the output before sending.\n"
-        "5. Review the Search Terms list below the main table to customise the terms, their recurring interval, and other specifics.\n"
-        "6. You can also Add new terms or Delete terms.\n"
-        "7. There's a bit more you can do, but this should be enough to get you started!"
-    )
 
 datasets, summary_rows, working_df = [], [], None
 
@@ -495,7 +524,6 @@ if files:
         })
         datasets.append((pms_name, df))
 
-    st.write("### Uploaded Files Summary")
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
     all_pms = {p for p, _ in datasets}
@@ -521,10 +549,9 @@ def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
         st.info("All rows excluded by exclusion list."); return
     render_table_with_buttons(df, key_prefix, msg_key)
-
 def render_table_with_buttons(df, key_prefix, msg_key):
     # Column layout
-    col_widths = [2, 2, 5, 2, 5, 1, 1, 2]
+    col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
     headers = ["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days","WA"]
     cols = st.columns(col_widths)
     for c, head in zip(cols, headers):
@@ -537,62 +564,166 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         for j, h in enumerate(headers[:-1]):
             cols[j].markdown(vals[h])
 
-        # WA button -> prepare message + inline feedback
+        # WA button -> prepare message
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
             first_name  = vals['Client Name'].split()[0].strip() if vals['Client Name'] else "there"
             animal_name = vals['Animal Name'].strip() if vals['Animal Name'] else "your pet"
             plan_for_msg = vals["Plan Item"].strip()
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
-            closing = " Get in touch with us any time for scheduling, and we look forward to hearing from you soon! 🐱🐶"
+            closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
+            verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
 
             if user:
                 st.session_state[msg_key] = (
                     f"Hi {first_name}, this is {user} reminding you that "
-                    f"{animal_name} is due their {plan_for_msg} {due_date_fmt}.{closing}"
+                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
             else:
                 st.session_state[msg_key] = (
                     f"Hi {first_name}, this is a reminder letting you know that "
-                    f"{animal_name} is due their {plan_for_msg} {due_date_fmt}.{closing}"
+                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
 
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
-    # Composer (bound to session_state) + tips
+    # Composer (message text via Streamlit; phone input + buttons inside HTML for live behavior)
     comp_main, comp_tip = st.columns([4,1])
     with comp_main:
         st.write("### WhatsApp Composer")
 
-        # Ensure key exists and bind textarea to session_state
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
-        st.text_area("Message:", key=msg_key, height=100)
+        st.text_area("Message:", key=msg_key, height=200)
 
-        # Phone input bound to session_state (no Enter required)
-        phone_key = f"{key_prefix}_phone"
-        st.text_input("Phone (+countrycode)", key=phone_key)
+        current_message = st.session_state.get(msg_key, "")
 
-        # Always re-encode latest message & phone on each rerun
-        current_message = st.session_state.get(msg_key, "").strip()
-        encoded = urllib.parse.quote(current_message) if current_message else ""
-        phone_val = st.session_state.get(phone_key, "").strip()
-        phone_clean = phone_val.replace(" ", "").replace("-", "").lstrip("+")
-        wa_web = f"https://wa.me/{phone_clean}?text={encoded}" if phone_clean else "#"
-        wa_app = f"https://api.whatsapp.com/send?phone={phone_clean}&text={encoded}" if phone_clean else "#"
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f"[WhatsApp Web]({wa_web})", unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"[WhatsApp Desktop]({wa_app})", unsafe_allow_html=True)
+        # HTML block: phone input + buttons
+        components.html(
+            f'''
+            <html>
+              <head>
+                <meta charset="utf-8">
+                <style>
+                  .composer-wrap {{
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    font-family: "Source Sans Pro", sans-serif;
+                  }}
+                  .phone-row input {{
+                    width: 100%;
+                    height: 44px;
+                    padding: 0 12px;
+                    border: 1px solid #ccc;
+                    border-radius: 6px;
+                    font-size: 16px;
+                    font-family: inherit;
+                  }}
+                  .button-row {{
+                    display: flex;
+                    gap: 12px;
+                    align-items: center;
+                    margin-top: 2px;
+                  }}
+                  .button-row button {{
+                    height: 52px;
+                    padding: 0 20px;
+                    border: none;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    font-size: 18px;
+                    font-weight: 600;
+                    font-family: "Source Sans Pro", sans-serif;
+                    flex: 1;
+                  }}
+                  .wa-btn {{
+                    background-color: #25D366;
+                    color: white;
+                  }}
+                  .copy-btn {{
+                    background-color: #555;
+                    color: white;
+                  }}
+                  .copy-btn:active {{
+                    transform: translateY(2px);
+                    filter: brightness(85%);
+                  }}
+                </style>
+              </head>
+              <body>
+                <div class="composer-wrap">
+                  <div class="phone-row">
+                    <input id="phoneInput" type="text" inputmode="tel"
+                           placeholder="+9715XXXXXXXX" aria-label="Phone number (with country code)">
+                  </div>
 
+                  <div class="button-row">
+                    <button class="wa-btn" id="waBtn">📲 Open in WhatsApp</button>
+                    <button class="copy-btn" id="copyBtn">📋 Copy to Clipboard</button>
+                  </div>
+                </div>
+
+                <script>
+                  const MESSAGE_RAW = {json.dumps(current_message)};
+
+                  async function copyToClipboard(text) {{
+                    try {{
+                      await navigator.clipboard.writeText(text);
+                    }} catch (err) {{
+                      const ta = document.createElement('textarea');
+                      ta.value = text;
+                      document.body.appendChild(ta);
+                      ta.select();
+                      try {{ document.execCommand('copy'); }} finally {{
+                        document.body.removeChild(ta);
+                      }}
+                    }}
+                  }}
+
+                  document.getElementById('waBtn').addEventListener('click', async function(e) {{
+                    e.preventDefault();
+                    const rawPhone = document.getElementById('phoneInput').value || '';
+                    const phoneClean = rawPhone.replace(/[^0-9]/g, '');
+                    const encMsg = encodeURIComponent(MESSAGE_RAW || '');
+
+                    let url = '';
+                    if (phoneClean) {{
+                      url = `https://wa.me/${{phoneClean}}${{encMsg ? "?text=" + encMsg : ""}}`;
+                    }} else {{
+                      // No phone → copy automatically before opening
+                      await copyToClipboard(MESSAGE_RAW || '');
+                      url = "https://wa.me/";  // forward/search
+                    }}
+                    window.open(url, '_blank', 'noopener');
+                  }});
+
+                  document.getElementById('copyBtn').addEventListener('click', async function() {{
+                    await copyToClipboard(MESSAGE_RAW || '');
+                    const old = this.innerText;
+                    this.innerText = '✅ Copied!';
+                    setTimeout(() => this.innerText = old, 1500);
+                  }});
+                </script>
+              </body>
+            </html>
+            ''',
+            height=130,
+        )
+    # ⚠️ Warning note under buttons
+    st.markdown(
+        "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
+        "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
+        unsafe_allow_html=True
+    )
 
 
     with comp_tip:
         st.markdown("### 💡 Tip")
-        st.info("Review and edit the message, enter the phone **with country code**, then click WhatsApp Web or Desktop to send.")
+        st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
+
+
 
 # --------------------------------
 # Main
@@ -604,14 +735,14 @@ if working_df is not None:
     st.markdown("---")
     name_col, tut_col = st.columns([4,1])
     with name_col:
-        st.session_state["user_name"] = st.text_input("Your name / clinic", value=st.session_state["user_name"])
+        st.session_state["user_name"] = st.text_input("### Your name / clinic", value=st.session_state["user_name"])
     with tut_col:
         st.markdown("### 💡 Tip")
         st.info("This name will appear in your WhatsApp reminders")
 
     # Weekly Reminders
     st.markdown("---")
-    st.write("### Weekly Reminders")
+    st.markdown("<h2 id='weekly-reminders'>📅 Weekly Reminders</h2>", unsafe_allow_html=True)
     st.info("💡 Pick a Start Date to see reminders for the next 7-day window. Click WA to prepare a message.")
 
     latest_date = df["Planitem Performed"].max()
@@ -622,10 +753,11 @@ if working_df is not None:
     due = df[(df["NextDueDate"] >= pd.to_datetime(start_date)) & (df["NextDueDate"] <= pd.to_datetime(end_date))]
 
     grouped = (
-        due.groupby(["DueDateFmt","Client Name","Patient Name"], dropna=False)
+        due.groupby(["DueDateFmt", "Client Name"], dropna=False)
         .agg({
             "ChargeDateFmt": "max",
-            "Plan Item Name": lambda x: format_items(x.unique()),
+            "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
+            "Plan Item Name": lambda x: format_items(sorted(set(x.dropna()))),
             "Quantity": "sum",
             "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
         })
@@ -640,6 +772,7 @@ if working_df is not None:
             "Quantity": "Qty",
         })
     )
+
     grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
     grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
 
@@ -647,7 +780,7 @@ if working_df is not None:
 
     # Search
     st.markdown("---")
-    st.write("### Search Table")
+    st.markdown("<h2 id='search'>🔍 Search</h2>", unsafe_allow_html=True)
     st.info("💡 Search by client, animal, or plan item to find upcoming reminders.")
     search_term = st.text_input("Enter text to search (client, animal, or plan item)")
     if search_term:
@@ -659,21 +792,38 @@ if working_df is not None:
         )
         filtered = df[mask].sort_values("NextDueDate")
         if not filtered.empty:
-            filtered = filtered.rename(columns={
-                "DueDateFmt":"Due Date","ChargeDateFmt":"Charge Date",
-                "Client Name":"Client Name","Patient Name":"Animal Name",
-                "Plan Item Name":"Plan Item","Quantity":"Qty"
-            })
-            filtered["Days"] = pd.to_numeric(filtered["IntervalDays"], errors="coerce").fillna(0).astype(int)
-            filtered["Qty"] = pd.to_numeric(filtered["Qty"], errors="coerce").fillna(0).astype(int)
-            filtered = filtered[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
-            render_table(filtered, "Search Results", "search", "search_message", st.session_state["rules"])
+            grouped_search = (
+                filtered.groupby(["DueDateFmt", "Client Name"], dropna=False)
+                .agg({
+                    "ChargeDateFmt": "max",
+                    "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
+                    "Plan Item Name": lambda x: format_items(sorted(set(x.dropna()))),
+                    "Quantity": "sum",
+                    "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
+                })
+                .reset_index()
+                .rename(columns={
+                    "DueDateFmt": "Due Date",
+                    "ChargeDateFmt": "Charge Date",
+                    "Client Name": "Client Name",
+                    "Patient Name": "Animal Name",
+                    "Plan Item Name": "Plan Item",
+                    "IntervalDays": "Days",
+                    "Quantity": "Qty",
+                })
+            )
+            
+            grouped_search["Qty"] = pd.to_numeric(grouped_search["Qty"], errors="coerce").fillna(0).astype(int)
+            grouped_search = grouped_search[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+            
+            render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
+
         else:
             st.info("No matches found.")
 
     # Rules editor
     st.markdown("---")
-    st.write("### Search Terms and Recurrence Interval (editable)")
+    st.markdown("<h2 id='search-terms'>📝 Search Terms</h2>", unsafe_allow_html=True)
     st.info(
         "1. See all current Search Terms, set their recurrence interval, and delete if necessary.\n"
         "2. Decide if the Quantity column should be considered (e.g. 1× Bravecto = 90 days, 2× Bravecto = 180 days).\n"
@@ -783,7 +933,7 @@ if working_df is not None:
     # Exclusions
     # --------------------------------
     st.markdown("---")
-    st.write("### Exclusion List (remove reminders containing these terms)")
+    st.markdown("<h2 id='exclusions'>🚫 Exclusions</h2>", unsafe_allow_html=True)
     st.info("💡 Add terms here to automatically hide reminders that contain them.")
     
     if st.session_state["exclusions"]:
@@ -854,8 +1004,10 @@ def _fetch_feedback(conn, limit=500):
 
 conn_fb = _init_db()
 
-# Public-facing box
+# Feedback section
+st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
 st.markdown("### Found a problem? Let me (Patrik) know here:")
+
 fb_col1, fb_col2 = st.columns([3,1])
 with fb_col1:
     feedback_text = st.text_area(
@@ -888,8 +1040,7 @@ st.markdown("---")
 # --------------------------------
 # Admin access (bottom of page)
 # --------------------------------
-st.write("### Admin Access")
-
+st.markdown("### 🔐 Admin Access")
 if "show_pw" not in st.session_state:
     st.session_state["show_pw"] = False
 if "admin_unlocked" not in st.session_state:
@@ -942,9 +1093,3 @@ if st.session_state["admin_unlocked"]:
                 st.error(f"Delete failed: {e}")
     else:
         st.info("No feedback yet.")
-
-
-
-
-
-
