@@ -290,14 +290,24 @@ def map_intervals(df, rules):
     for idx, row in df.iterrows():
         name = str(row["Plan Item Name"]).lower()
         matches = []
+        interval_values = []
+
         for rule, settings in sorted(rules.items(), key=lambda x: -len(x[0])):
             if re.search(rf"\b{re.escape(rule)}\b", name):
                 matches.append(settings.get("visible_text", rule.title()))
-                if pd.isna(df.at[idx, "IntervalDays"]):
-                    df.at[idx, "IntervalDays"] = (
-                        row["Quantity"] * settings["days"] if settings["use_qty"] else settings["days"]
-                    )
-        df.at[idx, "MatchedItems"] = matches if matches else [row["Plan Item Name"]]
+                interval_values.append(
+                    row["Quantity"] * settings["days"] if settings["use_qty"] else settings["days"]
+                )
+
+        # store matches
+        if matches:
+            df.at[idx, "MatchedItems"] = matches
+            # choose min interval if multiple (safest default)
+            df.at[idx, "IntervalDays"] = min(interval_values) if interval_values else pd.NA
+        else:
+            df.at[idx, "MatchedItems"] = [row["Plan Item Name"]]
+            df.at[idx, "IntervalDays"] = pd.NA
+
     return df
 
 
@@ -798,7 +808,7 @@ if working_df is not None:
 
     due = df[(df["NextDueDate"] >= pd.to_datetime(start_date)) & (df["NextDueDate"] <= pd.to_datetime(end_date))]
     due2 = ensure_reminder_columns(due, st.session_state["rules"])
-    
+
     g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
     grouped = (
         pd.DataFrame({
@@ -813,19 +823,17 @@ if working_df is not None:
             ),
             "Qty": g["Quantity"].sum(min_count=1),
             "Days": g["IntervalDays"].apply(
-                lambda x: ", ".join(
-                    str(int(v)) for v in sorted(set(pd.to_numeric(x, errors="coerce").dropna().astype(int)))
-                )
+                lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
+                    if pd.to_numeric(x, errors="coerce").notna().any()
+                    else ""
             ),
         })
         .reset_index()
         .rename(columns={"DueDateFmt": "Due Date"})
     )[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
-
-
+    
     grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
     grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
-
     render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
 
     # --------------------------------
@@ -845,34 +853,35 @@ if working_df is not None:
         filtered = df[mask].copy().sort_values("NextDueDate")
     
         filtered2 = ensure_reminder_columns(filtered, st.session_state["rules"])
-    
-        if not filtered2.empty:
-            g = filtered2.groupby(["DueDateFmt", "Client Name"], dropna=False)
-            grouped_search = (
-                pd.DataFrame({
-                    "Charge Date": g["ChargeDateFmt"].max(),
-                    "Animal Name": g["Patient Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
-                    "Plan Item": g["MatchedItems"].apply(
-                        lambda lists: simplify_vaccine_text(
-                            format_items(sorted(set(
-                                i.strip() for sub in lists for i in (sub if isinstance(sub, list) else [sub]) if str(i).strip()
-                            )))
-                        )
-                    ),
-                    "Qty": g["Quantity"].sum(min_count=1),
-                    "Days": g["IntervalDays"].apply(
-                        lambda x: ", ".join(
-                            str(int(v)) for v in sorted(set(pd.to_numeric(x, errors="coerce").dropna().astype(int)))
-                        )
-                    ),
-                })
-                .reset_index()
-                .rename(columns={"DueDateFmt": "Due Date"})
-            )[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
-    
-            render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
-        else:
-            st.info("No matches found.")
+
+if not filtered2.empty:
+    g = filtered2.groupby(["DueDateFmt", "Client Name"], dropna=False)
+    grouped_search = (
+        pd.DataFrame({
+            "Charge Date": g["ChargeDateFmt"].max(),
+            "Animal Name": g["Patient Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
+            "Plan Item": g["MatchedItems"].apply(
+                lambda lists: simplify_vaccine_text(
+                    format_items(sorted(set(
+                        i.strip() for sub in lists for i in (sub if isinstance(sub, list) else [sub]) if str(i).strip()
+                    )))
+                )
+            ),
+            "Qty": g["Quantity"].sum(min_count=1),
+            "Days": g["IntervalDays"].apply(
+                lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
+                    if pd.to_numeric(x, errors="coerce").notna().any()
+                    else ""
+            ),
+        })
+        .reset_index()
+        .rename(columns={"DueDateFmt": "Due Date"})
+    )[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+
+    render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
+else:
+    st.info("No matches found.")
+
 
     # Rules editor
     st.markdown("---")
@@ -1134,19 +1143,3 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
