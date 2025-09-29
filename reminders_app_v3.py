@@ -842,10 +842,14 @@ if working_df is not None:
             "Plan Item": g["MatchedItems"].apply(
                 lambda lists: simplify_vaccine_text(
                     format_items(sorted(set(
-                        i.strip() for sub in lists for i in (sub if isinstance(sub, list) else [sub]) if str(i).strip()
+                        i.strip()
+                        for sublist in lists
+                        for i in (sublist if isinstance(sublist, list) else [sublist])
+                        if str(i).strip()
                     )))
                 )
-            ),
+            )
+
             "Qty": g["Quantity"].sum(min_count=1),
             "Days": g["IntervalDays"].apply(
                 lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
@@ -1169,6 +1173,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
