@@ -113,6 +113,7 @@ DEFAULT_RULES = {
 # --------------------------------
 # WhatsApp Template Defaults
 # --------------------------------
+st.session_state.setdefault("wa_template_update", "")
 DEFAULT_TEMPLATE = (
     "Hi [Client Name], this is [User Name] reminding you that "
     "[Animal Name] [is/are] due for their [Item] on [Due Date]. "
@@ -698,57 +699,95 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         #-----------------------------------
         # Template Editor
         #-----------------------------------
-        # Change Template button (red background)
-        if st.button("✏️ Change Template", key=f"{key_prefix}_template_{msg_key}", help="Edit the WhatsApp template"):
+   
+        if st.button("✏️ Change Template", key=f"{key_prefix}_template_{msg_key}"):
             st.session_state["editing_template"] = True
     
-        # Show editor if flag set
+        # Show custom editor if flag set
         if st.session_state.get("editing_template", False):
-            # Ensure editor buffer exists
-            if "wa_template_editor" not in st.session_state:
-                st.session_state["wa_template_editor"] = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
+            current_template = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
     
-            st.markdown("### ✏️ Edit WhatsApp Template")
+            components.html(
+                f"""
+                <style>
+                    .red-btn {{
+                        background-color: #ff4d4d;
+                        color: white;
+                        font-weight: bold;
+                        border: none;
+                        padding: 8px 14px;
+                        border-radius: 6px;
+                        cursor: pointer;
+                    }}
+                    .blue-btn {{
+                        background-color: #007bff;
+                        color: white;
+                        font-weight: bold;
+                        border: none;
+                        padding: 6px 12px;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        margin-right: 6px;
+                    }}
+                    #templateEditor {{
+                        width: 100%;
+                        height: 160px;
+                        font-size: 15px;
+                        padding: 8px;
+                        border-radius: 6px;
+                        border: 1px solid #ccc;
+                        resize: vertical;
+                    }}
+                </style>
     
-            # Use a separate widget key
-            template_text = st.text_area(
-                "Template (use placeholders like [Client Name], [Animal Name], etc.)",
-                value=st.session_state["wa_template_editor"],
-                key="wa_template_textarea",
-                height=150
+                <textarea id="templateEditor">{current_template}</textarea>
+                <br/><br/>
+                <div>
+                    <button class="blue-btn" onclick="insertAtCursor('[Client Name]')">[Client Name]</button>
+                    <button class="blue-btn" onclick="insertAtCursor('[Animal Name]')">[Animal Name]</button>
+                    <button class="blue-btn" onclick="insertAtCursor('[Item]')">[Item]</button>
+                    <button class="blue-btn" onclick="insertAtCursor('[Due Date]')">[Due Date]</button>
+                    <button class="blue-btn" onclick="insertAtCursor('[User Name]')">[User Name]</button>
+                </div>
+                <br/>
+                <button class="red-btn" onclick="saveTemplate()">💾 Save Template</button>
+    
+                <script>
+                function insertAtCursor(text) {{
+                    var txtarea = document.getElementById("templateEditor");
+                    if (!txtarea) return;
+                    var start = txtarea.selectionStart;
+                    var end = txtarea.selectionEnd;
+                    var before = txtarea.value.substring(0, start);
+                    var after  = txtarea.value.substring(end, txtarea.value.length);
+                    txtarea.value = before + text + after;
+                    txtarea.selectionStart = txtarea.selectionEnd = start + text.length;
+                    txtarea.focus();
+                }}
+    
+                function saveTemplate() {{
+                    const template = document.getElementById("templateEditor").value;
+                    const streamlitInput = document.createElement("input");
+                    streamlitInput.type = "text";
+                    streamlitInput.name = "wa_template_update";
+                    streamlitInput.value = template;
+                    document.body.appendChild(streamlitInput);
+                    const event = new Event("input", {{ bubbles: true }});
+                    streamlitInput.dispatchEvent(event);
+                }}
+                </script>
+                """,
+                height=400,
             )
-            # Sync back into session_state buffer
-            st.session_state["wa_template_editor"] = template_text
-    
-            st.markdown("Insert variable:")
-            placeholder_buttons = ["[Client Name]", "[Animal Name]", "[Item]", "[Due Date]", "[User Name]"]
-    
-            cols = st.columns(len(placeholder_buttons))
-            for i, ph in enumerate(placeholder_buttons):
-                if cols[i].button(ph, key=f"ph_{ph}_{msg_key}"):
-                    st.session_state["wa_template_editor"] += " " + ph
-    
-            if st.button("💾 Save Template", key=f"save_template_{msg_key}"):
-                st.session_state["wa_template"] = st.session_state["wa_template_editor"]
+
+            # Listen for the hidden input update
+            updated_template = st.session_state.get("wa_template_update")
+            if updated_template:
+                st.session_state["wa_template"] = updated_template
                 save_settings()
                 st.session_state["editing_template"] = False
                 st.success("Template updated!")
-    
-            # Custom CSS for red buttons
-            st.markdown(
-                """
-                <style>
-                button[kind="secondary"] {
-                    background-color: #ff4d4d !important;
-                    color: white !important;
-                    border: none !important;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
-
-
+                st.session_state["wa_template_update"] = ""
 
     # ⚠️ Warning note under buttons
     st.markdown(
@@ -1094,6 +1133,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
