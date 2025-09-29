@@ -5,6 +5,9 @@ import re
 import json, os
 from datetime import timedelta, date
 import streamlit.components.v1 as components
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 
 # Sidebar "table of contents"
 st.sidebar.markdown(
@@ -976,44 +979,30 @@ if working_df is not None:
             else:
                 st.error("Enter a valid exclusion term")
 
-# --------------------------------
-# Feedback storage (SQLite) + public submit box
-# --------------------------------
-import sqlite3
-from datetime import datetime
+# --- Google Sheets Setup ---
+SHEET_NAME = "ClinicReminders Feedback"
 
-# DB helpers
-def _init_db():
-    conn = sqlite3.connect("feedback.db")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS feedback (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT NOT NULL,
-            user_name TEXT,
-            user_email TEXT,
-            message TEXT NOT NULL
-        )
-        """
-    )
-    conn.commit()
-    return conn
+scope = ["https://spreadsheets.google.com/feeds",
+         "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name(
+    "google-credentials.json", scope
+)
+client = gspread.authorize(creds)
+sheet = client.open(SHEET_NAME).sheet1
 
-def _insert_feedback(conn, name, email, message):
-    conn.execute(
-        "INSERT INTO feedback (created_at, user_name, user_email, message) VALUES (?, ?, ?, ?)",
-        (datetime.utcnow().isoformat(timespec="seconds")+"Z", name or None, email or None, message),
-    )
-    conn.commit()
 
-def _fetch_feedback(conn, limit=500):
-    cur = conn.execute(
-        "SELECT id, created_at, COALESCE(user_name, ''), COALESCE(user_email, ''), message "
-        "FROM feedback ORDER BY id DESC LIMIT ?", (limit,)
-    )
-    return cur.fetchall()
+def insert_feedback(name, email, message):
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    # Auto ID = number of rows + 1
+    next_id = len(sheet.get_all_values())
+    sheet.append_row([next_id, now, name or "", email or "", message])
 
-conn_fb = _init_db()
+
+def fetch_feedback(limit=500):
+    rows = sheet.get_all_values()
+    headers, data = rows[0], rows[1:]
+    return data[-limit:] if data else []
+
 
 # Feedback section
 st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
@@ -1031,78 +1020,17 @@ with fb_col2:
     user_name_for_feedback = st.text_input("Your name (optional)", key="feedback_name", placeholder="Clinic / Your name")
     user_email_for_feedback = st.text_input("Your email (optional)", key="feedback_email", placeholder="you@example.com")
 
-# Always-enabled button → validate after click
 if st.button("Send", key="fb_send"):
     if not feedback_text.strip():
         st.error("Please enter a message before sending.")
     else:
         try:
-            _insert_feedback(conn_fb, user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
+            insert_feedback(user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
             st.success("Thanks! Your message has been recorded.")
 
-            # ✅ Clear inputs by deleting keys, no overwrite
+            # clear inputs
             for k in ["feedback_text", "feedback_name", "feedback_email"]:
                 if k in st.session_state:
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
-st.markdown("---")
-
-# --------------------------------
-# Admin access (bottom of page)
-# --------------------------------
-st.markdown("### 🔐 Admin Access")
-if "show_pw" not in st.session_state:
-    st.session_state["show_pw"] = False
-if "admin_unlocked" not in st.session_state:
-    st.session_state["admin_unlocked"] = False
-
-if not st.session_state["show_pw"]:
-    if st.button("View admin box", key="show_admin_btn"):
-        st.session_state["show_pw"] = True
-
-if st.session_state["show_pw"] and not st.session_state["admin_unlocked"]:
-    password = st.text_input("Enter password", type="password", key="admin_pw")
-    if st.button("Unlock", key="unlock_btn"):
-        if password == "Nova@2025":
-            st.session_state["admin_unlocked"] = True
-            st.success("Admin inbox unlocked")
-        else:
-            st.error("Incorrect password")
-
-if st.session_state["admin_unlocked"]:
-    st.markdown("## 🔐 Admin — Feedback Inbox")
-    rows = _fetch_feedback(conn_fb, limit=500)
-    if rows:
-        import pandas as pd
-        df_fb = pd.DataFrame(rows, columns=["ID", "Created (UTC)", "Name", "Email", "Message"])
-        st.dataframe(df_fb, use_container_width=True, hide_index=True)
-
-        # ✅ Unique key for download button
-        csv = df_fb.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Download CSV",
-            data=csv,
-            file_name="feedback_export.csv",
-            mime="text/csv",
-            key="feedback_download"
-        )
-
-        # Delete single entry
-        st.markdown("### Delete an entry")
-        del_id = st.text_input("Enter ID to delete", value="", key="del_id_admin")
-        if st.button("Delete", key="del_btn_admin"):
-            try:
-                if del_id.strip().isdigit():
-                    with sqlite3.connect("feedback.db") as _c:
-                        _c.execute("DELETE FROM feedback WHERE id = ?", (int(del_id.strip()),))
-                        _c.commit()
-                    st.success(f"Entry {del_id} deleted. Refresh the page to update the table.")
-                else:
-                    st.warning("Please enter a numeric ID.")
-            except Exception as e:
-                st.error(f"Delete failed: {e}")
-    else:
-        st.info("No feedback yet.")
-
-
