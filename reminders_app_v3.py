@@ -740,7 +740,7 @@ if working_df is not None:
         .agg({
             "ChargeDateFmt": "max",
             "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
-            "Plan Item Name": lambda x: format_items(sorted(set(x.dropna()))),
+            "Plan Item Name": lambda x: simplify_vaccine_text(format_items(sorted(set(x.dropna())))),
             "Quantity": "sum",
             "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
         })
@@ -755,6 +755,7 @@ if working_df is not None:
             "Quantity": "Qty",
         })
     )
+
 
     grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
     grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
@@ -1064,6 +1065,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
