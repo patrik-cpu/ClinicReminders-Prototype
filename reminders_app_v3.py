@@ -289,10 +289,13 @@ def normalize_item_name(name: str) -> str:
     if not isinstance(name, str):
         return ""
     name = name.lower()
-    name = name.replace("\u00a0", " ").replace("\ufeff", " ")
-    name = re.sub(r"[^a-z0-9]+", " ", name)   # turn -, +, /, () into spaces
+    # replace common separators with spaces
+    for ch in ["-", "+", "/", "(", ")", ".", ","]:
+        name = name.replace(ch, " ")
+    # collapse multiple spaces
     name = re.sub(r"\s+", " ", name).strip()
     return name
+
 
 def map_intervals(df, rules):
     df["MatchedItems"] = [[] for _ in range(len(df))]
@@ -1166,6 +1169,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
