@@ -80,7 +80,7 @@ st.markdown(
 # --------------------------------
 DEFAULT_RULES = {
     "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies vaccine"},
-    "dhpp": {"days": 365, "use_qty": False, "visible_text": "DHPPIL vaccine"},
+    "dhppil": {"days": 365, "use_qty": False, "visible_text": "DHPPIL vaccine"},
     "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia vaccine"},
     "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
     "dental cat": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
@@ -289,6 +289,11 @@ def map_intervals(df, rules):
 
     for idx, row in df.iterrows():
         name = str(row["Plan Item Name"]).lower()
+        # Replace non-breaking spaces and punctuation with normal spaces
+        name = name.replace("\u00a0", " ").replace("\ufeff", " ")
+        name = re.sub(r"[^a-z0-9 ]", " ", name)   # keep only letters, numbers, spaces
+        name = re.sub(r"\s+", " ", name).strip()
+
         matches = []
         interval_values = []
 
@@ -853,34 +858,35 @@ if working_df is not None:
         filtered = df[mask].copy().sort_values("NextDueDate")
     
         filtered2 = ensure_reminder_columns(filtered, st.session_state["rules"])
+    
+        if not filtered2.empty:
+            g = filtered2.groupby(["DueDateFmt", "Client Name"], dropna=False)
+            grouped_search = (
+                pd.DataFrame({
+                    "Charge Date": g["ChargeDateFmt"].max(),
+                    "Animal Name": g["Patient Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
+                    "Plan Item": g["MatchedItems"].apply(
+                        lambda lists: simplify_vaccine_text(
+                            format_items(sorted(set(
+                                i.strip() for sub in lists for i in (sub if isinstance(sub, list) else [sub]) if str(i).strip()
+                            )))
+                        )
+                    ),
+                    "Qty": g["Quantity"].sum(min_count=1),
+                    "Days": g["IntervalDays"].apply(
+                        lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
+                            if pd.to_numeric(x, errors="coerce").notna().any()
+                            else ""
+                    ),
+                })
+                .reset_index()
+                .rename(columns={"DueDateFmt": "Due Date"})
+            )[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+    
+            render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
+        else:
+            st.info("No matches found.")
 
-if not filtered2.empty:
-    g = filtered2.groupby(["DueDateFmt", "Client Name"], dropna=False)
-    grouped_search = (
-        pd.DataFrame({
-            "Charge Date": g["ChargeDateFmt"].max(),
-            "Animal Name": g["Patient Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
-            "Plan Item": g["MatchedItems"].apply(
-                lambda lists: simplify_vaccine_text(
-                    format_items(sorted(set(
-                        i.strip() for sub in lists for i in (sub if isinstance(sub, list) else [sub]) if str(i).strip()
-                    )))
-                )
-            ),
-            "Qty": g["Quantity"].sum(min_count=1),
-            "Days": g["IntervalDays"].apply(
-                lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
-                    if pd.to_numeric(x, errors="coerce").notna().any()
-                    else ""
-            ),
-        })
-        .reset_index()
-        .rename(columns={"DueDateFmt": "Due Date"})
-    )[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
-
-    render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
-else:
-    st.info("No matches found.")
 
 
     # Rules editor
@@ -1143,3 +1149,4 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
