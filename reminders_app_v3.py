@@ -770,7 +770,9 @@ if working_df is not None:
 
     render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
 
+    # --------------------------------
     # Search
+    # --------------------------------
     st.markdown("---")
     st.markdown("<h2 id='search'>🔍 Search</h2>", unsafe_allow_html=True)
     st.info("💡 Search by client, animal, or plan item to find upcoming reminders.")
@@ -784,9 +786,15 @@ if working_df is not None:
         )
         filtered = df[mask].sort_values("NextDueDate")
     
-        # ✅ make sure MatchedItems exists
+        # ✅ make sure required columns exist
         if "MatchedItems" not in filtered.columns:
             filtered = map_intervals(filtered, st.session_state["rules"])
+        if "IntervalDays" not in filtered.columns:
+            filtered["IntervalDays"] = pd.NA
+        if "ChargeDateFmt" not in filtered.columns and "Planitem Performed" in filtered.columns:
+            filtered["ChargeDateFmt"] = filtered["Planitem Performed"].dt.strftime("%d %b %Y")
+        if "DueDateFmt" not in filtered.columns and "NextDueDate" in filtered.columns:
+            filtered["DueDateFmt"] = filtered["NextDueDate"].dt.strftime("%d %b %Y")
     
         if not filtered.empty:
             grouped_search = (
@@ -798,26 +806,37 @@ if working_df is not None:
                         format_items(sorted({i for sub in lists for i in sub}))
                     ),
                     "Quantity": "sum",
-                    "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
+                    "IntervalDays": lambda x: ", ".join(
+                        str(int(v)) for v in sorted(set(x.dropna()))
+                    ),
                 })
                 .reset_index()
-                .rename(columns={
-                    "DueDateFmt": "Due Date",
-                    "ChargeDateFmt": "Charge Date",
-                    "Client Name": "Client Name",
-                    "Patient Name": "Animal Name",
-                    "MatchedItems": "Plan Item",
-                    "IntervalDays": "Days",
-                    "Quantity": "Qty",
-                })
+                .rename(
+                    columns={
+                        "DueDateFmt": "Due Date",
+                        "ChargeDateFmt": "Charge Date",
+                        "Client Name": "Client Name",
+                        "Patient Name": "Animal Name",
+                        "MatchedItems": "Plan Item",
+                        "IntervalDays": "Days",
+                        "Quantity": "Qty",
+                    }
+                )
             )
     
-            grouped_search["Qty"] = pd.to_numeric(grouped_search["Qty"], errors="coerce").fillna(0).astype(int)
-            grouped_search = grouped_search[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+            grouped_search["Qty"] = (
+                pd.to_numeric(grouped_search["Qty"], errors="coerce")
+                .fillna(0)
+                .astype(int)
+            )
+            grouped_search = grouped_search[
+                ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
+            ]
     
             render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
         else:
             st.info("No matches found.")
+
 
     # Rules editor
     st.markdown("---")
@@ -1079,6 +1098,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
