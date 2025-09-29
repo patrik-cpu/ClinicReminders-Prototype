@@ -528,7 +528,7 @@ def render_table(df, title, key_prefix, msg_key, rules):
     df["Item"] = df[source_col].apply(lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules)))
     if st.session_state["exclusions"]:
         excl_pattern = "|".join(map(re.escape, st.session_state["exclusions"]))
-        df = df[~df["Plan Item"].str.lower().str.contains(excl_pattern)]
+        df = df[~df["Item"].str.lower().str.contains(excl_pattern)]
     if df.empty:
         st.info("All rows excluded by exclusion list."); return
     render_table_with_buttons(df, key_prefix, msg_key)
@@ -843,7 +843,7 @@ if working_df is not None:
         .agg({
             "ChargeDateFmt": "max",
             "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
-            "Plan Item Name": lambda x: format_items(sorted(set(x.dropna()))),
+            "Plan Item Name": lambda x: format_items(list(x.dropna())),
             "Quantity": "sum",
             "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
         })
@@ -883,7 +883,7 @@ if working_df is not None:
                 .agg({
                     "ChargeDateFmt": "max",
                     "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
-                    "Plan Item Name": lambda x: format_items(sorted(set(x.dropna()))),
+                    "Plan Item Name": lambda x: format_items(list(x.dropna())),
                     "Quantity": "sum",
                     "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
                 })
@@ -893,14 +893,14 @@ if working_df is not None:
                     "ChargeDateFmt": "Charge Date",
                     "Client Name": "Client Name",
                     "Patient Name": "Animal Name",
-                    "Plan Item Name": "Plan Item",
+                    "Plan Item Name": "Item",
                     "IntervalDays": "Days",
                     "Quantity": "Qty",
                 })
             )
             
             grouped_search["Qty"] = pd.to_numeric(grouped_search["Qty"], errors="coerce").fillna(0).astype(int)
-            grouped_search = grouped_search[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+            grouped_search = grouped_search[["Due Date","Charge Date","Client Name","Animal Name","Item","Qty","Days"]]
             
             render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
 
@@ -1133,6 +1133,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
