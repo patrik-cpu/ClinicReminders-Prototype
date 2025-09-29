@@ -299,24 +299,20 @@ def map_intervals(df, rules):
     df["IntervalDays"] = pd.NA
 
     for idx, row in df.iterrows():
-        # ✅ normalize invoice text once
         normalized = normalize_item_name(row["Plan Item Name"])
-
         matches, interval_values = [], []
+
         for rule, settings in rules.items():
-            rule_norm = normalize_item_name(rule)  # normalize your rule too
-            pattern = r"\b" + re.escape(rule_norm) + r"\b"   # <-- regex word boundary
-            if re.search(pattern, normalized):
+            rule_norm = rule.lower().strip()
+            if rule_norm in normalized:   # ✅ simple substring match
                 matches.append(settings.get("visible_text", rule.title()))
                 interval_values.append(
                     row["Quantity"] * settings["days"] if settings["use_qty"] else settings["days"]
                 )
 
-
-
         if matches:
             df.at[idx, "MatchedItems"] = matches
-            # use min interval if multiple rules matched (conservative)
+            # pick min days if multiple rules match
             df.at[idx, "IntervalDays"] = min(interval_values) if interval_values else pd.NA
         else:
             df.at[idx, "MatchedItems"] = [row["Plan Item Name"]]
@@ -1170,6 +1166,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
