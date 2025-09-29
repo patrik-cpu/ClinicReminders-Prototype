@@ -79,10 +79,10 @@ st.markdown(
 # Defaults
 # --------------------------------
 DEFAULT_RULES = {
-    "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies Vaccine"},
-    "dhpp": {"days": 365, "use_qty": False, "visible_text": "DHPPIL Vaccine"},
-    "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia Vaccine"},
-    "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat Vaccine"},
+    "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies vaccine"},
+    "dhpp": {"days": 365, "use_qty": False, "visible_text": "DHPPIL vaccine"},
+    "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia vaccine"},
+    "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
     "dental cat": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
     "groom": {"days": 90, "use_qty": False, "visible_text": "Groom"},
     "feliway": {"days": 60, "use_qty": True, "visible_text": "Feliway"},
@@ -93,7 +93,7 @@ DEFAULT_RULES = {
     "dental scale and polish": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
     "cardiac ultrasound": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
     "ultrasound - cardiac": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
-    "caniverm": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
+    "caniverm": {"days": 90, "use_qty": False, "visible_text": "Caniverm"},
     "milbem": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "milpro": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "bravecto plus": {"days": 60, "use_qty": True, "visible_text": "Bravecto Plus"},
@@ -107,7 +107,7 @@ DEFAULT_RULES = {
     "solensia": {"days": 30, "use_qty": False, "visible_text": "Solensia"},
     "samylin": {"days": 30, "use_qty": True, "visible_text": "Samylin"},
     "cystaid": {"days": 30, "use_qty": False, "visible_text": "Cystaid"},
-    "kennel cough": {"days": 30, "use_qty": False, "visible_text": "Kennel Cough Vaccine"},
+    "kennel cough": {"days": 30, "use_qty": False, "visible_text": "Kennel Cough vaccine"},
 }
 
 # --------------------------------
@@ -1029,6 +1029,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
