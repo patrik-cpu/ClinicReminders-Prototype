@@ -303,12 +303,14 @@ def map_intervals(df, rules):
 
         matches, interval_values = [], []
         for rule, settings in rules.items():
-            rule_norm = normalize_item_name(rule)   # ✅ normalize rule
-            if rule_norm in normalized:             # ✅ compare normalized → normalized
+            rule_norm = normalize_item_name(rule)  # normalize your rule too
+            pattern = r"\b" + re.escape(rule_norm) + r"\b"   # <-- regex word boundary
+            if re.search(pattern, normalized):
                 matches.append(settings.get("visible_text", rule.title()))
                 interval_values.append(
                     row["Quantity"] * settings["days"] if settings["use_qty"] else settings["days"]
                 )
+
 
 
         if matches:
@@ -1167,6 +1169,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
