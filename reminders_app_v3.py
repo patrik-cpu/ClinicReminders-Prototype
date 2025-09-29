@@ -287,15 +287,24 @@ def get_visible_plan_item(item_name: str, rules: dict) -> str:
     return item_name
 
 def map_intervals(df, rules):
-    df["IntervalDays"] = pd.NA
-    # Sort rules by length (longest first) to avoid overwriting
-    for rule, settings in sorted(rules.items(), key=lambda x: -len(x[0])):
-        mask = df["Plan Item Name"].str.contains(rf"\b{re.escape(rule)}\b", case=False, na=False)
-        if settings["use_qty"]:
-            df.loc[mask, "IntervalDays"] = df.loc[mask, "Quantity"] * settings["days"]
-        else:
-            df.loc[mask, "IntervalDays"] = settings["days"]
-    return df
+    rows = []
+    for _, row in df.iterrows():
+        name = str(row["Plan Item Name"]).lower()
+        matched = False
+        for rule, settings in sorted(rules.items(), key=lambda x: -len(x[0])):
+            if re.search(rf"\b{re.escape(rule)}\b", name):
+                new_row = row.copy()
+                if settings["use_qty"]:
+                    new_row["IntervalDays"] = row["Quantity"] * settings["days"]
+                else:
+                    new_row["IntervalDays"] = settings["days"]
+                new_row["Plan Item Name"] = settings.get("visible_text", row["Plan Item Name"])
+                rows.append(new_row)
+                matched = True
+        if not matched:
+            rows.append(row)
+    return pd.DataFrame(rows)
+
 
 def parse_dates(series: pd.Series) -> pd.Series:
     """
@@ -1065,6 +1074,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
