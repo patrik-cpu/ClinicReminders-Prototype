@@ -107,7 +107,7 @@ DEFAULT_RULES = {
     "solensia": {"days": 30, "use_qty": False, "visible_text": "Solensia"},
     "samylin": {"days": 30, "use_qty": True, "visible_text": "Samylin"},
     "cystaid": {"days": 30, "use_qty": False, "visible_text": "Cystaid"},
-    "kennel cough": {"days": 30, "use_qty": False, "visible_text": "Kennel Cough vaccine"},
+    "kennel cough": {"days": 365, "use_qty": False, "visible_text": "Kennel Cough vaccine"},
 }
 
 # --------------------------------
@@ -1029,6 +1029,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
