@@ -707,42 +707,43 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         if st.session_state.get("editing_template", False):
             current_template = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
         
-            # Textarea managed by Streamlit
-            st.session_state["wa_template_editor"] = st.text_area(
+            # Streamlit text area (safe state management)
+            template_editor_value = st.text_area(
                 "Edit WhatsApp Template",
                 value=current_template,
                 height=160,
                 key="wa_template_editor"
             )
         
-            # Insert variable buttons (blue)
+            # Insert variable buttons
             st.markdown("Insert variable:")
             ph_buttons = ["[Client Name]", "[Animal Name]", "[Item]", "[Due Date]", "[User Name]"]
             ph_cols = st.columns(len(ph_buttons))
             for i, ph in enumerate(ph_buttons):
                 if ph_cols[i].button(ph, key=f"ph_{ph}_{msg_key}"):
+                    # Append variable to current editor text
                     st.session_state["wa_template_editor"] += " " + ph
         
-            # Save button (red)
+            # Save button
             if st.button("💾 Save Template", key=f"save_template_{msg_key}"):
-                st.session_state["wa_template"] = st.session_state["wa_template_editor"]
+                st.session_state["wa_template"] = template_editor_value
                 save_settings()
                 st.session_state["editing_template"] = False
                 st.success("Template updated!")
         
-            # Custom CSS
+            # Custom CSS (red save button, blue variable buttons)
             st.markdown(
                 """
                 <style>
+                div.stButton > button[kind="secondary"] {
+                    background-color: #007bff;
+                    color: white;
+                    margin-right: 6px;
+                }
                 div.stButton > button:first-child {
                     background-color: #ff4d4d;
                     color: white;
                     font-weight: bold;
-                }
-                div.stButton > button {
-                    background-color: #007bff;
-                    color: white;
-                    margin-right: 6px;
                 }
                 </style>
                 """,
@@ -1094,6 +1095,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
