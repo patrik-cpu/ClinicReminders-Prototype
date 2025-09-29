@@ -848,7 +848,7 @@ if working_df is not None:
                         if str(i).strip()
                     )))
                 )
-            )
+            ),
 
             "Qty": g["Quantity"].sum(min_count=1),
             "Days": g["IntervalDays"].apply(
@@ -1173,6 +1173,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
