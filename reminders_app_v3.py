@@ -301,7 +301,11 @@ def map_intervals(df, rules):
                         df.at[idx, "IntervalDays"] = row["Quantity"] * settings["days"]
                     else:
                         df.at[idx, "IntervalDays"] = settings["days"]
-        df.at[idx, "MatchedItems"] = matches if matches else [row["Plan Item Name"]]
+        # always store matches
+        if matches:
+            df.at[idx, "MatchedItems"] = matches
+        else:
+            df.at[idx, "MatchedItems"] = [row["Plan Item Name"]]
 
     return df
 
@@ -748,7 +752,9 @@ if working_df is not None:
         .agg({
             "ChargeDateFmt": "max",
             "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
-            "MatchedItems": lambda lists: simplify_vaccine_text(format_items(sorted({i for sub in lists for i in sub}))),
+            "MatchedItems": lambda lists: simplify_vaccine_text(
+                format_items(sorted({i for sub in lists for i in sub}))
+            ),
             "Quantity": "sum",
             "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
         })
@@ -763,6 +769,7 @@ if working_df is not None:
             "Quantity": "Qty",
         })
     )
+
 
 
     grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
@@ -1073,6 +1080,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
