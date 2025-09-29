@@ -755,9 +755,15 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     streamlitInput.type = "text";
                     streamlitInput.name = "wa_template_update";
                     streamlitInput.value = template;
+                    streamlitInput.style.display = "none";   // hide
                     document.body.appendChild(streamlitInput);
-                    const event = new Event("input", {{ bubbles: true }});
+                    
+                    const event = new Event("input", { bubbles: true });
                     streamlitInput.dispatchEvent(event);
+                    
+                    // ✅ remove immediately so it doesn’t render in Streamlit
+                    document.body.removeChild(streamlitInput);
+
                 }}
                 </script>
                 """,
@@ -1117,6 +1123,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
