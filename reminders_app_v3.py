@@ -885,7 +885,7 @@ if working_df is not None:
             st.session_state["rules"] = updated
         
             save_settings()  # ✅ ensure JSON is written before rerun
-            st.experimental_rerun()
+            st.rerun()
 
 
     with colR:
@@ -899,7 +899,7 @@ if working_df is not None:
             st.session_state["form_version"] += 1
         
             save_settings()  # ✅ ensure persistence
-            st.experimental_rerun()
+            st.rerun()
 
     with colTip:
         st.markdown("### 💡 Tip")
@@ -1064,6 +1064,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
