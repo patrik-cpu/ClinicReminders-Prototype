@@ -583,7 +583,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
         current_message = st.session_state.get(msg_key, "")
 
-        # HTML block: phone input + WA/Copy buttons
+                # HTML block: phone input + WA/Copy buttons
         components.html(
             f'''
             <html>
@@ -676,9 +676,8 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     if (phoneClean) {{
                       url = `https://wa.me/${{phoneClean}}${{encMsg ? "?text=" + encMsg : ""}}`;
                     }} else {{
-                      // No phone → copy automatically before opening
                       await copyToClipboard(MESSAGE_RAW || '');
-                      url = "https://wa.me/";  // forward/search
+                      url = "https://wa.me/"; 
                     }}
                     window.open(url, '_blank', 'noopener');
                   }});
@@ -696,32 +695,31 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             height=120,
         )
 
-        # Change Template button + editor
-        if st.button("✏️ Change Template", key=f"{key_prefix}_template_{msg_key}"):
-            st.session_state["editing_template"] = True
+    # ✅ Place Change Template button *outside* the HTML block
+    if st.button("✏️ Change Template", key=f"{key_prefix}_template_{msg_key}"):
+        st.session_state["editing_template"] = True
 
-        if st.session_state.get("editing_template", False):
-            st.markdown("### ✏️ Edit WhatsApp Template")
-            template_text = st.text_area(
-                "Template (use placeholders like [Client Name], [Animal Name], etc.)",
-                value=st.session_state.get("wa_template", DEFAULT_TEMPLATE),
-                key="wa_template_editor",
-                height=150
-            )
+    if st.session_state.get("editing_template", False):
+        st.markdown("### ✏️ Edit WhatsApp Template")
+        template_text = st.text_area(
+            "Template (use placeholders like [Client Name], [Animal Name], etc.)",
+            value=st.session_state.get("wa_template", DEFAULT_TEMPLATE),
+            key="wa_template_editor",
+            height=150
+        )
 
-            st.markdown("Insert variable:")
-            placeholder_buttons = ["[Client Name]", "[Animal Name]", "[Item]", "[Due Date]", "[User Name]"]
-            ph_cols = st.columns(len(placeholder_buttons))
-            for i, ph in enumerate(placeholder_buttons):
-                if ph_cols[i].button(ph, key=f"ph_{ph}_{msg_key}"):
-                    st.session_state["wa_template_editor"] += " " + ph
+        st.markdown("Insert variable:")
+        placeholder_buttons = ["[Client Name]", "[Animal Name]", "[Item]", "[Due Date]", "[User Name]"]
+        ph_cols = st.columns(len(placeholder_buttons))
+        for i, ph in enumerate(placeholder_buttons):
+            if ph_cols[i].button(ph, key=f"ph_{ph}_{msg_key}"):
+                st.session_state["wa_template_editor"] += " " + ph
 
-            if st.button("💾 Save Template", key=f"save_template_{msg_key}"):
-                st.session_state["wa_template"] = st.session_state["wa_template_editor"]
-                save_settings()
-                st.session_state["editing_template"] = False
-                st.success("Template updated!")
-
+        if st.button("💾 Save Template", key=f"save_template_{msg_key}"):
+            st.session_state["wa_template"] = st.session_state["wa_template_editor"]
+            save_settings()
+            st.session_state["editing_template"] = False
+            st.success("Template updated!")
     # ⚠️ Warning note under buttons
     st.markdown(
         "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
@@ -1066,6 +1064,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
