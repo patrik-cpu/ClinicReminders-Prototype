@@ -551,7 +551,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
             first_name  = vals['Client Name'].split()[0].strip() if vals['Client Name'] else "there"
             animal_name = vals['Animal Name'].strip() if vals['Animal Name'] else "your pet"
-            plan_for_msg = vals["Plan Item"].strip()
+            plan_for_msg = vals["Item"].strip()
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
             closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
@@ -569,7 +569,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             )
             st.session_state[msg_key] = msg
 
-
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
@@ -584,7 +583,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
         current_message = st.session_state.get(msg_key, "")
 
-        # HTML block: phone input + buttons
+        # HTML block: phone input + WA/Copy buttons
         components.html(
             f'''
             <html>
@@ -635,10 +634,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     transform: translateY(2px);
                     filter: brightness(85%);
                   }}
-                  .template-btn {{
-                    background-color: #007BFF;
-                    color: white;
-                  }}
                 </style>
               </head>
               <body>
@@ -647,17 +642,16 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     <input id="phoneInput" type="text" inputmode="tel"
                            placeholder="+9715XXXXXXXX" aria-label="Phone number (with country code)">
                   </div>
-        
+
                   <div class="button-row">
                     <button class="wa-btn" id="waBtn">📲 Open in WhatsApp</button>
                     <button class="copy-btn" id="copyBtn">📋 Copy to Clipboard</button>
-                    <button class="template-btn" id="templateBtn">✏️ Change Template</button>
                   </div>
                 </div>
-        
+
                 <script>
                   const MESSAGE_RAW = {json.dumps(current_message)};
-        
+
                   async function copyToClipboard(text) {{
                     try {{
                       await navigator.clipboard.writeText(text);
@@ -671,13 +665,13 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                       }}
                     }}
                   }}
-        
+
                   document.getElementById('waBtn').addEventListener('click', async function(e) {{
                     e.preventDefault();
                     const rawPhone = document.getElementById('phoneInput').value || '';
                     const phoneClean = rawPhone.replace(/[^0-9]/g, '');
                     const encMsg = encodeURIComponent(MESSAGE_RAW || '');
-        
+
                     let url = '';
                     if (phoneClean) {{
                       url = `https://wa.me/${{phoneClean}}${{encMsg ? "?text=" + encMsg : ""}}`;
@@ -688,26 +682,12 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     }}
                     window.open(url, '_blank', 'noopener');
                   }});
-        
+
                   document.getElementById('copyBtn').addEventListener('click', async function() {{
                     await copyToClipboard(MESSAGE_RAW || '');
                     const old = this.innerText;
                     this.innerText = '✅ Copied!';
                     setTimeout(() => this.innerText = old, 1500);
-                  }});
-        
-                  document.getElementById('templateBtn').addEventListener('click', function(e) {{
-                    e.preventDefault();
-                    // Trigger Streamlit rerun with a session state flag
-                    const streamlitEvent = new Event("change");
-                    const hiddenInput = document.createElement("input");
-                    hiddenInput.type = "text";
-                    hiddenInput.name = "trigger_template_edit";
-                    hiddenInput.value = "true";
-                    hiddenInput.style.display = "none";
-                    document.body.appendChild(hiddenInput);
-                    hiddenInput.dispatchEvent(streamlitEvent);
-                    hiddenInput.remove();
                   }});
                 </script>
               </body>
@@ -715,13 +695,39 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             ''',
             height=120,
         )
+
+        # Change Template button + editor
+        if st.button("✏️ Change Template", key=f"{key_prefix}_template_{msg_key}"):
+            st.session_state["editing_template"] = True
+
+        if st.session_state.get("editing_template", False):
+            st.markdown("### ✏️ Edit WhatsApp Template")
+            template_text = st.text_area(
+                "Template (use placeholders like [Client Name], [Animal Name], etc.)",
+                value=st.session_state.get("wa_template", DEFAULT_TEMPLATE),
+                key="wa_template_editor",
+                height=150
+            )
+
+            st.markdown("Insert variable:")
+            placeholder_buttons = ["[Client Name]", "[Animal Name]", "[Item]", "[Due Date]", "[User Name]"]
+            ph_cols = st.columns(len(placeholder_buttons))
+            for i, ph in enumerate(placeholder_buttons):
+                if ph_cols[i].button(ph, key=f"ph_{ph}_{msg_key}"):
+                    st.session_state["wa_template_editor"] += " " + ph
+
+            if st.button("💾 Save Template", key=f"save_template_{msg_key}"):
+                st.session_state["wa_template"] = st.session_state["wa_template_editor"]
+                save_settings()
+                st.session_state["editing_template"] = False
+                st.success("Template updated!")
+
     # ⚠️ Warning note under buttons
     st.markdown(
         "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
         "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
         unsafe_allow_html=True
     )
-
 
     with comp_tip:
         st.markdown("### 💡 Tip")
@@ -1060,6 +1066,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
