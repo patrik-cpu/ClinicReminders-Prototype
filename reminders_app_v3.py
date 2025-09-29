@@ -94,6 +94,7 @@ DEFAULT_RULES = {
     "cardiac ultrasound": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
     "ultrasound - cardiac": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
     "caniverm": {"days": 90, "use_qty": False, "visible_text": "Caniverm"},
+    "deworm": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "milbem": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "milpro": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "bravecto plus": {"days": 60, "use_qty": True, "visible_text": "Bravecto Plus"},
@@ -1165,6 +1166,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
