@@ -80,7 +80,7 @@ st.markdown(
 # --------------------------------
 DEFAULT_RULES = {
     "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies vaccine"},
-    "pch": {"days": 365, "use_qty": False, "visible_text": "Annual vaccine"},
+    "pch": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
     "dhppil": {"days": 365, "use_qty": False, "visible_text": "DHPPIL vaccine"},
     "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia vaccine"},
     "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
@@ -387,7 +387,7 @@ def parse_dates(series: pd.Series) -> pd.Series:
     return pd.to_datetime(s, errors="coerce")
 
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
-    """Guarantee all columns needed for grouping exist with sane values."""
+    """Guarantee all columns needed for grouping exist and are FRESH (recomputed every call)."""
     if df is None or df.empty:
         return pd.DataFrame(columns=[
             "DueDateFmt","Client Name","ChargeDateFmt","Patient Name",
@@ -400,45 +400,30 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     if "Quantity" not in df.columns:
         df["Quantity"] = 1
 
-    # Ensure MatchedItems & IntervalDays exist (use map_intervals if needed)
-    if "MatchedItems" not in df.columns or "IntervalDays" not in df.columns:
-        df = map_intervals(df, rules)
+    # ✅ ALWAYS remap with the current rules (do not rely on stale columns)
+    df = map_intervals(df, rules)
 
-    if "IntervalDays" not in df.columns:
-        df["IntervalDays"] = pd.NA
-
-    # Dates: make sure Planitem Performed is datetime
+    # Dates: ensure Planitem Performed is datetime
     if "Planitem Performed" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["Planitem Performed"]):
         df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
 
-    # Compute NextDueDate if missing
-    if "NextDueDate" not in df.columns:
-        days = pd.to_numeric(df["IntervalDays"], errors="coerce")
-        df["NextDueDate"] = pd.to_datetime(df.get("Planitem Performed")) + pd.to_timedelta(days, unit="D")
+    # ✅ ALWAYS recompute NextDueDate & pretty strings from (possibly changed) IntervalDays
+    days = pd.to_numeric(df["IntervalDays"], errors="coerce")
+    df["NextDueDate"] = pd.to_datetime(df.get("Planitem Performed")) + pd.to_timedelta(days, unit="D")
 
-    # Pretty date strings
-    if "ChargeDateFmt" not in df.columns:
-        if "Planitem Performed" in df.columns:
-            df["ChargeDateFmt"] = pd.to_datetime(df["Planitem Performed"]).dt.strftime("%d %b %Y")
-        else:
-            df["ChargeDateFmt"] = ""
+    df["ChargeDateFmt"] = pd.to_datetime(df.get("Planitem Performed")).dt.strftime("%d %b %Y")
+    df["DueDateFmt"]    = pd.to_datetime(df.get("NextDueDate")).dt.strftime("%d %b %Y")
 
-    if "DueDateFmt" not in df.columns:
-        if "NextDueDate" in df.columns:
-            df["DueDateFmt"] = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
-        else:
-            df["DueDateFmt"] = ""
-
-    # Ensure these text columns exist
+    # Ensure text columns exist
     if "Patient Name" not in df.columns:
         df["Patient Name"] = ""
     if "Client Name" not in df.columns:
         df["Client Name"] = ""
 
-    # Ensure MatchedItems is always a list[str]
+    # Ensure MatchedItems is a list[str]
     def _to_list(v):
         if isinstance(v, list):
-            return [str(x) for x in v if isinstance(x, (str, int, float)) and str(x).strip()]
+            return [str(x) for x in v if str(x).strip()]
         if pd.isna(v):
             return []
         return [str(v)]
@@ -1173,6 +1158,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
