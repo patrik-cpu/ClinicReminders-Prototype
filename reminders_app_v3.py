@@ -54,7 +54,7 @@ st.markdown(
 
     /* Make page use full width */
     .block-container {
-        max-width: 100% !important;
+        max-width: 90% !important;
         padding-left: 2rem;
         padding-right: 2rem;
     }
@@ -1060,6 +1060,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
