@@ -699,95 +699,56 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         #-----------------------------------
         # Template Editor
         #-----------------------------------
-   
+        
         if st.button("✏️ Change Template", key=f"{key_prefix}_template_{msg_key}"):
             st.session_state["editing_template"] = True
-    
+        
         # Show custom editor if flag set
         if st.session_state.get("editing_template", False):
             current_template = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
-    
-            components.html(
-                f"""
-                <style>
-                    .red-btn {{
-                        background-color: #ff4d4d;
-                        color: white;
-                        font-weight: bold;
-                        border: none;
-                        padding: 8px 14px;
-                        border-radius: 6px;
-                        cursor: pointer;
-                    }}
-                    .blue-btn {{
-                        background-color: #007bff;
-                        color: white;
-                        font-weight: bold;
-                        border: none;
-                        padding: 6px 12px;
-                        border-radius: 6px;
-                        cursor: pointer;
-                        margin-right: 6px;
-                    }}
-                    #templateEditor {{
-                        width: 100%;
-                        height: 160px;
-                        font-size: 15px;
-                        padding: 8px;
-                        border-radius: 6px;
-                        border: 1px solid #ccc;
-                        resize: vertical;
-                    }}
-                </style>
-    
-                <textarea id="templateEditor">{current_template}</textarea>
-                <br/><br/>
-                <div>
-                    <button class="blue-btn" onclick="insertAtCursor('[Client Name]')">[Client Name]</button>
-                    <button class="blue-btn" onclick="insertAtCursor('[Animal Name]')">[Animal Name]</button>
-                    <button class="blue-btn" onclick="insertAtCursor('[Item]')">[Item]</button>
-                    <button class="blue-btn" onclick="insertAtCursor('[Due Date]')">[Due Date]</button>
-                    <button class="blue-btn" onclick="insertAtCursor('[User Name]')">[User Name]</button>
-                </div>
-                <br/>
-                <button class="red-btn" onclick="saveTemplate()">💾 Save Template</button>
-    
-                <script>
-                function insertAtCursor(text) {{
-                    var txtarea = document.getElementById("templateEditor");
-                    if (!txtarea) return;
-                    var start = txtarea.selectionStart;
-                    var end = txtarea.selectionEnd;
-                    var before = txtarea.value.substring(0, start);
-                    var after  = txtarea.value.substring(end, txtarea.value.length);
-                    txtarea.value = before + text + after;
-                    txtarea.selectionStart = txtarea.selectionEnd = start + text.length;
-                    txtarea.focus();
-                }}
-    
-                function saveTemplate() {{
-                    const template = document.getElementById("templateEditor").value;
-                    const streamlitInput = document.createElement("input");
-                    streamlitInput.type = "text";
-                    streamlitInput.name = "wa_template_update";
-                    streamlitInput.value = template;
-                    document.body.appendChild(streamlitInput);
-                    const event = new Event("input", {{ bubbles: true }});
-                    streamlitInput.dispatchEvent(event);
-                }}
-                </script>
-                """,
-                height=400,
+        
+            # Textarea managed by Streamlit
+            st.session_state["wa_template_editor"] = st.text_area(
+                "Edit WhatsApp Template",
+                value=current_template,
+                height=160,
+                key="wa_template_editor"
             )
-
-            # Listen for the hidden input update
-            updated_template = st.session_state.get("wa_template_update")
-            if updated_template:
-                st.session_state["wa_template"] = updated_template
+        
+            # Insert variable buttons (blue)
+            st.markdown("Insert variable:")
+            ph_buttons = ["[Client Name]", "[Animal Name]", "[Item]", "[Due Date]", "[User Name]"]
+            ph_cols = st.columns(len(ph_buttons))
+            for i, ph in enumerate(ph_buttons):
+                if ph_cols[i].button(ph, key=f"ph_{ph}_{msg_key}"):
+                    st.session_state["wa_template_editor"] += " " + ph
+        
+            # Save button (red)
+            if st.button("💾 Save Template", key=f"save_template_{msg_key}"):
+                st.session_state["wa_template"] = st.session_state["wa_template_editor"]
                 save_settings()
                 st.session_state["editing_template"] = False
                 st.success("Template updated!")
-                st.session_state["wa_template_update"] = ""
+        
+            # Custom CSS
+            st.markdown(
+                """
+                <style>
+                div.stButton > button:first-child {
+                    background-color: #ff4d4d;
+                    color: white;
+                    font-weight: bold;
+                }
+                div.stButton > button {
+                    background-color: #007bff;
+                    color: white;
+                    margin-right: 6px;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+
 
     # ⚠️ Warning note under buttons
     st.markdown(
@@ -1133,6 +1094,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
