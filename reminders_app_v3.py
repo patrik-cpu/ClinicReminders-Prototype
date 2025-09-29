@@ -297,17 +297,12 @@ def map_intervals(df, rules):
             if re.search(rf"\b{re.escape(rule)}\b", name):
                 matches.append(settings.get("visible_text", rule.title()))
                 if pd.isna(df.at[idx, "IntervalDays"]):
-                    if settings["use_qty"]:
-                        df.at[idx, "IntervalDays"] = row["Quantity"] * settings["days"]
-                    else:
-                        df.at[idx, "IntervalDays"] = settings["days"]
-        # always store matches
-        if matches:
-            df.at[idx, "MatchedItems"] = matches
-        else:
-            df.at[idx, "MatchedItems"] = [row["Plan Item Name"]]
-
+                    df.at[idx, "IntervalDays"] = (
+                        row["Quantity"] * settings["days"] if settings["use_qty"] else settings["days"]
+                    )
+        df.at[idx, "MatchedItems"] = matches if matches else [row["Plan Item Name"]]
     return df
+
 
 def parse_dates(series: pd.Series) -> pd.Series:
     """
@@ -770,8 +765,6 @@ if working_df is not None:
         })
     )
 
-
-
     grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
     grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
 
@@ -796,7 +789,9 @@ if working_df is not None:
                 .agg({
                     "ChargeDateFmt": "max",
                     "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
-                    "Plan Item Name": lambda x: format_items(sorted(set(x.dropna()))),
+                    "MatchedItems": lambda lists: simplify_vaccine_text(
+                        format_items(sorted({i for sub in lists for i in sub}))
+                    ),
                     "Quantity": "sum",
                     "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
                 })
@@ -806,11 +801,12 @@ if working_df is not None:
                     "ChargeDateFmt": "Charge Date",
                     "Client Name": "Client Name",
                     "Patient Name": "Animal Name",
-                    "Plan Item Name": "Plan Item",
+                    "MatchedItems": "Plan Item",
                     "IntervalDays": "Days",
                     "Quantity": "Qty",
                 })
             )
+
             
             grouped_search["Qty"] = pd.to_numeric(grouped_search["Qty"], errors="coerce").fillna(0).astype(int)
             grouped_search = grouped_search[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
@@ -1080,6 +1076,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
