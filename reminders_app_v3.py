@@ -713,7 +713,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
               </body>
             </html>
             ''',
-            height=160,
+            height=120,
         )
     # ⚠️ Warning note under buttons
     st.markdown(
@@ -1060,6 +1060,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
