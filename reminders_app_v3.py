@@ -288,32 +288,31 @@ def map_intervals(df, rules):
     df["IntervalDays"] = pd.NA
 
     for idx, row in df.iterrows():
+        # normalize invoice text
         name = str(row["Plan Item Name"]).lower()
-        # Replace non-breaking spaces and punctuation with normal spaces
         name = name.replace("\u00a0", " ").replace("\ufeff", " ")
-        name = re.sub(r"[^a-z0-9 ]", " ", name)   # keep only letters, numbers, spaces
+        name = re.sub(r"[^a-z0-9 ]", " ", name)   # drop punctuation
         name = re.sub(r"\s+", " ", name).strip()
 
-        matches = []
-        interval_values = []
+        matches, interval_values = [], []
 
-        for rule, settings in sorted(rules.items(), key=lambda x: -len(x[0])):
-            if re.search(rf"\b{re.escape(rule)}\b", name):
+        for rule, settings in rules.items():
+            rule_norm = rule.lower().strip()
+            if rule_norm in name:  # simple substring match, more forgiving
                 matches.append(settings.get("visible_text", rule.title()))
                 interval_values.append(
                     row["Quantity"] * settings["days"] if settings["use_qty"] else settings["days"]
                 )
 
-        # store matches
         if matches:
             df.at[idx, "MatchedItems"] = matches
-            # choose min interval if multiple (safest default)
             df.at[idx, "IntervalDays"] = min(interval_values) if interval_values else pd.NA
         else:
             df.at[idx, "MatchedItems"] = [row["Plan Item Name"]]
             df.at[idx, "IntervalDays"] = pd.NA
 
     return df
+
 
 
 def parse_dates(series: pd.Series) -> pd.Series:
@@ -1149,4 +1148,5 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
