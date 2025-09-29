@@ -843,7 +843,8 @@ if working_df is not None:
             with cols[1]:
                 new_values.setdefault(rule, {})["days"] = st.text_input(
                     "Days", value=str(settings["days"]),
-                    key=f"days_{safe_rule}_{ver}"
+                    key=f"days_{safe_rule}_{ver}",
+                    label_visibility="collapsed"
                 )
     
             with cols[2]:
@@ -857,7 +858,8 @@ if working_df is not None:
             with cols[3]:
                 new_values[rule]["visible_text"] = st.text_input(
                     "Visible Text", value=settings.get("visible_text",""),
-                    key=f"vis_{safe_rule}_{ver}"
+                    key=f"vis_{safe_rule}_{ver}",
+                    label_visibility="collapsed"
                 )
     
             with cols[4]:
@@ -1062,6 +1064,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
