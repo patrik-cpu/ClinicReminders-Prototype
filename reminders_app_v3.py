@@ -1,13 +1,14 @@
 import pandas as pd
 import streamlit as st
-import urllib.parse
 import re
 import json, os
-from datetime import timedelta, date
 import streamlit.components.v1 as components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+@st.cache_data(ttl=30)
+def fetch_feedback_cached(limit=500):
+    return fetch_feedback(limit)
 
 # Sidebar "table of contents"
 st.sidebar.markdown(
@@ -114,38 +115,6 @@ DEFAULT_RULES = {
 # (Note: on Streamlit Cloud this is ephemeral)
 # --------------------------------
 SETTINGS_FILE = "clinicreminders_settings.json"
-
-# --------------------------------
-# Admin — Feedback Inbox (secret)
-# --------------------------------
-if st.session_state.get("admin_unlocked"):
-    st.markdown("## 🔐 Admin — Feedback Inbox")
-    rows = _fetch_feedback(conn_fb, limit=500)
-    if rows:
-        import pandas as pd
-        df_fb = pd.DataFrame(rows, columns=["ID", "Created (UTC)", "Name", "Email", "Message"])
-        st.dataframe(df_fb, use_container_width=True, hide_index=True)
-
-        # Export
-        csv = df_fb.to_csv(index=False).encode("utf-8")
-        st.download_button("Download CSV", data=csv, file_name="feedback_export.csv", mime="text/csv")
-
-        # Delete single entry
-        st.markdown("### Delete an entry")
-        del_id = st.text_input("Enter ID to delete", value="", key="del_id")
-        if st.button("Delete", key="del_btn"):
-            try:
-                if del_id.strip().isdigit():
-                    with sqlite3.connect("feedback.db") as _c:
-                        _c.execute("DELETE FROM feedback WHERE id = ?", (int(del_id.strip()),))
-                        _c.commit()
-                    st.success(f"Entry {del_id} deleted. Refresh to update the table.")
-                else:
-                    st.warning("Please enter a numeric ID.")
-            except Exception as e:
-                st.error(f"Delete failed: {e}")
-    else:
-        st.info("No feedback yet.")
 
 def save_settings():
     settings = {
@@ -980,29 +949,54 @@ if working_df is not None:
                 st.error("Enter a valid exclusion term")
 
 # --- Google Sheets Setup ---
-SHEET_NAME = "ClinicReminders Feedback"
+import json
 
-scope = ["https://spreadsheets.google.com/feeds",
+SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
+SCOPE = ["https://spreadsheets.google.com/feeds",
          "https://www.googleapis.com/auth/drive"]
-# Load from Streamlit secrets
-creds_dict = st.secrets["gcp_service_account"]
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-client = gspread.authorize(creds)
-client = gspread.authorize(creds)
-sheet = client.open(SHEET_NAME).sheet1
 
+# Load creds (Cloud via secrets; local fallback to file if present)
+try:
+    creds_dict = st.secrets["gcp_service_account"]
+except Exception:
+    try:
+        with open("google-credentials.json", "r") as f:
+            creds_dict = json.load(f)
+    except FileNotFoundError:
+        st.error("Google credentials not found. Add them in Streamlit Secrets or google-credentials.json.")
+        st.stop()
+
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+
+try:
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).sheet1
+except Exception as e:
+    st.error("Couldn't connect to Google Sheets. Check sharing, API enablement, and Sheet ID.")
+    st.stop()
+
+def _next_id_from_column():
+    """Find the max numeric ID in column A and add 1 (robust to mid-sheet deletions)."""
+    try:
+        col_ids = sheet.col_values(1)[1:]  # skip header
+        nums = [int(x) for x in col_ids if x.strip().isdigit()]
+        return (max(nums) if nums else 0) + 1
+    except Exception:
+        # Fallback if parsing fails
+        return len(sheet.get_all_values())
 
 def insert_feedback(name, email, message):
-    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-    # Auto ID = number of rows + 1
-    next_id = len(sheet.get_all_values())
-    sheet.append_row([next_id, now, name or "", email or "", message])
+    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    next_id = _next_id_from_column()
+    sheet.append_row([next_id, now, name or "", email or "", message],
+                     value_input_option="USER_ENTERED")
 
 
 def fetch_feedback(limit=500):
     rows = sheet.get_all_values()
-    headers, data = rows[0], rows[1:]
+    data = rows[1:] if rows else []
     return data[-limit:] if data else []
+
 
 
 # Feedback section
@@ -1035,4 +1029,5 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
