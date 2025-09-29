@@ -536,7 +536,7 @@ def render_table(df, title, key_prefix, msg_key, rules):
 def render_table_with_buttons(df, key_prefix, msg_key):
     # Column layout
     col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
-    headers = ["Due Date","Charge Date","Client Name","Animal Name","Item","Qty","Days","WA"]
+    headers = ["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days","WA"]
     cols = st.columns(col_widths)
     for c, head in zip(cols, headers):
         c.markdown(f"**{head}**")
@@ -1133,6 +1133,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
