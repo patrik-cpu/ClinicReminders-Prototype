@@ -783,6 +783,11 @@ if working_df is not None:
             df["_item_lower"].str.contains(q, regex=False)
         )
         filtered = df[mask].sort_values("NextDueDate")
+    
+        # ✅ make sure MatchedItems exists
+        if "MatchedItems" not in filtered.columns:
+            filtered = map_intervals(filtered, st.session_state["rules"])
+    
         if not filtered.empty:
             grouped_search = (
                 filtered.groupby(["DueDateFmt", "Client Name"], dropna=False)
@@ -806,13 +811,11 @@ if working_df is not None:
                     "Quantity": "Qty",
                 })
             )
-
-            
+    
             grouped_search["Qty"] = pd.to_numeric(grouped_search["Qty"], errors="coerce").fillna(0).astype(int)
             grouped_search = grouped_search[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
-            
+    
             render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
-
         else:
             st.info("No matches found.")
 
@@ -1076,6 +1079,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
