@@ -1,10 +1,14 @@
 import pandas as pd
 import streamlit as st
-import urllib.parse
 import re
 import json, os
-from datetime import timedelta, date
 import streamlit.components.v1 as components
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import date, datetime, timedelta
+@st.cache_data(ttl=30)
+def fetch_feedback_cached(limit=500):
+    return fetch_feedback(limit)
 
 # Sidebar "table of contents"
 st.sidebar.markdown(
@@ -28,7 +32,7 @@ st.sidebar.markdown(
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders Prototype v3.4 (stable)")
+    st.title("ClinicReminders Prototype v3.5 (dev)")
 st.markdown("---")
 
 # --------------------------------
@@ -75,10 +79,10 @@ st.markdown(
 # Defaults
 # --------------------------------
 DEFAULT_RULES = {
-    "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies Vaccine"},
-    "dhpp": {"days": 365, "use_qty": False, "visible_text": "DHPPIL Vaccine"},
-    "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia Vaccine"},
-    "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat Vaccine"},
+    "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies vaccine"},
+    "dhpp": {"days": 365, "use_qty": False, "visible_text": "DHPPIL vaccine"},
+    "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia vaccine"},
+    "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
     "dental cat": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
     "groom": {"days": 90, "use_qty": False, "visible_text": "Groom"},
     "feliway": {"days": 60, "use_qty": True, "visible_text": "Feliway"},
@@ -89,7 +93,7 @@ DEFAULT_RULES = {
     "dental scale and polish": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
     "cardiac ultrasound": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
     "ultrasound - cardiac": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
-    "caniverm": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
+    "caniverm": {"days": 90, "use_qty": False, "visible_text": "Caniverm"},
     "milbem": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "milpro": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "bravecto plus": {"days": 60, "use_qty": True, "visible_text": "Bravecto Plus"},
@@ -103,8 +107,18 @@ DEFAULT_RULES = {
     "solensia": {"days": 30, "use_qty": False, "visible_text": "Solensia"},
     "samylin": {"days": 30, "use_qty": True, "visible_text": "Samylin"},
     "cystaid": {"days": 30, "use_qty": False, "visible_text": "Cystaid"},
-    "kennel cough": {"days": 30, "use_qty": False, "visible_text": "Kennel Cough Vaccine"},
+    "kennel cough": {"days": 30, "use_qty": False, "visible_text": "Kennel Cough vaccine"},
 }
+
+# --------------------------------
+# WhatsApp Template Defaults
+# --------------------------------
+DEFAULT_TEMPLATE = (
+    "Hi [Client Name], this is [User Name] reminding you that "
+    "[Animal Name] [is/are] due for their [Item] on [Due Date]. "
+    "Get in touch with us any time, and we look forward to hearing from you soon!"
+)
+
 
 # --------------------------------
 # Settings persistence (local JSON)
@@ -112,43 +126,12 @@ DEFAULT_RULES = {
 # --------------------------------
 SETTINGS_FILE = "clinicreminders_settings.json"
 
-# --------------------------------
-# Admin — Feedback Inbox (secret)
-# --------------------------------
-if st.session_state.get("admin_unlocked"):
-    st.markdown("## 🔐 Admin — Feedback Inbox")
-    rows = _fetch_feedback(conn_fb, limit=500)
-    if rows:
-        import pandas as pd
-        df_fb = pd.DataFrame(rows, columns=["ID", "Created (UTC)", "Name", "Email", "Message"])
-        st.dataframe(df_fb, use_container_width=True, hide_index=True)
-
-        # Export
-        csv = df_fb.to_csv(index=False).encode("utf-8")
-        st.download_button("Download CSV", data=csv, file_name="feedback_export.csv", mime="text/csv")
-
-        # Delete single entry
-        st.markdown("### Delete an entry")
-        del_id = st.text_input("Enter ID to delete", value="", key="del_id")
-        if st.button("Delete", key="del_btn"):
-            try:
-                if del_id.strip().isdigit():
-                    with sqlite3.connect("feedback.db") as _c:
-                        _c.execute("DELETE FROM feedback WHERE id = ?", (int(del_id.strip()),))
-                        _c.commit()
-                    st.success(f"Entry {del_id} deleted. Refresh to update the table.")
-                else:
-                    st.warning("Please enter a numeric ID.")
-            except Exception as e:
-                st.error(f"Delete failed: {e}")
-    else:
-        st.info("No feedback yet.")
-
 def save_settings():
     settings = {
         "rules": st.session_state["rules"],
         "exclusions": st.session_state["exclusions"],
         "user_name": st.session_state["user_name"],
+        "wa_template": st.session_state.get("wa_template", DEFAULT_TEMPLATE),  # 👈 add this
     }
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f)
@@ -160,14 +143,13 @@ def load_settings():
         st.session_state["rules"] = settings.get("rules", DEFAULT_RULES.copy())
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
+        st.session_state["wa_template"] = settings.get("wa_template", DEFAULT_TEMPLATE)  # 👈 add this
     else:
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
         st.session_state["user_name"] = ""
+        st.session_state["wa_template"] = DEFAULT_TEMPLATE  # 👈 add this
 
-# --------------------------------
-# PMS definitions
-# --------------------------------
 # --------------------------------
 # PMS definitions
 # --------------------------------
@@ -483,12 +465,12 @@ def process_file(file, rules):
 st.markdown("<h2 id='tutorial'>📖 Tutorial</h2>", unsafe_allow_html=True)
 
 st.info(
-    "1. How it works: ClinicReminders checks when an item was purchased (e.g. Bravecto), "
-    "and sets a reminder for a set number of days ahead (e.g. 90 days).\n"
-    "2. To start, upload your Invoice Transactions CSV(s), and check that the PMS and date range is correct.\n"
-    "3. Click on 'Start Date 7-day Window' to set the first day. You will see reminders coming up for the next 7 days.\n"
-    "4. Review the list of upcoming reminders. To generate a template WhatsApp message, click the WA button and review the output before sending.\n"
-    "5. Review the Search Terms list below the main table to customise the terms, their recurring interval, and other specifics.\n"
+    "1. How it works: ClinicReminders checks when an item/service was purchased (e.g. Bravecto or Dental cleaning), "
+    "and sets a custom future reminder (e.g. 90 days or 1 year).\n"
+    "2. To start, upload your Invoiced Transactions data, and check that the PMS and date range is correct.\n"
+    "3. Once uploaded, click on 'Start Date 7-day Window'. You will see reminders coming up for the next 7 days.\n"
+    "4. Review the list of upcoming reminders. To generate a template WhatsApp message, click the WA button and review the output.\n"
+    "5. Review the Search Terms list below the main table to customise the reminders, their recurring interval, and other specifics.\n"
     "6. You can also Add new terms or Delete terms.\n"
     "7. There's a bit more you can do, but this should be enough to get you started!"
 )
@@ -549,10 +531,11 @@ def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
         st.info("All rows excluded by exclusion list."); return
     render_table_with_buttons(df, key_prefix, msg_key)
+    
 def render_table_with_buttons(df, key_prefix, msg_key):
     # Column layout
     col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
-    headers = ["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days","WA"]
+    headers = ["Due Date","Charge Date","Client Name","Animal Name","Item","Qty","Days","WA"]
     cols = st.columns(col_widths)
     for c, head in zip(cols, headers):
         c.markdown(f"**{head}**")
@@ -574,16 +557,18 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
             verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
 
-            if user:
-                st.session_state[msg_key] = (
-                    f"Hi {first_name}, this is {user} reminding you that "
-                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
-                )
-            else:
-                st.session_state[msg_key] = (
-                    f"Hi {first_name}, this is a reminder letting you know that "
-                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
-                )
+            template = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
+            msg = (
+                template
+                .replace("[Client Name]", first_name)
+                .replace("[Animal Name]", animal_name)
+                .replace("[Item]", plan_for_msg)
+                .replace("[Due Date]", due_date_fmt)
+                .replace("[User Name]", user or "our clinic")
+                .replace("[is/are]", verb)
+            )
+            st.session_state[msg_key] = msg
+
 
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
@@ -650,6 +635,10 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     transform: translateY(2px);
                     filter: brightness(85%);
                   }}
+                  .template-btn {{
+                    background-color: #007BFF;
+                    color: white;
+                  }}
                 </style>
               </head>
               <body>
@@ -658,16 +647,17 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     <input id="phoneInput" type="text" inputmode="tel"
                            placeholder="+9715XXXXXXXX" aria-label="Phone number (with country code)">
                   </div>
-
+        
                   <div class="button-row">
                     <button class="wa-btn" id="waBtn">📲 Open in WhatsApp</button>
                     <button class="copy-btn" id="copyBtn">📋 Copy to Clipboard</button>
+                    <button class="template-btn" id="templateBtn">✏️ Change Template</button>
                   </div>
                 </div>
-
+        
                 <script>
                   const MESSAGE_RAW = {json.dumps(current_message)};
-
+        
                   async function copyToClipboard(text) {{
                     try {{
                       await navigator.clipboard.writeText(text);
@@ -681,13 +671,13 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                       }}
                     }}
                   }}
-
+        
                   document.getElementById('waBtn').addEventListener('click', async function(e) {{
                     e.preventDefault();
                     const rawPhone = document.getElementById('phoneInput').value || '';
                     const phoneClean = rawPhone.replace(/[^0-9]/g, '');
                     const encMsg = encodeURIComponent(MESSAGE_RAW || '');
-
+        
                     let url = '';
                     if (phoneClean) {{
                       url = `https://wa.me/${{phoneClean}}${{encMsg ? "?text=" + encMsg : ""}}`;
@@ -698,18 +688,32 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     }}
                     window.open(url, '_blank', 'noopener');
                   }});
-
+        
                   document.getElementById('copyBtn').addEventListener('click', async function() {{
                     await copyToClipboard(MESSAGE_RAW || '');
                     const old = this.innerText;
                     this.innerText = '✅ Copied!';
                     setTimeout(() => this.innerText = old, 1500);
                   }});
+        
+                  document.getElementById('templateBtn').addEventListener('click', function(e) {{
+                    e.preventDefault();
+                    // Trigger Streamlit rerun with a session state flag
+                    const streamlitEvent = new Event("change");
+                    const hiddenInput = document.createElement("input");
+                    hiddenInput.type = "text";
+                    hiddenInput.name = "trigger_template_edit";
+                    hiddenInput.value = "true";
+                    hiddenInput.style.display = "none";
+                    document.body.appendChild(hiddenInput);
+                    hiddenInput.dispatchEvent(streamlitEvent);
+                    hiddenInput.remove();
+                  }});
                 </script>
               </body>
             </html>
             ''',
-            height=130,
+            height=160,
         )
     # ⚠️ Warning note under buttons
     st.markdown(
@@ -722,8 +726,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     with comp_tip:
         st.markdown("### 💡 Tip")
         st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
-
-
 
 # --------------------------------
 # Main
@@ -906,6 +908,7 @@ if working_df is not None:
             st.session_state["rules"] = reset_rules
             st.session_state["exclusions"] = []  # clear exclusions too
             st.session_state["form_version"] += 1  # 🔥 force widgets to refresh with defaults
+            st.session_state["wa_template"] = DEFAULT_TEMPLATE
             save_settings()
             st.rerun()
 
@@ -976,44 +979,56 @@ if working_df is not None:
             else:
                 st.error("Enter a valid exclusion term")
 
-# --------------------------------
-# Feedback storage (SQLite) + public submit box
-# --------------------------------
-import sqlite3
-from datetime import datetime
+# --- Google Sheets Setup ---
+import json
 
-# DB helpers
-def _init_db():
-    conn = sqlite3.connect("feedback.db")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS feedback (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT NOT NULL,
-            user_name TEXT,
-            user_email TEXT,
-            message TEXT NOT NULL
-        )
-        """
-    )
-    conn.commit()
-    return conn
+SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
+SCOPE = ["https://spreadsheets.google.com/feeds",
+         "https://www.googleapis.com/auth/drive"]
 
-def _insert_feedback(conn, name, email, message):
-    conn.execute(
-        "INSERT INTO feedback (created_at, user_name, user_email, message) VALUES (?, ?, ?, ?)",
-        (datetime.utcnow().isoformat(timespec="seconds")+"Z", name or None, email or None, message),
-    )
-    conn.commit()
+# Load creds (Cloud via secrets; local fallback to file if present)
+try:
+    creds_dict = st.secrets["gcp_service_account"]
+except Exception:
+    try:
+        with open("google-credentials.json", "r") as f:
+            creds_dict = json.load(f)
+    except FileNotFoundError:
+        st.error("Google credentials not found. Add them in Streamlit Secrets or google-credentials.json.")
+        st.stop()
 
-def _fetch_feedback(conn, limit=500):
-    cur = conn.execute(
-        "SELECT id, created_at, COALESCE(user_name, ''), COALESCE(user_email, ''), message "
-        "FROM feedback ORDER BY id DESC LIMIT ?", (limit,)
-    )
-    return cur.fetchall()
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
 
-conn_fb = _init_db()
+try:
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).sheet1
+except Exception as e:
+    st.error("Couldn't connect to Google Sheets. Check sharing, API enablement, and Sheet ID.")
+    st.stop()
+
+def _next_id_from_column():
+    """Find the max numeric ID in column A and add 1 (robust to mid-sheet deletions)."""
+    try:
+        col_ids = sheet.col_values(1)[1:]  # skip header
+        nums = [int(x) for x in col_ids if x.strip().isdigit()]
+        return (max(nums) if nums else 0) + 1
+    except Exception:
+        # Fallback if parsing fails
+        return len(sheet.get_all_values())
+
+def insert_feedback(name, email, message):
+    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    next_id = _next_id_from_column()
+    sheet.append_row([next_id, now, name or "", email or "", message],
+                     value_input_option="USER_ENTERED")
+
+
+def fetch_feedback(limit=500):
+    rows = sheet.get_all_values()
+    data = rows[1:] if rows else []
+    return data[-limit:] if data else []
+
+
 
 # Feedback section
 st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
@@ -1031,78 +1046,20 @@ with fb_col2:
     user_name_for_feedback = st.text_input("Your name (optional)", key="feedback_name", placeholder="Clinic / Your name")
     user_email_for_feedback = st.text_input("Your email (optional)", key="feedback_email", placeholder="you@example.com")
 
-# Always-enabled button → validate after click
 if st.button("Send", key="fb_send"):
     if not feedback_text.strip():
         st.error("Please enter a message before sending.")
     else:
         try:
-            _insert_feedback(conn_fb, user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
+            insert_feedback(user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
             st.success("Thanks! Your message has been recorded.")
 
-            # ✅ Clear inputs by deleting keys, no overwrite
+            # clear inputs
             for k in ["feedback_text", "feedback_name", "feedback_email"]:
                 if k in st.session_state:
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
-st.markdown("---")
 
-# --------------------------------
-# Admin access (bottom of page)
-# --------------------------------
-st.markdown("### 🔐 Admin Access")
-if "show_pw" not in st.session_state:
-    st.session_state["show_pw"] = False
-if "admin_unlocked" not in st.session_state:
-    st.session_state["admin_unlocked"] = False
-
-if not st.session_state["show_pw"]:
-    if st.button("View admin box", key="show_admin_btn"):
-        st.session_state["show_pw"] = True
-
-if st.session_state["show_pw"] and not st.session_state["admin_unlocked"]:
-    password = st.text_input("Enter password", type="password", key="admin_pw")
-    if st.button("Unlock", key="unlock_btn"):
-        if password == "Nova@2025":
-            st.session_state["admin_unlocked"] = True
-            st.success("Admin inbox unlocked")
-        else:
-            st.error("Incorrect password")
-
-if st.session_state["admin_unlocked"]:
-    st.markdown("## 🔐 Admin — Feedback Inbox")
-    rows = _fetch_feedback(conn_fb, limit=500)
-    if rows:
-        import pandas as pd
-        df_fb = pd.DataFrame(rows, columns=["ID", "Created (UTC)", "Name", "Email", "Message"])
-        st.dataframe(df_fb, use_container_width=True, hide_index=True)
-
-        # ✅ Unique key for download button
-        csv = df_fb.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Download CSV",
-            data=csv,
-            file_name="feedback_export.csv",
-            mime="text/csv",
-            key="feedback_download"
-        )
-
-        # Delete single entry
-        st.markdown("### Delete an entry")
-        del_id = st.text_input("Enter ID to delete", value="", key="del_id_admin")
-        if st.button("Delete", key="del_btn_admin"):
-            try:
-                if del_id.strip().isdigit():
-                    with sqlite3.connect("feedback.db") as _c:
-                        _c.execute("DELETE FROM feedback WHERE id = ?", (int(del_id.strip()),))
-                        _c.commit()
-                    st.success(f"Entry {del_id} deleted. Refresh the page to update the table.")
-                else:
-                    st.warning("Please enter a numeric ID.")
-            except Exception as e:
-                st.error(f"Delete failed: {e}")
-    else:
-        st.info("No feedback yet.")
 
 
