@@ -283,22 +283,27 @@ def get_visible_plan_item(item_name: str, rules: dict) -> str:
             return settings.get("visible_text") or item_name
     return item_name
 
+def normalize_item_name(name: str) -> str:
+    if not isinstance(name, str):
+        return ""
+    name = name.lower()
+    name = name.replace("\u00a0", " ").replace("\ufeff", " ")
+    name = re.sub(r"[^a-z0-9]+", " ", name)   # turn -, +, /, () into spaces
+    name = re.sub(r"\s+", " ", name).strip()
+    return name
+
 def map_intervals(df, rules):
     df["MatchedItems"] = [[] for _ in range(len(df))]
     df["IntervalDays"] = pd.NA
 
     for idx, row in df.iterrows():
-        # normalize invoice text
-        name = str(row["Plan Item Name"]).lower()
-        name = name.replace("\u00a0", " ").replace("\ufeff", " ")
-        name = re.sub(r"[^a-z0-9 ]", " ", name)   # drop punctuation
-        name = re.sub(r"\s+", " ", name).strip()
+        # ✅ normalize invoice text once
+        normalized = normalize_item_name(row["Plan Item Name"])
 
         matches, interval_values = [], []
-
         for rule, settings in rules.items():
             rule_norm = rule.lower().strip()
-            if rule_norm in name:  # simple substring match, more forgiving
+            if rule_norm in normalized:   # ✅ safe substring match
                 matches.append(settings.get("visible_text", rule.title()))
                 interval_values.append(
                     row["Quantity"] * settings["days"] if settings["use_qty"] else settings["days"]
@@ -306,14 +311,13 @@ def map_intervals(df, rules):
 
         if matches:
             df.at[idx, "MatchedItems"] = matches
+            # use min interval if multiple rules matched (conservative)
             df.at[idx, "IntervalDays"] = min(interval_values) if interval_values else pd.NA
         else:
             df.at[idx, "MatchedItems"] = [row["Plan Item Name"]]
             df.at[idx, "IntervalDays"] = pd.NA
 
     return df
-
-
 
 def parse_dates(series: pd.Series) -> pd.Series:
     """
@@ -1161,6 +1165,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
