@@ -301,7 +301,7 @@ def map_intervals(df, rules):
     df["IntervalDays"] = pd.NA
     # Sort rules by length (longest first) to avoid overwriting
     for rule, settings in sorted(rules.items(), key=lambda x: -len(x[0])):
-        mask = df["Plan Item Name"].str.contains(rf"\b{re.escape(rule)}\b", case=False, na=False)
+        mask = df["Item"].str.contains(rf"\b{re.escape(rule)}\b", case=False, na=False)
         if settings["use_qty"]:
             df.loc[mask, "IntervalDays"] = df.loc[mask, "Quantity"] * settings["days"]
         else:
@@ -524,8 +524,8 @@ def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
         st.info(f"No reminders in {title}."); return
     df = df.copy()
-    source_col = "Plan Item Name" if "Plan Item Name" in df.columns else "Plan Item"
-    df["Plan Item"] = df[source_col].apply(lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules)))
+    source_col = "Plan Item Name" if "Plan Item Name" in df.columns else "Item"
+    df["Item"] = df[source_col].apply(lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules)))
     if st.session_state["exclusions"]:
         excl_pattern = "|".join(map(re.escape, st.session_state["exclusions"]))
         df = df[~df["Plan Item"].str.lower().str.contains(excl_pattern)]
@@ -536,7 +536,7 @@ def render_table(df, title, key_prefix, msg_key, rules):
 def render_table_with_buttons(df, key_prefix, msg_key):
     # Column layout
     col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
-    headers = ["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days","WA"]
+    headers = ["Due Date","Charge Date","Client Name","Animal Name","Item","Qty","Days","WA"]
     cols = st.columns(col_widths)
     for c, head in zip(cols, headers):
         c.markdown(f"**{head}**")
@@ -853,14 +853,14 @@ if working_df is not None:
             "ChargeDateFmt": "Charge Date",
             "Client Name": "Client Name",
             "Patient Name": "Animal Name",
-            "Plan Item Name": "Plan Item",
+            "Plan Item Name": "Item",
             "IntervalDays": "Days",
             "Quantity": "Qty",
         })
     )
 
     grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
-    grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+    grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Item","Qty","Days"]]
 
     render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
 
@@ -1133,6 +1133,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
