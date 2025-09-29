@@ -698,56 +698,56 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         #-----------------------------------
         # Template Editor
         #-----------------------------------
-        # Change Template button (red background)
-        if st.button("✏️ Change Template", key=f"{key_prefix}_template_{msg_key}", help="Edit the WhatsApp template"):
-            st.session_state["editing_template"] = True
-    
-        # Show editor if flag set
-        if st.session_state.get("editing_template", False):
-            if "wa_template_editor" not in st.session_state:
-                st.session_state["wa_template_editor"] = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
-    
-            st.markdown("### ✏️ Edit WhatsApp Template")
-            template_text = st.text_area(
-                "Template (use placeholders like [Client Name], [Animal Name], etc.)",
-                value=st.session_state["wa_template_editor"],
-                key="wa_template_editor",
-                height=150
-            )
-    
-            st.markdown("Insert variable:")
-    
-            # Use a single container with horizontally aligned buttons
-            placeholder_buttons = ["[Client Name]", "[Animal Name]", "[Item]", "[Due Date]", "[User Name]"]
-            button_container = st.container()
-            with button_container:
-                cols = st.columns(len(placeholder_buttons))
-                for i, ph in enumerate(placeholder_buttons):
-                    if cols[i].button(ph, key=f"ph_{ph}_{msg_key}"):
-                        if "wa_template_editor" not in st.session_state:
-                            st.session_state["wa_template_editor"] = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
-                        st.session_state["wa_template_editor"] += " " + ph
-    
-            # Save button
-            if st.button("💾 Save Template", key=f"save_template_{msg_key}"):
-                st.session_state["wa_template"] = st.session_state["wa_template_editor"]
-                save_settings()
-                st.session_state["editing_template"] = False
-                st.success("Template updated!")
-    
-            # Custom CSS to make Change Template + variable buttons red
-            st.markdown(
-                """
-                <style>
-                button[kind="secondary"] {
-                    background-color: #ff4d4d !important;
-                    color: white !important;
-                    border: none !important;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
+            # Change Template button (red background)
+    if st.button("✏️ Change Template", key=f"{key_prefix}_template_{msg_key}", help="Edit the WhatsApp template"):
+        st.session_state["editing_template"] = True
+
+    # Show editor if flag set
+    if st.session_state.get("editing_template", False):
+        # Ensure editor state is initialized
+        if "wa_template_editor" not in st.session_state:
+            st.session_state["wa_template_editor"] = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
+
+        st.markdown("### ✏️ Edit WhatsApp Template")
+        template_text = st.text_area(
+            "Template (use placeholders like [Client Name], [Animal Name], etc.)",
+            value=st.session_state["wa_template_editor"],
+            key="wa_template_editor",
+            height=150
+        )
+
+        st.markdown("Insert variable:")
+
+        placeholder_buttons = ["[Client Name]", "[Animal Name]", "[Item]", "[Due Date]", "[User Name]"]
+
+        cols = st.columns(len(placeholder_buttons))
+        for i, ph in enumerate(placeholder_buttons):
+            if cols[i].button(ph, key=f"ph_{ph}_{msg_key}"):
+                # ✅ Initialize before appending
+                if "wa_template_editor" not in st.session_state:
+                    st.session_state["wa_template_editor"] = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
+                st.session_state["wa_template_editor"] = st.session_state["wa_template_editor"] + " " + ph
+
+        if st.button("💾 Save Template", key=f"save_template_{msg_key}"):
+            st.session_state["wa_template"] = st.session_state["wa_template_editor"]
+            save_settings()
+            st.session_state["editing_template"] = False
+            st.success("Template updated!")
+
+        # Custom CSS for red buttons
+        st.markdown(
+            """
+            <style>
+            button[kind="secondary"] {
+                background-color: #ff4d4d !important;
+                color: white !important;
+                border: none !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
 
     # ⚠️ Warning note under buttons
     st.markdown(
@@ -1093,6 +1093,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
