@@ -287,24 +287,23 @@ def get_visible_plan_item(item_name: str, rules: dict) -> str:
     return item_name
 
 def map_intervals(df, rules):
-    rows = []
-    for _, row in df.iterrows():
+    df["MatchedItems"] = [[] for _ in range(len(df))]
+    df["IntervalDays"] = pd.NA
+
+    for idx, row in df.iterrows():
         name = str(row["Plan Item Name"]).lower()
-        matched = False
+        matches = []
         for rule, settings in sorted(rules.items(), key=lambda x: -len(x[0])):
             if re.search(rf"\b{re.escape(rule)}\b", name):
-                new_row = row.copy()
-                if settings["use_qty"]:
-                    new_row["IntervalDays"] = row["Quantity"] * settings["days"]
-                else:
-                    new_row["IntervalDays"] = settings["days"]
-                new_row["Plan Item Name"] = settings.get("visible_text", row["Plan Item Name"])
-                rows.append(new_row)
-                matched = True
-        if not matched:
-            rows.append(row)
-    return pd.DataFrame(rows)
+                matches.append(settings.get("visible_text", rule.title()))
+                if pd.isna(df.at[idx, "IntervalDays"]):
+                    if settings["use_qty"]:
+                        df.at[idx, "IntervalDays"] = row["Quantity"] * settings["days"]
+                    else:
+                        df.at[idx, "IntervalDays"] = settings["days"]
+        df.at[idx, "MatchedItems"] = matches if matches else [row["Plan Item Name"]]
 
+    return df
 
 def parse_dates(series: pd.Series) -> pd.Series:
     """
@@ -749,7 +748,7 @@ if working_df is not None:
         .agg({
             "ChargeDateFmt": "max",
             "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
-            "Plan Item Name": lambda x: simplify_vaccine_text(format_items(sorted(set(x.dropna())))),
+            "MatchedItems": lambda lists: simplify_vaccine_text(format_items(sorted({i for sub in lists for i in sub}))),
             "Quantity": "sum",
             "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
         })
@@ -759,7 +758,7 @@ if working_df is not None:
             "ChargeDateFmt": "Charge Date",
             "Client Name": "Client Name",
             "Patient Name": "Animal Name",
-            "Plan Item Name": "Plan Item",
+            "MatchedItems": "Plan Item",
             "IntervalDays": "Days",
             "Quantity": "Qty",
         })
@@ -1074,6 +1073,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
