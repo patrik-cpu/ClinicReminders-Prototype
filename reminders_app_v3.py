@@ -590,14 +590,27 @@ def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
         st.info(f"No reminders in {title}."); return
     df = df.copy()
-    source_col = "Plan Item Name" if "Plan Item Name" in df.columns else "Plan Item"
-    df["Plan Item"] = df[source_col].apply(lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules)))
+
+    # ✅ Only map RAW rows; do NOT remap grouped/combined rows
+    if "Plan Item Name" in df.columns:
+        df["Plan Item"] = df["Plan Item Name"].apply(
+            lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules))
+        )
+    elif "Plan Item" in df.columns:
+        # already combined: just tidy punctuation/casing
+        df["Plan Item"] = df["Plan Item"].apply(lambda x: simplify_vaccine_text(str(x)))
+    else:
+        df["Plan Item"] = ""
+
+    # exclusions still work on the final display text
     if st.session_state["exclusions"]:
         excl_pattern = "|".join(map(re.escape, st.session_state["exclusions"]))
         df = df[~df["Plan Item"].str.lower().str.contains(excl_pattern)]
     if df.empty:
         st.info("All rows excluded by exclusion list."); return
+
     render_table_with_buttons(df, key_prefix, msg_key)
+
 def render_table_with_buttons(df, key_prefix, msg_key):
     # Column layout
     col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
@@ -1148,5 +1161,6 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
