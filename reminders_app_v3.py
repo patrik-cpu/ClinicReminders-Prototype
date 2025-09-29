@@ -715,7 +715,11 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                   }}
                   .red-btn {{
                     background:#ff4d4d; color:#fff; border:none; padding:8px 14px;
-                    border-radius:6px; cursor:pointer; font-weight:700;
+                    border-radius:6px; cursor:pointer; font-weight:700; margin-right:6px;
+                  }}
+                  .grey-btn {{
+                    background:#666; color:#fff; border:none; padding:8px 14px;
+                    border-radius:6px; cursor:pointer; font-weight:600;
                   }}
                   #templateEditor {{
                     width:100%; height:160px; font-size:15px; padding:8px;
@@ -735,7 +739,10 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                   <button class="blue-btn" onclick="insertAtCursor('[User Name]')">[User Name]</button>
                 </div>
                 <br/>
-                <button class="red-btn" onclick="saveTemplate()">💾 Save Template</button>
+                <div>
+                  <button class="red-btn" onclick="saveTemplate()">💾 Save Template</button>
+                  <button class="grey-btn" onclick="cancelTemplate()">✖ Cancel</button>
+                </div>
         
                 <script>
                 function insertAtCursor(text) {{
@@ -747,30 +754,45 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     var pos = start + text.length;
                     ta.selectionStart = ta.selectionEnd = pos;
                     ta.focus();
+                    // notify Streamlit
+                    const evt = new Event("input", {{ bubbles: true }});
+                    setTimeout(() => ta.dispatchEvent(evt), 0);
                 }}
         
                 function saveTemplate() {{
                     const template = document.getElementById("templateEditor").value;
-                    const streamlitInput = document.createElement("input");
-                    streamlitInput.type = "text";
-                    streamlitInput.name = "wa_template_update";
-                    streamlitInput.value = template;
-                    streamlitInput.style.display = "none";   // hide
-                    document.body.appendChild(streamlitInput);
-                    
-                    const event = new Event("input", { bubbles: true });
-                    streamlitInput.dispatchEvent(event);
-                    
-                    // ✅ remove immediately so it doesn’t render in Streamlit
-                    document.body.removeChild(streamlitInput);
-
+                    const hiddenInput = document.createElement("input");
+                    hiddenInput.type = "text";
+                    hiddenInput.name = "wa_template_update";
+                    hiddenInput.value = template;
+                    hiddenInput.style.display = "none";
+                    document.body.appendChild(hiddenInput);
+        
+                    const evt = new Event("input", {{ bubbles: true }});
+                    hiddenInput.dispatchEvent(evt);
+        
+                    document.body.removeChild(hiddenInput);
+                }}
+        
+                function cancelTemplate() {{
+                    const hiddenInput = document.createElement("input");
+                    hiddenInput.type = "text";
+                    hiddenInput.name = "wa_template_cancel";
+                    hiddenInput.value = "1";
+                    hiddenInput.style.display = "none";
+                    document.body.appendChild(hiddenInput);
+        
+                    const evt = new Event("input", {{ bubbles: true }});
+                    hiddenInput.dispatchEvent(evt);
+        
+                    document.body.removeChild(hiddenInput);
                 }}
                 </script>
                 """,
-                height=400,
+                height=460,
             )
         
-            # Listen for hidden input updates
+            # Handle Save
             updated_template = st.session_state.get("wa_template_update")
             if updated_template:
                 st.session_state["wa_template"] = updated_template
@@ -778,6 +800,13 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 st.session_state["editing_template"] = False
                 st.success("Template updated!")
                 st.session_state["wa_template_update"] = ""
+        
+            # Handle Cancel
+            if st.session_state.get("wa_template_cancel"):
+                st.session_state["editing_template"] = False
+                st.session_state["wa_template_cancel"] = ""
+                st.info("Edit cancelled.")
+
 
     # ⚠️ Warning note under buttons
     st.markdown(
@@ -1123,22 +1152,3 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
