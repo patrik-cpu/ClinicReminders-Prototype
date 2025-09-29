@@ -697,7 +697,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         )
 
         #-----------------------------------
-        # Template Editor (cursor-aware)
+        # Template Editor (cursor-aware with JS)
         #-----------------------------------
         
         if st.button("✏️ Change Template", key=f"{key_prefix}_template_{msg_key}"):
@@ -706,98 +706,72 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         if st.session_state.get("editing_template", False):
             current_template = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
         
-            st.markdown("### ✏️ Edit WhatsApp Template")
-        
-            # Use a unique placeholder so JS can find THIS textarea reliably
-            template_editor_value = st.text_area(
-                label="",
-                value=current_template,
-                height=160,
-                key="wa_template_editor",
-                label_visibility="collapsed",
-                placeholder="__WA_TEMPLATE_EDITOR__"
-            )
-        
-            # Blue variable buttons rendered via HTML+JS so we can insert AT CURSOR
             components.html(
-                """
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0;">
+                f"""
+                <style>
+                  .blue-btn {{
+                    background:#007bff; color:#fff; border:none; padding:6px 10px;
+                    border-radius:6px; cursor:pointer; font-weight:600; margin-right:6px;
+                  }}
+                  .red-btn {{
+                    background:#ff4d4d; color:#fff; border:none; padding:8px 14px;
+                    border-radius:6px; cursor:pointer; font-weight:700;
+                  }}
+                  #templateEditor {{
+                    width:100%; height:160px; font-size:15px; padding:8px;
+                    border-radius:6px; border:1px solid #ccc; resize:vertical;
+                  }}
+                </style>
+        
+                <h3>Edit WhatsApp Template</h3>
+                <textarea id="templateEditor">{current_template}</textarea>
+                <br/><br/>
+        
+                <div>
                   <button class="blue-btn" onclick="insertAtCursor('[Client Name]')">[Client Name]</button>
                   <button class="blue-btn" onclick="insertAtCursor('[Animal Name]')">[Animal Name]</button>
                   <button class="blue-btn" onclick="insertAtCursor('[Item]')">[Item]</button>
                   <button class="blue-btn" onclick="insertAtCursor('[Due Date]')">[Due Date]</button>
                   <button class="blue-btn" onclick="insertAtCursor('[User Name]')">[User Name]</button>
                 </div>
-        
-                <style>
-                  .blue-btn {
-                    background:#007bff; color:#fff; border:none; padding:6px 10px;
-                    border-radius:6px; cursor:pointer; font-weight:600;
-                  }
-                </style>
+                <br/>
+                <button class="red-btn" onclick="saveTemplate()">💾 Save Template</button>
         
                 <script>
-                  // Find our Streamlit textarea by the unique placeholder we set
-                  function getEditor() {
-                    const ta = document.querySelector('textarea[placeholder="__WA_TEMPLATE_EDITOR__"]');
-                    if (ta) return ta;
-                    const all = document.querySelectorAll('textarea');
-                    return all.length ? all[all.length - 1] : null; // fallback
-                  }
-        
-                  function insertAtCursor(text) {
-                    const ta = getEditor();
+                function insertAtCursor(text) {{
+                    var ta = document.getElementById("templateEditor");
                     if (!ta) return;
-                    const start = (ta.selectionStart ?? ta.value.length);
-                    const end   = (ta.selectionEnd   ?? ta.value.length);
-                    const before = ta.value.slice(0, start);
-                    const after  = ta.value.slice(end);
+                    var start = ta.selectionStart, end = ta.selectionEnd;
+                    var before = ta.value.substring(0, start), after = ta.value.substring(end);
                     ta.value = before + text + after;
-        
-                    const pos = start + text.length;
+                    var pos = start + text.length;
                     ta.selectionStart = ta.selectionEnd = pos;
                     ta.focus();
+                }}
         
-                    // Tell Streamlit the textarea value changed
-                    const evt = new Event('input', { bubbles: true });
-                    ta.dispatchEvent(evt);
-                  }
+                function saveTemplate() {{
+                    const template = document.getElementById("templateEditor").value;
+                    const streamlitInput = document.createElement("input");
+                    streamlitInput.type = "text";
+                    streamlitInput.name = "wa_template_update";
+                    streamlitInput.value = template;
+                    document.body.appendChild(streamlitInput);
+                    const event = new Event("input", {{ bubbles: true }});
+                    streamlitInput.dispatchEvent(event);
+                }}
                 </script>
                 """,
-                height=90,
+                height=400,
             )
-
-            # Save / Cancel
-            save_col, cancel_col = st.columns([1,1])
-            with save_col:
-                if st.button("💾 Save Template", key=f"save_template_{msg_key}"):
-                    # Read the current editor value that JS kept in sync
-                    st.session_state["wa_template"] = st.session_state.get("wa_template_editor", current_template)
-                    save_settings()
-                    st.session_state["editing_template"] = False
-                    st.success("Template updated!")
-            with cancel_col:
-                if st.button("Cancel", key=f"cancel_template_{msg_key}"):
-                    # Revert editor to last-saved template and close editor
-                    st.session_state["wa_template_editor"] = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
-                    st.session_state["editing_template"] = False
         
-            # Styling: save red, keep everything readable
-            st.markdown(
-                """
-                <style>
-                  /* Make the first button in the two-column row red (Save) */
-                  div[data-testid="column"] div.stButton > button:first-child {
-                    background:#ff4d4d; color:#fff; font-weight:700;
-                  }
-                  /* Cancel looks default; variable buttons already blue via HTML */
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
-
-        
-
+            # Listen for hidden input updates
+            updated_template = st.session_state.get("wa_template_update")
+            if updated_template:
+                st.session_state["wa_template"] = updated_template
+                save_settings()
+                st.session_state["editing_template"] = False
+                st.success("Template updated!")
+                st.session_state["wa_template_update"] = ""
 
     # ⚠️ Warning note under buttons
     st.markdown(
@@ -1143,6 +1117,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
