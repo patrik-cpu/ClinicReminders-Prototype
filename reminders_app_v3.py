@@ -828,27 +828,42 @@ if working_df is not None:
         save_settings()
         st.rerun()
 
-    for i, (rule, settings) in enumerate(sorted(st.session_state["rules"].items(), key=lambda x: x[0])):
+    for rule, settings in sorted(st.session_state["rules"].items(), key=lambda x: x[0]):
         ver = st.session_state["form_version"]
-        cols = st.columns([3,1,1,2,0.6])
-        with cols[0]: st.write(rule)
-        with cols[1]:
-            new_values.setdefault(rule, {})["days"] = st.text_input(
-                "days", value=str(settings["days"]), key=f"days_{i}_{ver}", label_visibility="collapsed"
-            )
-        with cols[2]:
-            st.checkbox(
-                "Use Qty", value=settings["use_qty"],
-                key=f"useqty_{i}_{ver}", on_change=toggle_use_qty, args=(rule, f"useqty_{i}_{ver}",)
-            )
-        with cols[3]:
-            new_values[rule]["visible_text"] = st.text_input(
-                "Visible Text", value=settings.get("visible_text",""),
-                key=f"vis_{i}_{ver}", label_visibility="collapsed"
-            )
-        with cols[4]:
-            if st.button("❌", key=f"del_{i}_{ver}"):
-                to_delete.append(rule)
+    
+        # Use rule name itself (sanitized) instead of index for stable widget keys
+        safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
+    
+        with st.container():  # keeps each row discrete
+            cols = st.columns([3,1,1,2,0.7], gap="small")
+    
+            with cols[0]:
+                st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
+    
+            with cols[1]:
+                new_values.setdefault(rule, {})["days"] = st.text_input(
+                    "Days", value=str(settings["days"]),
+                    key=f"days_{safe_rule}_{ver}"
+                )
+    
+            with cols[2]:
+                st.checkbox(
+                    "Use Qty", value=settings["use_qty"],
+                    key=f"useqty_{safe_rule}_{ver}",
+                    on_change=toggle_use_qty,
+                    args=(rule, f"useqty_{safe_rule}_{ver}",)
+                )
+    
+            with cols[3]:
+                new_values[rule]["visible_text"] = st.text_input(
+                    "Visible Text", value=settings.get("visible_text",""),
+                    key=f"vis_{safe_rule}_{ver}"
+                )
+    
+            with cols[4]:
+                if st.button("❌", key=f"del_{safe_rule}_{ver}"):
+                    to_delete.append(rule)
+
 
     if to_delete:
         for rule in to_delete:
@@ -866,8 +881,10 @@ if working_df is not None:
                 vis = new_values.get(rule, {}).get("visible_text", settings.get("visible_text", ""))
                 updated[rule] = {"days": d, "use_qty": settings["use_qty"], "visible_text": vis}
             st.session_state["rules"] = updated
-            save_settings()
-            st.rerun()
+        
+            save_settings()  # ✅ ensure JSON is written before rerun
+            st.experimental_rerun()
+
 
     with colR:
         if st.button("Reset defaults"):
@@ -876,10 +893,11 @@ if working_df is not None:
                 for k, v in DEFAULT_RULES.items()
             }
             st.session_state["rules"] = reset_rules
-            st.session_state["exclusions"] = []  # clear exclusions too
-            st.session_state["form_version"] += 1  # 🔥 force widgets to refresh with defaults
-            save_settings()
-            st.rerun()
+            st.session_state["exclusions"] = []
+            st.session_state["form_version"] += 1
+        
+            save_settings()  # ✅ ensure persistence
+            st.experimental_rerun()
 
     with colTip:
         st.markdown("### 💡 Tip")
@@ -892,25 +910,35 @@ if working_df is not None:
     st.markdown("---")
     st.write("### Add New Search Term")
     st.info("💡 Add a new **Search Term** (e.g., Cardisure), set its days, whether to use quantity, and optional visible text.")
-
-    c1, c2, c3, c4, c5 = st.columns([4,1,1,2,1])
-    with c1: new_rule_name = st.text_input("Rule name", key=f"new_rule_name_{st.session_state['new_rule_counter']}")
-    with c2: new_rule_days = st.text_input("Days", key=f"new_rule_days_{st.session_state['new_rule_counter']}")
-    with c3: new_rule_use_qty = st.checkbox("Use Qty", key=f"new_rule_useqty_{st.session_state['new_rule_counter']}")
-    with c4: new_rule_visible = st.text_input("Visible Text (optional)", key=f"new_rule_vis_{st.session_state['new_rule_counter']}")
+    
+    # Use the counter only to make this row unique *until* it's added
+    row_id = st.session_state['new_rule_counter']
+    
+    c1, c2, c3, c4, c5 = st.columns([3,1,1,2,0.7], gap="small")
+    with c1:
+        new_rule_name = st.text_input("Rule name", key=f"new_rule_name_{row_id}")
+    with c2:
+        new_rule_days = st.text_input("Days", key=f"new_rule_days_{row_id}")
+    with c3:
+        new_rule_use_qty = st.checkbox("Use Qty", key=f"new_rule_useqty_{row_id}")
+    with c4:
+        new_rule_visible = st.text_input("Visible Text (optional)", key=f"new_rule_vis_{row_id}")
     with c5:
-        if st.button("➕ Add", key=f"add_{st.session_state['new_rule_counter']}"):
+        if st.button("➕ Add", key=f"add_{row_id}"):
             if new_rule_name and str(new_rule_days).isdigit():
-                st.session_state["rules"][new_rule_name.strip().lower()] = {
+                safe_rule = new_rule_name.strip().lower()
+    
+                st.session_state["rules"][safe_rule] = {
                     "days": int(new_rule_days),
                     "use_qty": bool(new_rule_use_qty),
                     "visible_text": new_rule_visible.strip(),
                 }
                 save_settings()
-                st.session_state["new_rule_counter"] += 1
+                st.session_state["new_rule_counter"] += 1  # bump so next add row is fresh
                 st.rerun()
             else:
                 st.error("Enter a name and valid integer for days")
+
 
     # --------------------------------
     # Exclusions
@@ -920,26 +948,32 @@ if working_df is not None:
     st.info("💡 Add terms here to automatically hide reminders that contain them.")
     
     if st.session_state["exclusions"]:
-        for i, term in enumerate(st.session_state["exclusions"]):
-            cols = st.columns([6,1])
-            cols[0].write(term)
-            if cols[1].button("❌", key=f"del_excl_{i}"):
-                st.session_state["exclusions"].pop(i)
-                save_settings()
-                st.rerun()
+        for term in sorted(st.session_state["exclusions"]):
+            safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
+    
+            with st.container():
+                cols = st.columns([6,1], gap="small")
+                with cols[0]:
+                    st.markdown(f"<div style='padding-top:8px;'>{term}</div>", unsafe_allow_html=True)
+                with cols[1]:
+                    if st.button("❌", key=f"del_excl_{safe_term}"):
+                        st.session_state["exclusions"].remove(term)
+                        save_settings()
+                        st.rerun()
     else:
-        # 🔴 Show red block only when no exclusions
         st.error("No exclusions yet.")
     
-    c1, c2 = st.columns([4,1])
+    # Add new exclusion row
+    row_id = st.session_state['new_rule_counter']
+    c1, c2 = st.columns([4,1], gap="small")
     with c1:
-        new_excl = st.text_input("Add New Exclusion Term", key=f"new_excl_{st.session_state['new_rule_counter']}")
+        new_excl = st.text_input("Add New Exclusion Term", key=f"new_excl_{row_id}")
     with c2:
-        if st.button("➕ Add Exclusion", key=f"add_excl_{st.session_state['new_rule_counter']}"):
+        if st.button("➕ Add Exclusion", key=f"add_excl_{row_id}"):
             if new_excl and new_excl.strip():
-                term = new_excl.strip().lower()
-                if term not in st.session_state["exclusions"]:
-                    st.session_state["exclusions"].append(term)
+                safe_term = new_excl.strip().lower()
+                if safe_term not in st.session_state["exclusions"]:
+                    st.session_state["exclusions"].append(safe_term)
                     save_settings()
                     st.session_state["new_rule_counter"] += 1
                     st.rerun()
@@ -948,9 +982,8 @@ if working_df is not None:
             else:
                 st.error("Enter a valid exclusion term")
 
-# --- Google Sheets Setup ---
-import json
 
+# --- Google Sheets Setup ---
 SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
 SCOPE = ["https://spreadsheets.google.com/feeds",
          "https://www.googleapis.com/auth/drive"]
@@ -1029,6 +1062,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
