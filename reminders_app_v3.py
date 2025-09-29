@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 import re
-import json, os
+import json, os, base64
 import streamlit.components.v1 as components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -113,7 +113,6 @@ DEFAULT_RULES = {
 # --------------------------------
 # WhatsApp Template Defaults
 # --------------------------------
-st.session_state.setdefault("wa_template_update", "")
 DEFAULT_TEMPLATE = (
     "Hi [Client Name], this is [User Name] reminding you that "
     "[Animal Name] [is/are] due for their [Item] on [Due Date]. "
@@ -219,7 +218,6 @@ PMS_DEFINITIONS = {
     }
 }
 
-
 def normalize_columns(cols):
     """Lowercase, collapse spaces, strip BOM/nbsp for robust comparison."""
     cleaned = []
@@ -231,17 +229,13 @@ def normalize_columns(cols):
         cleaned.append(c)
     return cleaned
 
-
 def detect_pms(df: pd.DataFrame) -> str:
     df_cols = set(normalize_columns(df.columns))
     for pms_name, definition in PMS_DEFINITIONS.items():
         required = set(normalize_columns(definition["columns"]))
         if required.issubset(df_cols):
             return pms_name
-
-    
     return None
-
 
 # --------------------------------
 # Session state init
@@ -371,8 +365,110 @@ def parse_dates(series: pd.Series) -> pd.Series:
         return parsed
     return pd.to_datetime(s, errors="coerce")
 
+def template_editor(initial_text: str, key: str = "wa_template_editor"):
+    """
+    Cursor-aware editor with Insert buttons.
+    - Uses postMessage('streamlit:setComponentValue') to return value to Python.
+    - Safely passes initial text (base64 in a data-attribute to avoid </script> / </textarea> issues).
+    - Returns a string (updated template) when Save is clicked,
+      returns '__TEMPLATE_EDITOR__CANCELLED__' when Cancel is clicked,
+      returns None on regular reruns when no action happened.
+    """
+    # Safe payload for HTML attribute (no f-string braces issues)
+    b64 = base64.b64encode(initial_text.encode("utf-8")).decode("ascii")
 
+    html_blob = """
+    <style>
+      #templateEditor {{
+        width:100%; height:180px; font-size:15px; padding:8px;
+        border-radius:6px; border:1px solid #ccc; resize:vertical;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      }}
+      .btn-row {{ display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }}
+      .blue-btn {{
+        background:#007bff; color:#fff; border:none; padding:6px 10px;
+        border-radius:6px; cursor:pointer; font-weight:600;
+      }}
+      .red-btn {{
+        background:#ff4d4d; color:#fff; border:none; padding:8px 14px;
+        border-radius:6px; cursor:pointer; font-weight:700;
+      }}
+      .grey-btn {{
+        background:#666; color:#fff; border:none; padding:8px 14px;
+        border-radius:6px; cursor:pointer; font-weight:600;
+      }}
+    </style>
 
+    <div id="init_payload" data-b64="__B64__"></div>
+
+    <textarea id="templateEditor" aria-label="WhatsApp Template"></textarea>
+
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="blue-btn" onclick="insertAtCursor('[Client Name]')">[Client Name]</button>
+      <button class="blue-btn" onclick="insertAtCursor('[Animal Name]')">[Animal Name]</button>
+      <button class="blue-btn" onclick="insertAtCursor('[Item]')">[Item]</button>
+      <button class="blue-btn" onclick="insertAtCursor('[Due Date]')">[Due Date]</button>
+      <button class="blue-btn" onclick="insertAtCursor('[User Name]')">[User Name]</button>
+    </div>
+
+    <div class="btn-row">
+      <button class="red-btn" onclick="saveTemplate()">💾 Save Template</button>
+      <button class="grey-btn" onclick="cancelTemplate()">✖ Cancel</button>
+    </div>
+
+    <script>
+    (function() {{
+      // Load initial text safely
+      const node = document.getElementById("init_payload");
+      const b64 = (node && node.getAttribute("data-b64")) || "";
+      const initial = b64 ? decodeURIComponent(escape(window.atob(b64))) : "";
+
+      const ta = document.getElementById("templateEditor");
+      ta.value = initial;
+
+      // Insert at cursor helper
+      window.insertAtCursor = function(text) {{
+        if (!ta) return;
+        const start = ta.selectionStart || 0, end = ta.selectionEnd || 0;
+        const before = ta.value.substring(0, start), after = ta.value.substring(end);
+        ta.value = before + text + after;
+        const pos = start + text.length;
+        ta.selectionStart = ta.selectionEnd = pos;
+        ta.focus();
+      }};
+
+      // Return value to Streamlit on Save
+      window.saveTemplate = function() {{
+        const val = ta.value;
+        window.parent.postMessage({{
+          isStreamlitMessage: true,
+          type: "streamlit:setComponentValue",
+          value: val
+        }}, "*");
+      }};
+
+      // Signal cancel to Streamlit
+      window.cancelTemplate = function() {{
+        window.parent.postMessage({{
+          isStreamlitMessage: true,
+          type: "streamlit:setComponentValue",
+          value: "__TEMPLATE_EDITOR__CANCELLED__"
+        }}, "*");
+      }};
+
+      // Optional: Cmd/Ctrl+Enter to Save
+      document.addEventListener("keydown", function(e) {{
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {{
+          e.preventDefault();
+          window.saveTemplate();
+        }}
+      }});
+    }})();
+    </script>
+    """.replace("__B64__", b64)
+
+    # IMPORTANT: components.html returns the posted value on the *next* rerun.
+    return components.html(html_blob, height=420, key=key)
 
 # --------------------------------
 # Cached CSV processor
@@ -699,114 +795,26 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         #-----------------------------------
         # Template Editor (cursor-aware with JS)
         #-----------------------------------
-        
-        if st.button("✏️ Change Template", key=f"{key_prefix}_template_{msg_key}"):
+        # Toggle editor
+        if st.button("✏️ Change Template", key=f"{key_prefix}_template_open"):
             st.session_state["editing_template"] = True
         
+        # Show editor and handle Save/Cancel
         if st.session_state.get("editing_template", False):
-            current_template = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
-        
-            components.html(
-                f"""
-                <style>
-                  .blue-btn {{
-                    background:#007bff; color:#fff; border:none; padding:6px 10px;
-                    border-radius:6px; cursor:pointer; font-weight:600; margin-right:6px;
-                  }}
-                  .red-btn {{
-                    background:#ff4d4d; color:#fff; border:none; padding:8px 14px;
-                    border-radius:6px; cursor:pointer; font-weight:700; margin-right:6px;
-                  }}
-                  .grey-btn {{
-                    background:#666; color:#fff; border:none; padding:8px 14px;
-                    border-radius:6px; cursor:pointer; font-weight:600;
-                  }}
-                  #templateEditor {{
-                    width:100%; height:160px; font-size:15px; padding:8px;
-                    border-radius:6px; border:1px solid #ccc; resize:vertical;
-                  }}
-                </style>
-        
-                <h3>Edit WhatsApp Template</h3>
-                <textarea id="templateEditor">{current_template}</textarea>
-                <br/><br/>
-        
-                <div>
-                  <button class="blue-btn" onclick="insertAtCursor('[Client Name]')">[Client Name]</button>
-                  <button class="blue-btn" onclick="insertAtCursor('[Animal Name]')">[Animal Name]</button>
-                  <button class="blue-btn" onclick="insertAtCursor('[Item]')">[Item]</button>
-                  <button class="blue-btn" onclick="insertAtCursor('[Due Date]')">[Due Date]</button>
-                  <button class="blue-btn" onclick="insertAtCursor('[User Name]')">[User Name]</button>
-                </div>
-                <br/>
-                <div>
-                  <button class="red-btn" onclick="saveTemplate()">💾 Save Template</button>
-                  <button class="grey-btn" onclick="cancelTemplate()">✖ Cancel</button>
-                </div>
-        
-                <script>
-                function insertAtCursor(text) {{
-                    var ta = document.getElementById("templateEditor");
-                    if (!ta) return;
-                    var start = ta.selectionStart, end = ta.selectionEnd;
-                    var before = ta.value.substring(0, start), after = ta.value.substring(end);
-                    ta.value = before + text + after;
-                    var pos = start + text.length;
-                    ta.selectionStart = ta.selectionEnd = pos;
-                    ta.focus();
-                    // notify Streamlit
-                    const evt = new Event("input", {{ bubbles: true }});
-                    setTimeout(() => ta.dispatchEvent(evt), 0);
-                }}
-        
-                function saveTemplate() {{
-                    const template = document.getElementById("templateEditor").value;
-                    const hiddenInput = document.createElement("input");
-                    hiddenInput.type = "text";
-                    hiddenInput.name = "wa_template_update";
-                    hiddenInput.value = template;
-                    hiddenInput.style.display = "none";
-                    document.body.appendChild(hiddenInput);
-        
-                    const evt = new Event("input", {{ bubbles: true }});
-                    hiddenInput.dispatchEvent(evt);
-        
-                    document.body.removeChild(hiddenInput);
-                }}
-        
-                function cancelTemplate() {{
-                    const hiddenInput = document.createElement("input");
-                    hiddenInput.type = "text";
-                    hiddenInput.name = "wa_template_cancel";
-                    hiddenInput.value = "1";
-                    hiddenInput.style.display = "none";
-                    document.body.appendChild(hiddenInput);
-        
-                    const evt = new Event("input", {{ bubbles: true }});
-                    hiddenInput.dispatchEvent(evt);
-        
-                    document.body.removeChild(hiddenInput);
-                }}
-                </script>
-                """,
-                height=460,
+            updated_value = template_editor(
+                st.session_state.get("wa_template", DEFAULT_TEMPLATE),
+                key="wa_template_editor"  # stable key
             )
         
-            # Handle Save
-            updated_template = st.session_state.get("wa_template_update")
-            if updated_template:
-                st.session_state["wa_template"] = updated_template
-                save_settings()
-                st.session_state["editing_template"] = False
-                st.success("Template updated!")
-                st.session_state["wa_template_update"] = ""
-        
-            # Handle Cancel
-            if st.session_state.get("wa_template_cancel"):
-                st.session_state["editing_template"] = False
-                st.session_state["wa_template_cancel"] = ""
-                st.info("Edit cancelled.")
-
+            if updated_value is not None:  # None means no action yet
+                if updated_value == "__TEMPLATE_EDITOR__CANCELLED__":
+                    st.session_state["editing_template"] = False
+                    st.info("Edit cancelled.")
+                else:
+                    st.session_state["wa_template"] = str(updated_value)
+                    save_settings()
+                    st.session_state["editing_template"] = False
+                    st.success("Template updated!")
 
     # ⚠️ Warning note under buttons
     st.markdown(
@@ -1152,3 +1160,4 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
