@@ -1,4 +1,5 @@
 import pandas as pd
+import unicodedata
 import streamlit as st
 import re
 import json, os
@@ -288,6 +289,9 @@ def get_visible_plan_item(item_name: str, rules: dict) -> str:
 def normalize_item_name(name: str) -> str:
     if not isinstance(name, str):
         return ""
+    # normalize unicode & strip hidden spaces
+    name = unicodedata.normalize("NFKC", name)
+    name = name.replace("\u00a0", " ").replace("\ufeff", "")
     name = name.lower()
     # replace common separators with spaces
     for ch in ["-", "+", "/", "(", ")", ".", ","]:
@@ -307,7 +311,8 @@ def map_intervals(df, rules):
 
         for rule, settings in rules.items():
             rule_norm = rule.lower().strip()
-            if rule_norm in normalized:   # ✅ simple substring match
+            tokens = normalized.split()
+            if rule_norm in tokens:
                 matches.append(settings.get("visible_text", rule.title()))
                 interval_values.append(
                     row["Quantity"] * settings["days"] if settings["use_qty"] else settings["days"]
@@ -1158,6 +1163,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
