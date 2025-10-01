@@ -260,8 +260,11 @@ st.session_state.setdefault("form_version", 0)
 # --------------------------------
 
 def simplify_vaccine_text(text: str) -> str:
-    if not isinstance(text, str): return text
-    if text.lower().count("vaccine") <= 1: return text
+    if not isinstance(text, str):
+        return text
+    if text.lower().count("vaccine") <= 1:
+        return text
+
     parts = [p.strip() for p in text.replace(" and ", ",").split(",") if p.strip()]
     cleaned = []
     for p in parts:
@@ -269,8 +272,14 @@ def simplify_vaccine_text(text: str) -> str:
         if tokens and tokens[-1].lower().startswith("vaccine"):
             tokens = tokens[:-1]
         cleaned.append(" ".join(tokens).strip())
+
+    # Drop any accidental empties
+    cleaned = [c for c in cleaned if c]
+
     if len(cleaned) == 1:
         return cleaned[0] + " Vaccines"
+
+    # ✅ Ensure exactly one space around "and"
     return ", ".join(cleaned[:-1]) + " and " + cleaned[-1] + " Vaccines"
 
 def format_items(item_list):
@@ -1151,6 +1160,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
