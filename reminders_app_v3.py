@@ -81,7 +81,7 @@ st.markdown(
 # --------------------------------
 DEFAULT_RULES = {
     "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies vaccine"},
-    "biofel": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
+    "pch": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
     "dhppil": {"days": 365, "use_qty": False, "visible_text": "DHPPIL vaccine"},
     "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia vaccine"},
     "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
@@ -312,7 +312,8 @@ def map_intervals(df, rules):
         for rule, settings in rules.items():
             rule_norm = rule.lower().strip()
             tokens = normalized.split()
-            if rule_norm in tokens:
+            if rule_norm in norm:
+
                 matches.append(settings.get("visible_text", rule.title()))
                 interval_values.append(
                     row["Quantity"] * settings["days"] if settings["use_qty"] else settings["days"]
@@ -824,7 +825,7 @@ if working_df is not None:
     due = df[(df["NextDueDate"] >= pd.to_datetime(start_date)) & (df["NextDueDate"] <= pd.to_datetime(end_date))]
     due2 = ensure_reminder_columns(due, st.session_state["rules"])
     _debug = due2.loc[
-        due2["Plan Item Name"].str.contains("biofel", case=False, na=False),
+        due2["Plan Item Name"].str.contains("pch", case=False, na=False),
         ["Plan Item Name", "MatchedItems"]
     ].head(20)
     st.write("Debug PCH matches (first 20):")
@@ -1169,6 +1170,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
