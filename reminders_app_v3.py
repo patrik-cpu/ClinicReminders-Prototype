@@ -81,7 +81,7 @@ st.markdown(
 # --------------------------------
 DEFAULT_RULES = {
     "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies vaccine"},
-    "pch": {"days": 365, "use_qty": False, "visible_text": ""},
+    "biofel pch": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
     "dhppil": {"days": 365, "use_qty": False, "visible_text": "DHPPIL vaccine"},
     "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia vaccine"},
     "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
@@ -1169,6 +1169,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
