@@ -133,20 +133,23 @@ def load_settings():
         with open(SETTINGS_FILE, "r") as f:
             settings = json.load(f)
 
-        # Start from defaults, then update with whatever was saved
+        # ✅ Start from defaults
         rules = DEFAULT_RULES.copy()
+
+        # ✅ Overlay saved rules on top (keeps edits, restores missing defaults)
         saved_rules = settings.get("rules", {})
-        rules.update(saved_rules)  # ✅ fills in missing keys like "pch"
+        rules.update(saved_rules)
 
         st.session_state["rules"] = rules
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
 
     else:
-        # First time load → use defaults
+        # ✅ First time: just use defaults
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
         st.session_state["user_name"] = ""
+        save_settings()  # write defaults immediately so file exists
 
 
 # --------------------------------
@@ -1184,6 +1187,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
