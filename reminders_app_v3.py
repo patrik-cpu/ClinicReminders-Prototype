@@ -132,13 +132,22 @@ def load_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, "r") as f:
             settings = json.load(f)
-        st.session_state["rules"] = settings.get("rules", DEFAULT_RULES.copy())
+
+        # Start from defaults, then update with whatever was saved
+        rules = DEFAULT_RULES.copy()
+        saved_rules = settings.get("rules", {})
+        rules.update(saved_rules)  # ✅ fills in missing keys like "pch"
+
+        st.session_state["rules"] = rules
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
+
     else:
+        # First time load → use defaults
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
         st.session_state["user_name"] = ""
+
 
 # --------------------------------
 # PMS definitions
@@ -1175,6 +1184,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
