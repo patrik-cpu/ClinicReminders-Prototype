@@ -80,11 +80,11 @@ st.markdown(
 # Defaults
 # --------------------------------
 DEFAULT_RULES = {
-    "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies vaccine"},
-    "pch": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
-    "dhppil": {"days": 365, "use_qty": False, "visible_text": "DHPPIL vaccine"},
-    "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia vaccine"},
-    "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
+    "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies Vaccine"},
+    "pch": {"days": 365, "use_qty": False, "visible_text": "Tricat Vaccine"},
+    "dhppil": {"days": 365, "use_qty": False, "visible_text": "DHPPIL Vaccine"},
+    "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia Vaccine"},
+    "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat Vaccine"},
     "dental cat": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
     "groom": {"days": 90, "use_qty": False, "visible_text": "Groom"},
     "feliway": {"days": 60, "use_qty": True, "visible_text": "Feliway"},
@@ -110,7 +110,7 @@ DEFAULT_RULES = {
     "solensia": {"days": 30, "use_qty": False, "visible_text": "Solensia"},
     "samylin": {"days": 30, "use_qty": True, "visible_text": "Samylin"},
     "cystaid": {"days": 30, "use_qty": False, "visible_text": "Cystaid"},
-    "kennel cough": {"days": 365, "use_qty": False, "visible_text": "Kennel Cough vaccine"},
+    "kennel cough": {"days": 365, "use_qty": False, "visible_text": "Kennel Cough Vaccine"},
 }
 
 # --------------------------------
@@ -260,27 +260,41 @@ st.session_state.setdefault("form_version", 0)
 # --------------------------------
 
 def simplify_vaccine_text(text: str) -> str:
+    """Format vaccine names cleanly, with singular/plural logic and ignore generic 'vaccination' if specifics exist."""
     if not isinstance(text, str):
         return text
-    if text.lower().count("vaccine") <= 1:
-        return text
 
+    # Split into parts (handles comma and "and")
     parts = [p.strip() for p in text.replace(" and ", ",").split(",") if p.strip()]
+
     cleaned = []
     for p in parts:
         tokens = p.split()
+        # Remove trailing 'vaccine' / 'vaccines'
         if tokens and tokens[-1].lower().startswith("vaccine"):
             tokens = tokens[:-1]
         cleaned.append(" ".join(tokens).strip())
 
-    # Drop any accidental empties
+    # Drop empties
     cleaned = [c for c in cleaned if c]
 
-    if len(cleaned) == 1:
-        return cleaned[0] + " Vaccines"
+    if not cleaned:
+        return text
 
-    # ✅ Ensure exactly one space around "and"
-    return ", ".join(cleaned[:-1]) + " and " + cleaned[-1] + " Vaccines"
+    # Special: ignore "vaccination" if other items exist
+    cleaned_lower = [c.lower() for c in cleaned]
+    if "vaccination" in cleaned_lower and len(cleaned) > 1:
+        cleaned = [c for c in cleaned if c.lower() != "vaccination"]
+
+    # Build proper output
+    if len(cleaned) == 1:
+        # Single item → singular
+        return cleaned[0] + " Vaccine"
+    elif len(cleaned) == 2:
+        return f"{cleaned[0]} and {cleaned[1]} Vaccines"
+    else:
+        return f"{', '.join(cleaned[:-1])} and {cleaned[-1]} Vaccines"
+
 
 def format_items(item_list):
     items = [str(x).strip() for x in item_list if str(x).strip()]
@@ -1160,6 +1174,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
