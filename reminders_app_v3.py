@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
-st.cache_data.clear()
+
 
 # Sidebar "table of contents"
 st.sidebar.markdown(
@@ -836,12 +836,6 @@ if working_df is not None:
 
     due = df[(df["NextDueDate"] >= pd.to_datetime(start_date)) & (df["NextDueDate"] <= pd.to_datetime(end_date))]
     due2 = ensure_reminder_columns(due, st.session_state["rules"])
-    _debug = due2.loc[
-        due2["Plan Item Name"].str.contains("pch", case=False, na=False),
-        ["Plan Item Name", "MatchedItems"]
-    ].head(20)
-    st.write("Debug PCH matches (first 20):")
-    st.dataframe(_debug)
 
     g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
     grouped = (
@@ -1008,15 +1002,10 @@ if working_df is not None:
 
     with colR:
         if st.button("Reset defaults"):
-            reset_rules = {
-                k: {"days": v["days"], "use_qty": v["use_qty"], "visible_text": v.get("visible_text","")}
-                for k, v in DEFAULT_RULES.items()
-            }
-            st.session_state["rules"] = reset_rules
+            st.session_state["rules"] = DEFAULT_RULES.copy()
             st.session_state["exclusions"] = []
             st.session_state["form_version"] += 1
-        
-            save_settings()  # ✅ ensure persistence
+            save_settings()
             st.rerun()
 
     with colTip:
@@ -1182,32 +1171,3 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
