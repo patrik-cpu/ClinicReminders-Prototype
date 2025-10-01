@@ -437,6 +437,19 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     )
     return df
 
+def normalize_display_case(text: str) -> str:
+    """If a word is ALL CAPS, convert to Title Case. Else leave as-is."""
+    if not isinstance(text, str):
+        return text
+    words = text.split()
+    fixed = []
+    for w in words:
+        if w.isupper() and len(w) > 1:   # all caps, not single letters
+            fixed.append(w.capitalize())
+        else:
+            fixed.append(w)
+    return " ".join(fixed)
+
 # --------------------------------
 # Cached CSV processor
 # --------------------------------
@@ -595,10 +608,14 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
     # Rows
     for idx, row in df.iterrows():
-        vals = {h: str(row.get(h, "")) for h in headers[:-1]}
-        cols = st.columns(col_widths, gap="small")
-        for j, h in enumerate(headers[:-1]):
-            cols[j].markdown(vals[h])
+    vals = {h: str(row.get(h, "")) for h in headers[:-1]}
+    cols = st.columns(col_widths, gap="small")
+    for j, h in enumerate(headers[:-1]):
+        val = vals[h]
+        if h in ["Client Name", "Animal Name", "Plan Item"]:  # clean display fields only
+            val = normalize_display_case(val)
+        cols[j].markdown(val)
+
 
         # WA button -> prepare message
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
@@ -1134,4 +1151,5 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
