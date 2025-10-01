@@ -11,7 +11,6 @@ from datetime import date, datetime, timedelta
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
 
-
 # Sidebar "table of contents"
 st.sidebar.markdown(
     """
@@ -300,43 +299,40 @@ def get_visible_plan_item(item_name: str, rules: dict) -> str:
     return item_name
 
 def normalize_item_name(name: str) -> str:
+    """Normalize item names for matching."""
     if not isinstance(name, str):
         return ""
-    # normalize unicode & strip hidden spaces
-    name = unicodedata.normalize("NFKC", name)
-    name = name.replace("\u00a0", " ").replace("\ufeff", "")
-    name = name.lower()
-    # replace common separators with spaces
-    for ch in ["-", "+", "/", "(", ")", ".", ","]:
-        name = name.replace(ch, " ")
-    # collapse multiple spaces
-    name = re.sub(r"\s+", " ", name).strip()
-    return name
-
+    name = unicodedata.normalize("NFKC", name).lower()
+    name = re.sub(r"[\u00a0\ufeff]", " ", name)  # clean nbsp/BOM
+    name = re.sub(r"[-+/().,]", " ", name)       # separators
+    return re.sub(r"\s+", " ", name).strip()
 
 def map_intervals(df, rules):
+    """Map plan items to rules and calculate intervals."""
+    df = df.copy()
     df["MatchedItems"] = [[] for _ in range(len(df))]
     df["IntervalDays"] = pd.NA
 
     for idx, row in df.iterrows():
-        normalized = normalize_item_name(row["Plan Item Name"])
+        normalized = normalize_item_name(row.get("Plan Item Name", ""))
         matches, interval_values = [], []
 
         for rule, settings in rules.items():
             rule_norm = rule.lower().strip()
-            tokens = normalized.split()
             if rule_norm in normalized:
                 matches.append(settings.get("visible_text", rule.title()))
-                interval_values.append(
-                    row["Quantity"] * settings["days"] if settings["use_qty"] else settings["days"]
-                )
+                days = settings["days"]
+                if settings.get("use_qty"):
+                    qty = pd.to_numeric(row.get("Quantity", 1), errors="coerce")
+                    qty = int(qty) if pd.notna(qty) else 1
+                    days *= max(qty, 1)
+                interval_values.append(days)
 
         if matches:
             df.at[idx, "MatchedItems"] = matches
-            # pick min days if multiple rules match
-            df.at[idx, "IntervalDays"] = min(interval_values) if interval_values else pd.NA
+            df.at[idx, "IntervalDays"] = min(interval_values)
         else:
-            df.at[idx, "MatchedItems"] = [row["Plan Item Name"]]
+            df.at[idx, "MatchedItems"] = [row.get("Plan Item Name", "")]
             df.at[idx, "IntervalDays"] = pd.NA
 
     return df
@@ -405,7 +401,7 @@ def parse_dates(series: pd.Series) -> pd.Series:
     return pd.to_datetime(s, errors="coerce")
 
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
-    """Guarantee all columns needed for grouping exist and are FRESH (recomputed every call)."""
+    """Ensure reminder fields exist, always fresh."""
     if df is None or df.empty:
         return pd.DataFrame(columns=[
             "DueDateFmt","Client Name","ChargeDateFmt","Patient Name",
@@ -414,42 +410,32 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 
     df = df.copy()
 
-    # Quantity default
+    # Ensure Quantity column
     if "Quantity" not in df.columns:
         df["Quantity"] = 1
 
-    # ✅ ALWAYS remap with the current rules (do not rely on stale columns)
+    # Map rules
     df = map_intervals(df, rules)
 
-    # Dates: ensure Planitem Performed is datetime
+    # Ensure dates
     if "Planitem Performed" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["Planitem Performed"]):
         df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
 
-    # ✅ ALWAYS recompute NextDueDate & pretty strings from (possibly changed) IntervalDays
     days = pd.to_numeric(df["IntervalDays"], errors="coerce")
-    df["NextDueDate"] = pd.to_datetime(df.get("Planitem Performed")) + pd.to_timedelta(days, unit="D")
+    df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(days, unit="D")
+    df["ChargeDateFmt"] = pd.to_datetime(df["Planitem Performed"]).dt.strftime("%d %b %Y")
+    df["DueDateFmt"]    = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
 
-    df["ChargeDateFmt"] = pd.to_datetime(df.get("Planitem Performed")).dt.strftime("%d %b %Y")
-    df["DueDateFmt"]    = pd.to_datetime(df.get("NextDueDate")).dt.strftime("%d %b %Y")
+    # Guarantee essential text columns
+    for col in ["Patient Name", "Client Name"]:
+        if col not in df.columns:
+            df[col] = ""
 
-    # Ensure text columns exist
-    if "Patient Name" not in df.columns:
-        df["Patient Name"] = ""
-    if "Client Name" not in df.columns:
-        df["Client Name"] = ""
-
-    # Ensure MatchedItems is a list[str]
-    def _to_list(v):
-        if isinstance(v, list):
-            return [str(x) for x in v if str(x).strip()]
-        if pd.isna(v):
-            return []
-        return [str(v)]
-    df["MatchedItems"] = df["MatchedItems"].apply(_to_list)
-
+    # Ensure lists
+    df["MatchedItems"] = df["MatchedItems"].apply(
+        lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
+    )
     return df
-
-
 
 # --------------------------------
 # Cached CSV processor
@@ -457,7 +443,7 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 
 @st.cache_data
 def process_file(file, rules):
-    # Choose parser based on extension
+    """Load and standardize uploaded file."""
     name = file.name.lower()
     if name.endswith(".csv"):
         df = pd.read_csv(file)
@@ -466,74 +452,51 @@ def process_file(file, rules):
     else:
         raise ValueError("Unsupported file type")
 
-    # Clean column names (surface level)
     df.columns = [c.strip() for c in df.columns]
-
-    # Detect PMS on *normalized* headers
     pms_name = detect_pms(df)
     if not pms_name:
-        return df, None  # undetected PMS
-    # --- Date parsing ---
-    if "Planitem Performed" in df.columns:
-        if pms_name == "VETport":
-            # Hardcode the known format for VETport
-            df["Planitem Performed"] = pd.to_datetime(
-                df["Planitem Performed"].astype(str).str.strip(),
-                format="%d/%b/%Y %H:%M %S",
-                errors="coerce"
-            )
-        else:
-            # All other PMS can use the generic parser
-            df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
+        return df, None
 
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
 
-    # --- Normalize columns FIRST ---
+    # Standardize column names
     if pms_name == "ezyVet":
-        # Build client name
         df["Client Name"] = (
             df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
             df[mappings["client_last"]].fillna("").astype(str).str.strip()
         ).str.strip()
-
-        df.rename(
-            columns={
-                mappings["date"]: "Planitem Performed",
-                mappings["animal"]: "Patient Name",
-                mappings["item"]: "Plan Item Name",
-            },
-            inplace=True,
-        )
+        rename_map = {
+            mappings["date"]: "Planitem Performed",
+            mappings["animal"]: "Patient Name",
+            mappings["item"]: "Plan Item Name",
+        }
     else:
-        df.rename(
-            columns={
-                mappings["date"]: "Planitem Performed",
-                mappings["client"]: "Client Name",
-                mappings["animal"]: "Patient Name",
-                mappings["item"]: "Plan Item Name",
-            },
-            inplace=True,
-        )
+        rename_map = {
+            mappings["date"]: "Planitem Performed",
+            mappings["client"]: "Client Name",
+            mappings["animal"]: "Patient Name",
+            mappings["item"]: "Plan Item Name",
+        }
+    df.rename(columns=rename_map, inplace=True)
 
-    # --- Date parsing on unified column ---
+    # Parse dates robustly
     if "Planitem Performed" in df.columns:
         df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
 
-    # --- Quantity (kept on original source column name) ---
+    # Ensure Quantity
     qty_col = mappings.get("qty")
-    if qty_col and qty_col in df.columns:
-        df["Quantity"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
-    else:
-        df["Quantity"] = 1
+    df["Quantity"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1)
 
-    # --- Standardize downstream fields ---
+    # Map rules
     df = map_intervals(df, rules)
     df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
     df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
     df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
+
+    # Lowercase helper cols
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
-    df["_item_lower"] = df["Plan Item Name"].astype(str).str.lower()
+    df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
 
     return df, pms_name
 
@@ -1171,3 +1134,4 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
