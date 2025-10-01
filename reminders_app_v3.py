@@ -260,41 +260,50 @@ st.session_state.setdefault("form_version", 0)
 # --------------------------------
 
 def simplify_vaccine_text(text: str) -> str:
-    """Format vaccine names cleanly, with singular/plural logic and ignore generic 'vaccination' if specifics exist."""
+    """Format vaccine names cleanly; only add Vaccine(s) when items are vaccines."""
     if not isinstance(text, str):
         return text
 
-    # Split into parts (handles comma and "and")
+    # Split into parts (comma and "and")
     parts = [p.strip() for p in text.replace(" and ", ",").split(",") if p.strip()]
-
-    cleaned = []
-    for p in parts:
-        tokens = p.split()
-        # Remove trailing 'vaccine' / 'vaccines'
-        if tokens and tokens[-1].lower().startswith("vaccine"):
-            tokens = tokens[:-1]
-        cleaned.append(" ".join(tokens).strip())
-
-    # Drop empties
-    cleaned = [c for c in cleaned if c]
+    cleaned = [p.strip() for p in parts if p]
 
     if not cleaned:
         return text
 
-    # Special: ignore "vaccination" if other items exist
+    # Special: ignore 'Vaccination' if other items exist
     cleaned_lower = [c.lower() for c in cleaned]
     if "vaccination" in cleaned_lower and len(cleaned) > 1:
         cleaned = [c for c in cleaned if c.lower() != "vaccination"]
 
-    # Build proper output
-    if len(cleaned) == 1:
-        # Single item → singular
-        return cleaned[0] + " Vaccine"
-    elif len(cleaned) == 2:
-        return f"{cleaned[0]} and {cleaned[1]} Vaccines"
-    else:
-        return f"{', '.join(cleaned[:-1])} and {cleaned[-1]} Vaccines"
+    # Determine if ALL items are vaccines
+    is_vaccine_item = lambda s: s.lower().endswith("vaccine") or s.lower().endswith("vaccines") or s.lower() in ["vaccination", "vaccine(s)"]
+    all_vaccines = all(is_vaccine_item(c) for c in cleaned)
 
+    # If all items are vaccines, strip trailing "vaccine(s)" for clean grammar
+    if all_vaccines:
+        stripped = []
+        for c in cleaned:
+            tokens = c.split()
+            if tokens and tokens[-1].lower().startswith("vaccine"):
+                tokens = tokens[:-1]
+            stripped.append(" ".join(tokens).strip())
+        stripped = [s for s in stripped if s]
+
+        if len(stripped) == 1:
+            return stripped[0] + " Vaccine"
+        elif len(stripped) == 2:
+            return f"{stripped[0]} and {stripped[1]} Vaccines"
+        else:
+            return f"{', '.join(stripped[:-1])} and {stripped[-1]} Vaccines"
+
+    # Otherwise → non-vaccine items, just return nicely joined
+    if len(cleaned) == 1:
+        return cleaned[0]
+    elif len(cleaned) == 2:
+        return f"{cleaned[0]} and {cleaned[1]}"
+    else:
+        return f"{', '.join(cleaned[:-1])} and {cleaned[-1]}"
 
 def format_items(item_list):
     items = [str(x).strip() for x in item_list if str(x).strip()]
@@ -1174,6 +1183,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
