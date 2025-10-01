@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
+st.cache_data.clear()
 
 # Sidebar "table of contents"
 st.sidebar.markdown(
@@ -1181,6 +1182,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
