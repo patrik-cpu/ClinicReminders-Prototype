@@ -325,9 +325,7 @@ def map_intervals(df, rules):
             rule_norm = rule.lower().strip()
             if "pch" in row["Plan Item Name"].lower():
                 st.write("DEBUG row with PCH →", row["Plan Item Name"])
-                st.write("   rule being checked:", repr(rule), "→ rule_norm:", repr(rule_norm))
-                st.write("   normalized text   :", repr(normalized))
-                st.write("   condition:", rule_norm in normalized)
+    
             rule_norm = rule.lower().strip()
             tokens = normalized.split()
             if rule_norm in normalized:
@@ -1187,6 +1185,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
