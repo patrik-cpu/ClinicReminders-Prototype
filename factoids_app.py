@@ -21,6 +21,7 @@ def run_factoids():
     if "Amount" not in df.columns:
         df["Amount"] = 0
 
+    # Add Month column for dropdown
     df["Month"] = df["Planitem Performed"].dt.to_period("M").dt.to_timestamp()
 
     # Dropdown filter
@@ -32,7 +33,7 @@ def run_factoids():
         selected_month = datetime.strptime(selected, "%b %Y")
         df = df[df["Month"] == selected_month]
 
-    # Restrict width
+    # Restrict width to 50%
     st.markdown("<div style='max-width:50%;'>", unsafe_allow_html=True)
 
     # --------------------------------
@@ -96,15 +97,14 @@ def run_factoids():
     # --------------------------------
     st.subheader("📈 Top 5 Largest Transactions")
     if "Client Name" in df.columns and "Amount" in df.columns:
-        # Sort by client + date
         df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
 
-        # Detect contiguous days
-        df_sorted["DateOnly"] = df_sorted["Planitem Performed"].dt.date
+        # Normalize to datetime days (keep datetime64)
+        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
         df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
         df_sorted["Block"] = (df_sorted["DayDiff"] > 1).cumsum()
 
-        # Group by client + block
+        # Group by client + contiguous block of days
         tx_groups = (
             df_sorted.groupby(["Client Name", "Block"])
             .agg(
@@ -116,7 +116,8 @@ def run_factoids():
         )
 
         tx_groups["DateRange"] = tx_groups.apply(
-            lambda r: str(r["StartDate"]) if r["StartDate"] == r["EndDate"] else f"{r['StartDate']} → {r['EndDate']}",
+            lambda r: r["StartDate"].strftime("%Y-%m-%d") if r["StartDate"] == r["EndDate"]
+            else f"{r['StartDate'].strftime('%Y-%m-%d')} → {r['EndDate'].strftime('%Y-%m-%d')}",
             axis=1,
         )
 
