@@ -34,39 +34,42 @@ def run_factoids():
     st.markdown("<div style='max-width:50%;'>", unsafe_allow_html=True)
 
     # --------------------------------
-    # Daily Activity (transaction-aware)
+    # Daily Activity (Client Transactions)
     # --------------------------------
-    st.subheader("📌 Daily Activity")
+    st.subheader("📌 Daily Activity (Client Transactions)")
 
     if not df.empty:
         df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
         df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
         df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-        df_sorted["Block"] = (df_sorted["DayDiff"] > 1).cumsum()
+        df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].apply(lambda x: (x > 1).cumsum())
 
-        # Each (Client, Block) = 1 transaction
+        # Each (Client, Block) = 1 client transaction
         transactions = (
-            df_sorted.groupby(["DateOnly", "Client Name", "Block"])
+            df_sorted.groupby(["Client Name", "Block"])
             .agg(
+                StartDate=("DateOnly","min"),
+                EndDate=("DateOnly","max"),
                 Patients=("Patient Name", lambda x: set(x)),
-                Amount=("Amount", "sum")
+                Amount=("Amount","sum")
             )
             .reset_index()
         )
+        transactions["DateOnly"] = transactions["StartDate"]
 
         daily = transactions.groupby("DateOnly").agg(
-            Transactions=("Block", "count"),
-            Clients=("Client Name", "nunique"),
+            ClientTransactions=("Block","count"),
+            Clients=("Client Name","nunique"),
             Patients=("Patients", lambda pats: len(set().union(*pats)))
         )
 
         if not daily.empty:
-            st.write("**Max transactions in a day:**", f"{int(daily['Transactions'].max()):,}")
-            st.write("**Average transactions per day:**", f"{int(round(daily['Transactions'].mean())):,}")
+            st.write("**Max client transactions in a day:**", f"{int(daily['ClientTransactions'].max()):,}")
+            st.write("**Average client transactions per day:**", f"{int(round(daily['ClientTransactions'].mean())):,}")
             st.write("**Max unique clients in a day:**", f"{int(daily['Clients'].max()):,}")
-            st.write("**Average clients per day:**", f"{int(round(daily['Clients'].mean())):,}")
+            st.write("**Average unique clients per day:**", f"{int(round(daily['Clients'].mean())):,}")
             st.write("**Max unique patients in a day:**", f"{int(daily['Patients'].max()):,}")
-            st.write("**Average patients per day:**", f"{int(round(daily['Patients'].mean())):,}")
+            st.write("**Average unique patients per day:**", f"{int(round(daily['Patients'].mean())):,}")
         else:
             st.info("No daily activity data available.")
     else:
@@ -106,11 +109,11 @@ def run_factoids():
     # --------------------------------
     # Largest Transactions
     # --------------------------------
-    st.subheader("📈 Top 5 Largest Transactions")
+    st.subheader("📈 Top 5 Largest Client Transactions")
     df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
     df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
     df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-    df_sorted["Block"] = (df_sorted["DayDiff"] > 1).cumsum()
+    df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].apply(lambda x: (x > 1).cumsum())
     tx_groups = (
         df_sorted.groupby(["Client Name", "Block"])
         .agg(
@@ -154,7 +157,7 @@ def run_factoids():
         d_sorted = df_all.sort_values(["Client Name", "Planitem Performed"])
         d_sorted["DateOnly"] = pd.to_datetime(d_sorted["Planitem Performed"]).dt.normalize()
         d_sorted["DayDiff"] = d_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-        d_sorted["Block"] = (d_sorted["DayDiff"] > 1).cumsum()
+        d_sorted["Block"] = d_sorted.groupby("Client Name")["DayDiff"].apply(lambda x: (x > 1).cumsum())
         tx = (
             d_sorted.groupby(["Client Name", "Block"])
             .agg(
