@@ -328,10 +328,7 @@ def get_visible_plan_item(item_name: str, rules: dict) -> str:
     for rule_text, settings in rules.items():
         if rule_text in n:
             vis = settings.get("visible_text")
-            if vis and vis.strip():   # only use if not blank
-                return vis
-            else:
-                return item_name      # fallback to original data
+            return vis if vis and vis.strip() else item_name
     return item_name
 
 
@@ -1197,6 +1194,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
