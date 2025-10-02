@@ -48,38 +48,15 @@ def run_factoids():
         st.info("No transactions available.")
 
     # --------------------------------
-    # Top Items by Count (Top 10, exclude tablets)
+    # Top Items by Revenue (Top 20)
     # --------------------------------
-    st.subheader("💉 Top 10 Items by Count (Excluding Tablets)")
-    if "Plan Item Name" in df.columns:
-        def is_tablet(name: str) -> bool:
-            if not isinstance(name, str):
-                return False
-            name_l = name.lower()
-            tablet_keywords = ["mg", "tab", "tabs", "tablet", "pill", "cap", "capsule"]
-            return any(kw in name_l for kw in tablet_keywords)
-
-        filtered = df[~df["Plan Item Name"].str.lower().apply(is_tablet)]
-        top_items_count = (
-            filtered.groupby("Plan Item Name")["Quantity"]
-                    .sum()
-                    .sort_values(ascending=False)
-                    .head(10)
-                    .rename("Total Quantity")
-                    .to_frame()
-        )
-        st.dataframe(top_items_count.applymap(lambda x: f"{int(x):,}"), use_container_width=True)
-
-    # --------------------------------
-    # Top Items by Revenue (Top 10)
-    # --------------------------------
-    st.subheader("💰 Top 10 Items by Revenue")
+    st.subheader("💰 Top 20 Items by Revenue")
     if "Plan Item Name" in df.columns and "Amount" in df.columns:
         top_items_rev = (
             df.groupby("Plan Item Name")["Amount"]
               .sum()
               .sort_values(ascending=False)
-              .head(10)
+              .head(20)
               .rename("Total Revenue")
               .to_frame()
         )
@@ -102,7 +79,7 @@ def run_factoids():
         st.dataframe(top_clients.applymap(lambda x: f"{int(x):,}"), use_container_width=True)
 
     # --------------------------------
-    # Largest Transactions (include patients)
+    # Largest Transactions (include patients, formatted dates)
     # --------------------------------
     st.subheader("📈 Top 5 Largest Transactions")
     if {"Client Name", "Amount", "Patient Name"}.issubset(df.columns):
@@ -126,8 +103,8 @@ def run_factoids():
         )
 
         tx_groups["DateRange"] = tx_groups.apply(
-            lambda r: r["StartDate"].strftime("%Y-%m-%d") if r["StartDate"] == r["EndDate"]
-            else f"{r['StartDate'].strftime('%Y-%m-%d')} → {r['EndDate'].strftime('%Y-%m-%d')}",
+            lambda r: r["StartDate"].strftime("%d %b %Y") if r["StartDate"] == r["EndDate"]
+            else f"{r['StartDate'].strftime('%d %b %Y')} → {r['EndDate'].strftime('%d %b %Y')}",
             axis=1,
         )
 
