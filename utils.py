@@ -160,7 +160,7 @@ def process_file(file, rules):
 # Preventive Care Keyword Lists
 # --------------------------------
 FLEA_WORM_KEYWORDS = [
-    "bravecto", "revolution", "deworm", "milbe", "milpro", "frontline"
+    "bravecto", "revolution", "deworm", "frontline"
 ]
 
 FOOD_KEYWORDS = [
