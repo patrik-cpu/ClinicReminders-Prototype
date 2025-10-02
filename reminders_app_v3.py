@@ -1,7 +1,8 @@
 import pandas as pd
+import unicodedata
 import streamlit as st
 import re
-import json, os, base64
+import json, os
 import streamlit.components.v1 as components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -54,7 +55,7 @@ st.markdown(
 
     /* Make page use full width */
     .block-container {
-        max-width: 90% !important;
+        max-width: 100% !important;
         padding-left: 2rem;
         padding-right: 2rem;
     }
@@ -79,10 +80,11 @@ st.markdown(
 # Defaults
 # --------------------------------
 DEFAULT_RULES = {
-    "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies vaccine"},
-    "dhpp": {"days": 365, "use_qty": False, "visible_text": "DHPPIL vaccine"},
-    "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia vaccine"},
-    "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat vaccine"},
+    "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies Vaccine"},
+    "pch": {"days": 365, "use_qty": False, "visible_text": "Tricat Vaccine"},
+    "dhppil": {"days": 365, "use_qty": False, "visible_text": "DHPPIL Vaccine"},
+    "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia Vaccine"},
+    "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat Vaccine"},
     "dental cat": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
     "groom": {"days": 90, "use_qty": False, "visible_text": "Groom"},
     "feliway": {"days": 60, "use_qty": True, "visible_text": "Feliway"},
@@ -94,6 +96,7 @@ DEFAULT_RULES = {
     "cardiac ultrasound": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
     "ultrasound - cardiac": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
     "caniverm": {"days": 90, "use_qty": False, "visible_text": "Caniverm"},
+    "deworm": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "milbem": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "milpro": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "bravecto plus": {"days": 60, "use_qty": True, "visible_text": "Bravecto Plus"},
@@ -107,18 +110,8 @@ DEFAULT_RULES = {
     "solensia": {"days": 30, "use_qty": False, "visible_text": "Solensia"},
     "samylin": {"days": 30, "use_qty": True, "visible_text": "Samylin"},
     "cystaid": {"days": 30, "use_qty": False, "visible_text": "Cystaid"},
-    "kennel cough": {"days": 30, "use_qty": False, "visible_text": "Kennel Cough vaccine"},
+    "kennel cough": {"days": 365, "use_qty": False, "visible_text": "Kennel Cough Vaccine"},
 }
-
-# --------------------------------
-# WhatsApp Template Defaults
-# --------------------------------
-DEFAULT_TEMPLATE = (
-    "Hi [Client Name], this is [User Name] reminding you that "
-    "[Animal Name] [is/are] due for their [Item] on [Due Date]. "
-    "Get in touch with us any time, and we look forward to hearing from you soon!"
-)
-
 
 # --------------------------------
 # Settings persistence (local JSON)
@@ -131,7 +124,6 @@ def save_settings():
         "rules": st.session_state["rules"],
         "exclusions": st.session_state["exclusions"],
         "user_name": st.session_state["user_name"],
-        "wa_template": st.session_state.get("wa_template", DEFAULT_TEMPLATE),  # 👈 add this
     }
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f)
@@ -140,15 +132,25 @@ def load_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, "r") as f:
             settings = json.load(f)
-        st.session_state["rules"] = settings.get("rules", DEFAULT_RULES.copy())
+
+        # Start from defaults
+        rules = DEFAULT_RULES.copy()
+
+        # Merge saved rules on top
+        saved_rules = settings.get("rules", {})
+        rules.update(saved_rules)
+
+        st.session_state["rules"] = rules
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
-        st.session_state["wa_template"] = settings.get("wa_template", DEFAULT_TEMPLATE)  # 👈 add this
+
     else:
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
         st.session_state["user_name"] = ""
-        st.session_state["wa_template"] = DEFAULT_TEMPLATE  # 👈 add this
+        save_settings()
+
+
 
 # --------------------------------
 # PMS definitions
@@ -218,6 +220,7 @@ PMS_DEFINITIONS = {
     }
 }
 
+
 def normalize_columns(cols):
     """Lowercase, collapse spaces, strip BOM/nbsp for robust comparison."""
     cleaned = []
@@ -229,13 +232,17 @@ def normalize_columns(cols):
         cleaned.append(c)
     return cleaned
 
+
 def detect_pms(df: pd.DataFrame) -> str:
     df_cols = set(normalize_columns(df.columns))
     for pms_name, definition in PMS_DEFINITIONS.items():
         required = set(normalize_columns(definition["columns"]))
         if required.issubset(df_cols):
             return pms_name
+
+    
     return None
+
 
 # --------------------------------
 # Session state init
@@ -253,18 +260,50 @@ st.session_state.setdefault("form_version", 0)
 # --------------------------------
 
 def simplify_vaccine_text(text: str) -> str:
-    if not isinstance(text, str): return text
-    if text.lower().count("vaccine") <= 1: return text
+    """Format vaccine names cleanly; only add Vaccine(s) when items are vaccines."""
+    if not isinstance(text, str):
+        return text
+
+    # Split into parts (comma and "and")
     parts = [p.strip() for p in text.replace(" and ", ",").split(",") if p.strip()]
-    cleaned = []
-    for p in parts:
-        tokens = p.split()
-        if tokens and tokens[-1].lower().startswith("vaccine"):
-            tokens = tokens[:-1]
-        cleaned.append(" ".join(tokens).strip())
+    cleaned = [p.strip() for p in parts if p]
+
+    if not cleaned:
+        return text
+
+    # Special: ignore 'Vaccination' if other items exist
+    cleaned_lower = [c.lower() for c in cleaned]
+    if "vaccination" in cleaned_lower and len(cleaned) > 1:
+        cleaned = [c for c in cleaned if c.lower() != "vaccination"]
+
+    # Determine if ALL items are vaccines
+    is_vaccine_item = lambda s: s.lower().endswith("vaccine") or s.lower().endswith("vaccines") or s.lower() in ["vaccination", "vaccine(s)"]
+    all_vaccines = all(is_vaccine_item(c) for c in cleaned)
+
+    # If all items are vaccines, strip trailing "vaccine(s)" for clean grammar
+    if all_vaccines:
+        stripped = []
+        for c in cleaned:
+            tokens = c.split()
+            if tokens and tokens[-1].lower().startswith("vaccine"):
+                tokens = tokens[:-1]
+            stripped.append(" ".join(tokens).strip())
+        stripped = [s for s in stripped if s]
+
+        if len(stripped) == 1:
+            return stripped[0] + " Vaccine"
+        elif len(stripped) == 2:
+            return f"{stripped[0]} and {stripped[1]} Vaccines"
+        else:
+            return f"{', '.join(stripped[:-1])} and {stripped[-1]} Vaccines"
+
+    # Otherwise → non-vaccine items, just return nicely joined
     if len(cleaned) == 1:
-        return cleaned[0] + " Vaccines"
-    return ", ".join(cleaned[:-1]) + " and " + cleaned[-1] + " Vaccines"
+        return cleaned[0]
+    elif len(cleaned) == 2:
+        return f"{cleaned[0]} and {cleaned[1]}"
+    else:
+        return f"{', '.join(cleaned[:-1])} and {cleaned[-1]}"
 
 def format_items(item_list):
     items = [str(x).strip() for x in item_list if str(x).strip()]
@@ -291,15 +330,43 @@ def get_visible_plan_item(item_name: str, rules: dict) -> str:
             return settings.get("visible_text") or item_name
     return item_name
 
+def normalize_item_name(name: str) -> str:
+    """Normalize item names for matching."""
+    if not isinstance(name, str):
+        return ""
+    name = unicodedata.normalize("NFKC", name).lower()
+    name = re.sub(r"[\u00a0\ufeff]", " ", name)  # clean nbsp/BOM
+    name = re.sub(r"[-+/().,]", " ", name)       # separators
+    return re.sub(r"\s+", " ", name).strip()
+
 def map_intervals(df, rules):
+    """Map plan items to rules and calculate intervals."""
+    df = df.copy()
+    df["MatchedItems"] = [[] for _ in range(len(df))]
     df["IntervalDays"] = pd.NA
-    # Sort rules by length (longest first) to avoid overwriting
-    for rule, settings in sorted(rules.items(), key=lambda x: -len(x[0])):
-        mask = df["Item"].str.contains(rf"\b{re.escape(rule)}\b", case=False, na=False)
-        if settings["use_qty"]:
-            df.loc[mask, "IntervalDays"] = df.loc[mask, "Quantity"] * settings["days"]
+
+    for idx, row in df.iterrows():
+        normalized = normalize_item_name(row.get("Plan Item Name", ""))
+        matches, interval_values = [], []
+
+        for rule, settings in rules.items():
+            rule_norm = rule.lower().strip()
+            if rule_norm in normalized:
+                matches.append(settings.get("visible_text", rule.title()))
+                days = settings["days"]
+                if settings.get("use_qty"):
+                    qty = pd.to_numeric(row.get("Quantity", 1), errors="coerce")
+                    qty = int(qty) if pd.notna(qty) else 1
+                    days *= max(qty, 1)
+                interval_values.append(days)
+
+        if matches:
+            df.at[idx, "MatchedItems"] = matches
+            df.at[idx, "IntervalDays"] = min(interval_values)
         else:
-            df.loc[mask, "IntervalDays"] = settings["days"]
+            df.at[idx, "MatchedItems"] = [row.get("Plan Item Name", "")]
+            df.at[idx, "IntervalDays"] = pd.NA
+
     return df
 
 def parse_dates(series: pd.Series) -> pd.Series:
@@ -365,110 +432,55 @@ def parse_dates(series: pd.Series) -> pd.Series:
         return parsed
     return pd.to_datetime(s, errors="coerce")
 
-def template_editor(initial_text: str, key: str = "wa_template_editor"):
-    """
-    Cursor-aware editor with Insert buttons.
-    - Uses postMessage('streamlit:setComponentValue') to return value to Python.
-    - Safely passes initial text (base64 in a data-attribute to avoid </script> / </textarea> issues).
-    - Returns a string (updated template) when Save is clicked,
-      returns '__TEMPLATE_EDITOR__CANCELLED__' when Cancel is clicked,
-      returns None on regular reruns when no action happened.
-    """
-    # Safe payload for HTML attribute (no f-string braces issues)
-    b64 = base64.b64encode(initial_text.encode("utf-8")).decode("ascii")
+def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
+    """Ensure reminder fields exist, always fresh."""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=[
+            "DueDateFmt","Client Name","ChargeDateFmt","Patient Name",
+            "MatchedItems","Quantity","IntervalDays","NextDueDate","Planitem Performed"
+        ])
 
-    html_blob = """
-    <style>
-      #templateEditor {{
-        width:100%; height:180px; font-size:15px; padding:8px;
-        border-radius:6px; border:1px solid #ccc; resize:vertical;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      }}
-      .btn-row {{ display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }}
-      .blue-btn {{
-        background:#007bff; color:#fff; border:none; padding:6px 10px;
-        border-radius:6px; cursor:pointer; font-weight:600;
-      }}
-      .red-btn {{
-        background:#ff4d4d; color:#fff; border:none; padding:8px 14px;
-        border-radius:6px; cursor:pointer; font-weight:700;
-      }}
-      .grey-btn {{
-        background:#666; color:#fff; border:none; padding:8px 14px;
-        border-radius:6px; cursor:pointer; font-weight:600;
-      }}
-    </style>
+    df = df.copy()
 
-    <div id="init_payload" data-b64="__B64__"></div>
+    # Ensure Quantity column
+    if "Quantity" not in df.columns:
+        df["Quantity"] = 1
 
-    <textarea id="templateEditor" aria-label="WhatsApp Template"></textarea>
+    # Map rules
+    df = map_intervals(df, rules)
 
-    <div class="btn-row" style="margin-top:10px;">
-      <button class="blue-btn" onclick="insertAtCursor('[Client Name]')">[Client Name]</button>
-      <button class="blue-btn" onclick="insertAtCursor('[Animal Name]')">[Animal Name]</button>
-      <button class="blue-btn" onclick="insertAtCursor('[Item]')">[Item]</button>
-      <button class="blue-btn" onclick="insertAtCursor('[Due Date]')">[Due Date]</button>
-      <button class="blue-btn" onclick="insertAtCursor('[User Name]')">[User Name]</button>
-    </div>
+    # Ensure dates
+    if "Planitem Performed" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["Planitem Performed"]):
+        df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
 
-    <div class="btn-row">
-      <button class="red-btn" onclick="saveTemplate()">💾 Save Template</button>
-      <button class="grey-btn" onclick="cancelTemplate()">✖ Cancel</button>
-    </div>
+    days = pd.to_numeric(df["IntervalDays"], errors="coerce")
+    df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(days, unit="D")
+    df["ChargeDateFmt"] = pd.to_datetime(df["Planitem Performed"]).dt.strftime("%d %b %Y")
+    df["DueDateFmt"]    = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
 
-    <script>
-    (function() {{
-      // Load initial text safely
-      const node = document.getElementById("init_payload");
-      const b64 = (node && node.getAttribute("data-b64")) || "";
-      const initial = b64 ? decodeURIComponent(escape(window.atob(b64))) : "";
+    # Guarantee essential text columns
+    for col in ["Patient Name", "Client Name"]:
+        if col not in df.columns:
+            df[col] = ""
 
-      const ta = document.getElementById("templateEditor");
-      ta.value = initial;
+    # Ensure lists
+    df["MatchedItems"] = df["MatchedItems"].apply(
+        lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
+    )
+    return df
 
-      // Insert at cursor helper
-      window.insertAtCursor = function(text) {{
-        if (!ta) return;
-        const start = ta.selectionStart || 0, end = ta.selectionEnd || 0;
-        const before = ta.value.substring(0, start), after = ta.value.substring(end);
-        ta.value = before + text + after;
-        const pos = start + text.length;
-        ta.selectionStart = ta.selectionEnd = pos;
-        ta.focus();
-      }};
-
-      // Return value to Streamlit on Save
-      window.saveTemplate = function() {{
-        const val = ta.value;
-        window.parent.postMessage({{
-          isStreamlitMessage: true,
-          type: "streamlit:setComponentValue",
-          value: val
-        }}, "*");
-      }};
-
-      // Signal cancel to Streamlit
-      window.cancelTemplate = function() {{
-        window.parent.postMessage({{
-          isStreamlitMessage: true,
-          type: "streamlit:setComponentValue",
-          value: "__TEMPLATE_EDITOR__CANCELLED__"
-        }}, "*");
-      }};
-
-      // Optional: Cmd/Ctrl+Enter to Save
-      document.addEventListener("keydown", function(e) {{
-        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {{
-          e.preventDefault();
-          window.saveTemplate();
-        }}
-      }});
-    }})();
-    </script>
-    """.replace("__B64__", b64)
-
-    # IMPORTANT: components.html returns the posted value on the *next* rerun.
-    return components.html(html_blob, height=420, key=key)
+def normalize_display_case(text: str) -> str:
+    """If a word is ALL CAPS, convert to Title Case. Else leave as-is."""
+    if not isinstance(text, str):
+        return text
+    words = text.split()
+    fixed = []
+    for w in words:
+        if w.isupper() and len(w) > 1:   # all caps, not single letters
+            fixed.append(w.capitalize())
+        else:
+            fixed.append(w)
+    return " ".join(fixed)
 
 # --------------------------------
 # Cached CSV processor
@@ -476,7 +488,7 @@ def template_editor(initial_text: str, key: str = "wa_template_editor"):
 
 @st.cache_data
 def process_file(file, rules):
-    # Choose parser based on extension
+    """Load and standardize uploaded file."""
     name = file.name.lower()
     if name.endswith(".csv"):
         df = pd.read_csv(file)
@@ -485,74 +497,51 @@ def process_file(file, rules):
     else:
         raise ValueError("Unsupported file type")
 
-    # Clean column names (surface level)
     df.columns = [c.strip() for c in df.columns]
-
-    # Detect PMS on *normalized* headers
     pms_name = detect_pms(df)
     if not pms_name:
-        return df, None  # undetected PMS
-    # --- Date parsing ---
-    if "Planitem Performed" in df.columns:
-        if pms_name == "VETport":
-            # Hardcode the known format for VETport
-            df["Planitem Performed"] = pd.to_datetime(
-                df["Planitem Performed"].astype(str).str.strip(),
-                format="%d/%b/%Y %H:%M %S",
-                errors="coerce"
-            )
-        else:
-            # All other PMS can use the generic parser
-            df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
+        return df, None
 
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
 
-    # --- Normalize columns FIRST ---
+    # Standardize column names
     if pms_name == "ezyVet":
-        # Build client name
         df["Client Name"] = (
             df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
             df[mappings["client_last"]].fillna("").astype(str).str.strip()
         ).str.strip()
-
-        df.rename(
-            columns={
-                mappings["date"]: "Planitem Performed",
-                mappings["animal"]: "Patient Name",
-                mappings["item"]: "Plan Item Name",
-            },
-            inplace=True,
-        )
+        rename_map = {
+            mappings["date"]: "Planitem Performed",
+            mappings["animal"]: "Patient Name",
+            mappings["item"]: "Plan Item Name",
+        }
     else:
-        df.rename(
-            columns={
-                mappings["date"]: "Planitem Performed",
-                mappings["client"]: "Client Name",
-                mappings["animal"]: "Patient Name",
-                mappings["item"]: "Plan Item Name",
-            },
-            inplace=True,
-        )
+        rename_map = {
+            mappings["date"]: "Planitem Performed",
+            mappings["client"]: "Client Name",
+            mappings["animal"]: "Patient Name",
+            mappings["item"]: "Plan Item Name",
+        }
+    df.rename(columns=rename_map, inplace=True)
 
-    # --- Date parsing on unified column ---
+    # Parse dates robustly
     if "Planitem Performed" in df.columns:
         df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
 
-    # --- Quantity (kept on original source column name) ---
+    # Ensure Quantity
     qty_col = mappings.get("qty")
-    if qty_col and qty_col in df.columns:
-        df["Quantity"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
-    else:
-        df["Quantity"] = 1
+    df["Quantity"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1)
 
-    # --- Standardize downstream fields ---
+    # Map rules
     df = map_intervals(df, rules)
     df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
     df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
     df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
+
+    # Lowercase helper cols
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
-    df["_item_lower"] = df["Plan Item Name"].astype(str).str.lower()
+    df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
 
     return df, pms_name
 
@@ -620,19 +609,31 @@ def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
         st.info(f"No reminders in {title}."); return
     df = df.copy()
-    source_col = "Plan Item Name" if "Plan Item Name" in df.columns else "Item"
-    df["Item"] = df[source_col].apply(lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules)))
+
+    # ✅ Only map RAW rows; do NOT remap grouped/combined rows
+    if "Plan Item Name" in df.columns:
+        df["Plan Item"] = df["Plan Item Name"].apply(
+            lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules))
+        )
+    elif "Plan Item" in df.columns:
+        # already combined: just tidy punctuation/casing
+        df["Plan Item"] = df["Plan Item"].apply(lambda x: simplify_vaccine_text(str(x)))
+    else:
+        df["Plan Item"] = ""
+
+    # exclusions still work on the final display text
     if st.session_state["exclusions"]:
         excl_pattern = "|".join(map(re.escape, st.session_state["exclusions"]))
-        df = df[~df["Item"].str.lower().str.contains(excl_pattern)]
+        df = df[~df["Plan Item"].str.lower().str.contains(excl_pattern)]
     if df.empty:
         st.info("All rows excluded by exclusion list."); return
+
     render_table_with_buttons(df, key_prefix, msg_key)
-    
+
 def render_table_with_buttons(df, key_prefix, msg_key):
     # Column layout
     col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
-    headers = ["Due Date","Charge Date","Client Name","Animal Name","Item","Qty","Days","WA"]
+    headers = ["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days","WA"]
     cols = st.columns(col_widths)
     for c, head in zip(cols, headers):
         c.markdown(f"**{head}**")
@@ -642,29 +643,32 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         vals = {h: str(row.get(h, "")) for h in headers[:-1]}
         cols = st.columns(col_widths, gap="small")
         for j, h in enumerate(headers[:-1]):
-            cols[j].markdown(vals[h])
+            val = vals[h]
+            if h in ["Client Name", "Animal Name", "Plan Item"]:  # clean display fields only
+                val = normalize_display_case(val)
+            cols[j].markdown(val)
+
 
         # WA button -> prepare message
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
             first_name  = vals['Client Name'].split()[0].strip() if vals['Client Name'] else "there"
             animal_name = vals['Animal Name'].strip() if vals['Animal Name'] else "your pet"
-            plan_for_msg = vals["Item"].strip()
+            plan_for_msg = vals["Plan Item"].strip()
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
             closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
             verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
 
-            template = st.session_state.get("wa_template", DEFAULT_TEMPLATE)
-            msg = (
-                template
-                .replace("[Client Name]", first_name)
-                .replace("[Animal Name]", animal_name)
-                .replace("[Item]", plan_for_msg)
-                .replace("[Due Date]", due_date_fmt)
-                .replace("[User Name]", user or "our clinic")
-                .replace("[is/are]", verb)
-            )
-            st.session_state[msg_key] = msg
+            if user:
+                st.session_state[msg_key] = (
+                    f"Hi {first_name}, this is {user} reminding you that "
+                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
+                )
+            else:
+                st.session_state[msg_key] = (
+                    f"Hi {first_name}, this is a reminder letting you know that "
+                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
+                )
 
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
@@ -680,7 +684,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
         current_message = st.session_state.get(msg_key, "")
 
-        # HTML block: phone input + WA/Copy buttons
+        # HTML block: phone input + buttons
         components.html(
             f'''
             <html>
@@ -773,8 +777,9 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     if (phoneClean) {{
                       url = `https://wa.me/${{phoneClean}}${{encMsg ? "?text=" + encMsg : ""}}`;
                     }} else {{
+                      // No phone → copy automatically before opening
                       await copyToClipboard(MESSAGE_RAW || '');
-                      url = "https://wa.me/"; 
+                      url = "https://wa.me/";  // forward/search
                     }}
                     window.open(url, '_blank', 'noopener');
                   }});
@@ -789,33 +794,8 @@ def render_table_with_buttons(df, key_prefix, msg_key):
               </body>
             </html>
             ''',
-            height=120,
+            height=130,
         )
-
-        #-----------------------------------
-        # Template Editor (cursor-aware with JS)
-        #-----------------------------------
-        # Toggle editor
-        if st.button("✏️ Change Template", key=f"{key_prefix}_template_open"):
-            st.session_state["editing_template"] = True
-        
-        # Show editor and handle Save/Cancel
-        if st.session_state.get("editing_template", False):
-            updated_value = template_editor(
-                st.session_state.get("wa_template", DEFAULT_TEMPLATE),
-                key="wa_template_editor"  # stable key
-            )
-        
-            if updated_value is not None:  # None means no action yet
-                if updated_value == "__TEMPLATE_EDITOR__CANCELLED__":
-                    st.session_state["editing_template"] = False
-                    st.info("Edit cancelled.")
-                else:
-                    st.session_state["wa_template"] = str(updated_value)
-                    save_settings()
-                    st.session_state["editing_template"] = False
-                    st.success("Template updated!")
-
     # ⚠️ Warning note under buttons
     st.markdown(
         "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
@@ -823,9 +803,12 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         unsafe_allow_html=True
     )
 
+
     with comp_tip:
         st.markdown("### 💡 Tip")
         st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
+
+
 
 # --------------------------------
 # Main
@@ -864,34 +847,42 @@ if working_df is not None:
     end_date = start_date + timedelta(days=6)
 
     due = df[(df["NextDueDate"] >= pd.to_datetime(start_date)) & (df["NextDueDate"] <= pd.to_datetime(end_date))]
+    due2 = ensure_reminder_columns(due, st.session_state["rules"])
 
+    g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
     grouped = (
-        due.groupby(["DueDateFmt", "Client Name"], dropna=False)
-        .agg({
-            "ChargeDateFmt": "max",
-            "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
-            "Plan Item Name": lambda x: format_items(list(x.dropna())),
-            "Quantity": "sum",
-            "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
+        pd.DataFrame({
+            "Charge Date": g["ChargeDateFmt"].max(),
+            "Animal Name": g["Patient Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
+            "Plan Item": g["MatchedItems"].apply(
+                lambda lists: simplify_vaccine_text(
+                    format_items(sorted(set(
+                        i.strip()
+                        for sublist in lists
+                        for i in (sublist if isinstance(sublist, list) else [sublist])
+                        if str(i).strip()
+                    )))
+                )
+            ),
+
+            "Qty": g["Quantity"].sum(min_count=1),
+            "Days": g["IntervalDays"].apply(
+                lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
+                    if pd.to_numeric(x, errors="coerce").notna().any()
+                    else ""
+            ),
         })
         .reset_index()
-        .rename(columns={
-            "DueDateFmt": "Due Date",
-            "ChargeDateFmt": "Charge Date",
-            "Client Name": "Client Name",
-            "Patient Name": "Animal Name",
-            "Plan Item Name": "Item",
-            "IntervalDays": "Days",
-            "Quantity": "Qty",
-        })
-    )
-
+        .rename(columns={"DueDateFmt": "Due Date"})
+    )[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+    
     grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
-    grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Item","Qty","Days"]]
-
+    grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
     render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
 
+    # --------------------------------
     # Search
+    # --------------------------------
     st.markdown("---")
     st.markdown("<h2 id='search'>🔍 Search</h2>", unsafe_allow_html=True)
     st.info("💡 Search by client, animal, or plan item to find upcoming reminders.")
@@ -903,36 +894,39 @@ if working_df is not None:
             df["_animal_lower"].str.contains(q, regex=False) |
             df["_item_lower"].str.contains(q, regex=False)
         )
-        filtered = df[mask].sort_values("NextDueDate")
-        if not filtered.empty:
+        filtered = df[mask].copy().sort_values("NextDueDate")
+    
+        filtered2 = ensure_reminder_columns(filtered, st.session_state["rules"])
+    
+        if not filtered2.empty:
+            g = filtered2.groupby(["DueDateFmt", "Client Name"], dropna=False)
             grouped_search = (
-                filtered.groupby(["DueDateFmt", "Client Name"], dropna=False)
-                .agg({
-                    "ChargeDateFmt": "max",
-                    "Patient Name": lambda x: format_items(sorted(set(x.dropna()))),
-                    "Plan Item Name": lambda x: format_items(list(x.dropna())),
-                    "Quantity": "sum",
-                    "IntervalDays": lambda x: ", ".join(str(int(v)) for v in sorted(set(x.dropna())))
+                pd.DataFrame({
+                    "Charge Date": g["ChargeDateFmt"].max(),
+                    "Animal Name": g["Patient Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
+                    "Plan Item": g["MatchedItems"].apply(
+                        lambda lists: simplify_vaccine_text(
+                            format_items(sorted(set(
+                                i.strip() for sub in lists for i in (sub if isinstance(sub, list) else [sub]) if str(i).strip()
+                            )))
+                        )
+                    ),
+                    "Qty": g["Quantity"].sum(min_count=1),
+                    "Days": g["IntervalDays"].apply(
+                        lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
+                            if pd.to_numeric(x, errors="coerce").notna().any()
+                            else ""
+                    ),
                 })
                 .reset_index()
-                .rename(columns={
-                    "DueDateFmt": "Due Date",
-                    "ChargeDateFmt": "Charge Date",
-                    "Client Name": "Client Name",
-                    "Patient Name": "Animal Name",
-                    "Plan Item Name": "Item",
-                    "IntervalDays": "Days",
-                    "Quantity": "Qty",
-                })
-            )
-            
-            grouped_search["Qty"] = pd.to_numeric(grouped_search["Qty"], errors="coerce").fillna(0).astype(int)
-            grouped_search = grouped_search[["Due Date","Charge Date","Client Name","Animal Name","Item","Qty","Days"]]
-            
+                .rename(columns={"DueDateFmt": "Due Date"})
+            )[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+    
             render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
-
         else:
             st.info("No matches found.")
+
+
 
     # Rules editor
     st.markdown("---")
@@ -958,27 +952,44 @@ if working_df is not None:
         save_settings()
         st.rerun()
 
-    for i, (rule, settings) in enumerate(sorted(st.session_state["rules"].items(), key=lambda x: x[0])):
+    for rule, settings in sorted(st.session_state["rules"].items(), key=lambda x: x[0]):
         ver = st.session_state["form_version"]
-        cols = st.columns([3,1,1,2,0.6])
-        with cols[0]: st.write(rule)
-        with cols[1]:
-            new_values.setdefault(rule, {})["days"] = st.text_input(
-                "days", value=str(settings["days"]), key=f"days_{i}_{ver}", label_visibility="collapsed"
-            )
-        with cols[2]:
-            st.checkbox(
-                "Use Qty", value=settings["use_qty"],
-                key=f"useqty_{i}_{ver}", on_change=toggle_use_qty, args=(rule, f"useqty_{i}_{ver}",)
-            )
-        with cols[3]:
-            new_values[rule]["visible_text"] = st.text_input(
-                "Visible Text", value=settings.get("visible_text",""),
-                key=f"vis_{i}_{ver}", label_visibility="collapsed"
-            )
-        with cols[4]:
-            if st.button("❌", key=f"del_{i}_{ver}"):
-                to_delete.append(rule)
+        
+        # Use rule name itself (sanitized) instead of index for stable widget keys
+        safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
+    
+        with st.container():  # keeps each row discrete
+            cols = st.columns([3,1,1,2,0.7], gap="small")
+    
+            with cols[0]:
+                st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
+    
+            with cols[1]:
+                new_values.setdefault(rule, {})["days"] = st.text_input(
+                    "Days", value=str(settings["days"]),
+                    key=f"days_{safe_rule}_{ver}",
+                    label_visibility="collapsed"
+                )
+    
+            with cols[2]:
+                st.checkbox(
+                    "Use Qty", value=settings["use_qty"],
+                    key=f"useqty_{safe_rule}_{ver}",
+                    on_change=toggle_use_qty,
+                    args=(rule, f"useqty_{safe_rule}_{ver}",)
+                )
+    
+            with cols[3]:
+                new_values[rule]["visible_text"] = st.text_input(
+                    "Visible Text", value=settings.get("visible_text",""),
+                    key=f"vis_{safe_rule}_{ver}",
+                    label_visibility="collapsed"
+                )
+    
+            with cols[4]:
+                if st.button("❌", key=f"del_{safe_rule}_{ver}"):
+                    to_delete.append(rule)
+
 
     if to_delete:
         for rule in to_delete:
@@ -996,19 +1007,16 @@ if working_df is not None:
                 vis = new_values.get(rule, {}).get("visible_text", settings.get("visible_text", ""))
                 updated[rule] = {"days": d, "use_qty": settings["use_qty"], "visible_text": vis}
             st.session_state["rules"] = updated
-            save_settings()
+        
+            save_settings()  # ✅ ensure JSON is written before rerun
             st.rerun()
+
 
     with colR:
         if st.button("Reset defaults"):
-            reset_rules = {
-                k: {"days": v["days"], "use_qty": v["use_qty"], "visible_text": v.get("visible_text","")}
-                for k, v in DEFAULT_RULES.items()
-            }
-            st.session_state["rules"] = reset_rules
-            st.session_state["exclusions"] = []  # clear exclusions too
-            st.session_state["form_version"] += 1  # 🔥 force widgets to refresh with defaults
-            st.session_state["wa_template"] = DEFAULT_TEMPLATE
+            st.session_state["rules"] = DEFAULT_RULES.copy()
+            st.session_state["exclusions"] = []
+            st.session_state["form_version"] += 1
             save_settings()
             st.rerun()
 
@@ -1023,25 +1031,35 @@ if working_df is not None:
     st.markdown("---")
     st.write("### Add New Search Term")
     st.info("💡 Add a new **Search Term** (e.g., Cardisure), set its days, whether to use quantity, and optional visible text.")
-
-    c1, c2, c3, c4, c5 = st.columns([4,1,1,2,1])
-    with c1: new_rule_name = st.text_input("Rule name", key=f"new_rule_name_{st.session_state['new_rule_counter']}")
-    with c2: new_rule_days = st.text_input("Days", key=f"new_rule_days_{st.session_state['new_rule_counter']}")
-    with c3: new_rule_use_qty = st.checkbox("Use Qty", key=f"new_rule_useqty_{st.session_state['new_rule_counter']}")
-    with c4: new_rule_visible = st.text_input("Visible Text (optional)", key=f"new_rule_vis_{st.session_state['new_rule_counter']}")
+    
+    # Use the counter only to make this row unique *until* it's added
+    row_id = st.session_state['new_rule_counter']
+    
+    c1, c2, c3, c4, c5 = st.columns([3,1,1,2,0.7], gap="small")
+    with c1:
+        new_rule_name = st.text_input("Rule name", key=f"new_rule_name_{row_id}")
+    with c2:
+        new_rule_days = st.text_input("Days", key=f"new_rule_days_{row_id}")
+    with c3:
+        new_rule_use_qty = st.checkbox("Use Qty", key=f"new_rule_useqty_{row_id}")
+    with c4:
+        new_rule_visible = st.text_input("Visible Text (optional)", key=f"new_rule_vis_{row_id}")
     with c5:
-        if st.button("➕ Add", key=f"add_{st.session_state['new_rule_counter']}"):
+        if st.button("➕ Add", key=f"add_{row_id}"):
             if new_rule_name and str(new_rule_days).isdigit():
-                st.session_state["rules"][new_rule_name.strip().lower()] = {
+                safe_rule = new_rule_name.strip().lower()
+    
+                st.session_state["rules"][safe_rule] = {
                     "days": int(new_rule_days),
                     "use_qty": bool(new_rule_use_qty),
                     "visible_text": new_rule_visible.strip(),
                 }
                 save_settings()
-                st.session_state["new_rule_counter"] += 1
+                st.session_state["new_rule_counter"] += 1  # bump so next add row is fresh
                 st.rerun()
             else:
                 st.error("Enter a name and valid integer for days")
+
 
     # --------------------------------
     # Exclusions
@@ -1051,26 +1069,32 @@ if working_df is not None:
     st.info("💡 Add terms here to automatically hide reminders that contain them.")
     
     if st.session_state["exclusions"]:
-        for i, term in enumerate(st.session_state["exclusions"]):
-            cols = st.columns([6,1])
-            cols[0].write(term)
-            if cols[1].button("❌", key=f"del_excl_{i}"):
-                st.session_state["exclusions"].pop(i)
-                save_settings()
-                st.rerun()
+        for term in sorted(st.session_state["exclusions"]):
+            safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
+    
+            with st.container():
+                cols = st.columns([6,1], gap="small")
+                with cols[0]:
+                    st.markdown(f"<div style='padding-top:8px;'>{term}</div>", unsafe_allow_html=True)
+                with cols[1]:
+                    if st.button("❌", key=f"del_excl_{safe_term}"):
+                        st.session_state["exclusions"].remove(term)
+                        save_settings()
+                        st.rerun()
     else:
-        # 🔴 Show red block only when no exclusions
         st.error("No exclusions yet.")
     
-    c1, c2 = st.columns([4,1])
+    # Add new exclusion row
+    row_id = st.session_state['new_rule_counter']
+    c1, c2 = st.columns([4,1], gap="small")
     with c1:
-        new_excl = st.text_input("Add New Exclusion Term", key=f"new_excl_{st.session_state['new_rule_counter']}")
+        new_excl = st.text_input("Add New Exclusion Term", key=f"new_excl_{row_id}")
     with c2:
-        if st.button("➕ Add Exclusion", key=f"add_excl_{st.session_state['new_rule_counter']}"):
+        if st.button("➕ Add Exclusion", key=f"add_excl_{row_id}"):
             if new_excl and new_excl.strip():
-                term = new_excl.strip().lower()
-                if term not in st.session_state["exclusions"]:
-                    st.session_state["exclusions"].append(term)
+                safe_term = new_excl.strip().lower()
+                if safe_term not in st.session_state["exclusions"]:
+                    st.session_state["exclusions"].append(safe_term)
                     save_settings()
                     st.session_state["new_rule_counter"] += 1
                     st.rerun()
@@ -1079,9 +1103,8 @@ if working_df is not None:
             else:
                 st.error("Enter a valid exclusion term")
 
-# --- Google Sheets Setup ---
-import json
 
+# --- Google Sheets Setup ---
 SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
 SCOPE = ["https://spreadsheets.google.com/feeds",
          "https://www.googleapis.com/auth/drive"]
@@ -1160,4 +1183,8 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
+
+
+
 
