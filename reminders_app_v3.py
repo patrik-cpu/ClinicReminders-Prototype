@@ -138,6 +138,12 @@ def load_settings():
 
         # Merge saved rules on top
         saved_rules = settings.get("rules", {})
+
+        # 🚑 Cleanup: remove empty visible_text values
+        for k, v in saved_rules.items():
+            if "visible_text" in v and not v["visible_text"].strip():
+                v.pop("visible_text")
+
         rules.update(saved_rules)
 
         st.session_state["rules"] = rules
@@ -149,8 +155,6 @@ def load_settings():
         st.session_state["exclusions"] = []
         st.session_state["user_name"] = ""
         save_settings()
-
-
 
 # --------------------------------
 # PMS definitions
@@ -1194,6 +1198,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
