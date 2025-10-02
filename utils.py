@@ -37,9 +37,9 @@ SETTINGS_FILE = "clinicreminders_settings.json"
 
 def save_settings():
     settings = {
-        "rules": st.session_state["rules"],
-        "exclusions": st.session_state["exclusions"],
-        "user_name": st.session_state["user_name"],
+        "rules": st.session_state.get("rules", DEFAULT_RULES),
+        "exclusions": st.session_state.get("exclusions", []),
+        "user_name": st.session_state.get("user_name", ""),
     }
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f)
