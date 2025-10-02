@@ -1010,7 +1010,12 @@ if working_df is not None:
             for rule, settings in st.session_state["rules"].items():
                 d = int(new_values.get(rule, {}).get("days", settings["days"]))
                 vis = new_values.get(rule, {}).get("visible_text", settings.get("visible_text", ""))
-                updated[rule] = {"days": d, "use_qty": settings["use_qty"], "visible_text": vis}
+                # Treat blank as unset → remove from dict
+                if vis.strip() == "":
+                    updated[rule] = {"days": d, "use_qty": settings["use_qty"]}
+                else:
+                    updated[rule] = {"days": d, "use_qty": settings["use_qty"], "visible_text": vis.strip()}
+
             st.session_state["rules"] = updated
         
             save_settings()  # ✅ ensure JSON is written before rerun
@@ -1054,11 +1059,15 @@ if working_df is not None:
             if new_rule_name and str(new_rule_days).isdigit():
                 safe_rule = new_rule_name.strip().lower()
     
-                st.session_state["rules"][safe_rule] = {
+                rule_data = {
                     "days": int(new_rule_days),
                     "use_qty": bool(new_rule_use_qty),
-                    "visible_text": new_rule_visible.strip(),
                 }
+                if new_rule_visible.strip():
+                    rule_data["visible_text"] = new_rule_visible.strip()
+                
+                st.session_state["rules"][safe_rule] = rule_data
+
                 save_settings()
                 st.session_state["new_rule_counter"] += 1  # bump so next add row is fresh
                 st.rerun()
@@ -1188,6 +1197,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
