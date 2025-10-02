@@ -46,24 +46,6 @@ def run_factoids():
     st.subheader("📌 Daily Activity")
 
     if not df.empty:
-        df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
-        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
-        df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-        df_sorted["Block"] = (df_sorted["DayDiff"] > 1).cumsum()
-
-        # Transactions = per client, contiguous days grouped
-        tx_groups = (
-            df_sorted.groupby(["Client Name", "Block"])
-            .agg(
-                Amount=("Amount", "sum"),
-                StartDate=("DateOnly", "min"),
-                EndDate=("DateOnly", "max"),
-                Patients=("Patient Name", lambda x: set(x)),
-            )
-            .reset_index()
-        )
-
-        # Daily stats
         daily = df.groupby(df["Planitem Performed"].dt.date).agg(
             Transactions=("Client Name", "count"),
             Clients=("Client Name", pd.Series.nunique),
@@ -153,21 +135,38 @@ def run_factoids():
         st.dataframe(largest_tx, use_container_width=True)
 
     # --------------------------------
-    # Preventive Care Uptake
+    # Preventive Care Uptake (All Data)
     # --------------------------------
-    st.subheader("🦟 Preventive Care Uptake")
-    if "Client Name" in df.columns and "Plan Item Name" in df.columns:
-        total_clients = df["Client Name"].nunique()
-        if total_clients > 0:
-            flea_pattern = "bravecto|revolution|deworm|frontline|milpro|milbem"
-            flea_worm_clients = df[df["Plan Item Name"].str.contains(flea_pattern, case=False, na=False)]["Client Name"].nunique()
-            dental_clients = df[df["Plan Item Name"].str.contains("dental", case=False, na=False)]["Client Name"].nunique()
-            food_clients = df[df["Plan Item Name"].str.contains("food", case=False, na=False)]["Client Name"].nunique()
+    st.subheader("🦟 Preventive Care Uptake (All Data)")
 
-            st.write(f"% clients buying flea & worm control: {flea_worm_clients/total_clients:.1%}")
-            st.write(f"% clients having dentals: {dental_clients/total_clients:.1%}")
-            st.write(f"% clients buying food: {food_clients/total_clients:.1%}")
+    df_all = st.session_state["working_df"].copy()
+
+    if "Patient Name" in df_all.columns and "Plan Item Name" in df_all.columns:
+        total_patients = df_all["Patient Name"].nunique()
+
+        # Flea/worm keywords
+        flea_pattern = "bravecto|revolution|deworm|milbem|milpro|frontline"
+        flea_patients = df_all[df_all["Plan Item Name"].str.contains(flea_pattern, case=False, na=False)]["Patient Name"].nunique()
+
+        # Food keywords
+        food_keywords = "hill's|hills|royal canin|purina|proplan|pouch|tuna|chicken|beef|salmon|kitten|puppy|adult|diet|food"
+        food_patients = df_all[df_all["Plan Item Name"].str.contains(food_keywords, case=False, na=False)]["Patient Name"].nunique()
+
+        # Dental >500
+        dental_rows = df_all[df_all["Plan Item Name"].str.contains("dental", case=False, na=False)]
+        dental_patients = dental_rows[dental_rows["Amount"] > 500]["Patient Name"].nunique()
+
+        if total_patients > 0:
+            st.write("**Total unique patients:**", f"{int(total_patients):,}")
+            st.write("**Unique patients with ≥1 flea/worm purchase:**", f"{int(flea_patients):,}")
+            st.write("**% patients buying flea & worm control:**", f"{flea_patients/total_patients:.1%}")
+            st.write("**Unique patients with ≥1 food purchase:**", f"{int(food_patients):,}")
+            st.write("**% patients buying food:**", f"{food_patients/total_patients:.1%}")
+            st.write("**Unique patients with ≥1 dental (value >500):**", f"{int(dental_patients):,}")
+            st.write("**% patients having dentals (value >500):**", f"{dental_patients/total_patients:.1%}")
         else:
-            st.info("No clients found in dataset.")
+            st.info("No patients found in dataset.")
+    else:
+        st.info("Not enough columns to compute preventive care metrics.")
 
     st.markdown("</div>", unsafe_allow_html=True)
