@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 from utils import (
-    save_settings, load_settings,
-    ensure_reminder_columns, simplify_vaccine_text,
-    format_items, format_due_date
+    load_settings, ensure_reminder_columns,
+    simplify_vaccine_text, format_items
 )
 
 def run_reminders():
@@ -20,8 +19,6 @@ def run_reminders():
     df = st.session_state["working_df"].copy()
     df = ensure_reminder_columns(df, st.session_state["rules"])
 
-    # Pick date range
-    st.markdown("### Weekly Reminders")
     latest_date = df["Planitem Performed"].max()
     default_start = (latest_date + timedelta(days=1)).date() if pd.notna(latest_date) else date.today()
     start_date = st.date_input("Start Date (7-day window)", value=default_start)
@@ -34,7 +31,6 @@ def run_reminders():
         st.info("No reminders found in this window.")
         return
 
-    # Group
     g = due.groupby(["DueDateFmt", "Client Name"], dropna=False)
     grouped = (
         pd.DataFrame({
