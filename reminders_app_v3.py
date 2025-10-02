@@ -327,8 +327,13 @@ def get_visible_plan_item(item_name: str, rules: dict) -> str:
     n = item_name.lower()
     for rule_text, settings in rules.items():
         if rule_text in n:
-            return settings.get("visible_text") or item_name
+            vis = settings.get("visible_text")
+            if vis and vis.strip():   # only use if not blank
+                return vis
+            else:
+                return item_name      # fallback to original data
     return item_name
+
 
 def normalize_item_name(name: str) -> str:
     """Normalize item names for matching."""
@@ -1183,6 +1188,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
