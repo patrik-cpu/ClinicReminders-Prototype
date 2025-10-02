@@ -12,34 +12,39 @@ def run_factoids():
 
     df = st.session_state["working_df"].copy()
 
-    # Make sure core columns exist
+    # Ensure essential columns
     if "Planitem Performed" not in df.columns:
         st.error("Missing 'Planitem Performed' in dataset.")
         return
     if "Quantity" not in df.columns:
         df["Quantity"] = 1
     if "Amount" not in df.columns:
-        # Some PMS (e.g., VETport) may not have revenue; keep as zeros so revenue-based factoids still render.
         df["Amount"] = 0
 
-    # Date window
-    today = datetime.today()
-    last_30 = today - timedelta(days=30)
-    df_last30 = df[df["Planitem Performed"] > last_30]
+    df["Month"] = df["Planitem Performed"].dt.to_period("M").dt.to_timestamp()
+
+    # Dropdown filter
+    months_sorted = sorted(df["Month"].dropna().unique(), reverse=True)
+    month_labels = ["All Data"] + [m.strftime("%b %Y") for m in months_sorted]
+    selected = st.selectbox("Select period:", month_labels)
+
+    if selected != "All Data":
+        selected_month = datetime.strptime(selected, "%b %Y")
+        df = df[df["Month"] == selected_month]
+
+    # Restrict width
+    st.markdown("<div style='max-width:50%;'>", unsafe_allow_html=True)
 
     # --------------------------------
     # Daily Activity
     # --------------------------------
     st.subheader("📌 Daily Activity")
-    try:
-        daily_counts = df.groupby(df["Planitem Performed"].dt.date).size()
-        if not daily_counts.empty:
-            st.write("**Max transactions in a day:**", int(daily_counts.max()))
-            st.write("**Average transactions per day:**", round(daily_counts.mean(), 2))
-        else:
-            st.info("No transactions available.")
-    except Exception:
-        st.info("Could not compute daily activity (date parsing issue).")
+    daily_counts = df.groupby(df["Planitem Performed"].dt.date).size()
+    if not daily_counts.empty:
+        st.write("**Max transactions in a day:**", f"{int(daily_counts.max()):,}")
+        st.write("**Average transactions per day:**", f"{int(round(daily_counts.mean())):,}")
+    else:
+        st.info("No transactions available.")
 
     # --------------------------------
     # Top Items by Count
@@ -54,9 +59,7 @@ def run_factoids():
               .rename("Total Quantity")
               .to_frame()
         )
-        st.dataframe(top_items_count, use_container_width=True)
-    else:
-        st.info("No 'Plan Item Name' column found to compute item counts.")
+        st.dataframe(top_items_count.applymap(lambda x: f"{int(x):,}"), use_container_width=True)
 
     # --------------------------------
     # Top Items by Revenue
@@ -71,46 +74,57 @@ def run_factoids():
               .rename("Total Revenue")
               .to_frame()
         )
-        st.dataframe(top_items_rev, use_container_width=True)
-    else:
-        st.info("Revenue not available for items.")
+        st.dataframe(top_items_rev.applymap(lambda x: f"{int(x):,}"), use_container_width=True)
 
     # --------------------------------
-    # Top Spending Clients (Last 30 Days)
+    # Top Spending Clients
     # --------------------------------
-    st.subheader("💎 Top 5 Spending Clients (Last 30 Days)")
+    st.subheader("💎 Top 5 Spending Clients")
     if "Client Name" in df.columns and "Amount" in df.columns:
-        if not df_last30.empty:
-            top_clients = (
-                df_last30.groupby("Client Name")["Amount"]
-                         .sum()
-                         .sort_values(ascending=False)
-                         .head(5)
-                         .rename("Amount (Last 30d)")
-                         .to_frame()
-            )
-            st.dataframe(top_clients, use_container_width=True)
-        else:
-            st.info("No transactions in the last 30 days.")
-    else:
-        st.info("Client or revenue data not available.")
+        top_clients = (
+            df.groupby("Client Name")["Amount"]
+              .sum()
+              .sort_values(ascending=False)
+              .head(5)
+              .rename("Total Spend")
+              .to_frame()
+        )
+        st.dataframe(top_clients.applymap(lambda x: f"{int(x):,}"), use_container_width=True)
 
     # --------------------------------
-    # Largest Transactions (Last 30 Days)
+    # Largest Transactions
     # --------------------------------
-    st.subheader("📈 Top 5 Largest Transactions (Last 30 Days)")
-    if "Amount" in df.columns:
-        if not df_last30.empty:
-            largest_tx = (
-                df_last30.sort_values("Amount", ascending=False)
-                         .loc[:, ["Client Name", "Planitem Performed", "Amount", "Plan Item Name"]]
-                         .head(5)
+    st.subheader("📈 Top 5 Largest Transactions")
+    if "Client Name" in df.columns and "Amount" in df.columns:
+        # Sort by client + date
+        df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
+
+        # Detect contiguous days
+        df_sorted["DateOnly"] = df_sorted["Planitem Performed"].dt.date
+        df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+        df_sorted["Block"] = (df_sorted["DayDiff"] > 1).cumsum()
+
+        # Group by client + block
+        tx_groups = (
+            df_sorted.groupby(["Client Name", "Block"])
+            .agg(
+                Amount=("Amount", "sum"),
+                StartDate=("DateOnly", "min"),
+                EndDate=("DateOnly", "max"),
             )
-            st.dataframe(largest_tx, use_container_width=True)
-        else:
-            st.info("No transactions in the last 30 days.")
-    else:
-        st.info("Transaction amounts not available.")
+            .reset_index()
+        )
+
+        tx_groups["DateRange"] = tx_groups.apply(
+            lambda r: str(r["StartDate"]) if r["StartDate"] == r["EndDate"] else f"{r['StartDate']} → {r['EndDate']}",
+            axis=1,
+        )
+
+        largest_tx = tx_groups.sort_values("Amount", ascending=False).head(5)
+        largest_tx = largest_tx[["Client Name", "DateRange", "Amount"]]
+        largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
+
+        st.dataframe(largest_tx, use_container_width=True)
 
     # --------------------------------
     # Preventive Care Uptake
@@ -129,5 +143,5 @@ def run_factoids():
             st.write(f"% clients buying food: {food_clients/total_clients:.1%}")
         else:
             st.info("No clients found in dataset.")
-    else:
-        st.info("Not enough columns to compute preventive care metrics.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
