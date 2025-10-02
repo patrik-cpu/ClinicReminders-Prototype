@@ -33,14 +33,33 @@ def run_factoids():
     # Restrict width
     st.markdown("<div style='max-width:50%;'>", unsafe_allow_html=True)
 
-    # Daily Activity
+    # --------------------------------
+    # Daily Activity (transaction-aware)
+    # --------------------------------
     st.subheader("📌 Daily Activity")
+
     if not df.empty:
-        daily = df.groupby(df["Planitem Performed"].dt.date).agg(
-            Transactions=("Client Name", "count"),
-            Clients=("Client Name", pd.Series.nunique),
-            Patients=("Patient Name", pd.Series.nunique),
+        df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
+        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
+        df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+        df_sorted["Block"] = (df_sorted["DayDiff"] > 1).cumsum()
+
+        # Each (Client, Block) = 1 transaction
+        transactions = (
+            df_sorted.groupby(["DateOnly", "Client Name", "Block"])
+            .agg(
+                Patients=("Patient Name", lambda x: set(x)),
+                Amount=("Amount", "sum")
+            )
+            .reset_index()
         )
+
+        daily = transactions.groupby("DateOnly").agg(
+            Transactions=("Block", "count"),
+            Clients=("Client Name", "nunique"),
+            Patients=("Patients", lambda pats: len(set().union(*pats)))
+        )
+
         if not daily.empty:
             st.write("**Max transactions in a day:**", f"{int(daily['Transactions'].max()):,}")
             st.write("**Average transactions per day:**", f"{int(round(daily['Transactions'].mean())):,}")
@@ -50,8 +69,12 @@ def run_factoids():
             st.write("**Average patients per day:**", f"{int(round(daily['Patients'].mean())):,}")
         else:
             st.info("No daily activity data available.")
+    else:
+        st.info("No transactions available.")
 
-    # Top Items by Revenue
+    # --------------------------------
+    # Top Items by Revenue (Top 20, with counts)
+    # --------------------------------
     st.subheader("💰 Top 20 Items by Revenue")
     top_items = (
         df.groupby("Plan Item Name")
@@ -63,7 +86,9 @@ def run_factoids():
     top_items["TotalCount"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
     st.dataframe(top_items, use_container_width=True)
 
+    # --------------------------------
     # Top Spending Clients
+    # --------------------------------
     st.subheader("💎 Top 5 Spending Clients")
     clients_nonblank = df[df["Client Name"].astype(str).str.strip() != ""]
     if not clients_nonblank.empty:
@@ -78,7 +103,9 @@ def run_factoids():
         top_clients["Total Spend"] = top_clients["Total Spend"].apply(lambda x: f"{int(x):,}")
         st.dataframe(top_clients, use_container_width=True)
 
+    # --------------------------------
     # Largest Transactions
+    # --------------------------------
     st.subheader("📈 Top 5 Largest Transactions")
     df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
     df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
@@ -104,7 +131,9 @@ def run_factoids():
     largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
     st.dataframe(largest_tx, use_container_width=True)
 
+    # --------------------------------
     # Preventive Care Uptake (All Data)
+    # --------------------------------
     st.subheader("🦟 Preventive Care Uptake (All Data)")
     df_all = st.session_state["working_df"].copy()
 
@@ -136,7 +165,6 @@ def run_factoids():
             )
             .reset_index()
         )
-        # Only include blocks with "dental" AND total amount > 500
         dental_blocks = d_sorted[d_sorted["Plan Item Name"].str.contains("dental", case=False, na=False)][["Client Name","Block"]].drop_duplicates()
         qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name","Block"])
         qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 500]
