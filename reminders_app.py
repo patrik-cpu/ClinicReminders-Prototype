@@ -238,7 +238,7 @@ def run_reminders():
             st.info("No matches found.")
 
     # --------------------------------
-    # Rules editor
+    # Rules editor (Search Terms)
     # --------------------------------
     st.markdown("---")
     st.markdown("<h2 id='search-terms'>📝 Search Terms</h2>", unsafe_allow_html=True)
@@ -417,44 +417,45 @@ def run_reminders():
             except Exception as e:
                 st.error(f"Could not save your message. {e}")
 
-# --- Google Sheets Setup (same as v3.4) ---
-SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
-SCOPE = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
+    # --- Google Sheets Setup ---
+    SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
+    SCOPE = ["https://spreadsheets.google.com/feeds",
+             "https://www.googleapis.com/auth/drive"]
 
-try:
-    creds_dict = st.secrets["gcp_service_account"]
-except Exception:
     try:
-        with open("google-credentials.json", "r") as f:
-            creds_dict = json.load(f)
-    except FileNotFoundError:
-        st.error("Google credentials not found. Add them in Streamlit Secrets or google-credentials.json.")
+        creds_dict = st.secrets["gcp_service_account"]
+    except Exception:
+        try:
+            with open("google-credentials.json", "r") as f:
+                creds_dict = json.load(f)
+        except FileNotFoundError:
+            st.error("Google credentials not found. Add them in Streamlit Secrets or google-credentials.json.")
+            st.stop()
+
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+
+    try:
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(SHEET_ID).sheet1
+    except Exception as e:
+        st.error("Couldn't connect to Google Sheets. Check sharing, API enablement, and Sheet ID.")
         st.stop()
 
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+    def _next_id_from_column():
+        try:
+            col_ids = sheet.col_values(1)[1:]
+            nums = [int(x) for x in col_ids if x.strip().isdigit()]
+            return (max(nums) if nums else 0) + 1
+        except Exception:
+            return len(sheet.get_all_values())
 
-try:
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).sheet1
-except Exception as e:
-    st.error("Couldn't connect to Google Sheets. Check sharing, API enablement, and Sheet ID.")
-    st.stop()
+    def insert_feedback(name, email, message):
+        now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        next_id = _next_id_from_column()
+        sheet.append_row([next_id, now, name or "", email or "", message],
+                         value_input_option="USER_ENTERED")
 
-def _next_id_from_column():
-    try:
-        col_ids = sheet.col_values(1)[1:]
-        nums = [int(x) for x in col_ids if x.strip().isdigit()]
-        return (max(nums) if nums else 0) + 1
-    except Exception:
-        return len(sheet.get_all_values())
-
-def insert_feedback(name, email, message):
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    next_id = _next_id_from_column()
-    sheet.append_row([next_id, now, name or "", email or "", message],
-                     value_input_option="USER_ENTERED")
-
-def fetch_feedback(limit=500):
-    rows = sheet.get_all_values()
-    data = rows[1:] if rows else []
-    return data[-limit:] if data else []
+    def fetch_feedback(limit=500):
+        rows = sheet.get_all_values()
+        data = rows[1:] if rows else []
+        return data[-limit:] if data else []
