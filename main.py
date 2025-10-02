@@ -3,7 +3,7 @@ from reminders_app import run_reminders
 from factoids_app import run_factoids
 from utils import process_file
 
-st.set_page_config(page_title="ClinicReminders", layout="wide")
+st.set_page_config(page_title="ClinicReminders 4.0 (DEV)", layout="wide")
 
 st.sidebar.title("Navigation")
 main_tab = st.sidebar.radio("Choose section:", ["Data Upload", "Reminders", "Factoids"])
