@@ -4,7 +4,7 @@ from factoids_app import run_factoids
 
 st.set_page_config(page_title="ClinicReminders", layout="wide")
 
-# Sidebar TOC identical to v3.4, with Factoids added
+# Sidebar TOC identical to v3.4 with Factoids added
 st.sidebar.markdown(
     """
     <div style="font-size:18px; font-weight:bold;">📂 Navigation</div>
@@ -22,7 +22,7 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-# Top-level section switcher
+# Radio to switch between main sections
 main_tab = st.sidebar.radio("Main Section", ["Reminders", "Factoids"])
 
 if main_tab == "Reminders":
