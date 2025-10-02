@@ -59,7 +59,6 @@ def load_settings():
             settings = json.load(f)
         rules = DEFAULT_RULES.copy()
         saved_rules = settings.get("rules", {})
-        # cleanup: remove empty visible_text keys
         for k, v in saved_rules.items():
             if "visible_text" in v and isinstance(v["visible_text"], str) and not v["visible_text"].strip():
                 v.pop("visible_text")
@@ -78,79 +77,21 @@ def load_settings():
 # --------------------------------
 PMS_DEFINITIONS = {
     "VETport": {
-        "columns": [
-            "Planitem Performed", "Client Name", "Client ID", "Patient Name",
-            "Patient ID", "Plan Item ID", "Plan Item Name", "Plan Item Quantity",
-            "Performed Staff", "Plan Item Amount", "Returned Quantity",
-            "Returned Date", "Invoice No",
-        ],
-        "mappings": {
-            "date": "Planitem Performed",
-            "client": "Client Name",
-            "animal": "Patient Name",
-            "item": "Plan Item Name",
-            "qty": "Plan Item Quantity",
-        }
+        "columns": ["Planitem Performed","Client Name","Patient Name","Plan Item Name","Plan Item Quantity"],
+        "mappings": {"date":"Planitem Performed","client":"Client Name","animal":"Patient Name","item":"Plan Item Name","qty":"Plan Item Quantity"}
     },
     "Xpress": {
-        "columns": [
-            "Date", "Client ID", "Client Name", "SLNo", "Doctor",
-            "Animal Name", "Item Name", "Item ID", "Qty", "Rate",
-            "Amount"
-        ],
-        "mappings": {
-            "date": "Date",
-            "client": "Client Name",
-            "animal": "Animal Name",
-            "item": "Item Name",
-            "qty": "Qty",
-            "amount": "Amount",
-        }
+        "columns": ["Date","Client Name","Animal Name","Item Name","Qty","Amount"],
+        "mappings": {"date":"Date","client":"Client Name","animal":"Animal Name","item":"Item Name","qty":"Qty","amount":"Amount"}
     },
     "ezyVet": {
-        "columns": [
-            "Invoice #", "Invoice Date", "Type", "Parent Line ID",
-            "Invoice Line Date: Created", "Invoice Line Time: Created",
-            "Created By", "Invoice Line Date: Last Modified",
-            "Invoice Line Time: Last Modified", "Last Modified By",
-            "Invoice Line Date", "Invoice Line Time", "Department ID",
-            "Department", "Inventory Location", "Client Contact Code",
-            "Business Name", "First Name", "Last Name", "Email",
-            "Animal Code", "Patient Name", "Species", "Breed",
-            "Invoice Line ID", "Invoice Line Reference", "Product Code",
-            "Product Name", "Product Description", "Account", "Product Cost",
-            "Product Group", "Staff Member ID", "Staff Member",
-            "Salesperson is Vet", "Consult ID", "Consult Number",
-            "Case Owner", "Qty", "Standard Price(incl)", "Discount(%)",
-            "Discount(د.إ)", "User Reason", "Surcharge Adjustment",
-            "Surcharge Name", "Discount Adjustment", "Discount Name",
-            "Rounding Adjustment", "Rounding Name",
-            "Price After Discount(excl)", "Tax per Qty After Discount",
-            "Price After Discount(incl)", "Total Invoiced (excl)",
-            "Total Tax Amount", "Total Invoiced (incl)",
-            "Total Earned(excl)", "Total Earned(incl)", "Payment Terms"
-        ],
-        "mappings": {
-            "date": "Invoice Date",
-            "client_first": "First Name",
-            "client_last": "Last Name",
-            "animal": "Patient Name",
-            "item": "Product Name",
-            "qty": "Qty",
-            "amount": "Total Invoiced (incl)",
-        }
+        "columns": ["Invoice Date","First Name","Last Name","Patient Name","Product Name","Qty","Total Invoiced (incl)"],
+        "mappings": {"date":"Invoice Date","client_first":"First Name","client_last":"Last Name","animal":"Patient Name","item":"Product Name","qty":"Qty","amount":"Total Invoiced (incl)"}
     }
 }
 
 def normalize_columns(cols):
-    cleaned = []
-    for c in cols:
-        if not isinstance(c, str):
-            c = str(c)
-        c = c.replace("\u00a0", " ").replace("\ufeff", "")
-        c = re.sub(r"\s+", " ", c).strip().lower()
-        cleaned.append(c)
-    return cleaned
+    return [str(c).strip().lower() for c in cols]
 
 def detect_pms(df: pd.DataFrame) -> str:
     df_cols = set(normalize_columns(df.columns))
@@ -160,82 +101,8 @@ def detect_pms(df: pd.DataFrame) -> str:
             return pms_name
     return None
 
-# --------------------------------
-# Parsing & Mapping
-# --------------------------------
-def normalize_item_name(name: str) -> str:
-    if not isinstance(name, str):
-        return ""
-    name = unicodedata.normalize("NFKC", name).lower()
-    name = re.sub(r"[\u00a0\ufeff]", " ", name)
-    name = re.sub(r"[-+/().,]", " ", name)
-    return re.sub(r"\s+", " ", name).strip()
-
 def parse_dates(series: pd.Series) -> pd.Series:
-    if pd.api.types.is_datetime64_any_dtype(series):
-        return pd.to_datetime(series, errors="coerce")
-
-    numeric = pd.to_numeric(series, errors="coerce")
-    if numeric.notna().sum() > 0:
-        numeric_like = series.astype(str).str.fullmatch(r"\d+(\.0+)?", na=False)
-        if numeric_like.sum() >= max(1, int(0.6 * len(series.dropna()))):
-            base_1900 = pd.Timestamp("1899-12-30")
-            dt_1900 = base_1900 + pd.to_timedelta(numeric, unit="D")
-            valid_1900 = dt_1900.dt.year.between(1990, 2100)
-
-            base_1904 = pd.Timestamp("1904-01-01")
-            dt_1904 = base_1904 + pd.to_timedelta(numeric, unit="D")
-            valid_1904 = dt_1904.dt.year.between(1990, 2100)
-
-            return dt_1904 if valid_1904.sum() > valid_1900.sum() else dt_1900
-
-    s = (
-        series.astype(str)
-        .str.replace("\u00a0", " ", regex=False)
-        .str.replace("\ufeff", "", regex=False)
-        .str.strip()
-    )
-    fmts = [
-        "%d/%b/%Y","%d-%b-%Y","%d-%b-%y","%d/%m/%Y","%m/%d/%Y","%Y-%m-%d","%Y.%m.%d",
-        "%d/%m/%Y %H:%M","%d/%m/%Y %H:%M:%S","%Y-%m-%d %H:%M:%S","%Y-%m-%d %H:%M",
-    ]
-    for fmt in fmts:
-        parsed = pd.to_datetime(s, format=fmt, errors="coerce")
-        if parsed.notna().sum() > 0:
-            return parsed
-
-    parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
-    if parsed.notna().sum() > 0:
-        return parsed
-    return pd.to_datetime(s, errors="coerce")
-
-def map_intervals(df, rules):
-    df = df.copy()
-    df["MatchedItems"] = [[] for _ in range(len(df))]
-    df["IntervalDays"] = pd.NA
-
-    for idx, row in df.iterrows():
-        normalized = normalize_item_name(row.get("Plan Item Name", ""))
-        matches, interval_values = [], []
-        for rule, settings in rules.items():
-            rule_norm = rule.lower().strip()
-            if rule_norm in normalized:
-                vis = settings.get("visible_text")
-                matches.append(vis.strip() if isinstance(vis, str) and vis.strip() else row.get("Plan Item Name", rule))
-                days = settings["days"]
-                if settings.get("use_qty"):
-                    qty = pd.to_numeric(row.get("Quantity", 1), errors="coerce")
-                    qty = int(qty) if pd.notna(qty) else 1
-                    days *= max(qty, 1)
-                interval_values.append(days)
-
-        if matches:
-            df.at[idx, "MatchedItems"] = matches
-            df.at[idx, "IntervalDays"] = min(interval_values)
-        else:
-            df.at[idx, "MatchedItems"] = [row.get("Plan Item Name", "")]
-            df.at[idx, "IntervalDays"] = pd.NA
-    return df
+    return pd.to_datetime(series, errors="coerce", dayfirst=True)
 
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     if df is None or df.empty:
@@ -243,131 +110,35 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
             "DueDateFmt","Client Name","ChargeDateFmt","Patient Name",
             "MatchedItems","Quantity","IntervalDays","NextDueDate","Planitem Performed"
         ])
-
     df = df.copy()
     if "Quantity" not in df.columns:
         df["Quantity"] = 1
-
-    df = map_intervals(df, rules)
-
     if "Planitem Performed" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["Planitem Performed"]):
         df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
-
-    days = pd.to_numeric(df["IntervalDays"], errors="coerce")
-    df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(days, unit="D")
-    df["ChargeDateFmt"] = pd.to_datetime(df["Planitem Performed"]).dt.strftime("%d %b %Y")
-    df["DueDateFmt"] = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
-
-    for col in ["Patient Name", "Client Name"]:
-        if col not in df.columns:
-            df[col] = ""
-
-    df["MatchedItems"] = df["MatchedItems"].apply(
-        lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
-    )
     return df
 
-# --------------------------------
-# Display helpers
-# --------------------------------
-def simplify_vaccine_text(text: str) -> str:
-    if not isinstance(text, str):
-        return text
-    parts = [p.strip() for p in text.replace(" and ", ",").split(",") if p.strip()]
-    cleaned = [p.strip() for p in parts if p]
-    if not cleaned:
-        return text
-    cleaned_lower = [c.lower() for c in cleaned]
-    if "vaccination" in cleaned_lower and len(cleaned) > 1:
-        cleaned = [c for c in cleaned if c.lower() != "vaccination"]
-    def is_vacc(s): return s.lower().endswith("vaccine") or s.lower().endswith("vaccines") or s.lower() in ["vaccination","vaccine(s)"]
-    all_vax = all(is_vacc(c) for c in cleaned)
-    if all_vax:
-        stripped = []
-        for c in cleaned:
-            tokens = c.split()
-            if tokens and tokens[-1].lower().startswith("vaccine"):
-                tokens = tokens[:-1]
-            stripped.append(" ".join(tokens).strip())
-        stripped = [s for s in stripped if s]
-        if len(stripped) == 1:
-            return stripped[0] + " Vaccine"
-        if len(stripped) == 2:
-            return f"{stripped[0]} and {stripped[1]} Vaccines"
-        return f"{', '.join(stripped[:-1])} and {stripped[-1]} Vaccines"
-    if len(cleaned) == 1: return cleaned[0]
-    if len(cleaned) == 2: return f"{cleaned[0]} and {cleaned[1]}"
-    return f"{', '.join(cleaned[:-1])} and {cleaned[-1]}"
-
-def get_visible_plan_item(item_name: str, rules: dict) -> str:
-    if not isinstance(item_name, str):
-        return item_name
-    n = item_name.lower()
-    for rule_text, settings in rules.items():
-        if rule_text in n:
-            vis = settings.get("visible_text")
-            return vis if vis and vis.strip() else item_name
-    return item_name
-
-def format_items(item_list):
-    items = [str(x).strip() for x in item_list if str(x).strip()]
-    if not items: return ""
-    if len(items) == 1: return items[0]
-    return ", ".join(items[:-1]) + " and " + items[-1]
-
-def format_due_date(date_str: str) -> str:
-    try:
-        dt = pd.to_datetime(date_str, format="%d %b %Y", errors="coerce")
-        if pd.isna(dt): return f"on {date_str}"
-        day = dt.day
-        suffix = "th" if 10 <= day % 100 <= 20 else {1:"st",2:"nd",3:"rd"}.get(day%10,"th")
-        return f"on the {day}{suffix} of {dt.strftime('%B')}, {dt.year}"
-    except Exception:
-        return f"on {date_str}"
-
-def normalize_display_case(text: str) -> str:
-    if not isinstance(text, str):
-        return text
-    words = text.split()
-    fixed = []
-    for w in words:
-        if w.isupper() and len(w) > 1:
-            fixed.append(w.capitalize())
-        else:
-            fixed.append(w)
-    return " ".join(fixed)
-
-# --------------------------------
-# Process file (cached)
-# --------------------------------
 @st.cache_data
 def process_file(file, rules):
-    name = file.name.lower()
-    if name.endswith(".csv"):
+    if file.name.endswith(".csv"):
         df = pd.read_csv(file)
-    elif name.endswith((".xls", ".xlsx")):
-        df = pd.read_excel(file)
     else:
-        raise ValueError("Unsupported file type")
-
+        df = pd.read_excel(file)
     df.columns = [c.strip() for c in df.columns]
     pms_name = detect_pms(df)
     if not pms_name:
         return df, None
-
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
-
     if pms_name == "ezyVet":
         df["Client Name"] = (
             df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
             df[mappings["client_last"]].fillna("").astype(str).str.strip()
         ).str.strip()
+        df["Amount"] = pd.to_numeric(df[mappings["amount"]], errors="coerce")
         rename_map = {
             mappings["date"]: "Planitem Performed",
             mappings["animal"]: "Patient Name",
             mappings["item"]: "Plan Item Name",
         }
-        df["Amount"] = pd.to_numeric(df[mappings["amount"]], errors="coerce")
     else:
         rename_map = {
             mappings["date"]: "Planitem Performed",
@@ -379,23 +150,21 @@ def process_file(file, rules):
             df["Amount"] = pd.to_numeric(df[mappings["amount"]], errors="coerce")
         else:
             df["Amount"] = 0
-
     df.rename(columns=rename_map, inplace=True)
-
-    if "Planitem Performed" in df.columns:
-        df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
-
+    df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
     qty_col = mappings.get("qty")
     df["Quantity"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1)
-
-    # Precompute for Reminders & Search UX
-    df = map_intervals(df, st.session_state.get("rules", DEFAULT_RULES))
-    df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
-    df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
-    df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
-
-    df["_client_lower"] = df["Client Name"].astype(str).str.lower()
-    df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
-    df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
-
     return df, pms_name
+
+# --------------------------------
+# Preventive Care Keyword Lists
+# --------------------------------
+FLEA_WORM_KEYWORDS = [
+    "bravecto", "revolution", "deworm", "milbe", "milpro", "frontline"
+]
+
+FOOD_KEYWORDS = [
+    "hill's", "hills", "royal canin", "purina", "proplan",
+    "pouch", "tuna", "chicken", "beef", "salmon",
+    "kitten", "puppy", "adult", "diet", "food"
+]
