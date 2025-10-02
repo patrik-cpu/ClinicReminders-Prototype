@@ -20,6 +20,10 @@ def run_factoids():
         df["Quantity"] = 1
     if "Amount" not in df.columns:
         df["Amount"] = 0
+    if "Client Name" not in df.columns:
+        df["Client Name"] = ""
+    if "Patient Name" not in df.columns:
+        df["Patient Name"] = ""
 
     # Add Month column for dropdown
     df["Month"] = df["Planitem Performed"].dt.to_period("M").dt.to_timestamp()
@@ -40,34 +44,68 @@ def run_factoids():
     # Daily Activity
     # --------------------------------
     st.subheader("📌 Daily Activity")
-    daily_counts = df.groupby(df["Planitem Performed"].dt.date).size()
-    if not daily_counts.empty:
-        st.write("**Max transactions in a day:**", f"{int(daily_counts.max()):,}")
-        st.write("**Average transactions per day:**", f"{int(round(daily_counts.mean())):,}")
+
+    if not df.empty:
+        df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
+        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
+        df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+        df_sorted["Block"] = (df_sorted["DayDiff"] > 1).cumsum()
+
+        # Transactions = per client, contiguous days grouped
+        tx_groups = (
+            df_sorted.groupby(["Client Name", "Block"])
+            .agg(
+                Amount=("Amount", "sum"),
+                StartDate=("DateOnly", "min"),
+                EndDate=("DateOnly", "max"),
+                Patients=("Patient Name", lambda x: set(x)),
+            )
+            .reset_index()
+        )
+
+        # Daily stats
+        daily = df.groupby(df["Planitem Performed"].dt.date).agg(
+            Transactions=("Client Name", "count"),
+            Clients=("Client Name", pd.Series.nunique),
+            Patients=("Patient Name", pd.Series.nunique),
+        )
+
+        if not daily.empty:
+            st.write("**Max transactions in a day:**", f"{int(daily['Transactions'].max()):,}")
+            st.write("**Average transactions per day:**", f"{int(round(daily['Transactions'].mean())):,}")
+            st.write("**Max unique clients in a day:**", f"{int(daily['Clients'].max()):,}")
+            st.write("**Average clients per day:**", f"{int(round(daily['Clients'].mean())):,}")
+            st.write("**Max unique patients in a day:**", f"{int(daily['Patients'].max()):,}")
+            st.write("**Average patients per day:**", f"{int(round(daily['Patients'].mean())):,}")
+        else:
+            st.info("No daily activity data available.")
     else:
         st.info("No transactions available.")
 
     # --------------------------------
-    # Top Items by Revenue (Top 20)
+    # Top Items by Revenue (Top 20, with counts)
     # --------------------------------
     st.subheader("💰 Top 20 Items by Revenue")
     if "Plan Item Name" in df.columns and "Amount" in df.columns:
-        top_items_rev = (
-            df.groupby("Plan Item Name")["Amount"]
-              .sum()
-              .sort_values(ascending=False)
+        top_items = (
+            df.groupby("Plan Item Name")
+              .agg(
+                  TotalRevenue=("Amount", "sum"),
+                  TotalCount=("Quantity", "sum")
+              )
+              .sort_values("TotalRevenue", ascending=False)
               .head(20)
-              .rename("Total Revenue")
-              .to_frame()
         )
-        st.dataframe(top_items_rev.applymap(lambda x: f"{int(x):,}"), use_container_width=True)
+        top_items["TotalRevenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
+        top_items["TotalCount"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(top_items, use_container_width=True)
 
     # --------------------------------
     # Top Spending Clients (exclude blanks)
     # --------------------------------
     st.subheader("💎 Top 5 Spending Clients")
-    if "Client Name" in df.columns and "Amount" in df.columns:
-        clients_nonblank = df[df["Client Name"].astype(str).str.strip() != ""]
+    clients_nonblank = df[df["Client Name"].astype(str).str.strip() != ""]
+    if not clients_nonblank.empty and "Amount" in clients_nonblank.columns:
         top_clients = (
             clients_nonblank.groupby("Client Name")["Amount"]
                             .sum()
@@ -76,7 +114,10 @@ def run_factoids():
                             .rename("Total Spend")
                             .to_frame()
         )
-        st.dataframe(top_clients.applymap(lambda x: f"{int(x):,}"), use_container_width=True)
+        top_clients["Total Spend"] = top_clients["Total Spend"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(top_clients, use_container_width=True)
+    else:
+        st.info("No valid client spend data available.")
 
     # --------------------------------
     # Largest Transactions (include patients, formatted dates)
@@ -84,13 +125,10 @@ def run_factoids():
     st.subheader("📈 Top 5 Largest Transactions")
     if {"Client Name", "Amount", "Patient Name"}.issubset(df.columns):
         df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
-
-        # Normalize to datetime days
         df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
         df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
         df_sorted["Block"] = (df_sorted["DayDiff"] > 1).cumsum()
 
-        # Group by client + block, aggregate patients
         tx_groups = (
             df_sorted.groupby(["Client Name", "Block"])
             .agg(
