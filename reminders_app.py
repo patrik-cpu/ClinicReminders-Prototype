@@ -86,7 +86,11 @@ def run_reminders():
         start_date = st.date_input("Start Date (7-day window)", value=default_start)
         end_date = start_date + timedelta(days=6)
 
-        due = df[(df["NextDueDate"] >= pd.to_datetime(start_date)) & (df["NextDueDate"] <= pd.to_datetime(end_date))]
+        df = ensure_reminder_columns(df, st.session_state["rules"])
+
+        due = df[(df["NextDueDate"] >= pd.to_datetime(start_date)) & 
+                 (df["NextDueDate"] <= pd.to_datetime(end_date))]
+
         due2 = ensure_reminder_columns(due, st.session_state["rules"])
 
         g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
