@@ -2,9 +2,6 @@ import pandas as pd
 import re, unicodedata, os, json
 import streamlit as st
 
-# -----------------------
-# Default Rules
-# -----------------------
 DEFAULT_RULES = {
     "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies Vaccine"},
     "dhppil": {"days": 365, "use_qty": False, "visible_text": "DHPPIL Vaccine"},
@@ -12,27 +9,21 @@ DEFAULT_RULES = {
     "dental": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
 }
 
-# -----------------------
-# PMS definitions
-# -----------------------
 PMS_DEFINITIONS = {
     "VETport": {
         "columns": ["Planitem Performed","Client Name","Patient Name","Plan Item Name","Plan Item Quantity"],
         "mappings": {"date":"Planitem Performed","client":"Client Name","animal":"Patient Name","item":"Plan Item Name","qty":"Plan Item Quantity"}
     },
     "Xpress": {
-        "columns": ["Date","Client Name","Animal Name","Item Name","Qty"],
-        "mappings": {"date":"Date","client":"Client Name","animal":"Animal Name","item":"Item Name","qty":"Qty"}
+        "columns": ["Date","Client Name","Animal Name","Item Name","Qty","Amount"],
+        "mappings": {"date":"Date","client":"Client Name","animal":"Animal Name","item":"Item Name","qty":"Qty","amount":"Amount"}
     },
     "ezyVet": {
         "columns": ["Invoice Date","First Name","Last Name","Patient Name","Product Name","Qty","Total Invoiced (incl)"],
-        "mappings": {"date":"Invoice Date","client_first":"First Name","client_last":"Last Name","animal":"Patient Name","item":"Product Name","qty":"Qty"}
+        "mappings": {"date":"Invoice Date","client_first":"First Name","client_last":"Last Name","animal":"Patient Name","item":"Product Name","qty":"Qty","amount":"Total Invoiced (incl)"}
     }
 }
 
-# -----------------------
-# JSON Settings
-# -----------------------
 SETTINGS_FILE = "clinicreminders_settings.json"
 
 def save_settings():
@@ -59,9 +50,6 @@ def load_settings():
         st.session_state["user_name"] = ""
         save_settings()
 
-# -----------------------
-# Helpers
-# -----------------------
 def normalize_columns(cols):
     cleaned = []
     for c in cols:
@@ -85,32 +73,11 @@ def parse_dates(series: pd.Series) -> pd.Series:
 def simplify_vaccine_text(text: str) -> str:
     return text.strip() if isinstance(text, str) else text
 
-def get_visible_plan_item(item_name: str, rules: dict) -> str:
-    if not isinstance(item_name, str): return item_name
-    n = item_name.lower()
-    for rule_text, settings in rules.items():
-        if rule_text in n:
-            return settings.get("visible_text") or item_name
-    return item_name
-
 def format_items(item_list):
     items = [str(x).strip() for x in item_list if str(x).strip()]
     if not items: return ""
     if len(items) == 1: return items[0]
     return ", ".join(items[:-1]) + " and " + items[-1]
-
-def format_due_date(date_str: str) -> str:
-    try:
-        dt = pd.to_datetime(date_str, errors="coerce")
-        return dt.strftime("%d %b %Y") if pd.notna(dt) else date_str
-    except Exception:
-        return date_str
-
-def normalize_display_case(text: str) -> str:
-    if not isinstance(text, str): return text
-    words = text.split()
-    fixed = [w.capitalize() if w.isupper() and len(w) > 1 else w for w in words]
-    return " ".join(fixed)
 
 def map_intervals(df, rules):
     df = df.copy()
@@ -166,7 +133,7 @@ def process_file(file, rules):
             mappings["animal"]: "Patient Name",
             mappings["item"]: "Plan Item Name",
         }
-        df["Amount"] = pd.to_numeric(df["Total Invoiced (incl)"], errors="coerce")
+        df["Amount"] = pd.to_numeric(df[mappings["amount"]], errors="coerce")
     else:
         rename_map = {
             mappings["date"]: "Planitem Performed",
@@ -174,6 +141,10 @@ def process_file(file, rules):
             mappings["animal"]: "Patient Name",
             mappings["item"]: "Plan Item Name",
         }
+        if "amount" in mappings:
+            df["Amount"] = pd.to_numeric(df[mappings["amount"]], errors="coerce")
+        else:
+            df["Amount"] = 0
     df.rename(columns=rename_map, inplace=True)
     df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
     df["Quantity"] = pd.to_numeric(df.get(mappings.get("qty","Qty"), 1), errors="coerce").fillna(1)
