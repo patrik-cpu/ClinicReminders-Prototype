@@ -97,7 +97,6 @@ DEFAULT_RULES = {
     "ultrasound - cardiac": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
     "caniverm": {"days": 90, "use_qty": False, "visible_text": "Caniverm"},
     "deworm": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
-    "milbem": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "milpro": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
     "bravecto plus": {"days": 60, "use_qty": True, "visible_text": "Bravecto Plus"},
     "bravecto": {"days": 90, "use_qty": True, "visible_text": "Bravecto"},
@@ -358,7 +357,11 @@ def map_intervals(df, rules):
         for rule, settings in rules.items():
             rule_norm = rule.lower().strip()
             if rule_norm in normalized:
-                matches.append(settings.get("visible_text", rule.title()))
+                vis = settings.get("visible_text")
+                if vis and vis.strip():
+                    matches.append(vis.strip())
+                else:
+                    matches.append(row.get("Plan Item Name", rule))  # fallback to source item name
                 days = settings["days"]
                 if settings.get("use_qty"):
                     qty = pd.to_numeric(row.get("Quantity", 1), errors="coerce")
@@ -1198,6 +1201,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
