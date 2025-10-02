@@ -48,69 +48,79 @@ def run_factoids():
         st.info("No transactions available.")
 
     # --------------------------------
-    # Top Items by Count
+    # Top Items by Count (Top 10, exclude tablets)
     # --------------------------------
-    st.subheader("💉 Top 5 Items by Count")
+    st.subheader("💉 Top 10 Items by Count (Excluding Tablets)")
     if "Plan Item Name" in df.columns:
+        def is_tablet(name: str) -> bool:
+            if not isinstance(name, str):
+                return False
+            name_l = name.lower()
+            tablet_keywords = ["mg", "tab", "tabs", "tablet", "pill", "cap", "capsule"]
+            return any(kw in name_l for kw in tablet_keywords)
+
+        filtered = df[~df["Plan Item Name"].str.lower().apply(is_tablet)]
         top_items_count = (
-            df.groupby("Plan Item Name")["Quantity"]
-              .sum()
-              .sort_values(ascending=False)
-              .head(5)
-              .rename("Total Quantity")
-              .to_frame()
+            filtered.groupby("Plan Item Name")["Quantity"]
+                    .sum()
+                    .sort_values(ascending=False)
+                    .head(10)
+                    .rename("Total Quantity")
+                    .to_frame()
         )
         st.dataframe(top_items_count.applymap(lambda x: f"{int(x):,}"), use_container_width=True)
 
     # --------------------------------
-    # Top Items by Revenue
+    # Top Items by Revenue (Top 10)
     # --------------------------------
-    st.subheader("💰 Top 5 Items by Revenue")
+    st.subheader("💰 Top 10 Items by Revenue")
     if "Plan Item Name" in df.columns and "Amount" in df.columns:
         top_items_rev = (
             df.groupby("Plan Item Name")["Amount"]
               .sum()
               .sort_values(ascending=False)
-              .head(5)
+              .head(10)
               .rename("Total Revenue")
               .to_frame()
         )
         st.dataframe(top_items_rev.applymap(lambda x: f"{int(x):,}"), use_container_width=True)
 
     # --------------------------------
-    # Top Spending Clients
+    # Top Spending Clients (exclude blanks)
     # --------------------------------
     st.subheader("💎 Top 5 Spending Clients")
     if "Client Name" in df.columns and "Amount" in df.columns:
+        clients_nonblank = df[df["Client Name"].astype(str).str.strip() != ""]
         top_clients = (
-            df.groupby("Client Name")["Amount"]
-              .sum()
-              .sort_values(ascending=False)
-              .head(5)
-              .rename("Total Spend")
-              .to_frame()
+            clients_nonblank.groupby("Client Name")["Amount"]
+                            .sum()
+                            .sort_values(ascending=False)
+                            .head(5)
+                            .rename("Total Spend")
+                            .to_frame()
         )
         st.dataframe(top_clients.applymap(lambda x: f"{int(x):,}"), use_container_width=True)
 
     # --------------------------------
-    # Largest Transactions
+    # Largest Transactions (include patients)
     # --------------------------------
     st.subheader("📈 Top 5 Largest Transactions")
-    if "Client Name" in df.columns and "Amount" in df.columns:
+    if {"Client Name", "Amount", "Patient Name"}.issubset(df.columns):
         df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
 
-        # Normalize to datetime days (keep datetime64)
+        # Normalize to datetime days
         df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
         df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
         df_sorted["Block"] = (df_sorted["DayDiff"] > 1).cumsum()
 
-        # Group by client + contiguous block of days
+        # Group by client + block, aggregate patients
         tx_groups = (
             df_sorted.groupby(["Client Name", "Block"])
             .agg(
                 Amount=("Amount", "sum"),
                 StartDate=("DateOnly", "min"),
                 EndDate=("DateOnly", "max"),
+                Patients=("Patient Name", lambda x: ", ".join(sorted(set(x.astype(str))))),
             )
             .reset_index()
         )
@@ -122,7 +132,7 @@ def run_factoids():
         )
 
         largest_tx = tx_groups.sort_values("Amount", ascending=False).head(5)
-        largest_tx = largest_tx[["Client Name", "DateRange", "Amount"]]
+        largest_tx = largest_tx[["Client Name", "DateRange", "Patients", "Amount"]]
         largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
 
         st.dataframe(largest_tx, use_container_width=True)
