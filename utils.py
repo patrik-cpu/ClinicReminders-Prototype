@@ -2,28 +2,41 @@ import pandas as pd
 import re, unicodedata, os, json
 import streamlit as st
 
+# --------------------------------
+# Defaults
+# --------------------------------
 DEFAULT_RULES = {
     "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies Vaccine"},
+    "pch": {"days": 365, "use_qty": False, "visible_text": "Tricat Vaccine"},
     "dhppil": {"days": 365, "use_qty": False, "visible_text": "DHPPIL Vaccine"},
+    "leukemia": {"days": 365, "use_qty": False, "visible_text": "Leukemia Vaccine"},
+    "tricat": {"days": 365, "use_qty": False, "visible_text": "Tricat Vaccine"},
+    "dental cat": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
+    "groom": {"days": 90, "use_qty": False, "visible_text": "Groom"},
+    "feliway": {"days": 60, "use_qty": True, "visible_text": "Feliway"},
+    "dermoscent": {"days": 30, "use_qty": True, "visible_text": "Dermoscent"},
+    "dental dog": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
+    "cardiac ultrasound": {"days": 365, "use_qty": False, "visible_text": "Repeat heart scan"},
+    "caniverm": {"days": 90, "use_qty": False, "visible_text": "Caniverm"},
+    "deworm": {"days": 90, "use_qty": False, "visible_text": "Deworming"},
+    "milpro": {"days": 90, "use_qty": True, "visible_text": "Deworming"},
+    "bravecto plus": {"days": 60, "use_qty": True, "visible_text": "Bravecto Plus"},
     "bravecto": {"days": 90, "use_qty": True, "visible_text": "Bravecto"},
-    "dental": {"days": 365, "use_qty": False, "visible_text": "Dental exam"},
+    "frontline": {"days": 30, "use_qty": True, "visible_text": "Frontline"},
+    "cardisure": {"days": 30, "use_qty": False, "visible_text": "Cardisure"},
+    "vaccination": {"days": 365, "use_qty": False, "visible_text": "Vaccine(s)"},
+    "revolution": {"days": 30, "use_qty": True, "visible_text": "Revolution"},
+    "librela": {"days": 30, "use_qty": False, "visible_text": "Librela"},
+    "cytopoint": {"days": 30, "use_qty": False, "visible_text": "Cytopoint"},
+    "solensia": {"days": 30, "use_qty": False, "visible_text": "Solensia"},
+    "samylin": {"days": 30, "use_qty": True, "visible_text": "Samylin"},
+    "cystaid": {"days": 30, "use_qty": False, "visible_text": "Cystaid"},
+    "kennel cough": {"days": 365, "use_qty": False, "visible_text": "Kennel Cough Vaccine"},
 }
 
-PMS_DEFINITIONS = {
-    "VETport": {
-        "columns": ["Planitem Performed","Client Name","Patient Name","Plan Item Name","Plan Item Quantity"],
-        "mappings": {"date":"Planitem Performed","client":"Client Name","animal":"Patient Name","item":"Plan Item Name","qty":"Plan Item Quantity"}
-    },
-    "Xpress": {
-        "columns": ["Date","Client Name","Animal Name","Item Name","Qty","Amount"],
-        "mappings": {"date":"Date","client":"Client Name","animal":"Animal Name","item":"Item Name","qty":"Qty","amount":"Amount"}
-    },
-    "ezyVet": {
-        "columns": ["Invoice Date","First Name","Last Name","Patient Name","Product Name","Qty","Total Invoiced (incl)"],
-        "mappings": {"date":"Invoice Date","client_first":"First Name","client_last":"Last Name","animal":"Patient Name","item":"Product Name","qty":"Qty","amount":"Total Invoiced (incl)"}
-    }
-}
-
+# --------------------------------
+# Settings persistence
+# --------------------------------
 SETTINGS_FILE = "clinicreminders_settings.json"
 
 def save_settings():
@@ -50,6 +63,24 @@ def load_settings():
         st.session_state["user_name"] = ""
         save_settings()
 
+# --------------------------------
+# PMS definitions
+# --------------------------------
+PMS_DEFINITIONS = {
+    "VETport": {
+        "columns": ["Planitem Performed","Client Name","Patient Name","Plan Item Name","Plan Item Quantity"],
+        "mappings": {"date":"Planitem Performed","client":"Client Name","animal":"Patient Name","item":"Plan Item Name","qty":"Plan Item Quantity"}
+    },
+    "Xpress": {
+        "columns": ["Date","Client Name","Animal Name","Item Name","Qty","Amount"],
+        "mappings": {"date":"Date","client":"Client Name","animal":"Animal Name","item":"Item Name","qty":"Qty","amount":"Amount"}
+    },
+    "ezyVet": {
+        "columns": ["Invoice Date","First Name","Last Name","Patient Name","Product Name","Qty","Total Invoiced (incl)"],
+        "mappings": {"date":"Invoice Date","client_first":"First Name","client_last":"Last Name","animal":"Patient Name","item":"Product Name","qty":"Qty","amount":"Total Invoiced (incl)"}
+    }
+}
+
 def normalize_columns(cols):
     cleaned = []
     for c in cols:
@@ -70,14 +101,45 @@ def detect_pms(df: pd.DataFrame) -> str:
 def parse_dates(series: pd.Series) -> pd.Series:
     return pd.to_datetime(series, errors="coerce", dayfirst=True)
 
+# --------------------------------
+# Helpers
+# --------------------------------
 def simplify_vaccine_text(text: str) -> str:
     return text.strip() if isinstance(text, str) else text
+
+def get_visible_plan_item(item_name: str, rules: dict) -> str:
+    if not isinstance(item_name, str): return item_name
+    n = item_name.lower()
+    for rule_text, settings in rules.items():
+        if rule_text in n:
+            return settings.get("visible_text") or item_name
+    return item_name
 
 def format_items(item_list):
     items = [str(x).strip() for x in item_list if str(x).strip()]
     if not items: return ""
     if len(items) == 1: return items[0]
     return ", ".join(items[:-1]) + " and " + items[-1]
+
+def format_due_date(date_str: str) -> str:
+    try:
+        dt = pd.to_datetime(date_str, errors="coerce")
+        return dt.strftime("%d %b %Y") if pd.notna(dt) else date_str
+    except Exception:
+        return date_str
+
+def normalize_display_case(text: str) -> str:
+    if not isinstance(text, str): return text
+    words = text.split()
+    fixed = [w.capitalize() if w.isupper() and len(w) > 1 else w for w in words]
+    return " ".join(fixed)
+
+def normalize_item_name(name: str) -> str:
+    if not isinstance(name, str): return ""
+    name = unicodedata.normalize("NFKC", name).lower()
+    name = re.sub(r"[\u00a0\ufeff]", " ", name)
+    name = re.sub(r"[-+/().,]", " ", name)
+    return re.sub(r"\s+", " ", name).strip()
 
 def map_intervals(df, rules):
     df = df.copy()
@@ -113,6 +175,10 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     df["DueDateFmt"] = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
     return df
 
+# --------------------------------
+# Process file
+# --------------------------------
+@st.cache_data
 def process_file(file, rules):
     if file.name.endswith(".csv"):
         df = pd.read_csv(file)
@@ -121,7 +187,7 @@ def process_file(file, rules):
     df.columns = [c.strip() for c in df.columns]
     pms_name = detect_pms(df)
     if not pms_name:
-        return None, None
+        return df, None
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
     if pms_name == "ezyVet":
         df["Client Name"] = (
