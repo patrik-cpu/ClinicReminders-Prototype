@@ -355,8 +355,9 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 # --------------------------------
 # Main
 # --------------------------------
-if working_df is not None:
-    df = working_df.copy()
+if "working_df" in st.session_state and st.session_state["working_df"] is not None:
+    df = st.session_state["working_df"].copy()
+
 
     # Your name / clinic
     st.markdown("---")
