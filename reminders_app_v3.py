@@ -1292,16 +1292,17 @@ def run_factoids():
                 "Max Patients/Day": int(daily["Patients"].max()),
                 "Avg Patients/Day": int(round(daily["Patients"].mean())),
             }
-    # KPI cards
+
+    # KPI cards - styled for dark/light mode
     if daily_kpis:
         cols = st.columns(len(daily_kpis))
         for i, (label, value) in enumerate(daily_kpis.items()):
             cols[i].markdown(
                 f"""
-                <div style='background-color:#f9f9f9; border:1px solid #ddd;
+                <div style='background-color:#f1f5f9; border:1px solid #94a3b8;
                             padding:12px; border-radius:10px; text-align:center;'>
-                    <div style='font-size:14px; color:#555;'>{label}</div>
-                    <div style='font-size:22px; font-weight:bold;'>{value}</div>
+                    <div style='font-size:14px; color:#334155; font-weight:600;'>{label}</div>
+                    <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1371,7 +1372,7 @@ def run_factoids():
     largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
     st.dataframe(largest_tx, use_container_width=True)
 
-        # --------------------------------
+    # --------------------------------
     # Preventive Care Uptake
     # --------------------------------
     st.subheader("🦟 Preventive Care Uptake (All Data)")
@@ -1406,14 +1407,12 @@ def run_factoids():
         dental_patients = len(patients)
 
     if total_patients > 0:
-        cols = st.columns(6)
+        cols = st.columns(4)
         metrics = {
-            "Total Patients": total_patients,
-            "Flea/Worm Patients": flea_patients,
-            "Flea/Worm %": f"{flea_patients/total_patients:.1%}",
-            "Food Patients": food_patients,
-            "Food %": f"{food_patients/total_patients:.1%}",
-            "Dental >500": f"{dental_patients} ({dental_patients/total_patients:.1%})",
+            "Total Patients": f"{total_patients:,}",
+            "Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
+            "Food": f"{food_patients:,} ({food_patients/total_patients:.1%})",
+            "Dental Patients": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
         }
         for i, (label, value) in enumerate(metrics.items()):
             cols[i].markdown(
@@ -1429,10 +1428,11 @@ def run_factoids():
     else:
         st.info("No patients found in dataset.")
 
-
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 # Run Factoids
 run_factoids()
+
+
 
