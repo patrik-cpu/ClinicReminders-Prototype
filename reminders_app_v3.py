@@ -404,58 +404,47 @@ def map_intervals(df, rules):
 
 def parse_dates(series: pd.Series) -> pd.Series:
     """
-    Robust parser that tries a sequence of formats, Excel serials, then pandas inference.
-    Returns a datetime64 series (NaT where parsing fails).
+    Robust parser for PMS date columns.
+    Always strips any time or trailing junk (e.g. Vetport "01/Jan/2024 16:20 57"),
+    so only the date part remains.
+    Works across Vetport, Xpress, and ezyVet.
     """
-    # If already datetime dtype
+    # Already datetime dtype → normalize to date
     if pd.api.types.is_datetime64_any_dtype(series):
-        return pd.to_datetime(series, errors="coerce")
+        return pd.to_datetime(series.dt.date, errors="coerce")
 
-    # Try numeric Excel serials inference
-    numeric = pd.to_numeric(series, errors="coerce")
+    s = series.astype(str).str.strip()
+
+    # --- Extract only the date portion ---
+    s = s.str.extract(
+        r"(\d{1,2}[/-][A-Za-z]{3}[/-]\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})"
+    )[0]
+
+    # Excel serials
+    numeric = pd.to_numeric(s, errors="coerce")
     if numeric.notna().sum() > 0:
-        numeric_like = series.astype(str).str.fullmatch(r"\d+(\.0+)?", na=False)
-        if numeric_like.sum() >= max(1, int(0.6 * len(series.dropna()))):
-            base_1900 = pd.Timestamp("1899-12-30")
-            dt_1900 = base_1900 + pd.to_timedelta(numeric, unit="D")
-            base_1904 = pd.Timestamp("1904-01-01")
-            dt_1904 = base_1904 + pd.to_timedelta(numeric, unit="D")
-            valid_1900 = dt_1900.dt.year.between(1990, 2100)
-            valid_1904 = dt_1904.dt.year.between(1990, 2100)
-            return dt_1904 if valid_1904.sum() > valid_1900.sum() else dt_1900
+        base_1900 = pd.Timestamp("1899-12-30")
+        dt_1900 = base_1900 + pd.to_timedelta(numeric, unit="D")
+        base_1904 = pd.Timestamp("1904-01-01")
+        dt_1904 = base_1904 + pd.to_timedelta(numeric, unit="D")
+        valid_1900 = dt_1900.dt.year.between(1990, 2100)
+        valid_1904 = dt_1904.dt.year.between(1990, 2100)
+        return (dt_1904 if valid_1904.sum() > valid_1900.sum() else dt_1900).dt.normalize()
 
-    s = (
-        series.astype(str)
-        .str.replace("\u00a0", " ", regex=False)
-        .str.replace("\ufeff", "", regex=False)
-        .str.strip()
-    )
-
-    # Try a list of common formats used across PMS exports
+    # Explicit formats
     formats = [
-        "%d/%m/%Y",      # 31/12/2024
-        "%m/%d/%Y",      # 12/31/2024
-        "%d-%b-%Y",      # 31-Dec-2024
-        "%d/%b/%Y",      # 31/Dec/2024
-        "%Y-%m-%d",      # 2024-12-31
-        "%Y.%m.%d",      # 2024.12.31
-        "%d/%m/%Y %H:%M",    # 31/12/2024 13:00
-        "%d/%m/%Y %H:%M:%S", # 31/12/2024 13:00:00
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M"
+        "%d/%b/%Y", "%d-%b-%Y",
+        "%d/%m/%Y", "%m/%d/%Y",
+        "%Y-%m-%d", "%Y.%m.%d"
     ]
     for fmt in formats:
         parsed = pd.to_datetime(s, format=fmt, errors="coerce")
         if parsed.notna().sum() > 0:
-            return parsed
+            return parsed.dt.normalize()
 
-    # Pandas inference (prefer dayfirst)
+    # Fallback: pandas inference
     parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
-    if parsed.notna().sum() > 0:
-        return parsed
-
-    # Final fallback without dayfirst
-    return pd.to_datetime(s, errors="coerce")
+    return parsed.dt.normalize()
 
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     """
@@ -662,6 +651,8 @@ def process_file(file_bytes, filename, rules):
     # Parse ChargeDate into datetime
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"])
+        # 🔑 Force normalization again (guarantee no time slips through)
+        df["ChargeDate"] = df["ChargeDate"].dt.normalize()
 
     # For downstream compatibility also set helper lowercase columns for search
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
@@ -1617,6 +1608,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
