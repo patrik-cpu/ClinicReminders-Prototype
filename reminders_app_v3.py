@@ -1637,7 +1637,7 @@ def run_factoids():
     import altair as alt
     chart = (
         alt.Chart(chart_df)
-        .mark_bar(size=20, color=bar_color)  # narrower bars + dynamic colour
+        .mark_bar(size=30, color=bar_color)  # narrower bars + dynamic colour
         .encode(
             x=alt.X("Month:N", sort=list(chart_df["Month"]),
                     title="Month",
@@ -1736,6 +1736,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
