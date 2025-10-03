@@ -1459,11 +1459,12 @@ def run_factoids():
 
         if not daily.empty:
             daily_kpis = {
-                "Max Tx/Day": int(daily["ClientTransactions"].max()),
-                "Avg Tx/Day": int(round(daily["ClientTransactions"].mean())),
+                "Max Transactions/Day": int(daily["ClientTransactions"].max()),
+                "Avg Transactions/Day": int(round(daily["ClientTransactions"].mean())),
                 "Max Patients/Day": int(daily["Patients"].max()),
                 "Avg Patients/Day": int(round(daily["Patients"].mean())),
             }
+
 
     if daily_kpis:
         cols = st.columns(len(daily_kpis))
@@ -1520,10 +1521,11 @@ def run_factoids():
         cols = st.columns(4)
         metrics = {
             "Total Patients": f"{total_patients:,}",
-            "Patients Buying Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
-            "Patients Buying Food": f"{food_patients:,} ({food_patients/total_patients:.1%})",
-            "Patients Having Dentals": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
+            "Unique Patients Buying Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
+            "Unique Patients Buying Food": f"{food_patients:,} ({food_patients/total_patients:.1%})",
+            "Unique Patients Having Dentals": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
         }
+
         for i, (label, value) in enumerate(metrics.items()):
             cols[i].markdown(
                 f"""
@@ -1613,5 +1615,6 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
