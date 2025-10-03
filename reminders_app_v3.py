@@ -511,30 +511,42 @@ def clean_revenue_column(series: pd.Series) -> pd.Series:
 # --------------------------------
 # Cached CSV processor
 # --------------------------------
+def clean_revenue_column(series: pd.Series) -> pd.Series:
+    """Universal revenue cleaner."""
+    return (
+        series.astype(str)
+        .str.replace(",", "", regex=False)            # remove commas
+        .str.replace(r"[^\d.\-]", "", regex=True)     # keep digits, minus, dot
+        .str.strip()
+        .pipe(pd.to_numeric, errors="coerce")
+        .fillna(0)
+    )
 
 @st.cache_data
-def process_file(file, rules):
-    """Load and standardize uploaded file across PMS types (VETport, Xpress, ezyVet)."""
-    name = file.name.lower()
-    if name.endswith(".csv"):
+def process_file(file_bytes, filename, rules):
+    """Load and standardize uploaded file. Cache key includes filename+bytes."""
+    from io import BytesIO
+    file = BytesIO(file_bytes)
+
+    if filename.endswith(".csv"):
         df = pd.read_csv(file)
-    elif name.endswith((".xls", ".xlsx")):
+    elif filename.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file)
     else:
         raise ValueError("Unsupported file type")
 
-    # --- Normalize column names (remove BOM, nbsp, etc.) ---
+    # normalize column names
     def _normalize(c):
         return str(c).replace("\u00a0", " ").replace("\ufeff", "").strip()
     df.columns = [_normalize(c) for c in df.columns]
 
-    # Detect PMS
+    # detect PMS
     pms_name = detect_pms(df)
     if not pms_name:
-        return df, None
+        return df, None, None
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
 
-    # --- Handle ezyVet special case (combine first+last name) ---
+    # handle ezyVet special case
     if pms_name == "ezyVet":
         df["Client Name"] = (
             df[mappings["client_first"]].fillna("").astype(str).str.strip()
@@ -553,49 +565,33 @@ def process_file(file, rules):
             mappings["animal"]: "Patient Name",
             mappings["item"]: "Plan Item Name",
         }
-
-    # Rename key columns
     df.rename(columns=rename_map, inplace=True)
 
-    # --- Handle Amount column robustly ---
+    # ensure Amount
     amount_col = mappings.get("amount")
     if amount_col and amount_col in df.columns:
         df["Amount"] = clean_revenue_column(df[amount_col])
     else:
-        st.warning(f"⚠ Revenue column '{amount_col}' not found. Defaulting Amount to 0.")
         df["Amount"] = 0
 
-    # --- Diagnostics: PMS and revenue preview ---
-    st.write(f"📊 Detected PMS: {pms_name}")
-    st.write("Available columns:", df.columns.tolist())
-    if amount_col and amount_col in df.columns:
-        st.write(f"🔎 Sample raw values from revenue column '{amount_col}':",
-                 df[amount_col].head(10).tolist())
-        st.write("✅ Cleaned numeric values (first 10):",
-                 df["Amount"].head(10).tolist())
-    else:
-        st.warning(f"⚠ Revenue column '{amount_col}' not found in this file.")
-
-    # --- Parse dates ---
+    # ensure dates + qty
     if "Planitem Performed" in df.columns:
         df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
-
-    # --- Ensure Quantity column ---
     qty_col = mappings.get("qty")
     df["Quantity"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1)
 
-    # --- Map reminder intervals ---
+    # map reminders
     df = map_intervals(df, rules)
     df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
     df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
     df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
 
-    # --- Helper lowercase cols ---
+    # lowercase helper cols
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
-    df["_item_lower"] = df["Plan Item Name"].astype(str).str.lower()
+    df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
 
-    return df, pms_name
+    return df, pms_name, amount_col
 # --------------------------------
 # Tutorial section
 # --------------------------------
@@ -626,10 +622,27 @@ files = st.file_uploader(
 
 datasets, summary_rows, working_df = [], [], None
 
+# 🔄 Detect changes in uploaded file list → clear cache if changed
+if "last_uploaded_files" not in st.session_state:
+    st.session_state["last_uploaded_files"] = []
+current_files = [f.name for f in files] if files else []
+if current_files != st.session_state["last_uploaded_files"]:
+    st.cache_data.clear()
+    st.session_state["last_uploaded_files"] = current_files
+
 if files:
     for file in files:
-        df, pms_name = process_file(file, st.session_state["rules"])
+        df, pms_name, amount_col = process_file(file.read(), file.name, st.session_state["rules"])
         pms_name = pms_name or "Undetected"
+
+        # --- Diagnostics (always fresh, outside cache) ---
+        st.write(f"📊 Detected PMS: {pms_name}")
+        st.write("Available columns:", df.columns.tolist())
+        if amount_col and amount_col in df.columns:
+            st.write(f"🔎 Sample raw values from '{amount_col}':", df[amount_col].head(10).tolist())
+            st.write("✅ Cleaned numeric values:", df["Amount"].head(10).tolist())
+        else:
+            st.warning(f"⚠ Revenue column '{amount_col}' not found in this file.")
 
         from_date, to_date = None, None
         if "Planitem Performed" in df.columns:
@@ -648,12 +661,10 @@ if files:
     all_pms = {p for p, _ in datasets}
     if len(all_pms) == 1 and "Undetected" not in all_pms:
         working_df = pd.concat([df for _, df in datasets], ignore_index=True)
-        st.session_state["working_df"] = working_df   # <-- ADD THIS LINE
+        st.session_state["working_df"] = working_df   # store for Factoids
         st.success(f"All files detected as {list(all_pms)[0]} — merging datasets.")
-
     else:
         st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
-
 
 # --------------------------------
 # Render Tables
@@ -1495,6 +1506,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
