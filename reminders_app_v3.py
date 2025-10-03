@@ -1,4 +1,5 @@
 import pandas as pd
+import altair as alt
 import unicodedata
 import streamlit as st
 import re
@@ -1767,6 +1768,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
