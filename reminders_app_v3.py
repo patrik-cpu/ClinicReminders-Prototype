@@ -1253,6 +1253,8 @@ def run_factoids():
         df = df[df["Month"] == selected_month]
 
     st.markdown("<div style='max-width:85%;'>", unsafe_allow_html=True)
+    if df["Amount"].sum() == 0:
+        st.warning("⚠ All revenues are showing as 0. Please confirm the correct revenue column mapping (e.g. 'Total Invoiced (excl)').")
 
     # --------------------------------
     # Daily Activity (Client Transactions)
@@ -1434,6 +1436,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
