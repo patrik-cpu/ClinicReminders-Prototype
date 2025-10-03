@@ -1520,7 +1520,7 @@ def run_factoids():
     if total_patients > 0:
         cols = st.columns(4)
         metrics = {
-            "Total Patients": f"{total_patients:,}",
+            "Total Unique Patients": f"{total_patients:,}",
             "Unique Patients Buying Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
             "Unique Patients Buying Food": f"{food_patients:,} ({food_patients/total_patients:.1%})",
             "Unique Patients Having Dentals": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
@@ -1615,6 +1615,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
