@@ -237,15 +237,12 @@ def normalize_columns(cols):
         cleaned.append(c)
     return cleaned
 
-
 def detect_pms(df: pd.DataFrame) -> str:
     df_cols = set(normalize_columns(df.columns))
     for pms_name, definition in PMS_DEFINITIONS.items():
         required = set(normalize_columns(definition["columns"]))
         if required.issubset(df_cols):
             return pms_name
-
-    
     return None
 
 
@@ -493,13 +490,31 @@ def normalize_display_case(text: str) -> str:
             fixed.append(w)
     return " ".join(fixed)
 
+def clean_revenue_column(series: pd.Series) -> pd.Series:
+    """
+    Universal cleaner for revenue/amount columns:
+    - Converts to string
+    - Removes commas and currency codes (like AED)
+    - Strips whitespace
+    - Keeps only digits, minus, and decimal
+    - Converts to numeric
+    """
+    return (
+        series.astype(str)
+        .str.replace(",", "", regex=False)            # remove commas
+        .str.replace(r"[^\d.\-]", "", regex=True)     # strip everything except digits, dot, minus
+        .str.strip()
+        .pipe(pd.to_numeric, errors="coerce")
+        .fillna(0)
+    )
+
 # --------------------------------
 # Cached CSV processor
 # --------------------------------
 
 @st.cache_data
 def process_file(file, rules):
-    """Load and standardize uploaded file."""
+    """Load and standardize uploaded file across PMS types (VETport, Xpress, ezyVet)."""
     name = file.name.lower()
     if name.endswith(".csv"):
         df = pd.read_csv(file)
@@ -508,18 +523,23 @@ def process_file(file, rules):
     else:
         raise ValueError("Unsupported file type")
 
-    df.columns = [c.strip() for c in df.columns]
+    # --- Normalize column names (remove BOM, nbsp, etc.) ---
+    def _normalize(c):
+        return str(c).replace("\u00a0", " ").replace("\ufeff", "").strip()
+    df.columns = [_normalize(c) for c in df.columns]
+
+    # Detect PMS
     pms_name = detect_pms(df)
     if not pms_name:
         return df, None
-
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
 
-    # Standardize column names
+    # --- Handle ezyVet special case (combine first+last name) ---
     if pms_name == "ezyVet":
         df["Client Name"] = (
-            df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
-            df[mappings["client_last"]].fillna("").astype(str).str.strip()
+            df[mappings["client_first"]].fillna("").astype(str).str.strip()
+            + " "
+            + df[mappings["client_last"]].fillna("").astype(str).str.strip()
         ).str.strip()
         rename_map = {
             mappings["date"]: "Planitem Performed",
@@ -533,29 +553,49 @@ def process_file(file, rules):
             mappings["animal"]: "Patient Name",
             mappings["item"]: "Plan Item Name",
         }
+
+    # Rename key columns
     df.rename(columns=rename_map, inplace=True)
 
-    # Parse dates robustly
+    # --- Handle Amount column robustly ---
+    amount_col = mappings.get("amount")
+    if amount_col and amount_col in df.columns:
+        df["Amount"] = clean_revenue_column(df[amount_col])
+    else:
+        st.warning(f"⚠ Revenue column '{amount_col}' not found. Defaulting Amount to 0.")
+        df["Amount"] = 0
+
+    # --- Diagnostics: PMS and revenue preview ---
+    st.write(f"📊 Detected PMS: {pms_name}")
+    st.write("Available columns:", df.columns.tolist())
+    if amount_col and amount_col in df.columns:
+        st.write(f"🔎 Sample raw values from revenue column '{amount_col}':",
+                 df[amount_col].head(10).tolist())
+        st.write("✅ Cleaned numeric values (first 10):",
+                 df["Amount"].head(10).tolist())
+    else:
+        st.warning(f"⚠ Revenue column '{amount_col}' not found in this file.")
+
+    # --- Parse dates ---
     if "Planitem Performed" in df.columns:
         df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
 
-    # Ensure Quantity
+    # --- Ensure Quantity column ---
     qty_col = mappings.get("qty")
     df["Quantity"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1)
 
-    # Map rules
+    # --- Map reminder intervals ---
     df = map_intervals(df, rules)
     df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
     df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
     df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
 
-    # Lowercase helper cols
+    # --- Helper lowercase cols ---
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
-    df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
+    df["_item_lower"] = df["Plan Item Name"].astype(str).str.lower()
 
     return df, pms_name
-
 # --------------------------------
 # Tutorial section
 # --------------------------------
@@ -1455,6 +1495,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
