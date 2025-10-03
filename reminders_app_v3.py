@@ -1355,6 +1355,11 @@ ANAESTHETIC_KEYWORDS = [
     "alfaxalone"
 ]
 
+HOSPITALISATION_KEYWORDS = [
+    "hospitalisation", "hospitalization"
+]
+
+
 def run_factoids():
     st.markdown("<h2 id='factoids'>📊 Factoids</h2>", unsafe_allow_html=True)
     st.info("📈 Quick insights into your clinic's activity and sales.")
@@ -1416,7 +1421,7 @@ def run_factoids():
         st.warning("⚠ All revenues are showing as 0. Please confirm the correct revenue column mapping.")
 
     # --------------------------------
-    # At a Glance (Daily Activity KPIs + Unique Patient Services)
+    # 📌 At a Glance (Daily KPIs + Unique Patient Uptake)
     # --------------------------------
     st.subheader("📌 At a Glance")
 
@@ -1443,33 +1448,27 @@ def run_factoids():
             ClientTransactions=("Block","count"),
             Patients=("Patients", lambda pats: len(set().union(*pats)) if len(pats) else 0)
         )
+    else:
+        daily = pd.DataFrame()
 
-        if not daily.empty:
-            daily_kpis = {
-                "Max Transactions/Day": int(daily["ClientTransactions"].max()),
-                "Avg Transactions/Day": int(round(daily["ClientTransactions"].mean())),
-                "Max Patients/Day": int(daily["Patients"].max()),
-                "Avg Patients/Day": int(round(daily["Patients"].mean())),
-            }
+    # Build metrics dictionary
+    metrics = {}
 
-    # KPI cards
-    if daily_kpis:
-        cols = st.columns(len(daily_kpis))
-        for i, (label, value) in enumerate(daily_kpis.items()):
-            cols[i].markdown(
-                f"""
-                <div style='background-color:#f1f5f9; border:1px solid #94a3b8;
-                            padding:12px; border-radius:10px; text-align:center;'>
-                    <div style='font-size:14px; color:#334155; font-weight:600;'>{label}</div>
-                    <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    if not daily.empty:
+        max_tx_day = daily["ClientTransactions"].idxmax()
+        max_pat_day = daily["Patients"].idxmax()
 
-    # --------------------------------
-    # Unique Patient Uptake (cards)
-    # --------------------------------
+        metrics["Max Transactions/Day"] = f"{int(daily.loc[max_tx_day, 'ClientTransactions']):,}<br><span style='font-size:12px; color:#475569;'>{daily.index[max_tx_day].strftime('%d %b %Y')}</span>"
+        metrics["Avg Transactions/Day"] = f"{int(round(daily['ClientTransactions'].mean())):,}"
+        metrics["Max Patients/Day"] = f"{int(daily.loc[max_pat_day, 'Patients']):,}<br><span style='font-size:12px; color:#475569;'>{daily.index[max_pat_day].strftime('%d %b %Y')}</span>"
+        metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
+    else:
+        metrics["Max Transactions/Day"] = "-"
+        metrics["Avg Transactions/Day"] = "-"
+        metrics["Max Patients/Day"] = "-"
+        metrics["Avg Patients/Day"] = "-"
+
+    # Unique patient services
     total_patients = df["Animal Name"].nunique()
 
     flea_patients = df[df["Item Name"].str.contains("|".join(FLEA_WORM_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
@@ -1478,8 +1477,9 @@ def run_factoids():
     us_patients   = df[df["Item Name"].str.contains("|".join(ULTRASOUND_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
     lab_patients  = df[df["Item Name"].str.contains("|".join(LABWORK_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
     anaesth_patients = df[df["Item Name"].str.contains("|".join(ANAESTHETIC_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    hosp_patients = df[df["Item Name"].str.contains("|".join(HOSPITALISATION_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
 
-    # Dental block logic (to avoid double counting) — reuse your existing dental code
+    # Dental block logic (avoid double counting within visits)
     dental_patients = 0
     dental_rows = df[df["Item Name"].str.contains("dental", case=False, na=False)]
     if not dental_rows.empty:
@@ -1501,34 +1501,34 @@ def run_factoids():
             patients.update(patlist)
         dental_patients = len(patients)
 
-    # Build cards
     if total_patients > 0:
-        metrics = {
+        metrics.update({
             "Total Unique Patients": f"{total_patients:,}",
             "Unique Patients Buying Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
             "Unique Patients Buying Food": f"{food_patients:,} ({food_patients/total_patients:.1%})",
-            "Unique Patients Having Dentals": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
-            "Unique Patients Having X-rays": f"{xray_patients:,} ({xray_patients/total_patients:.1%})",
-            "Unique Patients Having Ultrasounds": f"{us_patients:,} ({us_patients/total_patients:.1%})",
-            "Unique Patients Having Lab Work": f"{lab_patients:,} ({lab_patients/total_patients:.1%})",
-            "Unique Patients Having Anaesthetics": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
-        }
+            "Unique Patients Having <b>Dentals</b>": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
+            "Unique Patients Having <b>X-rays</b>": f"{xray_patients:,} ({xray_patients/total_patients:.1%})",
+            "Unique Patients Having <b>Ultrasounds</b>": f"{us_patients:,} ({us_patients/total_patients:.1%})",
+            "Unique Patients Having <b>Lab Work</b>": f"{lab_patients:,} ({lab_patients/total_patients:.1%})",
+            "Unique Patients Having <b>Anaesthetics</b>": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
+            "Unique Patients <b>Hospitalised</b>": f"{hosp_patients:,} ({hosp_patients/total_patients:.1%})",
+        })
 
-        # Render 5 cards per row
-        metric_items = list(metrics.items())
-        for row_start in range(0, len(metric_items), 5):
-            cols = st.columns(5)
-            for i, (label, value) in enumerate(metric_items[row_start:row_start+5]):
-                cols[i].markdown(
-                    f"""
-                    <div style='background-color:#e0f2fe; border:1px solid #0284c7;
-                                padding:12px; border-radius:10px; text-align:center; margin-bottom:10px;'>
-                        <div style='font-size:14px; color:#0c4a6e; font-weight:600;'>{label}</div>
-                        <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+    # Render cards 5 per row
+    metric_items = list(metrics.items())
+    for row_start in range(0, len(metric_items), 5):
+        cols = st.columns(5)
+        for i, (label, value) in enumerate(metric_items[row_start:row_start+5]):
+            cols[i].markdown(
+                f"""
+                <div style='background-color:#f1f5f9; border:1px solid #94a3b8;
+                            padding:14px; border-radius:10px; text-align:center; margin-bottom:12px;'>
+                    <div style='font-size:14px; color:#334155; font-weight:600;'>{label}</div>
+                    <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     else:
         st.info("No patients found in dataset.")
@@ -1619,6 +1619,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
