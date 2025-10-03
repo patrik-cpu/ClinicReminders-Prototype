@@ -1395,22 +1395,32 @@ def run_factoids():
         df["ChargeDate"] = parse_dates(df["ChargeDate"])
 
     # -------------------------
-    # Select Period (custom options)
+    # Select Period (relative to dataset max date)
     # -------------------------
-    period_options = ["All Data", "Prev 30 Days", "Prev Quarter", "Prev Year"]
+    latest_date = df["ChargeDate"].max()
+    if pd.isna(latest_date):
+        st.warning("⚠ No valid dates found in dataset.")
+        return
+
+    period_options = [
+        "All Data",
+        "Prev 30 Days (of most recent data)",
+        "Prev Quarter (of most recent data)",
+        "Prev Year (of most recent data)"
+    ]
     selected = st.selectbox("Select period:", period_options, index=0)
 
-    today = pd.Timestamp.today().normalize()
-    if selected == "Prev 30 Days":
-        cutoff = today - pd.Timedelta(days=30)
+    if selected == "Prev 30 Days (of most recent data)":
+        cutoff = latest_date - pd.Timedelta(days=30)
         df = df[df["ChargeDate"] >= cutoff]
-    elif selected == "Prev Quarter":
-        cutoff = today - pd.DateOffset(months=3)
+    elif selected == "Prev Quarter (of most recent data)":
+        cutoff = latest_date - pd.DateOffset(months=3)
         df = df[df["ChargeDate"] >= cutoff]
-    elif selected == "Prev Year":
-        cutoff = today - pd.DateOffset(years=1)
+    elif selected == "Prev Year (of most recent data)":
+        cutoff = latest_date - pd.DateOffset(years=1)
         df = df[df["ChargeDate"] >= cutoff]
     # else All Data → no filtering
+
 
     st.markdown("<div style='max-width:85%;'>", unsafe_allow_html=True)
     if df.empty:
@@ -1603,4 +1613,5 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
