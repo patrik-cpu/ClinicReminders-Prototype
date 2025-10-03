@@ -512,15 +512,23 @@ def clean_revenue_column(series: pd.Series) -> pd.Series:
 # Cached CSV processor
 # --------------------------------
 def clean_revenue_column(series: pd.Series) -> pd.Series:
-    """Universal revenue cleaner."""
+    """
+    Universal cleaner for revenue/amount columns:
+    - Converts to string
+    - Removes commas and currency codes (like AED)
+    - Strips whitespace
+    - Keeps only digits, minus, and decimal
+    - Converts to numeric
+    """
     return (
         series.astype(str)
         .str.replace(",", "", regex=False)            # remove commas
-        .str.replace(r"[^\d.\-]", "", regex=True)     # keep digits, minus, dot
+        .str.replace(r"[^\d.\-]", "", regex=True)     # keep only digits/.- 
         .str.strip()
         .pipe(pd.to_numeric, errors="coerce")
         .fillna(0)
     )
+
 
 @st.cache_data
 def process_file(file_bytes, filename, rules):
@@ -528,6 +536,7 @@ def process_file(file_bytes, filename, rules):
     from io import BytesIO
     file = BytesIO(file_bytes)
 
+    # --- Load file ---
     if filename.endswith(".csv"):
         df = pd.read_csv(file)
     elif filename.endswith((".xls", ".xlsx")):
@@ -535,18 +544,33 @@ def process_file(file_bytes, filename, rules):
     else:
         raise ValueError("Unsupported file type")
 
-    # normalize column names
+    # --- Diagnostics BEFORE renaming ---
+    st.write(f"📊 Raw upload for {filename}")
+    st.write("Available raw columns:", df.columns.tolist())
+
+    # --- Normalize column names (for detection only) ---
     def _normalize(c):
         return str(c).replace("\u00a0", " ").replace("\ufeff", "").strip()
     df.columns = [_normalize(c) for c in df.columns]
 
-    # detect PMS
+    # --- Detect PMS ---
     pms_name = detect_pms(df)
     if not pms_name:
+        st.warning("⚠ Could not detect PMS for this file.")
         return df, None, None
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
 
-    # handle ezyVet special case
+    # --- Handle Amount (diagnostics before rename) ---
+    amount_col = mappings.get("amount")
+    if amount_col and amount_col in df.columns:
+        st.write(f"🔎 Sample raw values in '{amount_col}':", df[amount_col].head(10).tolist())
+        df["Amount"] = clean_revenue_column(df[amount_col])
+        st.write("✅ Cleaned Amount values (first 10):", df["Amount"].head(10).tolist())
+    else:
+        df["Amount"] = 0
+        st.warning(f"⚠ Revenue column '{amount_col}' not found in file.")
+
+    # --- Rename columns to standardized names ---
     if pms_name == "ezyVet":
         df["Client Name"] = (
             df[mappings["client_first"]].fillna("").astype(str).str.strip()
@@ -567,31 +591,27 @@ def process_file(file_bytes, filename, rules):
         }
     df.rename(columns=rename_map, inplace=True)
 
-    # ensure Amount
-    amount_col = mappings.get("amount")
-    if amount_col and amount_col in df.columns:
-        df["Amount"] = clean_revenue_column(df[amount_col])
-    else:
-        df["Amount"] = 0
-
-    # ensure dates + qty
+    # --- Parse dates ---
     if "Planitem Performed" in df.columns:
         df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
+
+    # --- Ensure Quantity ---
     qty_col = mappings.get("qty")
     df["Quantity"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1)
 
-    # map reminders
+    # --- Map reminder intervals ---
     df = map_intervals(df, rules)
     df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
     df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
     df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
 
-    # lowercase helper cols
+    # --- Helper lowercase columns ---
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
     df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
 
     return df, pms_name, amount_col
+
 # --------------------------------
 # Tutorial section
 # --------------------------------
@@ -1506,6 +1526,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
