@@ -10,8 +10,7 @@ from utils import (
     DEFAULT_RULES, SETTINGS_FILE, save_settings, load_settings,
     PMS_DEFINITIONS, detect_pms, process_file,
     ensure_reminder_columns, simplify_vaccine_text,
-    format_items, format_due_date, normalize_display_case,
-    FLEA_WORM_KEYWORDS, FOOD_KEYWORDS
+    format_items, format_due_date, normalize_display_case
 )
 
 @st.cache_data(ttl=30)
@@ -95,9 +94,7 @@ def run_reminders():
         accept_multiple_files=True
     )
 
-    # Always initialize datasets and summaries
-    datasets = []
-    summary_rows = []
+    datasets, summary_rows, working_df = [], [], None
 
     if files:
         for file in files:
@@ -116,15 +113,17 @@ def run_reminders():
             })
             datasets.append((pms_name, df))
 
-        # Save into session state
-        st.session_state["file_summaries"] = summary_rows
+        # Save to session state
         st.session_state["datasets"] = datasets
+        st.session_state["file_summaries"] = summary_rows
 
-        # Show uploaded file summaries
+    # --- Reuse from session if no new uploads this run ---
+    datasets = st.session_state.get("datasets", [])
+    summary_rows = st.session_state.get("file_summaries", [])
+
+    if summary_rows:
         st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
-    # --- Use session state if nothing uploaded this run ---
-    datasets = st.session_state.get("datasets", [])
     if datasets:
         all_pms = {p for p, _ in datasets}
         if len(all_pms) == 1 and "Undetected" not in all_pms:
@@ -244,7 +243,9 @@ def run_reminders():
         else:
             st.info("No matches found.")
 
-    # Rules editor header
+    # --------------------------------
+    # Rules editor
+    # --------------------------------
     st.markdown("---")
     st.markdown("<h2 id='search-terms'>📝 Search Terms</h2>", unsafe_allow_html=True)
     st.info(
@@ -333,6 +334,7 @@ def run_reminders():
     # Add new rule
     st.markdown("---")
     st.write("### Add New Search Term")
+    st.info("💡 Add a new **Search Term** (e.g., Cardisure), set its days, whether to use quantity, and optional visible text.")
     row_id = st.session_state['new_rule_counter']
     c1, c2, c3, c4, c5 = st.columns([3,1,1,2,0.7], gap="small")
     with c1:
@@ -356,9 +358,12 @@ def run_reminders():
             else:
                 st.error("Enter a name and valid integer for days")
 
+    # --------------------------------
     # Exclusions
+    # --------------------------------
     st.markdown("---")
     st.markdown("<h2 id='exclusions'>🚫 Exclusions</h2>", unsafe_allow_html=True)
+    st.info("💡 Add terms here to automatically hide reminders that contain them.")
     if st.session_state["exclusions"]:
         for term in sorted(st.session_state["exclusions"]):
             safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
@@ -397,7 +402,7 @@ def run_reminders():
     # --------------------------------
     st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
     st.markdown("### Found a problem? Let me (Patrik) know here:")
-    
+
     fb_col1, fb_col2 = st.columns([3,1])
     with fb_col1:
         feedback_text = st.text_area(
@@ -407,13 +412,9 @@ def run_reminders():
             placeholder="What did you try? What happened? Any screenshots or CSV names?",
         )
     with fb_col2:
-        user_name_for_feedback = st.text_input(
-            "Your name (optional)", key="feedback_name", placeholder="Clinic / Your name"
-        )
-        user_email_for_feedback = st.text_input(
-            "Your email (optional)", key="feedback_email", placeholder="you@example.com"
-        )
-    
+        user_name_for_feedback = st.text_input("Your name (optional)", key="feedback_name", placeholder="Clinic / Your name")
+        user_email_for_feedback = st.text_input("Your email (optional)", key="feedback_email", placeholder="you@example.com")
+
     if st.button("Send", key="fb_send"):
         if not feedback_text.strip():
             st.error("Please enter a message before sending.")
@@ -421,20 +422,17 @@ def run_reminders():
             try:
                 insert_feedback(user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
                 st.success("Thanks! Your message has been recorded.")
-    
-                # clear inputs
                 for k in ["feedback_text", "feedback_name", "feedback_email"]:
                     if k in st.session_state:
                         del st.session_state[k]
             except Exception as e:
                 st.error(f"Could not save your message. {e}")
-    
+
     # --- Google Sheets Setup ---
     SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
     SCOPE = ["https://spreadsheets.google.com/feeds",
              "https://www.googleapis.com/auth/drive"]
-    
-    # Load creds (Cloud via secrets; local fallback to file if present)
+
     try:
         creds_dict = st.secrets["gcp_service_account"]
     except Exception:
@@ -444,32 +442,30 @@ def run_reminders():
         except FileNotFoundError:
             st.error("Google credentials not found. Add them in Streamlit Secrets or google-credentials.json.")
             st.stop()
-    
+
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
-    
+
     try:
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SHEET_ID).sheet1
     except Exception as e:
         st.error("Couldn't connect to Google Sheets. Check sharing, API enablement, and Sheet ID.")
         st.stop()
-    
+
     def _next_id_from_column():
-        """Find the max numeric ID in column A and add 1 (robust to mid-sheet deletions)."""
         try:
-            col_ids = sheet.col_values(1)[1:]  # skip header
+            col_ids = sheet.col_values(1)[1:]
             nums = [int(x) for x in col_ids if x.strip().isdigit()]
             return (max(nums) if nums else 0) + 1
         except Exception:
-            # Fallback if parsing fails
             return len(sheet.get_all_values())
-    
+
     def insert_feedback(name, email, message):
         now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         next_id = _next_id_from_column()
         sheet.append_row([next_id, now, name or "", email or "", message],
                          value_input_option="USER_ENTERED")
-    
+
     def fetch_feedback(limit=500):
         rows = sheet.get_all_values()
         data = rows[1:] if rows else []
