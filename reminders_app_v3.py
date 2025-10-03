@@ -1561,6 +1561,61 @@ def run_factoids():
                 """,
                 unsafe_allow_html=True,
             )
+    # --------------------------------
+    # 📊 Unique Patients Having Dentals (% by Month)
+    # --------------------------------
+    st.subheader("🦷 Unique Patients Having Dentals (% by Month)")
+    
+    df_all = st.session_state["working_df"].copy()
+    
+    # Canonical columns guard
+    for col, default in [
+        ("ChargeDate", pd.NaT),
+        ("Client Name", ""),
+        ("Animal Name", ""),
+        ("Item Name", ""),
+    ]:
+        if col not in df_all.columns:
+            df_all[col] = default
+    
+    # Parse dates
+    if not pd.api.types.is_datetime64_any_dtype(df_all["ChargeDate"]):
+        df_all["ChargeDate"] = parse_dates(df_all["ChargeDate"])
+    
+    # Drop rows without valid dates
+    df_all = df_all.dropna(subset=["ChargeDate"])
+    
+    # Extract year-month
+    df_all["YearMonth"] = df_all["ChargeDate"].dt.to_period("M").dt.to_timestamp()
+    
+    # Define the 12-month window ending with latest month
+    latest_month = df_all["YearMonth"].max()
+    month_list = pd.period_range(end=latest_month.to_period("M"), periods=12, freq="M").to_timestamp()
+    
+    # For each month, compute %
+    results = []
+    for m in month_list:
+        month_df = df_all[df_all["YearMonth"] == m]
+        total_pats = month_df["Animal Name"].nunique()
+    
+        dental_pats = month_df[month_df["Item Name"].str.contains("dental", case=False, na=False)]["Animal Name"].nunique()
+    
+        pct = (dental_pats / total_pats * 100) if total_pats > 0 else 0
+        results.append({"Month": m.strftime("%b %Y"), "Dental %": pct})
+    
+    chart_df = pd.DataFrame(results)
+    
+    # Bar chart (months left-to-right oldest → newest)
+    import matplotlib.pyplot as plt
+    
+    fig, ax = plt.subplots(figsize=(10,5))
+    ax.bar(chart_df["Month"], chart_df["Dental %"])
+    ax.set_ylabel("Unique Patients with Dentals (%)")
+    ax.set_xlabel("Month")
+    ax.set_title("Unique Patients Having Dentals (%) - Last 12 Months")
+    plt.xticks(rotation=45, ha="right")
+    
+    st.pyplot(fig)
 
     # --------------------------------
     # Top Items by Revenue
@@ -1648,4 +1703,5 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
