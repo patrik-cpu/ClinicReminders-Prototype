@@ -1254,12 +1254,23 @@ except Exception:
 
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
 
+import time
+
+sheet = None
 try:
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).sheet1
-except Exception as e:
-    st.error("Couldn't connect to Google Sheets. Check sharing, API enablement, and Sheet ID.")
-    st.stop()
+    start = time.time()
+    while sheet is None and (time.time() - start) < 5:
+        try:
+            sheet = client.open_by_key(SHEET_ID).sheet1
+        except Exception:
+            time.sleep(0.5)  # retry every half second
+except Exception:
+    sheet = None
+
+if sheet is None:
+    st.warning("⚠ Couldn't connect to Google Sheets. Check sharing, API enablement, and Sheet ID. Continuing without Sheets integration.")
+
 
 def _next_id_from_column():
     """Find the max numeric ID in column A and add 1 (robust to mid-sheet deletions)."""
@@ -1756,5 +1767,6 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
