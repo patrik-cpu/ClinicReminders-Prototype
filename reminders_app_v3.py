@@ -1541,6 +1541,25 @@ def run_factoids():
         label_visibility="collapsed",
         key="factoids_period_select"
     )
+    # Apply period filter before calculations
+    if pd.isna(latest_date):
+        st.warning("⚠ No valid dates available to filter by period.")
+    else:
+        if selected == "Prev 30 Days (of most recent data)":
+            start_date = latest_date - pd.DateOffset(days=30)
+            df = df[df["ChargeDate"] >= start_date]
+    
+        elif selected == "Prev Quarter (of most recent data)":
+            start_date = latest_date - pd.DateOffset(months=3)
+            df = df[df["ChargeDate"] >= start_date]
+    
+        elif selected == "Prev Year (of most recent data)":
+            start_date = latest_date - pd.DateOffset(years=1)
+            df = df[df["ChargeDate"] >= start_date]
+
+    
+    # else: "All Data" → no filtering
+
     # --------------------------------
     # 📌 At a Glance (Daily KPIs + Unique Patient Uptake)
     # --------------------------------
@@ -1768,6 +1787,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
