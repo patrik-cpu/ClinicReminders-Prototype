@@ -1332,7 +1332,7 @@ FOOD_KEYWORDS = [
     "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
     "nutro", "pouch", "tin", "can", "canned", "wet", "dry", "kibble",
     "tuna", "chicken", "beef", "salmon", "lamb", "duck",
-    "senior", "diet", "food", "grain"
+    "senior", "diet", "food", "grain","rc"
 ]
 
 XRAY_KEYWORDS = [
@@ -1819,6 +1819,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
