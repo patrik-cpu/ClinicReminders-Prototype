@@ -23,6 +23,7 @@ st.sidebar.markdown(
       <li><a href="#search-terms" style="text-decoration:none;">📝 Search Terms</a></li>
       <li><a href="#exclusions" style="text-decoration:none;">🚫 Exclusions</a></li>
       <li><a href="#feedback" style="text-decoration:none;">💬 Feedback</a></li>
+      <li><a href="#factoids" style="text-decoration:none;">📊 Factoids</a></li>
     </ul>
     """,
     unsafe_allow_html=True,
@@ -33,7 +34,7 @@ st.sidebar.markdown(
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders Prototype v3.4 (stable)")
+    st.title("ClinicReminders Prototype v4.0 (with Factoids!)")
 st.markdown("---")
 
 # --------------------------------
@@ -164,7 +165,7 @@ PMS_DEFINITIONS = {
             "Planitem Performed", "Client Name", "Client ID", "Patient Name",
             "Patient ID", "Plan Item ID", "Plan Item Name", "Plan Item Quantity",
             "Performed Staff", "Plan Item Amount", "Returned Quantity",
-            "Returned Date", "Invoice No",
+            "Returned Date", "Invoice No"
         ],
         "mappings": {
             "date": "Planitem Performed",
@@ -172,13 +173,13 @@ PMS_DEFINITIONS = {
             "animal": "Patient Name",
             "item": "Plan Item Name",
             "qty": "Plan Item Quantity",
+            "amount": "Plan Item Amount"
         }
     },
     "Xpress": {
         "columns": [
             "Date", "Client ID", "Client Name", "SLNo", "Doctor",
-            "Animal Name", "Item Name", "Item ID", "Qty", "Rate",
-            "Amount"
+            "Animal Name", "Item Name", "Item ID", "Qty", "Rate", "Amount"
         ],
         "mappings": {
             "date": "Date",
@@ -186,9 +187,9 @@ PMS_DEFINITIONS = {
             "animal": "Animal Name",
             "item": "Item Name",
             "qty": "Qty",
+            "amount": "Amount"
         }
     },
-
     "ezyVet": {
         "columns": [
             "Invoice #", "Invoice Date", "Type", "Parent Line ID",
@@ -213,19 +214,19 @@ PMS_DEFINITIONS = {
             "Total Earned(excl)", "Total Earned(incl)", "Payment Terms"
         ],
         "mappings": {
-            "date": "Invoice Date",                         # → Planitem Performed
-            "client_first": "First Name",                   # combine First + Last
+            "date": "Invoice Date",
+            "client_first": "First Name",
             "client_last": "Last Name",
-            "animal": "Patient Name",                       # → Patient Name
-            "item": "Product Name",                         # → Plan Item Name
-            "qty": "Qty",                                   # → Quantity
+            "animal": "Patient Name",
+            "item": "Product Name",
+            "qty": "Qty",
+            "amount": "Total Invoiced (excl)"
         }
     }
 }
 
-
 def normalize_columns(cols):
-    """Lowercase, collapse spaces, strip BOM/nbsp for robust comparison."""
+    """Normalize header strings for reliable comparisons."""
     cleaned = []
     for c in cols:
         if not isinstance(c, str):
@@ -235,15 +236,31 @@ def normalize_columns(cols):
         cleaned.append(c)
     return cleaned
 
-
 def detect_pms(df: pd.DataFrame) -> str:
+    """
+    Robust PMS detection using small unique key-sets per PMS.
+    Returns one of: 'VETport', 'Xpress', 'ezyVet', or None.
+    """
     df_cols = set(normalize_columns(df.columns))
+
+    # Unique key sets (lowercased)
+    v_keys = {"planitem performed", "plan item amount"}
+    x_keys = {"date", "animal name", "amount", "item name"}
+    e_keys = {"invoice date", "total invoiced (excl)", "product name", "first name", "last name"}
+
+    # Prefer stronger (more specific) matches
+    if v_keys.issubset(df_cols):
+        return "VETport"
+    if e_keys.issubset(df_cols):
+        return "ezyVet"
+    if x_keys.issubset(df_cols):
+        return "Xpress"
+
+    # Fallback: try the long lists in PMS_DEFINITIONS as a last resort, first match wins
     for pms_name, definition in PMS_DEFINITIONS.items():
         required = set(normalize_columns(definition["columns"]))
         if required.issubset(df_cols):
             return pms_name
-
-    
     return None
 
 
@@ -345,26 +362,32 @@ def normalize_item_name(name: str) -> str:
     return re.sub(r"\s+", " ", name).strip()
 
 def map_intervals(df, rules):
-    """Map plan items to rules and calculate intervals."""
+    """
+    Map item names to rules (by substring match) and compute IntervalDays.
+    Uses canonical columns: Item Name, Qty, ChargeDate.
+    Produces: MatchedItems (list of visible texts), IntervalDays (min of matches).
+    """
     df = df.copy()
     df["MatchedItems"] = [[] for _ in range(len(df))]
     df["IntervalDays"] = pd.NA
 
     for idx, row in df.iterrows():
-        normalized = normalize_item_name(row.get("Plan Item Name", ""))
+        normalized = normalize_item_name(row.get("Item Name", ""))
         matches, interval_values = [], []
 
         for rule, settings in rules.items():
             rule_norm = rule.lower().strip()
             if rule_norm in normalized:
                 vis = settings.get("visible_text")
+                # Show visible_text when present; fallback to source item
                 if vis and vis.strip():
                     matches.append(vis.strip())
                 else:
-                    matches.append(row.get("Plan Item Name", rule))  # fallback to source item name
+                    matches.append(row.get("Item Name", rule))
+
                 days = settings["days"]
                 if settings.get("use_qty"):
-                    qty = pd.to_numeric(row.get("Quantity", 1), errors="coerce")
+                    qty = pd.to_numeric(row.get("Qty", 1), errors="coerce")
                     qty = int(qty) if pd.notna(qty) else 1
                     days *= max(qty, 1)
                 interval_values.append(days)
@@ -373,106 +396,102 @@ def map_intervals(df, rules):
             df.at[idx, "MatchedItems"] = matches
             df.at[idx, "IntervalDays"] = min(interval_values)
         else:
-            df.at[idx, "MatchedItems"] = [row.get("Plan Item Name", "")]
+            # No match → show the original Item Name and keep IntervalDays as NA
+            df.at[idx, "MatchedItems"] = [row.get("Item Name", "")]
             df.at[idx, "IntervalDays"] = pd.NA
 
     return df
 
 def parse_dates(series: pd.Series) -> pd.Series:
     """
-    Robust parser:
-      - If already datetime, return as-is.
-      - If numeric (Excel serial), convert (tries 1900 and 1904 systems).
-      - Else try multiple explicit formats, then pandas with dayfirst=True, then fallback.
+    Robust parser for PMS date columns.
+    Always strips any time or trailing junk (e.g. Vetport "01/Jan/2024 16:20 57"),
+    so only the date part remains.
+    Works across Vetport, Xpress, and ezyVet.
     """
-    # Already datetime?
+    # Already datetime dtype → normalize to date
     if pd.api.types.is_datetime64_any_dtype(series):
-        return pd.to_datetime(series, errors="coerce")
+        return pd.to_datetime(series.dt.date, errors="coerce")
 
-    # Try numeric Excel serials first (before string-casting)
-    numeric = pd.to_numeric(series, errors="coerce")
+    s = series.astype(str).str.strip()
+
+    # --- Extract only the date portion ---
+    s = s.str.extract(
+        r"(\d{1,2}[/-][A-Za-z]{3}[/-]\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})"
+    )[0]
+
+    # Excel serials
+    numeric = pd.to_numeric(s, errors="coerce")
     if numeric.notna().sum() > 0:
-        # Consider rows that look purely numeric (e.g., "45234" or 45234.0)
-        # If majority are numeric, treat as Excel serials
-        numeric_like = series.astype(str).str.fullmatch(r"\d+(\.0+)?", na=False)
-        if numeric_like.sum() >= max(1, int(0.6 * len(series.dropna()))):
-            base_1900 = pd.Timestamp("1899-12-30")
-            dt_1900 = base_1900 + pd.to_timedelta(numeric, unit="D")
-            valid_1900 = dt_1900.dt.year.between(1990, 2100)
+        base_1900 = pd.Timestamp("1899-12-30")
+        dt_1900 = base_1900 + pd.to_timedelta(numeric, unit="D")
+        base_1904 = pd.Timestamp("1904-01-01")
+        dt_1904 = base_1904 + pd.to_timedelta(numeric, unit="D")
+        valid_1900 = dt_1900.dt.year.between(1990, 2100)
+        valid_1904 = dt_1904.dt.year.between(1990, 2100)
+        return (dt_1904 if valid_1904.sum() > valid_1900.sum() else dt_1900).dt.normalize()
 
-            base_1904 = pd.Timestamp("1904-01-01")
-            dt_1904 = base_1904 + pd.to_timedelta(numeric, unit="D")
-            valid_1904 = dt_1904.dt.year.between(1990, 2100)
-
-            # Choose the system with more plausible dates
-            if valid_1904.sum() > valid_1900.sum():
-                return dt_1904
-            else:
-                return dt_1900
-
-    # Clean strings and try explicit formats
-    s = (
-        series.astype(str)
-        .str.replace("\u00a0", " ", regex=False)
-        .str.replace("\ufeff", "", regex=False)
-        .str.strip()
-    )
+    # Explicit formats
     formats = [
-        "%d/%b/%Y",      # 12/Jan/2024
-        "%d-%b-%Y",      # 12-Jan-2024
-        "%d-%b-%y",      # 12-Jan-24
-        "%d/%m/%Y",      # 12/01/2024
-        "%m/%d/%Y",      # 01/12/2024
-        "%Y-%m-%d",      # 2024-01-12
-        "%Y.%m.%d",      # 2024.01.12
-        "%d/%m/%Y %H:%M",    # 12/01/2024 00:00
-        "%d/%m/%Y %H:%M:%S", # 12/01/2024 00:00:00
-        "%Y-%m-%d %H:%M:%S", # 2024-06-28 18:18:16 (ezyVet exports)
-        "%Y-%m-%d %H:%M",    # 2024-06-28 18:18
+        "%d/%b/%Y", "%d-%b-%Y",
+        "%d/%m/%Y", "%m/%d/%Y",
+        "%Y-%m-%d", "%Y.%m.%d"
     ]
     for fmt in formats:
         parsed = pd.to_datetime(s, format=fmt, errors="coerce")
         if parsed.notna().sum() > 0:
-            return parsed
+            return parsed.dt.normalize()
 
-    # Try pandas inference with dayfirst preference, then without
+    # Fallback: pandas inference
     parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
-    if parsed.notna().sum() > 0:
-        return parsed
-    return pd.to_datetime(s, errors="coerce")
+    return parsed.dt.normalize()
 
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
-    """Ensure reminder fields exist, always fresh."""
+    """
+    Ensure canonical reminder fields exist using the standardized schema:
+    ChargeDate, Client Name, Animal Name, Item Name, Qty, Amount.
+    Adds:
+      - MatchedItems, IntervalDays
+      - NextDueDate (ChargeDate + IntervalDays)
+      - ChargeDateFmt, DueDateFmt
+    """
     if df is None or df.empty:
         return pd.DataFrame(columns=[
-            "DueDateFmt","Client Name","ChargeDateFmt","Patient Name",
-            "MatchedItems","Quantity","IntervalDays","NextDueDate","Planitem Performed"
+            "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
+            "MatchedItems", "Qty", "IntervalDays", "NextDueDate", "ChargeDate"
         ])
 
     df = df.copy()
 
-    # Ensure Quantity column
-    if "Quantity" not in df.columns:
-        df["Quantity"] = 1
+    # Ensure canonical columns exist
+    for col, default in [
+        ("ChargeDate", pd.NaT),
+        ("Client Name", ""),
+        ("Animal Name", ""),
+        ("Item Name", ""),
+        ("Qty", 1),
+        ("Amount", 0),
+    ]:
+        if col not in df.columns:
+            df[col] = default
 
-    # Map rules
+    # Parse dates robustly
+    if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
+        df["ChargeDate"] = parse_dates(df["ChargeDate"])
+
+    # Map rules to intervals
     df = map_intervals(df, rules)
 
-    # Ensure dates
-    if "Planitem Performed" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["Planitem Performed"]):
-        df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
-
+    # Compute next due dates
     days = pd.to_numeric(df["IntervalDays"], errors="coerce")
-    df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(days, unit="D")
-    df["ChargeDateFmt"] = pd.to_datetime(df["Planitem Performed"]).dt.strftime("%d %b %Y")
+    df["NextDueDate"] = df["ChargeDate"] + pd.to_timedelta(days, unit="D")
+    # The above keeps NaT where IntervalDays is NA
+
+    # Format dates
+    df["ChargeDateFmt"] = pd.to_datetime(df["ChargeDate"]).dt.strftime("%d %b %Y")
     df["DueDateFmt"]    = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
 
-    # Guarantee essential text columns
-    for col in ["Patient Name", "Client Name"]:
-        if col not in df.columns:
-            df[col] = ""
-
-    # Ensure lists
+    # Ensure MatchedItems is a clean list of strings
     df["MatchedItems"] = df["MatchedItems"].apply(
         lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
     )
@@ -491,68 +510,131 @@ def normalize_display_case(text: str) -> str:
             fixed.append(w)
     return " ".join(fixed)
 
+def clean_revenue_column(series: pd.Series) -> pd.Series:
+    """
+    Universal cleaner for revenue/amount columns.
+    - remove commas, currency symbols, other text
+    - convert to numeric, fill NaN with 0
+    """
+    return (
+        series.astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace(r"[^\d.\-]", "", regex=True)
+        .str.strip()
+        .pipe(pd.to_numeric, errors="coerce")
+        .fillna(0)
+    )
+
 # --------------------------------
 # Cached CSV processor
 # --------------------------------
 
 @st.cache_data
-def process_file(file, rules):
-    """Load and standardize uploaded file."""
-    name = file.name.lower()
-    if name.endswith(".csv"):
+def process_file(file_bytes, filename, rules):
+    """
+    Read the file bytes + filename, detect PMS, clean revenue, standardize to:
+    ChargeDate, Client Name, Animal Name, Item Name, Qty, Amount
+    Returns: df_standardized, pms_name, amount_col (raw column name)
+    """
+    from io import BytesIO
+    file = BytesIO(file_bytes)
+
+    # Load file
+    lowerfn = filename.lower()
+    if lowerfn.endswith(".csv"):
         df = pd.read_csv(file)
-    elif name.endswith((".xls", ".xlsx")):
+    elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file)
     else:
         raise ValueError("Unsupported file type")
 
-    df.columns = [c.strip() for c in df.columns]
+    # Normalize headers
+    def _normalize(c):
+        return str(c).replace("\u00a0", " ").replace("\ufeff", "").strip()
+    df.columns = [_normalize(c) for c in df.columns]
+
+    # Detect PMS
     pms_name = detect_pms(df)
     if not pms_name:
-        return df, None
+        return df, None, None
 
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
+    amount_col = mappings.get("amount")
 
-    # Standardize column names
-    if pms_name == "ezyVet":
-        df["Client Name"] = (
-            df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
-            df[mappings["client_last"]].fillna("").astype(str).str.strip()
-        ).str.strip()
-        rename_map = {
-            mappings["date"]: "Planitem Performed",
-            mappings["animal"]: "Patient Name",
-            mappings["item"]: "Plan Item Name",
-        }
+    # Clean Amount
+    if amount_col and amount_col in df.columns:
+        df["Amount"] = clean_revenue_column(df[amount_col])
     else:
-        rename_map = {
-            mappings["date"]: "Planitem Performed",
-            mappings["client"]: "Client Name",
-            mappings["animal"]: "Patient Name",
-            mappings["item"]: "Plan Item Name",
-        }
-    df.rename(columns=rename_map, inplace=True)
+        df["Amount"] = 0
 
-    # Parse dates robustly
-    if "Planitem Performed" in df.columns:
-        df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
+    # Special case: ezyVet client name from first+last
+    if pms_name == "ezyVet":
+        cf = mappings.get("client_first")
+        cl = mappings.get("client_last")
+        if cf in df.columns and cl in df.columns:
+            df["Client Name"] = (
+                df[cf].fillna("").astype(str).str.strip()
+                + " "
+                + df[cl].fillna("").astype(str).str.strip()
+            ).str.strip()
+        else:
+            df["Client Name"] = (
+                df.get(cf, "").astype(str).fillna("")
+                + " "
+                + df.get(cl, "").astype(str).fillna("")
+            ).str.strip()
 
-    # Ensure Quantity
+    # Rename to canonical schema
+    rename_map = {}
+    if "date" in mappings and mappings["date"] in df.columns:
+        rename_map[mappings["date"]] = "ChargeDate"
+    if "client" in mappings and mappings["client"] in df.columns:
+        rename_map[mappings["client"]] = "Client Name"
+    if "animal" in mappings and mappings["animal"] in df.columns:
+        rename_map[mappings["animal"]] = "Animal Name"
+    if "item" in mappings and mappings["item"] in df.columns:
+        rename_map[mappings["item"]] = "Item Name"
+    df = df.rename(columns=rename_map)
+
+    # Ensure canonical columns exist
+    for col, default in [
+        ("ChargeDate", pd.NaT),
+        ("Client Name", ""),
+        ("Animal Name", ""),
+        ("Item Name", ""),
+    ]:
+        if col not in df.columns:
+            df[col] = default
+
+    # Qty column
     qty_col = mappings.get("qty")
-    df["Quantity"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1)
+    if qty_col and qty_col in df.columns:
+        df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
+    else:
+        fallback_qty_cols = ["Qty", "Quantity", "Plan Item Quantity"]
+        found = False
+        for c in fallback_qty_cols:
+            if c in df.columns:
+                df["Qty"] = pd.to_numeric(df[c], errors="coerce").fillna(1)
+                found = True
+                break
+        if not found:
+            df["Qty"] = 1
 
-    # Map rules
-    df = map_intervals(df, rules)
-    df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
-    df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
-    df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
+    # Final Amount numeric safety
+    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
 
-    # Lowercase helper cols
+    # Parse dates
+    if "ChargeDate" in df.columns:
+        df["ChargeDate"] = parse_dates(df["ChargeDate"])
+        df["ChargeDate"] = df["ChargeDate"].dt.normalize()
+
+    # Helper lowercase cols
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
-    df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
-    df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
+    df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
+    df["_item_lower"] = df["Item Name"].astype(str).str.lower()
 
-    return df, pms_name
+    return df, pms_name, amount_col
 
 # --------------------------------
 # Tutorial section
@@ -570,10 +652,8 @@ st.info(
     "7. There's a bit more you can do, but this should be enough to get you started!"
 )
 
-# --------------------------------
-# Upload Data section
-# --------------------------------
-st.markdown("<div id='upload-data' class='anchor-offset'></div>", unsafe_allow_html=True)  # stable scroll target
+# --- Upload Data section (replace existing) ---
+st.markdown("<div id='upload-data' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 📂 Upload Data - Do this first!")
 
 files = st.file_uploader(
@@ -582,16 +662,40 @@ files = st.file_uploader(
     accept_multiple_files=True
 )
 
-datasets, summary_rows, working_df = [], [], None
+datasets = []
+summary_rows = []
+working_df = None
+
+# Auto clear cache when file list changes (so cached results won't be stale)
+if "last_uploaded_files" not in st.session_state:
+    st.session_state["last_uploaded_files"] = []
+current_files = [f.name for f in files] if files else []
+if current_files != st.session_state["last_uploaded_files"]:
+    # Clear Streamlit cache and also remove any stored working_df
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+    st.session_state["last_uploaded_files"] = current_files
+    # Also clear previously stored working_df in session state to avoid stale data
+    if "working_df" in st.session_state:
+        del st.session_state["working_df"]
 
 if files:
     for file in files:
-        df, pms_name = process_file(file, st.session_state["rules"])
+        # Read bytes and pass filename for cache keying
+        file_bytes = file.read()
+        df, pms_name, amount_col = process_file(file_bytes, file.name, st.session_state["rules"])
         pms_name = pms_name or "Undetected"
 
+        # Diagnostics outside cache are already printed inside process_file; still include summary
         from_date, to_date = None, None
-        if "Planitem Performed" in df.columns:
-            from_date, to_date = df["Planitem Performed"].min(), df["Planitem Performed"].max()
+        if "ChargeDate" in df.columns:
+            try:
+                from_date = df["ChargeDate"].min()
+                to_date = df["ChargeDate"].max()
+            except Exception:
+                from_date, to_date = None, None
 
         summary_rows.append({
             "File name": file.name,
@@ -605,10 +709,24 @@ if files:
 
     all_pms = {p for p, _ in datasets}
     if len(all_pms) == 1 and "Undetected" not in all_pms:
+        # concatenate standardized dataframes
         working_df = pd.concat([df for _, df in datasets], ignore_index=True)
+        st.session_state["working_df"] = working_df
         st.success(f"All files detected as {list(all_pms)[0]} — merging datasets.")
     else:
-        st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
+        # If mixing PMS types, allow concatenation as long as standard columns exist across files
+        # We'll attempt to concatenate and check for required canonical columns
+        try:
+            cand = pd.concat([df for _, df in datasets], ignore_index=True, sort=False)
+            required_cols = ["ChargeDate","Client Name","Animal Name","Item Name","Qty","Amount"]
+            if all(c in cand.columns for c in required_cols):
+                working_df = cand
+                st.session_state["working_df"] = working_df
+                st.success("Files merged into canonical schema.")
+            else:
+                st.warning("PMS mismatch or some files missing expected canonical columns. Reminders cannot be generated reliably.")
+        except Exception:
+            st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
 
 
 # --------------------------------
@@ -616,33 +734,32 @@ if files:
 # --------------------------------
 def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
-        st.info(f"No reminders in {title}."); return
+        st.info(f"No reminders in {title}.")
+        return
     df = df.copy()
 
-    # ✅ Only map RAW rows; do NOT remap grouped/combined rows
-    if "Plan Item Name" in df.columns:
-        df["Plan Item"] = df["Plan Item Name"].apply(
+    # Always build a display "Plan Item" from canonical Item Name + rules
+    if "Item Name" in df.columns:
+        df["Plan Item"] = df["Item Name"].apply(
             lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules))
         )
-    elif "Plan Item" in df.columns:
-        # already combined: just tidy punctuation/casing
-        df["Plan Item"] = df["Plan Item"].apply(lambda x: simplify_vaccine_text(str(x)))
-    else:
+    elif "Plan Item" not in df.columns:
         df["Plan Item"] = ""
 
-    # exclusions still work on the final display text
+    # Exclusions apply to the final display text
     if st.session_state["exclusions"]:
         excl_pattern = "|".join(map(re.escape, st.session_state["exclusions"]))
         df = df[~df["Plan Item"].str.lower().str.contains(excl_pattern)]
     if df.empty:
-        st.info("All rows excluded by exclusion list."); return
+        st.info("All rows excluded by exclusion list.")
+        return
 
     render_table_with_buttons(df, key_prefix, msg_key)
 
 def render_table_with_buttons(df, key_prefix, msg_key):
     # Column layout
     col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
-    headers = ["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days","WA"]
+    headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA"]
     cols = st.columns(col_widths)
     for c, head in zip(cols, headers):
         c.markdown(f"**{head}**")
@@ -656,7 +773,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             if h in ["Client Name", "Animal Name", "Plan Item"]:  # clean display fields only
                 val = normalize_display_case(val)
             cols[j].markdown(val)
-
 
         # WA button -> prepare message
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
@@ -682,18 +798,16 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
-    # Composer (message text via Streamlit; phone input + buttons inside HTML for live behavior)
+    # Composer (same as before) ...
     comp_main, comp_tip = st.columns([4,1])
     with comp_main:
         st.write("### WhatsApp Composer")
-
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
         st.text_area("Message:", key=msg_key, height=200)
 
         current_message = st.session_state.get(msg_key, "")
 
-        # HTML block: phone input + buttons
         components.html(
             f'''
             <html>
@@ -786,7 +900,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     if (phoneClean) {{
                       url = `https://wa.me/${{phoneClean}}${{encMsg ? "?text=" + encMsg : ""}}`;
                     }} else {{
-                      // No phone → copy automatically before opening
                       await copyToClipboard(MESSAGE_RAW || '');
                       url = "https://wa.me/";  // forward/search
                     }}
@@ -805,19 +918,15 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             ''',
             height=130,
         )
-    # ⚠️ Warning note under buttons
+
     st.markdown(
         "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
         "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
         unsafe_allow_html=True
     )
-
-
     with comp_tip:
         st.markdown("### 💡 Tip")
         st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
-
-
 
 # --------------------------------
 # Main
@@ -849,53 +958,60 @@ if working_df is not None:
     st.markdown("---")
     st.markdown("<h2 id='weekly-reminders'>📅 Weekly Reminders</h2>", unsafe_allow_html=True)
     st.info("💡 Pick a Start Date to see reminders for the next 7-day window. Click WA to prepare a message.")
-
-    latest_date = df["Planitem Performed"].max()
+    
+    # Prepare reminder fields on the fully standardized df
+    prepared = ensure_reminder_columns(df, st.session_state["rules"])
+    
+    latest_date = prepared["ChargeDate"].max()
     default_start = (latest_date + timedelta(days=1)).date() if pd.notna(latest_date) else date.today()
     start_date = st.date_input("Start Date (7-day window)", value=default_start)
     end_date = start_date + timedelta(days=6)
-
-    due = df[(df["NextDueDate"] >= pd.to_datetime(start_date)) & (df["NextDueDate"] <= pd.to_datetime(end_date))]
-    due2 = ensure_reminder_columns(due, st.session_state["rules"])
-
-    g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
-    grouped = (
-        pd.DataFrame({
-            "Charge Date": g["ChargeDateFmt"].max(),
-            "Animal Name": g["Patient Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
-            "Plan Item": g["MatchedItems"].apply(
-                lambda lists: simplify_vaccine_text(
-                    format_items(sorted(set(
-                        i.strip()
-                        for sublist in lists
-                        for i in (sublist if isinstance(sublist, list) else [sublist])
-                        if str(i).strip()
-                    )))
-                )
-            ),
-
-            "Qty": g["Quantity"].sum(min_count=1),
-            "Days": g["IntervalDays"].apply(
-                lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
+    
+    # Filter by NextDueDate within the 7-day window
+    due2 = prepared[
+        (pd.to_datetime(prepared["NextDueDate"]) >= pd.to_datetime(start_date)) &
+        (pd.to_datetime(prepared["NextDueDate"]) <= pd.to_datetime(end_date))
+    ].copy()
+    
+    if not due2.empty:
+        g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
+        grouped = (
+            pd.DataFrame({
+                "Charge Date": g["ChargeDateFmt"].max(),
+                "Animal Name": g["Animal Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
+                "Plan Item": g["MatchedItems"].apply(
+                    lambda lists: simplify_vaccine_text(
+                        format_items(sorted(set(
+                            i.strip()
+                            for sublist in lists
+                            for i in (sublist if isinstance(sublist, list) else [sublist])
+                            if str(i).strip()
+                        )))
+                    )
+                ),
+                "Qty": g["Qty"].sum(min_count=1),
+                "Days": g["IntervalDays"].apply(
+                    lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
                     if pd.to_numeric(x, errors="coerce").notna().any()
                     else ""
-            ),
-        })
-        .reset_index()
-        .rename(columns={"DueDateFmt": "Due Date"})
-    )[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+                ),
+            })
+            .reset_index()
+            .rename(columns={"DueDateFmt": "Due Date"})
+        )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
     
-    grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
-    grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
-    render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
+        grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
+        render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
+    else:
+        st.info("No reminders in the selected week.")
 
     # --------------------------------
-    # Search
     # --------------------------------
     st.markdown("---")
     st.markdown("<h2 id='search'>🔍 Search</h2>", unsafe_allow_html=True)
-    st.info("💡 Search by client, animal, or plan item to find upcoming reminders.")
-    search_term = st.text_input("Enter text to search (client, animal, or plan item)")
+    st.info("💡 Search by client, animal, or item to find upcoming reminders.")
+    search_term = st.text_input("Enter text to search (client, animal, or item)")
+    
     if search_term:
         q = search_term.lower()
         mask = (
@@ -903,7 +1019,7 @@ if working_df is not None:
             df["_animal_lower"].str.contains(q, regex=False) |
             df["_item_lower"].str.contains(q, regex=False)
         )
-        filtered = df[mask].copy().sort_values("NextDueDate")
+        filtered = df[mask].copy()
     
         filtered2 = ensure_reminder_columns(filtered, st.session_state["rules"])
     
@@ -912,7 +1028,7 @@ if working_df is not None:
             grouped_search = (
                 pd.DataFrame({
                     "Charge Date": g["ChargeDateFmt"].max(),
-                    "Animal Name": g["Patient Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
+                    "Animal Name": g["Animal Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
                     "Plan Item": g["MatchedItems"].apply(
                         lambda lists: simplify_vaccine_text(
                             format_items(sorted(set(
@@ -920,22 +1036,20 @@ if working_df is not None:
                             )))
                         )
                     ),
-                    "Qty": g["Quantity"].sum(min_count=1),
+                    "Qty": g["Qty"].sum(min_count=1),
                     "Days": g["IntervalDays"].apply(
                         lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
-                            if pd.to_numeric(x, errors="coerce").notna().any()
-                            else ""
+                        if pd.to_numeric(x, errors="coerce").notna().any()
+                        else ""
                     ),
                 })
                 .reset_index()
                 .rename(columns={"DueDateFmt": "Due Date"})
-            )[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+            )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
     
             render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
         else:
             st.info("No matches found.")
-
-
 
     # Rules editor
     st.markdown("---")
@@ -1202,14 +1316,506 @@ if st.button("Send", key="fb_send"):
         except Exception as e:
             st.error(f"Could not save your message. {e}")
 
+# --------------------------------
+# Factoids Section
+# --------------------------------
+
+# Preventive Care Keyword Lists
+# Preventive Care & Service Keyword Lists
+FLEA_WORM_KEYWORDS = [
+    "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
+    "nexgard", "simparica", "advocate", "worm", "praz", "fenbend"
+]
+
+FOOD_KEYWORDS = [
+    "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
+    "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
+    "nutro", "pouch", "tin", "can", "canned", "wet", "dry", "kibble",
+    "tuna", "chicken", "beef", "salmon", "lamb", "duck",
+    "senior", "diet", "food", "grain","rc"
+]
+
+XRAY_KEYWORDS = [
+    "xray", "x-ray", "radiograph", "radiology"
+]
+
+ULTRASOUND_KEYWORDS = [
+    "ultrasound", "echo", "afast", "tfast", "a-fast", "t-fast"
+]
+
+LABWORK_KEYWORDS = [
+    "cbc", "blood test", "lab", "biochemistry", "haematology", "urinalysis", "labwork", "idexx", "ghp", "chem", "FELV", "FIV", "urine",
+    "urinalysis","elisa","CHLAMYDIA","PCR", "MICROSCOPIQUE","biochem","cytology","smear","faecal","fecal","MICROSCOPIC","SWAB","Lyte",
+    "Catalyst","i-stat","istat","hematology","electrolyte","slide","bun","crea","phos","upc","sdma","lab","pcv","hct","uppc","Parasitology",
+    "parvo","distemper","giardia","pap","pre-anaesthetic","pre-anasthetic","cpl","cpli","lipase","amylase","pancreatic","cortisol","lddst","acth"
+]
+
+ANAESTHETIC_KEYWORDS = [
+    "anaesthesia", "anesthesia", "general anaesthetic", "ga", "propofol", "isoflurane","spay","castrate","neuter","anae","surgery","alfaxane",
+    "alfaxalone"
+]
+
+HOSPITALISATION_KEYWORDS = [
+    "hospitalisation", "hospitalization"
+]
 
 
+def run_factoids():
+    st.markdown("<h2 id='factoids'>📊 Factoids</h2>", unsafe_allow_html=True)
+    st.info("📈 Quick insights into your clinic's activity and sales.")
+
+    if "working_df" not in st.session_state or st.session_state["working_df"] is None or st.session_state["working_df"].empty:
+        st.warning("⚠ Please upload data first in the '📂 Upload Data' section (Reminders).")
+        return
+
+    df = st.session_state["working_df"].copy()
+
+    # Canonical columns guard
+    for col, default in [
+        ("ChargeDate", pd.NaT),
+        ("Client Name", ""),
+        ("Animal Name", ""),
+        ("Item Name", ""),
+        ("Qty", 1),
+        ("Amount", 0),
+    ]:
+        if col not in df.columns:
+            df[col] = default
+
+    # Parse dates
+    if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
+        df["ChargeDate"] = parse_dates(df["ChargeDate"])
+
+    # -------------------------
+    # Select Period (relative to dataset max date)
+    # -------------------------
+    latest_date = df["ChargeDate"].max()
+    if pd.isna(latest_date):
+        st.warning("⚠ No valid dates found in dataset.")
+        return
+
+    period_options = [
+        "All Data",
+        "Prev 30 Days (of most recent data)",
+        "Prev Quarter (of most recent data)",
+        "Prev Year (of most recent data)"
+    ]
+    selected = st.selectbox("Select period:", period_options, index=0)
+
+    if selected == "Prev 30 Days (of most recent data)":
+        cutoff = latest_date - pd.Timedelta(days=30)
+        df = df[df["ChargeDate"] >= cutoff]
+    elif selected == "Prev Quarter (of most recent data)":
+        cutoff = latest_date - pd.DateOffset(months=3)
+        df = df[df["ChargeDate"] >= cutoff]
+    elif selected == "Prev Year (of most recent data)":
+        cutoff = latest_date - pd.DateOffset(years=1)
+        df = df[df["ChargeDate"] >= cutoff]
+    # else All Data → no filtering
 
 
+    st.markdown("<div style='max-width:85%;'>", unsafe_allow_html=True)
+    if df.empty:
+        st.info("No transactions found in this period.")
+    elif df["Amount"].sum() == 0:
+        st.warning("⚠ All revenues are showing as 0. Please confirm the correct revenue column mapping.")
+
+    # --------------------------------
+    # 📌 At a Glance (Daily KPIs + Unique Patient Uptake)
+    # --------------------------------
+    st.subheader("📌 At a Glance")
+
+    daily_kpis = {}
+    if not df.empty:
+        df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
+        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
+        df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+        df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+
+        transactions = (
+            df_sorted.groupby(["Client Name", "Block"])
+            .agg(
+                StartDate=("DateOnly","min"),
+                EndDate=("DateOnly","max"),
+                Patients=("Animal Name", lambda x: set(x.astype(str))),
+                Amount=("Amount","sum")
+            )
+            .reset_index()
+        )
+        transactions["DateOnly"] = transactions["StartDate"]
+
+        daily = transactions.groupby("DateOnly").agg(
+            ClientTransactions=("Block","count"),
+            Patients=("Patients", lambda pats: len(set().union(*pats)) if len(pats) else 0)
+        )
+    else:
+        daily = pd.DataFrame()
+
+    # Build metrics dictionary
+    metrics = {}
+
+    if not daily.empty:
+        max_tx_day = daily["ClientTransactions"].idxmax()
+        max_pat_day = daily["Patients"].idxmax()
+        
+        metrics[f"Max Transactions/Day ({max_tx_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_tx_day, 'ClientTransactions']):,}"
+        metrics["Avg Transactions/Day"] = f"{int(round(daily['ClientTransactions'].mean())):,}"
+        
+        metrics[f"Max Patients/Day ({max_pat_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_pat_day, 'Patients']):,}"
+        metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
+
+    else:
+        metrics["Max Transactions/Day"] = "-"
+        metrics["Avg Transactions/Day"] = "-"
+        metrics["Max Patients/Day"] = "-"
+        metrics["Avg Patients/Day"] = "-"
 
 
+    # Unique patient services
+    total_patients = df["Animal Name"].nunique()
+
+    flea_patients = df[df["Item Name"].str.contains("|".join(FLEA_WORM_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    food_patients = df[df["Item Name"].str.contains("|".join(FOOD_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    xray_patients = df[df["Item Name"].str.contains("|".join(XRAY_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    us_patients   = df[df["Item Name"].str.contains("|".join(ULTRASOUND_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    lab_patients  = df[df["Item Name"].str.contains("|".join(LABWORK_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    anaesth_patients = df[df["Item Name"].str.contains("|".join(ANAESTHETIC_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    hosp_patients = df[df["Item Name"].str.contains("|".join(HOSPITALISATION_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+
+    # Dental block logic (avoid double counting within visits)
+    dental_patients = 0
+    dental_rows = df[df["Item Name"].str.contains("dental", case=False, na=False)]
+    if not dental_rows.empty:
+        d_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
+        d_sorted["DateOnly"] = pd.to_datetime(d_sorted["ChargeDate"]).dt.normalize()
+        d_sorted["DayDiff"] = d_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+        d_sorted["Block"] = d_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+
+        tx = (
+            d_sorted.groupby(["Client Name", "Block"])
+            .agg(Amount=("Amount", "sum"), Patients=("Animal Name", lambda x: set(x.astype(str))))
+            .reset_index()
+        )
+        dental_blocks = d_sorted[d_sorted["Item Name"].str.contains("dental", case=False, na=False)][["Client Name","Block"]].drop_duplicates()
+        qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name","Block"])
+        qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 700]
+        patients = set()
+        for patlist in qualifying_blocks["Patients"]:
+            patients.update(patlist)
+        dental_patients = len(patients)
+
+    if total_patients > 0:
+        metrics.update({
+            "Total Unique Patients": f"{total_patients:,}",
+            "Unique Patients Buying Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
+            "Unique Patients Buying Food": f"{food_patients:,} ({food_patients/total_patients:.1%})",
+            "Unique Patients Having <b>Dentals</b>": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
+            "Unique Patients Having <b>X-rays</b>": f"{xray_patients:,} ({xray_patients/total_patients:.1%})",
+            "Unique Patients Having <b>Ultrasounds</b>": f"{us_patients:,} ({us_patients/total_patients:.1%})",
+            "Unique Patients Having <b>Lab Work</b>": f"{lab_patients:,} ({lab_patients/total_patients:.1%})",
+            "Unique Patients Having <b>Anaesthetics</b>": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
+            "Unique Patients <b>Hospitalised</b>": f"{hosp_patients:,} ({hosp_patients/total_patients:.1%})",
+        })
+    else:
+        st.info("No patients found in dataset.")
+        
+    # --- Reorder Factoid cards ---
+    # Force Total Unique Patients first (light blue), then Max/Avg Patients per Day, then the rest
+    
+    ordered_labels = [
+        "Total Unique Patients",
+        "Max Patients/Day",
+        "Avg Patients/Day",
+    ]
+    
+    # First, put the three key metrics in this exact order if they exist
+    primary_metrics = []
+    for lbl in ordered_labels:
+        for k, v in metrics.items():
+            if k.startswith(lbl):
+                primary_metrics.append((k, v))
+    
+    # Then append everything else
+    remaining_metrics = [(k, v) for k, v in metrics.items() if (k, v) not in primary_metrics]
+    
+    metric_items = primary_metrics + remaining_metrics
+    
+    # --- Render with color overrides ---
+    for row_start in range(0, len(metric_items), 5):
+        cols = st.columns(5)
+        for i, (label, value) in enumerate(metric_items[row_start:row_start+5]):
+    
+            # Light blue background for "Total Unique Patients"
+            if label.startswith("Total Unique Patients"):
+                bg_color = "#dbeafe"   # light blue
+            else:
+                bg_color = "#f1f5f9"   # default grey
+    
+            cols[i].markdown(
+                f"""
+                <div style='background-color:{bg_color}; border:1px solid #94a3b8;
+                            padding:14px; border-radius:10px; text-align:center; margin-bottom:12px;'>
+                    <div style='font-size:14px; color:#334155; font-weight:600;'>{label}</div>
+                    <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    # --------------------------------
+    # 📊 Monthly Breakdown Chart
+    # --------------------------------
+    st.subheader("📊 Monthly Breakdown Chart")
+    
+    df_all = st.session_state["working_df"].copy()
+    
+    # Canonical columns guard
+    for col, default in [
+        ("ChargeDate", pd.NaT),
+        ("Client Name", ""),
+        ("Animal Name", ""),
+        ("Item Name", ""),
+    ]:
+        if col not in df_all.columns:
+            df_all[col] = default
+    
+    # Parse dates
+    if not pd.api.types.is_datetime64_any_dtype(df_all["ChargeDate"]):
+        df_all["ChargeDate"] = parse_dates(df_all["ChargeDate"])
+    
+    df_all = df_all.dropna(subset=["ChargeDate"])
+    df_all["YearMonth"] = df_all["ChargeDate"].dt.to_period("M").dt.to_timestamp()
+    
+    # Define 12-month window
+    latest_month = df_all["YearMonth"].max()
+    month_list = pd.period_range(end=latest_month.to_period("M"), periods=12, freq="M").to_timestamp()
+    
+    # Define KPI groups (regex patterns)
+    KPI_GROUPS = {
+        "Unique Patients Having Dentals": r"dental",
+        "Unique Patients Having X-rays": r"xray|x-ray|radiograph|radiology",
+        "Unique Patients Having Ultrasounds": r"ultrasound|echo|afast|tfast|a-fast|t-fast",
+        "Unique Patients Buying Flea/Worm": r"bravecto|revolution|deworm|frontline|milbe|milpro|nexgard|simparica|advocate|worm|praz|fenbend",
+        "Unique Patients Buying Food": r"hill's|hills|royal canin|purina|proplan|iams|eukanuba|orijen|acana|farmina|vetlife|wellness|taste of the wild|nutro|pouch|tin|can|canned|wet|dry|kibble",
+        "Unique Patients Having Lab Work": r"cbc|blood test|lab|biochemistry|haematology|urinalysis|idexx|ghp|chem|felv|fiv|urine|elisa|pcr|microscop|cytology|smear|faecal|fecal|swab|parvo|distemper|giardia",
+        "Unique Patients Having Anaesthetics": r"anaesth|anesth|propofol|isoflurane|spay|castrate|neuter|alfax",
+        "Unique Patients Hospitalised": r"hospitalisation|hospitalization",
+    }
+    
+    # Dropdown for KPI selection
+    selected_kpi = st.selectbox("Select metric:", list(KPI_GROUPS.keys()))
+    
+    # Compute monthly percentages for latest year
+    pattern = KPI_GROUPS[selected_kpi]
+    results = []
+    for m in month_list:
+        month_df = df_all[df_all["YearMonth"] == m]
+        total_pats = month_df["Animal Name"].nunique()
+        match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
+        pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
+        results.append({"Month": m.strftime("%b %Y"), "Percent": round(pct, 1), "Year": m.year})
+    
+    chart_df = pd.DataFrame(results)
+    
+    # Compute previous year (ghost) values
+    yoy_results = []
+    for m in month_list:
+        prev_year = m - pd.DateOffset(years=1)
+        prev_df = df_all[df_all["YearMonth"] == prev_year]
+        total_prev = prev_df["Animal Name"].nunique()
+        match_prev = prev_df[prev_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
+        pct_prev = (match_prev / total_prev * 100) if total_prev > 0 else None
+        if pct_prev is not None:
+            yoy_results.append({"Month": m.strftime("%b %Y"), "Percent": round(pct_prev, 1), "Year": prev_year.year})
+    
+    yoy_df = pd.DataFrame(yoy_results)
+    
+    # Merge current + previous year data
+    full_chart_df = pd.concat([chart_df, yoy_df], ignore_index=True)
+    
+    # Define colours per KPI
+    KPI_COLOURS = {
+        "Unique Patients Having Dentals": "#60a5fa",      # blue
+        "Unique Patients Having X-rays": "#f87171",       # red
+        "Unique Patients Having Ultrasounds": "#34d399",  # green
+        "Unique Patients Buying Flea/Worm": "#fbbf24",    # amber
+        "Unique Patients Buying Food": "#a78bfa",         # purple
+        "Unique Patients Having Lab Work": "#fb923c",     # orange
+        "Unique Patients Having Anaesthetics": "#22d3ee", # cyan
+        "Unique Patients Hospitalised": "#f472b6",        # pink
+    }
+    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
+    
+    import altair as alt
+
+    # -----------------------------
+    # Build current 12-month dataset
+    # -----------------------------
+    current_months = pd.period_range(end=latest_month.to_period("M"), periods=12, freq="M").to_timestamp()
+    
+    current_results = []
+    for m in current_months:
+        month_df = df_all[df_all["YearMonth"] == m]
+        total_pats = month_df["Animal Name"].nunique()
+        match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
+        pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
+        current_results.append({
+            "Month": m.strftime("%b"),           # tooltip
+            "Year": m.year,                      # tooltip
+            "MonthYear": m.strftime("%b %Y"),    # axis labels
+            "Percent": round(pct, 1),
+            "Offset": 0                          # solid bar
+        })
+    
+    current_df = pd.DataFrame(current_results)
+    
+    # -----------------------------
+    # Build ghost bars (previous year if exists)
+    # -----------------------------
+    ghost_results = []
+    for m in current_months:
+        prev = m - pd.DateOffset(years=1)
+        prev_df = df_all[df_all["YearMonth"] == prev]
+        total_prev = prev_df["Animal Name"].nunique()
+        match_prev = prev_df[prev_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
+        if total_prev > 0:
+            pct_prev = (match_prev / total_prev * 100)
+            ghost_results.append({
+                "Month": m.strftime("%b"),
+                "Year": prev.year,
+                "MonthYear": m.strftime("%b %Y"),  # aligns to same month slot
+                "Percent": round(pct_prev, 1),
+                "Offset": -0.2                     # ghost bar sits left, close
+            })
+    
+    ghost_df = pd.DataFrame(ghost_results)
+    
+    # -----------------------------
+    # Combine
+    # -----------------------------
+    plot_df = pd.concat([current_df, ghost_df], ignore_index=True)
+    
+    # Tooltip
+    tooltip = [
+        alt.Tooltip("Month:N", title="Month"),
+        alt.Tooltip("Year:O", title="Year"),
+        alt.Tooltip("Percent:Q", format=".1f", title="%"),
+    ]
+    
+    # -----------------------------
+    # Build chart
+    # -----------------------------
+    bars = (
+        alt.Chart(plot_df)
+        .mark_bar(size=18)
+        .encode(
+            x=alt.X(
+                "MonthYear:N",
+                sort=[m.strftime("%b %Y") for m in current_months],
+                axis=alt.Axis(labelAngle=30, title=None),
+                scale=alt.Scale(paddingInner=0.25, paddingOuter=0.05)  # ✅ corrected
+            ),
+            xOffset="Offset:O",
+            y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
+            color=alt.condition(
+                alt.datum.Offset == 0,
+                alt.value(bar_color),     # current = solid
+                alt.value(bar_color)      # ghost = same colour
+            ),
+            opacity=alt.condition(
+                alt.datum.Offset == 0,
+                alt.value(1),             # solid
+                alt.value(0.35),          # ghost
+            ),
+            tooltip=tooltip,
+        )
+        .properties(width=700, height=400, title=f"{selected_kpi} - Last 12 Months")
+    )
+    
+    st.altair_chart(bars, use_container_width=True)
 
 
+    # --------------------------------
+    # Top Items by Revenue
+    # --------------------------------
+    st.subheader("💰 Top 20 Items by Revenue")
+    top_items = (
+        df.groupby("Item Name")
+          .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Qty", "sum"))
+          .sort_values("TotalRevenue", ascending=False)
+          .head(20)
+    )
+
+    if not top_items.empty:
+        total_rev = top_items["TotalRevenue"].sum()
+        top_items["% of Total Revenue"] = (top_items["TotalRevenue"] / total_rev * 100).round(1)
+
+        # Format numbers
+        top_items["Revenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
+        top_items["How Many"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
+        top_items["% of Total Revenue"] = top_items["% of Total Revenue"].astype(str) + "%"
+
+        # Reorder & rename
+        top_items = top_items[["Revenue", "% of Total Revenue", "How Many"]]
+
+        st.dataframe(top_items, use_container_width=True)
+    else:
+        st.info("No items found for the selected period.")
+
+    # --------------------------------
+    # Top Spending Clients
+    # --------------------------------
+    st.subheader("💎 Top 5 Spending Clients")
+    clients_nonblank = df[df["Client Name"].astype(str).str.strip() != ""]
+    if not clients_nonblank.empty:
+        top_clients = (
+            clients_nonblank.groupby("Client Name")["Amount"]
+                            .sum()
+                            .sort_values(ascending=False)
+                            .head(5)
+                            .rename("Total Spend")
+                            .to_frame()
+        )
+        top_clients["Total Spend"] = top_clients["Total Spend"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(top_clients, use_container_width=True)
+    else:
+        st.info("No client spend data for the selected period.")
+
+    # --------------------------------
+    # Largest Transactions
+    # --------------------------------
+    st.subheader("📈 Top 5 Largest Client Transactions")
+    df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
+    df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
+    df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+    df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+    tx_groups = (
+        df_sorted.groupby(["Client Name", "Block"])
+        .agg(
+            Amount=("Amount", "sum"),
+            StartDate=("DateOnly", "min"),
+            EndDate=("DateOnly", "max"),
+            Patients=("Animal Name", lambda x: ", ".join(sorted(set(x.astype(str))))),
+        )
+        .reset_index()
+    )
+    def format_date_range(r):
+        start, end = r["StartDate"], r["EndDate"]
+        if pd.isna(start) and pd.isna(end): return "-"
+        if pd.isna(start): return f"→ {end.strftime('%d %b %Y')}"
+        if pd.isna(end): return start.strftime("%d %b %Y")
+        if start == end: return start.strftime("%d %b %Y")
+        return f"{start.strftime('%d %b %Y')} → {end.strftime('%d %b %Y')}"
+    tx_groups["DateRange"] = tx_groups.apply(format_date_range, axis=1)
+    largest_tx = tx_groups.sort_values("Amount", ascending=False).head(5)
+    if not largest_tx.empty:
+        largest_tx = largest_tx[["Client Name", "DateRange", "Patients", "Amount"]]
+        largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(largest_tx, use_container_width=True)
+    else:
+        st.info("No transactions found.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
-
+# Run Factoids
+run_factoids()
