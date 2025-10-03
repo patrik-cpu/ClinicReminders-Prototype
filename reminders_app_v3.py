@@ -1336,19 +1336,23 @@ FOOD_KEYWORDS = [
 ]
 
 XRAY_KEYWORDS = [
-    "xray", "x-ray", "radiograph", "thoracic xray", "abdominal xray"
+    "xray", "x-ray", "radiograph", "radiology"
 ]
 
 ULTRASOUND_KEYWORDS = [
-    "ultrasound", "echo", "abdominal ultrasound", "cardiac ultrasound", "usg"
+    "ultrasound", "echo", "afast", "tfast", "a-fast", "t-fast"
 ]
 
 LABWORK_KEYWORDS = [
-    "cbc", "blood test", "lab", "biochemistry", "haematology", "urinalysis", "labwork"
+    "cbc", "blood test", "lab", "biochemistry", "haematology", "urinalysis", "labwork", "idexx", "ghp", "chem", "FELV", "FIV", "urine",
+    "urinalysis","elisa","CHLAMYDIA","PCR", "MICROSCOPIQUE","biochem","cytology","smear","faecal","fecal","MICROSCOPIC","SWAB","Lyte",
+    "Catalyst","i-stat","istat","hematology","electrolyte","slide","bun","crea","phos","upc","sdma","lab","pcv","hct","uppc","Parasitology",
+    "parvo","distemper","giardia","pap","pre-anaesthetic","pre-anasthetic","cpl","cpli","lipase","amylase","pancreatic","cortisol","lddst","acth"
 ]
 
 ANAESTHETIC_KEYWORDS = [
-    "anaesthesia", "anesthesia", "sedation", "general anaesthetic", "ga", "propofol", "isoflurane"
+    "anaesthesia", "anesthesia", "general anaesthetic", "ga", "propofol", "isoflurane","spay","castrate","neuter","anae","surgery",'alfaxane",
+    "alfaxalone"
 ]
 
 def run_factoids():
@@ -1611,6 +1615,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
