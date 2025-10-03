@@ -233,34 +233,77 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 @st.cache_data
 def process_file(file, rules):
     name = file.name.lower()
-    if name.endswith(".csv"): df = pd.read_csv(file)
-    elif name.endswith((".xls", ".xlsx")): df = pd.read_excel(file)
-    else: raise ValueError("Unsupported file type")
-    df.columns = [c.strip() for c in df.columns]
-    pms_name = detect_pms(df)
-    if not pms_name: return df, None
-    mappings = PMS_DEFINITIONS[pms_name]["mappings"]
-    if pms_name == "ezyVet":
-        df["Client Name"] = (df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
-                             df[mappings["client_last"]].fillna("").astype(str).str.strip()).str.strip()
-        df["Amount"] = pd.to_numeric(df[mappings["amount"]], errors="coerce")
-        rename_map = {mappings["date"]: "Planitem Performed", mappings["animal"]: "Patient Name", mappings["item"]: "Plan Item Name"}
+    if name.endswith(".csv"):
+        df = pd.read_csv(file)
+    elif name.endswith((".xls", ".xlsx")):
+        df = pd.read_excel(file)
     else:
-        rename_map = {mappings["date"]: "Planitem Performed", mappings["client"]: "Client Name", mappings["animal"]: "Patient Name", mappings["item"]: "Plan Item Name"}
-        if "amount" in mappings: df["Amount"] = pd.to_numeric(df[mappings["amount"]], errors="coerce")
-        else: df["Amount"] = 0
+        raise ValueError("Unsupported file type")
+
+    # Clean column names
+    df.columns = [c.strip().replace("\u00a0", " ").replace("\ufeff", "") for c in df.columns]
+
+    # Detect PMS
+    pms_name = detect_pms(df)
+    if not pms_name:
+        return df, None
+    mappings = PMS_DEFINITIONS[pms_name]["mappings"]
+
+    # --- Handle ezyVet special case (Client Name from first+last) ---
+    if pms_name == "ezyVet":
+        df["Client Name"] = (
+            df[mappings["client_first"]].fillna("").astype(str).str.strip()
+            + " "
+            + df[mappings["client_last"]].fillna("").astype(str).str.strip()
+        ).str.strip()
+        rename_map = {
+            mappings["date"]: "Planitem Performed",
+            mappings["animal"]: "Patient Name",
+            mappings["item"]: "Plan Item Name",
+        }
+    else:
+        rename_map = {
+            mappings["date"]: "Planitem Performed",
+            mappings["client"]: "Client Name",
+            mappings["animal"]: "Patient Name",
+            mappings["item"]: "Plan Item Name",
+        }
+
+    # Rename columns
     df.rename(columns=rename_map, inplace=True)
-    if "Planitem Performed" in df.columns: df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
+
+    # --- Handle Amount column consistently ---
+    if "amount" in mappings and mappings["amount"] in df.columns:
+        df["Amount"] = (
+            df[mappings["amount"]]
+            .astype(str)
+            .str.replace(r"[^\d.\-]", "", regex=True)  # remove non-numeric chars
+        )
+        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+    else:
+        df["Amount"] = 0
+
+    # Parse dates
+    if "Planitem Performed" in df.columns:
+        df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
+
+    # Ensure Quantity column
     qty_col = mappings.get("qty")
     df["Quantity"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1)
+
+    # Map intervals (reminders)
     df = map_intervals(df, rules)
     df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
     df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
     df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
+
+    # Lowercase helper columns
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
     df["_item_lower"] = df["Plan Item Name"].astype(str).str.lower()
+
     return df, pms_name
+
 
 # --------------------------------
 # Preventive Care Keyword Lists
