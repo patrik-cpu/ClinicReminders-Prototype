@@ -209,17 +209,18 @@ PMS_DEFINITIONS = {
             "Surcharge Name", "Discount Adjustment", "Discount Name",
             "Rounding Adjustment", "Rounding Name",
             "Price After Discount(excl)", "Tax per Qty After Discount",
-            "Price After Discount(incl)", "Total Invoiced (excl)",
+            "Price After Discount(incl)", "Total Invoiced (excl)",   # <--- use excl, not incl
             "Total Tax Amount", "Total Invoiced (incl)",
             "Total Earned(excl)", "Total Earned(incl)", "Payment Terms"
         ],
         "mappings": {
-            "date": "Invoice Date",                         # → Planitem Performed
-            "client_first": "First Name",                   # combine First + Last
+            "date": "Invoice Date",
+            "client_first": "First Name",
             "client_last": "Last Name",
-            "animal": "Patient Name",                       # → Patient Name
-            "item": "Product Name",                         # → Plan Item Name
-            "qty": "Qty",                                   # → Quantity
+            "animal": "Patient Name",
+            "item": "Product Name",
+            "qty": "Qty",
+            "amount": "Total Invoiced (excl)"   # <--- critical fix
         }
     }
 }
@@ -1433,6 +1434,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
