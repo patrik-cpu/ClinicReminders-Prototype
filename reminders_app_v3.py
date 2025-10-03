@@ -1646,16 +1646,18 @@ def run_factoids():
     bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
     
     import altair as alt
-
     # Merge year into MonthLabel for clarity
     full_chart_df["MonthLabel"] = full_chart_df["Month"]
     
-    # Add an offset column: current year = 0, previous year = -1
+    # Add Offset: 0 = current year, -0.5 = previous year (so bars touch side-by-side)
     full_chart_df["Offset"] = full_chart_df["Year"].apply(
-        lambda y: 0 if y == latest_month.year else -1
+        lambda y: 0 if y == latest_month.year else -0.5
     )
     
-    # Tooltip with year included
+    # Drop ghost bars where data doesn’t exist (already handled: only appended if % available)
+    # So no need for extra filtering here.
+    
+    # Tooltip
     tooltip = [
         alt.Tooltip("MonthLabel:N", title="Month"),
         alt.Tooltip("Year:N"),
@@ -1668,17 +1670,17 @@ def run_factoids():
         .encode(
             x=alt.X("MonthLabel:N", sort=list(chart_df["Month"]),
                     axis=alt.Axis(labelAngle=30, title=None)),
-            xOffset="Offset:O",   # <-- pushes ghost bar left
+            xOffset="Offset:O",
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
             color=alt.condition(
                 alt.datum.Year == latest_month.year,
-                alt.value(bar_color),       # solid colour for current year
-                alt.value(bar_color),       # same colour for prev year...
+                alt.value(bar_color),     # solid for current year
+                alt.value(bar_color)      # same color for ghost
             ),
             opacity=alt.condition(
                 alt.datum.Year == latest_month.year,
-                alt.value(1),               # fully opaque
-                alt.value(0.5),             # ghosted
+                alt.value(1),             # current = fully opaque
+                alt.value(0.35),          # ghost = 35% opacity
             ),
             tooltip=tooltip,
         )
@@ -1686,6 +1688,7 @@ def run_factoids():
     )
     
     st.altair_chart(bars, use_container_width=True)
+
 
 
     # --------------------------------
@@ -1714,7 +1717,6 @@ def run_factoids():
         st.dataframe(top_items, use_container_width=True)
     else:
         st.info("No items found for the selected period.")
-
 
     # --------------------------------
     # Top Spending Clients
@@ -1774,6 +1776,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
