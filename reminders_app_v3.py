@@ -1458,17 +1458,12 @@ def run_factoids():
         max_tx_day = daily["ClientTransactions"].idxmax()
         max_pat_day = daily["Patients"].idxmax()
         
-        metrics["Max Transactions/Day"] = (
-            f"{int(daily.loc[max_tx_day, 'ClientTransactions']):,}"
-            f"<br><span style='font-size:12px; color:#475569;'>{max_tx_day.strftime('%d %b %Y')}</span>"
-        )
+        metrics[f"Max Transactions/Day ({max_tx_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_tx_day, 'ClientTransactions']):,}"
         metrics["Avg Transactions/Day"] = f"{int(round(daily['ClientTransactions'].mean())):,}"
         
-        metrics["Max Patients/Day"] = (
-            f"{int(daily.loc[max_pat_day, 'Patients']):,}"
-            f"<br><span style='font-size:12px; color:#475569;'>{max_pat_day.strftime('%d %b %Y')}</span>"
-        )
+        metrics[f"Max Patients/Day ({max_pat_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_pat_day, 'Patients']):,}"
         metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
+
     else:
         metrics["Max Transactions/Day"] = "-"
         metrics["Avg Transactions/Day"] = "-"
@@ -1521,7 +1516,9 @@ def run_factoids():
             "Unique Patients Having <b>Anaesthetics</b>": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
             "Unique Patients <b>Hospitalised</b>": f"{hosp_patients:,} ({hosp_patients/total_patients:.1%})",
         })
-
+    else:
+        st.info("No patients found in dataset.")
+        
     # Render cards 5 per row
     metric_items = list(metrics.items())
     for row_start in range(0, len(metric_items), 5):
@@ -1537,9 +1534,6 @@ def run_factoids():
                 """,
                 unsafe_allow_html=True,
             )
-
-    else:
-        st.info("No patients found in dataset.")
 
     # --------------------------------
     # Top Items by Revenue
@@ -1627,6 +1621,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
