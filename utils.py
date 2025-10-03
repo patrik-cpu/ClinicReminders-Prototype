@@ -77,8 +77,18 @@ def load_settings():
 # --------------------------------
 PMS_DEFINITIONS = {
     "VETport": {
-        "columns": ["Planitem Performed","Client Name","Patient Name","Plan Item Name","Plan Item Quantity"],
-        "mappings": {"date":"Planitem Performed","client":"Client Name","animal":"Patient Name","item":"Plan Item Name","qty":"Plan Item Quantity"}
+        "columns": [
+            "Planitem Performed", "Client Name", "Patient Name",
+            "Plan Item Name", "Plan Item Quantity", "Plan Item Amount"
+        ],
+        "mappings": {
+            "date": "Planitem Performed",
+            "client": "Client Name",
+            "animal": "Patient Name",
+            "item": "Plan Item Name",
+            "qty": "Plan Item Quantity",
+            "amount": "Plan Item Amount"
+        }
     },
     "Xpress": {
         "columns": ["Date","Client Name","Animal Name","Item Name","Qty","Amount"],
