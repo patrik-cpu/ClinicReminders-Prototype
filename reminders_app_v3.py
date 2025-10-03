@@ -1457,9 +1457,17 @@ def run_factoids():
     if not daily.empty:
         max_tx_day = daily["ClientTransactions"].idxmax()
         max_pat_day = daily["Patients"].idxmax()
+        
+        metrics["Max Transactions/Day"] = (
+            f"{int(daily.loc[max_tx_day, 'ClientTransactions']):,}"
+            f"<br><span style='font-size:12px; color:#475569;'>{max_tx_day.strftime('%d %b %Y')}</span>"
+        )
+        
+        metrics["Max Patients/Day"] = (
+            f"{int(daily.loc[max_pat_day, 'Patients']):,}"
+            f"<br><span style='font-size:12px; color:#475569;'>{max_pat_day.strftime('%d %b %Y')}</span>"
+        )
 
-        metrics["Max Transactions/Day"] = f"{int(daily.loc[max_tx_day, 'ClientTransactions']):,}<br><span style='font-size:12px; color:#475569;'>{daily.index[max_tx_day].strftime('%d %b %Y')}</span>"
-        metrics["Avg Transactions/Day"] = f"{int(round(daily['ClientTransactions'].mean())):,}"
         metrics["Max Patients/Day"] = f"{int(daily.loc[max_pat_day, 'Patients']):,}<br><span style='font-size:12px; color:#475569;'>{daily.index[max_pat_day].strftime('%d %b %Y')}</span>"
         metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
     else:
@@ -1619,6 +1627,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
