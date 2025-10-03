@@ -362,26 +362,32 @@ def normalize_item_name(name: str) -> str:
     return re.sub(r"\s+", " ", name).strip()
 
 def map_intervals(df, rules):
-    """Map plan items to rules and calculate intervals."""
+    """
+    Map item names to rules (by substring match) and compute IntervalDays.
+    Uses canonical columns: Item Name, Qty, ChargeDate.
+    Produces: MatchedItems (list of visible texts), IntervalDays (min of matches).
+    """
     df = df.copy()
     df["MatchedItems"] = [[] for _ in range(len(df))]
     df["IntervalDays"] = pd.NA
 
     for idx, row in df.iterrows():
-        normalized = normalize_item_name(row.get("Plan Item Name", ""))
+        normalized = normalize_item_name(row.get("Item Name", ""))
         matches, interval_values = [], []
 
         for rule, settings in rules.items():
             rule_norm = rule.lower().strip()
             if rule_norm in normalized:
                 vis = settings.get("visible_text")
+                # Show visible_text when present; fallback to source item
                 if vis and vis.strip():
                     matches.append(vis.strip())
                 else:
-                    matches.append(row.get("Plan Item Name", rule))  # fallback to source item name
+                    matches.append(row.get("Item Name", rule))
+
                 days = settings["days"]
                 if settings.get("use_qty"):
-                    qty = pd.to_numeric(row.get("Quantity", 1), errors="coerce")
+                    qty = pd.to_numeric(row.get("Qty", 1), errors="coerce")
                     qty = int(qty) if pd.notna(qty) else 1
                     days *= max(qty, 1)
                 interval_values.append(days)
@@ -390,7 +396,8 @@ def map_intervals(df, rules):
             df.at[idx, "MatchedItems"] = matches
             df.at[idx, "IntervalDays"] = min(interval_values)
         else:
-            df.at[idx, "MatchedItems"] = [row.get("Plan Item Name", "")]
+            # No match → show the original Item Name and keep IntervalDays as NA
+            df.at[idx, "MatchedItems"] = [row.get("Item Name", "")]
             df.at[idx, "IntervalDays"] = pd.NA
 
     return df
@@ -451,37 +458,51 @@ def parse_dates(series: pd.Series) -> pd.Series:
     return pd.to_datetime(s, errors="coerce")
 
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
-    """Ensure reminder fields exist, always fresh."""
+    """
+    Ensure canonical reminder fields exist using the standardized schema:
+    ChargeDate, Client Name, Animal Name, Item Name, Qty, Amount.
+    Adds:
+      - MatchedItems, IntervalDays
+      - NextDueDate (ChargeDate + IntervalDays)
+      - ChargeDateFmt, DueDateFmt
+    """
     if df is None or df.empty:
         return pd.DataFrame(columns=[
-            "DueDateFmt","Client Name","ChargeDateFmt","Patient Name",
-            "MatchedItems","Quantity","IntervalDays","NextDueDate","Planitem Performed"
+            "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
+            "MatchedItems", "Qty", "IntervalDays", "NextDueDate", "ChargeDate"
         ])
 
     df = df.copy()
 
-    # Ensure Quantity column
-    if "Quantity" not in df.columns:
-        df["Quantity"] = 1
+    # Ensure canonical columns exist
+    for col, default in [
+        ("ChargeDate", pd.NaT),
+        ("Client Name", ""),
+        ("Animal Name", ""),
+        ("Item Name", ""),
+        ("Qty", 1),
+        ("Amount", 0),
+    ]:
+        if col not in df.columns:
+            df[col] = default
 
-    # Map rules
+    # Parse dates robustly
+    if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
+        df["ChargeDate"] = parse_dates(df["ChargeDate"])
+
+    # Map rules to intervals
     df = map_intervals(df, rules)
 
-    # Ensure dates
-    if "Planitem Performed" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["Planitem Performed"]):
-        df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
-
+    # Compute next due dates
     days = pd.to_numeric(df["IntervalDays"], errors="coerce")
-    df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(days, unit="D")
-    df["ChargeDateFmt"] = pd.to_datetime(df["Planitem Performed"]).dt.strftime("%d %b %Y")
+    df["NextDueDate"] = df["ChargeDate"] + pd.to_datetime(days, unit="D", errors="coerce") - pd.Timestamp("1970-01-01")
+    # The above keeps NaT where IntervalDays is NA
+
+    # Format dates
+    df["ChargeDateFmt"] = pd.to_datetime(df["ChargeDate"]).dt.strftime("%d %b %Y")
     df["DueDateFmt"]    = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
 
-    # Guarantee essential text columns
-    for col in ["Patient Name", "Client Name"]:
-        if col not in df.columns:
-            df[col] = ""
-
-    # Ensure lists
+    # Ensure MatchedItems is a clean list of strings
     df["MatchedItems"] = df["MatchedItems"].apply(
         lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
     )
@@ -514,27 +535,10 @@ def clean_revenue_column(series: pd.Series) -> pd.Series:
         .pipe(pd.to_numeric, errors="coerce")
         .fillna(0)
     )
+
 # --------------------------------
 # Cached CSV processor
 # --------------------------------
-def clean_revenue_column(series: pd.Series) -> pd.Series:
-    """
-    Universal cleaner for revenue/amount columns:
-    - Converts to string
-    - Removes commas and currency codes (like AED)
-    - Strips whitespace
-    - Keeps only digits, minus, and decimal
-    - Converts to numeric
-    """
-    return (
-        series.astype(str)
-        .str.replace(",", "", regex=False)            # remove commas
-        .str.replace(r"[^\d.\-]", "", regex=True)     # keep only digits/.- 
-        .str.strip()
-        .pipe(pd.to_numeric, errors="coerce")
-        .fillna(0)
-    )
-
 
 @st.cache_data
 def process_file(file_bytes, filename, rules):
@@ -773,33 +777,32 @@ if files:
 # --------------------------------
 def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
-        st.info(f"No reminders in {title}."); return
+        st.info(f"No reminders in {title}.")
+        return
     df = df.copy()
 
-    # ✅ Only map RAW rows; do NOT remap grouped/combined rows
-    if "Plan Item Name" in df.columns:
-        df["Plan Item"] = df["Plan Item Name"].apply(
+    # Always build a display "Plan Item" from canonical Item Name + rules
+    if "Item Name" in df.columns:
+        df["Plan Item"] = df["Item Name"].apply(
             lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules))
         )
-    elif "Plan Item" in df.columns:
-        # already combined: just tidy punctuation/casing
-        df["Plan Item"] = df["Plan Item"].apply(lambda x: simplify_vaccine_text(str(x)))
-    else:
+    elif "Plan Item" not in df.columns:
         df["Plan Item"] = ""
 
-    # exclusions still work on the final display text
+    # Exclusions apply to the final display text
     if st.session_state["exclusions"]:
         excl_pattern = "|".join(map(re.escape, st.session_state["exclusions"]))
         df = df[~df["Plan Item"].str.lower().str.contains(excl_pattern)]
     if df.empty:
-        st.info("All rows excluded by exclusion list."); return
+        st.info("All rows excluded by exclusion list.")
+        return
 
     render_table_with_buttons(df, key_prefix, msg_key)
 
 def render_table_with_buttons(df, key_prefix, msg_key):
     # Column layout
     col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
-    headers = ["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days","WA"]
+    headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA"]
     cols = st.columns(col_widths)
     for c, head in zip(cols, headers):
         c.markdown(f"**{head}**")
@@ -813,7 +816,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             if h in ["Client Name", "Animal Name", "Plan Item"]:  # clean display fields only
                 val = normalize_display_case(val)
             cols[j].markdown(val)
-
 
         # WA button -> prepare message
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
@@ -839,18 +841,16 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
-    # Composer (message text via Streamlit; phone input + buttons inside HTML for live behavior)
+    # Composer (same as before) ...
     comp_main, comp_tip = st.columns([4,1])
     with comp_main:
         st.write("### WhatsApp Composer")
-
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
         st.text_area("Message:", key=msg_key, height=200)
 
         current_message = st.session_state.get(msg_key, "")
 
-        # HTML block: phone input + buttons
         components.html(
             f'''
             <html>
@@ -943,7 +943,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     if (phoneClean) {{
                       url = `https://wa.me/${{phoneClean}}${{encMsg ? "?text=" + encMsg : ""}}`;
                     }} else {{
-                      // No phone → copy automatically before opening
                       await copyToClipboard(MESSAGE_RAW || '');
                       url = "https://wa.me/";  // forward/search
                     }}
@@ -962,19 +961,15 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             ''',
             height=130,
         )
-    # ⚠️ Warning note under buttons
+
     st.markdown(
         "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
         "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
         unsafe_allow_html=True
     )
-
-
     with comp_tip:
         st.markdown("### 💡 Tip")
         st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
-
-
 
 # --------------------------------
 # Main
@@ -1006,53 +1001,60 @@ if working_df is not None:
     st.markdown("---")
     st.markdown("<h2 id='weekly-reminders'>📅 Weekly Reminders</h2>", unsafe_allow_html=True)
     st.info("💡 Pick a Start Date to see reminders for the next 7-day window. Click WA to prepare a message.")
-
-    latest_date = df["Planitem Performed"].max()
+    
+    # Prepare reminder fields on the fully standardized df
+    prepared = ensure_reminder_columns(df, st.session_state["rules"])
+    
+    latest_date = prepared["ChargeDate"].max()
     default_start = (latest_date + timedelta(days=1)).date() if pd.notna(latest_date) else date.today()
     start_date = st.date_input("Start Date (7-day window)", value=default_start)
     end_date = start_date + timedelta(days=6)
-
-    due = df[(df["NextDueDate"] >= pd.to_datetime(start_date)) & (df["NextDueDate"] <= pd.to_datetime(end_date))]
-    due2 = ensure_reminder_columns(due, st.session_state["rules"])
-
-    g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
-    grouped = (
-        pd.DataFrame({
-            "Charge Date": g["ChargeDateFmt"].max(),
-            "Animal Name": g["Patient Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
-            "Plan Item": g["MatchedItems"].apply(
-                lambda lists: simplify_vaccine_text(
-                    format_items(sorted(set(
-                        i.strip()
-                        for sublist in lists
-                        for i in (sublist if isinstance(sublist, list) else [sublist])
-                        if str(i).strip()
-                    )))
-                )
-            ),
-
-            "Qty": g["Quantity"].sum(min_count=1),
-            "Days": g["IntervalDays"].apply(
-                lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
+    
+    # Filter by NextDueDate within the 7-day window
+    due2 = prepared[
+        (pd.to_datetime(prepared["NextDueDate"]) >= pd.to_datetime(start_date)) &
+        (pd.to_datetime(prepared["NextDueDate"]) <= pd.to_datetime(end_date))
+    ].copy()
+    
+    if not due2.empty:
+        g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
+        grouped = (
+            pd.DataFrame({
+                "Charge Date": g["ChargeDateFmt"].max(),
+                "Animal Name": g["Animal Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
+                "Plan Item": g["MatchedItems"].apply(
+                    lambda lists: simplify_vaccine_text(
+                        format_items(sorted(set(
+                            i.strip()
+                            for sublist in lists
+                            for i in (sublist if isinstance(sublist, list) else [sublist])
+                            if str(i).strip()
+                        )))
+                    )
+                ),
+                "Qty": g["Qty"].sum(min_count=1),
+                "Days": g["IntervalDays"].apply(
+                    lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
                     if pd.to_numeric(x, errors="coerce").notna().any()
                     else ""
-            ),
-        })
-        .reset_index()
-        .rename(columns={"DueDateFmt": "Due Date"})
-    )[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+                ),
+            })
+            .reset_index()
+            .rename(columns={"DueDateFmt": "Due Date"})
+        )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
     
-    grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
-    grouped = grouped[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
-    render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
+        grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
+        render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
+    else:
+        st.info("No reminders in the selected week.")
 
     # --------------------------------
-    # Search
     # --------------------------------
     st.markdown("---")
     st.markdown("<h2 id='search'>🔍 Search</h2>", unsafe_allow_html=True)
-    st.info("💡 Search by client, animal, or plan item to find upcoming reminders.")
-    search_term = st.text_input("Enter text to search (client, animal, or plan item)")
+    st.info("💡 Search by client, animal, or item to find upcoming reminders.")
+    search_term = st.text_input("Enter text to search (client, animal, or item)")
+    
     if search_term:
         q = search_term.lower()
         mask = (
@@ -1060,7 +1062,7 @@ if working_df is not None:
             df["_animal_lower"].str.contains(q, regex=False) |
             df["_item_lower"].str.contains(q, regex=False)
         )
-        filtered = df[mask].copy().sort_values("NextDueDate")
+        filtered = df[mask].copy()
     
         filtered2 = ensure_reminder_columns(filtered, st.session_state["rules"])
     
@@ -1069,7 +1071,7 @@ if working_df is not None:
             grouped_search = (
                 pd.DataFrame({
                     "Charge Date": g["ChargeDateFmt"].max(),
-                    "Animal Name": g["Patient Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
+                    "Animal Name": g["Animal Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
                     "Plan Item": g["MatchedItems"].apply(
                         lambda lists: simplify_vaccine_text(
                             format_items(sorted(set(
@@ -1077,22 +1079,20 @@ if working_df is not None:
                             )))
                         )
                     ),
-                    "Qty": g["Quantity"].sum(min_count=1),
+                    "Qty": g["Qty"].sum(min_count=1),
                     "Days": g["IntervalDays"].apply(
                         lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
-                            if pd.to_numeric(x, errors="coerce").notna().any()
-                            else ""
+                        if pd.to_numeric(x, errors="coerce").notna().any()
+                        else ""
                     ),
                 })
                 .reset_index()
                 .rename(columns={"DueDateFmt": "Due Date"})
-            )[["Due Date","Charge Date","Client Name","Animal Name","Plan Item","Qty","Days"]]
+            )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
     
             render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
         else:
             st.info("No matches found.")
-
-
 
     # Rules editor
     st.markdown("---")
@@ -1386,28 +1386,35 @@ def run_factoids():
         return
 
     df = st.session_state["working_df"].copy()
-    if "Planitem Performed" not in df.columns:
-        st.error("Missing 'Planitem Performed' in dataset.")
-        return
-    if "Quantity" not in df.columns: df["Quantity"] = 1
-    if "Amount" not in df.columns: df["Amount"] = 0
-    if "Client Name" not in df.columns: df["Client Name"] = ""
-    if "Patient Name" not in df.columns: df["Patient Name"] = ""
 
-    # Add Month column for dropdown
-    df["Month"] = df["Planitem Performed"].dt.to_period("M").dt.to_timestamp()
+    # Canonical columns guard
+    for col, default in [
+        ("ChargeDate", pd.NaT),
+        ("Client Name", ""),
+        ("Animal Name", ""),
+        ("Item Name", ""),
+        ("Qty", 1),
+        ("Amount", 0),
+    ]:
+        if col not in df.columns:
+            df[col] = default
+
+    # Parse dates and month buckets
+    if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
+        df["ChargeDate"] = parse_dates(df["ChargeDate"])
+
+    df["Month"] = df["ChargeDate"].dt.to_period("M").dt.to_timestamp()
     months_sorted = sorted(df["Month"].dropna().unique(), reverse=True)
     month_labels = ["All Data"] + [m.strftime("%b %Y") for m in months_sorted]
     selected = st.selectbox("Select period:", month_labels)
 
-    from datetime import datetime
     if selected != "All Data":
         selected_month = datetime.strptime(selected, "%b %Y")
         df = df[df["Month"] == selected_month]
 
     st.markdown("<div style='max-width:85%;'>", unsafe_allow_html=True)
     if df["Amount"].sum() == 0:
-        st.warning("⚠ All revenues are showing as 0. Please confirm the correct revenue column mapping (e.g. 'Total Invoiced (excl)').")
+        st.warning("⚠ All revenues are showing as 0. Please confirm the correct revenue column mapping.")
 
     # --------------------------------
     # Daily Activity (Client Transactions)
@@ -1416,8 +1423,8 @@ def run_factoids():
 
     daily_kpis = {}
     if not df.empty:
-        df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
-        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
+        df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
+        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
         df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
         df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
 
@@ -1426,7 +1433,7 @@ def run_factoids():
             .agg(
                 StartDate=("DateOnly","min"),
                 EndDate=("DateOnly","max"),
-                Patients=("Patient Name", lambda x: set(x)),
+                Patients=("Animal Name", lambda x: set(x.astype(str))),
                 Amount=("Amount","sum")
             )
             .reset_index()
@@ -1436,7 +1443,7 @@ def run_factoids():
         daily = transactions.groupby("DateOnly").agg(
             ClientTransactions=("Block","count"),
             Clients=("Client Name","nunique"),
-            Patients=("Patients", lambda pats: len(set().union(*pats)))
+            Patients=("Patients", lambda pats: len(set().union(*pats)) if len(pats) else 0)
         )
 
         if not daily.empty:
@@ -1471,14 +1478,17 @@ def run_factoids():
     # --------------------------------
     st.subheader("💰 Top 20 Items by Revenue")
     top_items = (
-        df.groupby("Plan Item Name")
-          .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Quantity", "sum"))
+        df.groupby("Item Name")
+          .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Qty", "sum"))
           .sort_values("TotalRevenue", ascending=False)
           .head(20)
     )
-    top_items["TotalRevenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
-    top_items["TotalCount"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
-    st.dataframe(top_items, use_container_width=True)
+    if not top_items.empty:
+        top_items["TotalRevenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
+        top_items["TotalCount"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(top_items, use_container_width=True)
+    else:
+        st.info("No items found for the selected period.")
 
     # --------------------------------
     # Top Spending Clients
@@ -1496,13 +1506,15 @@ def run_factoids():
         )
         top_clients["Total Spend"] = top_clients["Total Spend"].apply(lambda x: f"{int(x):,}")
         st.dataframe(top_clients, use_container_width=True)
+    else:
+        st.info("No client spend data for the selected period.")
 
     # --------------------------------
     # Largest Transactions
     # --------------------------------
     st.subheader("📈 Top 5 Largest Client Transactions")
-    df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
-    df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
+    df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
+    df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
     df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
     df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
     tx_groups = (
@@ -1511,7 +1523,7 @@ def run_factoids():
             Amount=("Amount", "sum"),
             StartDate=("DateOnly", "min"),
             EndDate=("DateOnly", "max"),
-            Patients=("Patient Name", lambda x: ", ".join(sorted(set(x.astype(str))))),
+            Patients=("Animal Name", lambda x: ", ".join(sorted(set(x.astype(str))))),
         )
         .reset_index()
     )
@@ -1524,9 +1536,12 @@ def run_factoids():
         return f"{start.strftime('%d %b %Y')} → {end.strftime('%d %b %Y')}"
     tx_groups["DateRange"] = tx_groups.apply(format_date_range, axis=1)
     largest_tx = tx_groups.sort_values("Amount", ascending=False).head(5)
-    largest_tx = largest_tx[["Client Name", "DateRange", "Patients", "Amount"]]
-    largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
-    st.dataframe(largest_tx, use_container_width=True)
+    if not largest_tx.empty:
+        largest_tx = largest_tx[["Client Name", "DateRange", "Patients", "Amount"]]
+        largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(largest_tx, use_container_width=True)
+    else:
+        st.info("No transactions found.")
 
     # --------------------------------
     # Preventive Care Uptake
@@ -1534,45 +1549,41 @@ def run_factoids():
     st.subheader("🦟 Preventive Care Uptake (All Data)")
     df_all = st.session_state["working_df"].copy()
 
-    # Safety: ensure required columns exist
-    if "Patient Name" not in df_all.columns:
-        df_all["Patient Name"] = ""
-    if "Amount" not in df_all.columns:
-        df_all["Amount"] = 0
+    # Safety: ensure canonical columns
+    for col, default in [
+        ("ChargeDate", pd.NaT),
+        ("Client Name", ""),
+        ("Animal Name", ""),
+        ("Item Name", ""),
+        ("Qty", 1),
+        ("Amount", 0),
+    ]:
+        if col not in df_all.columns:
+            df_all[col] = default
 
-    total_patients = df_all["Patient Name"].nunique()
+    total_patients = df_all["Animal Name"].nunique()
 
     flea_pattern = "|".join(FLEA_WORM_KEYWORDS)
-    flea_patients = df_all[df_all["Plan Item Name"].str.contains(flea_pattern, case=False, na=False)]["Patient Name"].nunique()
+    flea_patients = df_all[df_all["Item Name"].str.contains(flea_pattern, case=False, na=False)]["Animal Name"].nunique()
 
     food_pattern = "|".join(FOOD_KEYWORDS)
-    food_patients = df_all[df_all["Plan Item Name"].str.contains(food_pattern, case=False, na=False)]["Patient Name"].nunique()
+    food_patients = df_all[df_all["Item Name"].str.contains(food_pattern, case=False, na=False)]["Animal Name"].nunique()
 
-    # Dental transactions > 500
+    # Dental transactions > 500 (per client-day-block)
     dental_patients = 0
-    dental_rows = df_all[df_all["Plan Item Name"].str.contains("dental", case=False, na=False)]
+    dental_rows = df_all[df_all["Item Name"].str.contains("dental", case=False, na=False)]
     if not dental_rows.empty:
-        d_sorted = df_all.sort_values(["Client Name", "Planitem Performed"]).copy()
-
-        if "Patient Name" not in d_sorted.columns:
-            d_sorted["Patient Name"] = ""
-        if "Amount" not in d_sorted.columns:
-            d_sorted["Amount"] = 0
-
-        d_sorted["DateOnly"] = pd.to_datetime(d_sorted["Planitem Performed"]).dt.normalize()
+        d_sorted = df_all.sort_values(["Client Name", "ChargeDate"]).copy()
+        d_sorted["DateOnly"] = pd.to_datetime(d_sorted["ChargeDate"]).dt.normalize()
         d_sorted["DayDiff"] = d_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
         d_sorted["Block"] = d_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
 
         tx = (
             d_sorted.groupby(["Client Name", "Block"])
-            .agg(
-                Amount=("Amount", "sum"),
-                Patients=("Patient Name", lambda x: set(x.astype(str)))
-            )
+            .agg(Amount=("Amount", "sum"), Patients=("Animal Name", lambda x: set(x.astype(str))))
             .reset_index()
         )
-
-        dental_blocks = d_sorted[d_sorted["Plan Item Name"].str.contains("dental", case=False, na=False)][["Client Name","Block"]].drop_duplicates()
+        dental_blocks = d_sorted[d_sorted["Item Name"].str.contains("dental", case=False, na=False)][["Client Name","Block"]].drop_duplicates()
         qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name","Block"])
         qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 500]
         patients = set()
@@ -1602,12 +1613,11 @@ def run_factoids():
     else:
         st.info("No patients found in dataset.")
 
-
     st.markdown("</div>", unsafe_allow_html=True)
-
 
 # Run Factoids
 run_factoids()
+
 
 
 
