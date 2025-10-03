@@ -669,7 +669,6 @@ def process_file(file_bytes, filename, rules):
 
     return df, pms_name, amount_col
 
-
 # --------------------------------
 # Tutorial section
 # --------------------------------
@@ -1615,6 +1614,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
