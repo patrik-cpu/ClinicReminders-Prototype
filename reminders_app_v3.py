@@ -1520,7 +1520,7 @@ def run_factoids():
         st.info("No patients found in dataset.")
         
     # --- Reorder Factoid cards ---
-    # Ensure Total Unique Patients comes first, then Max/Avg Patients per Day, then everything else
+    # Force Total Unique Patients first (light blue), then Max/Avg Patients per Day, then the rest
     
     ordered_labels = [
         "Total Unique Patients",
@@ -1528,13 +1528,16 @@ def run_factoids():
         "Avg Patients/Day",
     ]
     
-    # Extract the reordered first group
-    primary_metrics = [(k, v) for k, v in metrics.items() if any(k.startswith(lbl) for lbl in ordered_labels)]
+    # First, put the three key metrics in this exact order if they exist
+    primary_metrics = []
+    for lbl in ordered_labels:
+        for k, v in metrics.items():
+            if k.startswith(lbl):
+                primary_metrics.append((k, v))
     
-    # Then append the rest (excluding those already placed)
-    remaining_metrics = [(k, v) for k, v in metrics.items() if not any(k.startswith(lbl) for lbl in ordered_labels)]
+    # Then append everything else
+    remaining_metrics = [(k, v) for k, v in metrics.items() if (k, v) not in primary_metrics]
     
-    # Combine
     metric_items = primary_metrics + remaining_metrics
     
     # --- Render with color overrides ---
@@ -1558,7 +1561,6 @@ def run_factoids():
                 """,
                 unsafe_allow_html=True,
             )
-
 
     # --------------------------------
     # Top Items by Revenue
@@ -1646,3 +1648,4 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
