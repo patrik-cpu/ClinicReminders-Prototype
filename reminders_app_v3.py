@@ -1606,16 +1606,21 @@ def run_factoids():
     chart_df = pd.DataFrame(results)
     
     # Bar chart (months left-to-right oldest → newest)
-    import matplotlib.pyplot as plt
+    # Use Streamlit native charting (Altair/Vega-Lite)
+    import altair as alt
     
-    fig, ax = plt.subplots(figsize=(10,5))
-    ax.bar(chart_df["Month"], chart_df["Dental %"])
-    ax.set_ylabel("Unique Patients with Dentals (%)")
-    ax.set_xlabel("Month")
-    ax.set_title("Unique Patients Having Dentals (%) - Last 12 Months")
-    plt.xticks(rotation=45, ha="right")
+    chart = (
+        alt.Chart(chart_df)
+        .mark_bar(color="#60a5fa")  # blue bars
+        .encode(
+            x=alt.X("Month:N", sort=list(chart_df["Month"]), title="Month"),
+            y=alt.Y("Dental %:Q", title="Unique Patients with Dentals (%)"),
+            tooltip=["Month", "Dental %"]
+        )
+        .properties(width=700, height=400, title="Unique Patients Having Dentals (%) - Last 12 Months")
+    )
     
-    st.pyplot(fig)
+    st.altair_chart(chart, use_container_width=True)
 
     # --------------------------------
     # Top Items by Revenue
@@ -1703,5 +1708,6 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
