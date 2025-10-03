@@ -34,7 +34,8 @@ def run_factoids():
     df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
     df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
     df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-    df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].apply(lambda x: (x > 1).cumsum())
+    df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+
     transactions = (
         df_sorted.groupby(["Client Name", "Block"])
         .agg(StartDate=("DateOnly","min"), EndDate=("DateOnly","max"),
