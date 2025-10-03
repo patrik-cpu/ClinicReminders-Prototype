@@ -1413,7 +1413,9 @@ def run_factoids():
     # else All Data → no filtering
 
     st.markdown("<div style='max-width:85%;'>", unsafe_allow_html=True)
-    if df["Amount"].sum() == 0:
+    if df.empty:
+        st.info("No transactions found in this period.")
+    elif df["Amount"].sum() == 0:
         st.warning("⚠ All revenues are showing as 0. Please confirm the correct revenue column mapping.")
 
     # --------------------------------
@@ -1601,3 +1603,4 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
