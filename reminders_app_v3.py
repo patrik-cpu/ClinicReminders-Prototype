@@ -165,7 +165,7 @@ PMS_DEFINITIONS = {
             "Planitem Performed", "Client Name", "Client ID", "Patient Name",
             "Patient ID", "Plan Item ID", "Plan Item Name", "Plan Item Quantity",
             "Performed Staff", "Plan Item Amount", "Returned Quantity",
-            "Returned Date", "Invoice No",
+            "Returned Date", "Invoice No"
         ],
         "mappings": {
             "date": "Planitem Performed",
@@ -173,13 +173,13 @@ PMS_DEFINITIONS = {
             "animal": "Patient Name",
             "item": "Plan Item Name",
             "qty": "Plan Item Quantity",
+            "amount": "Plan Item Amount"
         }
     },
     "Xpress": {
         "columns": [
             "Date", "Client ID", "Client Name", "SLNo", "Doctor",
-            "Animal Name", "Item Name", "Item ID", "Qty", "Rate",
-            "Amount"
+            "Animal Name", "Item Name", "Item ID", "Qty", "Rate", "Amount"
         ],
         "mappings": {
             "date": "Date",
@@ -187,7 +187,7 @@ PMS_DEFINITIONS = {
             "animal": "Animal Name",
             "item": "Item Name",
             "qty": "Qty",
-            "amount": "Amount"  
+            "amount": "Amount"
         }
     },
     "ezyVet": {
@@ -209,7 +209,7 @@ PMS_DEFINITIONS = {
             "Surcharge Name", "Discount Adjustment", "Discount Name",
             "Rounding Adjustment", "Rounding Name",
             "Price After Discount(excl)", "Tax per Qty After Discount",
-            "Price After Discount(incl)", "Total Invoiced (excl)",   # <--- use excl, not incl
+            "Price After Discount(incl)", "Total Invoiced (excl)",
             "Total Tax Amount", "Total Invoiced (incl)",
             "Total Earned(excl)", "Total Earned(incl)", "Payment Terms"
         ],
@@ -220,14 +220,13 @@ PMS_DEFINITIONS = {
             "animal": "Patient Name",
             "item": "Product Name",
             "qty": "Qty",
-            "amount": "Total Invoiced (excl)"   # <--- critical fix
+            "amount": "Total Invoiced (excl)"
         }
     }
 }
 
-
 def normalize_columns(cols):
-    """Lowercase, collapse spaces, strip BOM/nbsp for robust comparison."""
+    """Normalize header strings for reliable comparisons."""
     cleaned = []
     for c in cols:
         if not isinstance(c, str):
@@ -238,7 +237,26 @@ def normalize_columns(cols):
     return cleaned
 
 def detect_pms(df: pd.DataFrame) -> str:
+    """
+    Robust PMS detection using small unique key-sets per PMS.
+    Returns one of: 'VETport', 'Xpress', 'ezyVet', or None.
+    """
     df_cols = set(normalize_columns(df.columns))
+
+    # Unique key sets (lowercased)
+    v_keys = {"planitem performed", "plan item amount"}
+    x_keys = {"date", "animal name", "amount", "item name"}
+    e_keys = {"invoice date", "total invoiced (excl)", "product name", "first name", "last name"}
+
+    # Prefer stronger (more specific) matches
+    if v_keys.issubset(df_cols):
+        return "VETport"
+    if e_keys.issubset(df_cols):
+        return "ezyVet"
+    if x_keys.issubset(df_cols):
+        return "Xpress"
+
+    # Fallback: try the long lists in PMS_DEFINITIONS as a last resort, first match wins
     for pms_name, definition in PMS_DEFINITIONS.items():
         required = set(normalize_columns(definition["columns"]))
         if required.issubset(df_cols):
@@ -379,65 +397,57 @@ def map_intervals(df, rules):
 
 def parse_dates(series: pd.Series) -> pd.Series:
     """
-    Robust parser:
-      - If already datetime, return as-is.
-      - If numeric (Excel serial), convert (tries 1900 and 1904 systems).
-      - Else try multiple explicit formats, then pandas with dayfirst=True, then fallback.
+    Robust parser that tries a sequence of formats, Excel serials, then pandas inference.
+    Returns a datetime64 series (NaT where parsing fails).
     """
-    # Already datetime?
+    # If already datetime dtype
     if pd.api.types.is_datetime64_any_dtype(series):
         return pd.to_datetime(series, errors="coerce")
 
-    # Try numeric Excel serials first (before string-casting)
+    # Try numeric Excel serials inference
     numeric = pd.to_numeric(series, errors="coerce")
     if numeric.notna().sum() > 0:
-        # Consider rows that look purely numeric (e.g., "45234" or 45234.0)
-        # If majority are numeric, treat as Excel serials
         numeric_like = series.astype(str).str.fullmatch(r"\d+(\.0+)?", na=False)
         if numeric_like.sum() >= max(1, int(0.6 * len(series.dropna()))):
             base_1900 = pd.Timestamp("1899-12-30")
             dt_1900 = base_1900 + pd.to_timedelta(numeric, unit="D")
-            valid_1900 = dt_1900.dt.year.between(1990, 2100)
-
             base_1904 = pd.Timestamp("1904-01-01")
             dt_1904 = base_1904 + pd.to_timedelta(numeric, unit="D")
+            valid_1900 = dt_1900.dt.year.between(1990, 2100)
             valid_1904 = dt_1904.dt.year.between(1990, 2100)
+            return dt_1904 if valid_1904.sum() > valid_1900.sum() else dt_1900
 
-            # Choose the system with more plausible dates
-            if valid_1904.sum() > valid_1900.sum():
-                return dt_1904
-            else:
-                return dt_1900
-
-    # Clean strings and try explicit formats
     s = (
         series.astype(str)
         .str.replace("\u00a0", " ", regex=False)
         .str.replace("\ufeff", "", regex=False)
         .str.strip()
     )
+
+    # Try a list of common formats used across PMS exports
     formats = [
-        "%d/%b/%Y",      # 12/Jan/2024
-        "%d-%b-%Y",      # 12-Jan-2024
-        "%d-%b-%y",      # 12-Jan-24
-        "%d/%m/%Y",      # 12/01/2024
-        "%m/%d/%Y",      # 01/12/2024
-        "%Y-%m-%d",      # 2024-01-12
-        "%Y.%m.%d",      # 2024.01.12
-        "%d/%m/%Y %H:%M",    # 12/01/2024 00:00
-        "%d/%m/%Y %H:%M:%S", # 12/01/2024 00:00:00
-        "%Y-%m-%d %H:%M:%S", # 2024-06-28 18:18:16 (ezyVet exports)
-        "%Y-%m-%d %H:%M",    # 2024-06-28 18:18
+        "%d/%m/%Y",      # 31/12/2024
+        "%m/%d/%Y",      # 12/31/2024
+        "%d-%b-%Y",      # 31-Dec-2024
+        "%d/%b/%Y",      # 31/Dec/2024
+        "%Y-%m-%d",      # 2024-12-31
+        "%Y.%m.%d",      # 2024.12.31
+        "%d/%m/%Y %H:%M",    # 31/12/2024 13:00
+        "%d/%m/%Y %H:%M:%S", # 31/12/2024 13:00:00
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M"
     ]
     for fmt in formats:
         parsed = pd.to_datetime(s, format=fmt, errors="coerce")
         if parsed.notna().sum() > 0:
             return parsed
 
-    # Try pandas inference with dayfirst preference, then without
+    # Pandas inference (prefer dayfirst)
     parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
     if parsed.notna().sum() > 0:
         return parsed
+
+    # Final fallback without dayfirst
     return pd.to_datetime(s, errors="coerce")
 
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
@@ -492,22 +502,18 @@ def normalize_display_case(text: str) -> str:
 
 def clean_revenue_column(series: pd.Series) -> pd.Series:
     """
-    Universal cleaner for revenue/amount columns:
-    - Converts to string
-    - Removes commas and currency codes (like AED)
-    - Strips whitespace
-    - Keeps only digits, minus, and decimal
-    - Converts to numeric
+    Universal cleaner for revenue/amount columns.
+    - remove commas, currency symbols, other text
+    - convert to numeric, fill NaN with 0
     """
     return (
         series.astype(str)
-        .str.replace(",", "", regex=False)            # remove commas
-        .str.replace(r"[^\d.\-]", "", regex=True)     # strip everything except digits, dot, minus
+        .str.replace(",", "", regex=False)
+        .str.replace(r"[^\d.\-]", "", regex=True)
         .str.strip()
         .pipe(pd.to_numeric, errors="coerce")
         .fillna(0)
     )
-
 # --------------------------------
 # Cached CSV processor
 # --------------------------------
@@ -532,85 +538,142 @@ def clean_revenue_column(series: pd.Series) -> pd.Series:
 
 @st.cache_data
 def process_file(file_bytes, filename, rules):
-    """Load and standardize uploaded file. Cache key includes filename+bytes."""
+    """
+    Read the file bytes + filename, detect PMS, clean revenue, standardize to:
+    ChargeDate, Client Name, Animal Name, Item Name, Qty, Amount
+    Returns: df_standardized, pms_name, amount_col (raw column name)
+    """
     from io import BytesIO
     file = BytesIO(file_bytes)
 
-    # --- Load file ---
-    if filename.endswith(".csv"):
+    # Load file
+    lowerfn = filename.lower()
+    if lowerfn.endswith(".csv"):
         df = pd.read_csv(file)
-    elif filename.endswith((".xls", ".xlsx")):
+    elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file)
     else:
         raise ValueError("Unsupported file type")
 
-    # --- Diagnostics BEFORE renaming ---
+    # DIAGNOSTIC: show raw columns BEFORE any normalization/rename
     st.write(f"📊 Raw upload for {filename}")
-    st.write("Available raw columns:", df.columns.tolist())
+    st.write("Available raw columns:", list(df.columns))
 
-    # --- Normalize column names (for detection only) ---
+    # Normalize column strings for detection and mapping uses
     def _normalize(c):
         return str(c).replace("\u00a0", " ").replace("\ufeff", "").strip()
     df.columns = [_normalize(c) for c in df.columns]
 
-    # --- Detect PMS ---
+    # Detect PMS
     pms_name = detect_pms(df)
     if not pms_name:
         st.warning("⚠ Could not detect PMS for this file.")
+        # Still return normalized df so caller can inspect
         return df, None, None
+
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
 
-    # --- Handle Amount (diagnostics before rename) ---
+    # DIAGNOSTIC: show the mapping we will use
     amount_col = mappings.get("amount")
+    st.write(f"🔎 Using PMS mapping for {pms_name}. Expected revenue column: '{amount_col}'")
+
+    # Show raw sample in amount_col (if present)
     if amount_col and amount_col in df.columns:
-        st.write(f"🔎 Sample raw values in '{amount_col}':", df[amount_col].head(10).tolist())
+        try:
+            st.write(f"🔎 Sample raw values in '{amount_col}':", df[amount_col].head(10).tolist())
+        except Exception:
+            st.write(f"🔎 Sample raw values in '{amount_col}': (could not display sample)")
+    else:
+        st.warning(f"⚠ Revenue column '{amount_col}' not found in this file.")
+
+    # Create cleaned Amount numeric column from mapped amount column if present
+    if amount_col and amount_col in df.columns:
         df["Amount"] = clean_revenue_column(df[amount_col])
-        st.write("✅ Cleaned Amount values (first 10):", df["Amount"].head(10).tolist())
     else:
         df["Amount"] = 0
-        st.warning(f"⚠ Revenue column '{amount_col}' not found in file.")
 
-    # --- Rename columns to standardized names ---
+    # If ezyVet, construct Client Name from first+last before renaming
     if pms_name == "ezyVet":
-        df["Client Name"] = (
-            df[mappings["client_first"]].fillna("").astype(str).str.strip()
-            + " "
-            + df[mappings["client_last"]].fillna("").astype(str).str.strip()
-        ).str.strip()
-        rename_map = {
-            mappings["date"]: "Planitem Performed",
-            mappings["animal"]: "Patient Name",
-            mappings["item"]: "Plan Item Name",
-        }
-    else:
-        rename_map = {
-            mappings["date"]: "Planitem Performed",
-            mappings["client"]: "Client Name",
-            mappings["animal"]: "Patient Name",
-            mappings["item"]: "Plan Item Name",
-        }
-    df.rename(columns=rename_map, inplace=True)
+        cf = mappings.get("client_first")
+        cl = mappings.get("client_last")
+        # Defensive: ensure columns exist
+        if cf in df.columns and cl in df.columns:
+            df["Client Name"] = (
+                df[cf].fillna("").astype(str).str.strip()
+                + " "
+                + df[cl].fillna("").astype(str).str.strip()
+            ).str.strip()
+        else:
+            df["Client Name"] = df.get(cf, "").astype(str).fillna("") + " " + df.get(cl, "").astype(str).fillna("")
+            df["Client Name"] = df["Client Name"].str.strip()
 
-    # --- Parse dates ---
-    if "Planitem Performed" in df.columns:
-        df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
+    # Build rename map to the canonical column names requested:
+    # ChargeDate, Client Name, Animal Name, Item Name
+    rename_map = {}
+    # date mapping
+    if "date" in mappings and mappings["date"] in df.columns:
+        rename_map[mappings["date"]] = "ChargeDate"
+    # client mapping
+    if "client" in mappings and mappings["client"] in df.columns:
+        rename_map[mappings["client"]] = "Client Name"
+    # animal mapping
+    if "animal" in mappings and mappings["animal"] in df.columns:
+        rename_map[mappings["animal"]] = "Animal Name"
+    # item mapping
+    if "item" in mappings and mappings["item"] in df.columns:
+        rename_map[mappings["item"]] = "Item Name"
 
-    # --- Ensure Quantity ---
+    # Apply renaming
+    if rename_map:
+        df = df.rename(columns=rename_map)
+    # Ensure canonical columns exist even if missing (create defaults)
+    if "ChargeDate" not in df.columns:
+        df["ChargeDate"] = pd.NaT
+    if "Client Name" not in df.columns:
+        df["Client Name"] = ""
+    if "Animal Name" not in df.columns:
+        df["Animal Name"] = ""
+    if "Item Name" not in df.columns:
+        df["Item Name"] = ""
+
+    # Qty: use mapping if available, else fallback to any common names
     qty_col = mappings.get("qty")
-    df["Quantity"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1)
+    if qty_col and qty_col in df.columns:
+        df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
+    else:
+        # fallback attempts
+        fallback_qty_cols = ["Qty", "Quantity", "Plan Item Quantity"]
+        found = False
+        for c in fallback_qty_cols:
+            if c in df.columns:
+                df["Qty"] = pd.to_numeric(df[c], errors="coerce").fillna(1)
+                found = True
+                break
+        if not found:
+            df["Qty"] = 1
 
-    # --- Map reminder intervals ---
-    df = map_intervals(df, rules)
-    df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
-    df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
-    df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
+    # Ensure Amount exists numeric (already created earlier from raw mapping)
+    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
 
-    # --- Helper lowercase columns ---
+    # Parse ChargeDate into datetime
+    if "ChargeDate" in df.columns:
+        df["ChargeDate"] = parse_dates(df["ChargeDate"])
+
+    # For downstream compatibility also set helper lowercase columns for search
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
-    df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
-    df["_item_lower"]   = df["Plan Item Name"].astype(str).str.lower()
+    df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
+    df["_item_lower"] = df["Item Name"].astype(str).str.lower()
+
+    # Final diagnostic: show standardized columns and sample rows
+    st.write("✅ Standardized columns (post-rename):", list(df.columns))
+    try:
+        st.write("✅ Sample standardized row values (first 5):")
+        st.dataframe(df.head(5))
+    except Exception:
+        pass
 
     return df, pms_name, amount_col
+
 
 # --------------------------------
 # Tutorial section
@@ -628,10 +691,8 @@ st.info(
     "7. There's a bit more you can do, but this should be enough to get you started!"
 )
 
-# --------------------------------
-# Upload Data section
-# --------------------------------
-st.markdown("<div id='upload-data' class='anchor-offset'></div>", unsafe_allow_html=True)  # stable scroll target
+# --- Upload Data section (replace existing) ---
+st.markdown("<div id='upload-data' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 📂 Upload Data - Do this first!")
 
 files = st.file_uploader(
@@ -640,33 +701,40 @@ files = st.file_uploader(
     accept_multiple_files=True
 )
 
-datasets, summary_rows, working_df = [], [], None
+datasets = []
+summary_rows = []
+working_df = None
 
-# 🔄 Detect changes in uploaded file list → clear cache if changed
+# Auto clear cache when file list changes (so cached results won't be stale)
 if "last_uploaded_files" not in st.session_state:
     st.session_state["last_uploaded_files"] = []
 current_files = [f.name for f in files] if files else []
 if current_files != st.session_state["last_uploaded_files"]:
-    st.cache_data.clear()
+    # Clear Streamlit cache and also remove any stored working_df
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
     st.session_state["last_uploaded_files"] = current_files
+    # Also clear previously stored working_df in session state to avoid stale data
+    if "working_df" in st.session_state:
+        del st.session_state["working_df"]
 
 if files:
     for file in files:
-        df, pms_name, amount_col = process_file(file.read(), file.name, st.session_state["rules"])
+        # Read bytes and pass filename for cache keying
+        file_bytes = file.read()
+        df, pms_name, amount_col = process_file(file_bytes, file.name, st.session_state["rules"])
         pms_name = pms_name or "Undetected"
 
-        # --- Diagnostics (always fresh, outside cache) ---
-        st.write(f"📊 Detected PMS: {pms_name}")
-        st.write("Available columns:", df.columns.tolist())
-        if amount_col and amount_col in df.columns:
-            st.write(f"🔎 Sample raw values from '{amount_col}':", df[amount_col].head(10).tolist())
-            st.write("✅ Cleaned numeric values:", df["Amount"].head(10).tolist())
-        else:
-            st.warning(f"⚠ Revenue column '{amount_col}' not found in this file.")
-
+        # Diagnostics outside cache are already printed inside process_file; still include summary
         from_date, to_date = None, None
-        if "Planitem Performed" in df.columns:
-            from_date, to_date = df["Planitem Performed"].min(), df["Planitem Performed"].max()
+        if "ChargeDate" in df.columns:
+            try:
+                from_date = df["ChargeDate"].min()
+                to_date = df["ChargeDate"].max()
+            except Exception:
+                from_date, to_date = None, None
 
         summary_rows.append({
             "File name": file.name,
@@ -680,11 +748,25 @@ if files:
 
     all_pms = {p for p, _ in datasets}
     if len(all_pms) == 1 and "Undetected" not in all_pms:
+        # concatenate standardized dataframes
         working_df = pd.concat([df for _, df in datasets], ignore_index=True)
-        st.session_state["working_df"] = working_df   # store for Factoids
+        st.session_state["working_df"] = working_df
         st.success(f"All files detected as {list(all_pms)[0]} — merging datasets.")
     else:
-        st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
+        # If mixing PMS types, allow concatenation as long as standard columns exist across files
+        # We'll attempt to concatenate and check for required canonical columns
+        try:
+            cand = pd.concat([df for _, df in datasets], ignore_index=True, sort=False)
+            required_cols = ["ChargeDate","Client Name","Animal Name","Item Name","Qty","Amount"]
+            if all(c in cand.columns for c in required_cols):
+                working_df = cand
+                st.session_state["working_df"] = working_df
+                st.success("Files merged into canonical schema.")
+            else:
+                st.warning("PMS mismatch or some files missing expected canonical columns. Reminders cannot be generated reliably.")
+        except Exception:
+            st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
+
 
 # --------------------------------
 # Render Tables
@@ -1526,6 +1608,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
