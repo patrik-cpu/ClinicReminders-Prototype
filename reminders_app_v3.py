@@ -1477,9 +1477,9 @@ def run_factoids():
 
     # Tooltip
     tooltip = [
-        alt.Tooltip("Month", type="nominal", title="Month"),
-        alt.Tooltip("Year", type="ordinal", title="Year"),
-        alt.Tooltip("Percent", type="quantitative", format=".1f", title="%"),
+        alt.Tooltip("Month:N", title="Month"),
+        alt.Tooltip("Year:O", title="Year"),
+        alt.Tooltip("Percent:Q", format=".1f", title="%"),
     ]
 
 
@@ -1767,6 +1767,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
