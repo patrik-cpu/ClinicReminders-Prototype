@@ -187,9 +187,9 @@ PMS_DEFINITIONS = {
             "animal": "Animal Name",
             "item": "Item Name",
             "qty": "Qty",
+            "amount": "Amount"  
         }
     },
-
     "ezyVet": {
         "columns": [
             "Invoice #", "Invoice Date", "Type", "Parent Line ID",
@@ -1495,6 +1495,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
