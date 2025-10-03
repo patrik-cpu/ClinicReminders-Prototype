@@ -548,11 +548,7 @@ def process_file(file_bytes, filename, rules):
     else:
         raise ValueError("Unsupported file type")
 
-    # DIAGNOSTIC: show raw columns BEFORE any normalization/rename
-    st.write(f"📊 Raw upload for {filename}")
-    st.write("Available raw columns:", list(df.columns))
-
-    # Normalize column strings for detection and mapping uses
+    # Normalize headers
     def _normalize(c):
         return str(c).replace("\u00a0", " ").replace("\ufeff", "").strip()
     df.columns = [_normalize(c) for c in df.columns]
@@ -560,36 +556,21 @@ def process_file(file_bytes, filename, rules):
     # Detect PMS
     pms_name = detect_pms(df)
     if not pms_name:
-        st.warning("⚠ Could not detect PMS for this file.")
-        # Still return normalized df so caller can inspect
         return df, None, None
 
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
-
-    # DIAGNOSTIC: show the mapping we will use
     amount_col = mappings.get("amount")
-    st.write(f"🔎 Using PMS mapping for {pms_name}. Expected revenue column: '{amount_col}'")
 
-    # Show raw sample in amount_col (if present)
-    if amount_col and amount_col in df.columns:
-        try:
-            st.write(f"🔎 Sample raw values in '{amount_col}':", df[amount_col].head(10).tolist())
-        except Exception:
-            st.write(f"🔎 Sample raw values in '{amount_col}': (could not display sample)")
-    else:
-        st.warning(f"⚠ Revenue column '{amount_col}' not found in this file.")
-
-    # Create cleaned Amount numeric column from mapped amount column if present
+    # Clean Amount
     if amount_col and amount_col in df.columns:
         df["Amount"] = clean_revenue_column(df[amount_col])
     else:
         df["Amount"] = 0
 
-    # If ezyVet, construct Client Name from first+last before renaming
+    # Special case: ezyVet client name from first+last
     if pms_name == "ezyVet":
         cf = mappings.get("client_first")
         cl = mappings.get("client_last")
-        # Defensive: ensure columns exist
         if cf in df.columns and cl in df.columns:
             df["Client Name"] = (
                 df[cf].fillna("").astype(str).str.strip()
@@ -597,44 +578,39 @@ def process_file(file_bytes, filename, rules):
                 + df[cl].fillna("").astype(str).str.strip()
             ).str.strip()
         else:
-            df["Client Name"] = df.get(cf, "").astype(str).fillna("") + " " + df.get(cl, "").astype(str).fillna("")
-            df["Client Name"] = df["Client Name"].str.strip()
+            df["Client Name"] = (
+                df.get(cf, "").astype(str).fillna("")
+                + " "
+                + df.get(cl, "").astype(str).fillna("")
+            ).str.strip()
 
-    # Build rename map to the canonical column names requested:
-    # ChargeDate, Client Name, Animal Name, Item Name
+    # Rename to canonical schema
     rename_map = {}
-    # date mapping
     if "date" in mappings and mappings["date"] in df.columns:
         rename_map[mappings["date"]] = "ChargeDate"
-    # client mapping
     if "client" in mappings and mappings["client"] in df.columns:
         rename_map[mappings["client"]] = "Client Name"
-    # animal mapping
     if "animal" in mappings and mappings["animal"] in df.columns:
         rename_map[mappings["animal"]] = "Animal Name"
-    # item mapping
     if "item" in mappings and mappings["item"] in df.columns:
         rename_map[mappings["item"]] = "Item Name"
+    df = df.rename(columns=rename_map)
 
-    # Apply renaming
-    if rename_map:
-        df = df.rename(columns=rename_map)
-    # Ensure canonical columns exist even if missing (create defaults)
-    if "ChargeDate" not in df.columns:
-        df["ChargeDate"] = pd.NaT
-    if "Client Name" not in df.columns:
-        df["Client Name"] = ""
-    if "Animal Name" not in df.columns:
-        df["Animal Name"] = ""
-    if "Item Name" not in df.columns:
-        df["Item Name"] = ""
+    # Ensure canonical columns exist
+    for col, default in [
+        ("ChargeDate", pd.NaT),
+        ("Client Name", ""),
+        ("Animal Name", ""),
+        ("Item Name", ""),
+    ]:
+        if col not in df.columns:
+            df[col] = default
 
-    # Qty: use mapping if available, else fallback to any common names
+    # Qty column
     qty_col = mappings.get("qty")
     if qty_col and qty_col in df.columns:
         df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
     else:
-        # fallback attempts
         fallback_qty_cols = ["Qty", "Quantity", "Plan Item Quantity"]
         found = False
         for c in fallback_qty_cols:
@@ -645,27 +621,18 @@ def process_file(file_bytes, filename, rules):
         if not found:
             df["Qty"] = 1
 
-    # Ensure Amount exists numeric (already created earlier from raw mapping)
+    # Final Amount numeric safety
     df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
 
-    # Parse ChargeDate into datetime
+    # Parse dates
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"])
-        # 🔑 Force normalization again (guarantee no time slips through)
         df["ChargeDate"] = df["ChargeDate"].dt.normalize()
 
-    # For downstream compatibility also set helper lowercase columns for search
+    # Helper lowercase cols
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
     df["_item_lower"] = df["Item Name"].astype(str).str.lower()
-
-    # Final diagnostic: show standardized columns and sample rows
-    st.write("✅ Standardized columns (post-rename):", list(df.columns))
-    try:
-        st.write("✅ Sample standardized row values (first 5):")
-        st.dataframe(df.head(5))
-    except Exception:
-        pass
 
     return df, pms_name, amount_col
 
@@ -1614,6 +1581,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
