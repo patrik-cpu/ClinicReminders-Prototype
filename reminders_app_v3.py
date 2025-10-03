@@ -1576,7 +1576,7 @@ def run_factoids():
         )
         dental_blocks = d_sorted[d_sorted["Item Name"].str.contains("dental", case=False, na=False)][["Client Name","Block"]].drop_duplicates()
         qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name","Block"])
-        qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 500]
+        qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 700]
         patients = set()
         for patlist in qualifying_blocks["Patients"]:
             patients.update(patlist)
@@ -1608,6 +1608,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
