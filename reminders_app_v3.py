@@ -1209,6 +1209,7 @@ if st.button("Send", key="fb_send"):
 # Factoids Section
 # --------------------------------
 
+# Preventive Care Keyword Lists
 FLEA_WORM_KEYWORDS = [
     "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
     "nexgard", "simparica", "advocate", "worm", "praz", "fenbend"
@@ -1239,7 +1240,7 @@ def run_factoids():
     if "Client Name" not in df.columns: df["Client Name"] = ""
     if "Patient Name" not in df.columns: df["Patient Name"] = ""
 
-    # Add Month column
+    # Add Month column for dropdown
     df["Month"] = df["Planitem Performed"].dt.to_period("M").dt.to_timestamp()
     months_sorted = sorted(df["Month"].dropna().unique(), reverse=True)
     month_labels = ["All Data"] + [m.strftime("%b %Y") for m in months_sorted]
@@ -1250,20 +1251,186 @@ def run_factoids():
         selected_month = datetime.strptime(selected, "%b %Y")
         df = df[df["Month"] == selected_month]
 
-    # (rest of Factoids content unchanged, from my earlier block)
-    # ...
+    st.markdown("<div style='max-width:85%;'>", unsafe_allow_html=True)
 
-# Run factoids
+    # --------------------------------
+    # Daily Activity (Client Transactions)
+    # --------------------------------
+    st.subheader("📌 Daily Activity (Client Transactions)")
+
+    daily_kpis = {}
+    if not df.empty:
+        df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
+        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
+        df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+        df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+
+        transactions = (
+            df_sorted.groupby(["Client Name", "Block"])
+            .agg(
+                StartDate=("DateOnly","min"),
+                EndDate=("DateOnly","max"),
+                Patients=("Patient Name", lambda x: set(x)),
+                Amount=("Amount","sum")
+            )
+            .reset_index()
+        )
+        transactions["DateOnly"] = transactions["StartDate"]
+
+        daily = transactions.groupby("DateOnly").agg(
+            ClientTransactions=("Block","count"),
+            Clients=("Client Name","nunique"),
+            Patients=("Patients", lambda pats: len(set().union(*pats)))
+        )
+
+        if not daily.empty:
+            daily_kpis = {
+                "Max Tx/Day": int(daily["ClientTransactions"].max()),
+                "Avg Tx/Day": int(round(daily["ClientTransactions"].mean())),
+                "Max Clients/Day": int(daily["Clients"].max()),
+                "Avg Clients/Day": int(round(daily["Clients"].mean())),
+                "Max Patients/Day": int(daily["Patients"].max()),
+                "Avg Patients/Day": int(round(daily["Patients"].mean())),
+            }
+    # KPI cards
+    if daily_kpis:
+        cols = st.columns(len(daily_kpis))
+        for i, (label, value) in enumerate(daily_kpis.items()):
+            cols[i].markdown(
+                f"""
+                <div style='background-color:#f9f9f9; border:1px solid #ddd;
+                            padding:12px; border-radius:10px; text-align:center;'>
+                    <div style='font-size:14px; color:#555;'>{label}</div>
+                    <div style='font-size:22px; font-weight:bold;'>{value}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("No daily activity data available.")
+
+    # --------------------------------
+    # Top Items by Revenue
+    # --------------------------------
+    st.subheader("💰 Top 20 Items by Revenue")
+    top_items = (
+        df.groupby("Plan Item Name")
+          .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Quantity", "sum"))
+          .sort_values("TotalRevenue", ascending=False)
+          .head(20)
+    )
+    top_items["TotalRevenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
+    top_items["TotalCount"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
+    st.dataframe(top_items, use_container_width=True)
+
+    # --------------------------------
+    # Top Spending Clients
+    # --------------------------------
+    st.subheader("💎 Top 5 Spending Clients")
+    clients_nonblank = df[df["Client Name"].astype(str).str.strip() != ""]
+    if not clients_nonblank.empty:
+        top_clients = (
+            clients_nonblank.groupby("Client Name")["Amount"]
+                            .sum()
+                            .sort_values(ascending=False)
+                            .head(5)
+                            .rename("Total Spend")
+                            .to_frame()
+        )
+        top_clients["Total Spend"] = top_clients["Total Spend"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(top_clients, use_container_width=True)
+
+    # --------------------------------
+    # Largest Transactions
+    # --------------------------------
+    st.subheader("📈 Top 5 Largest Client Transactions")
+    df_sorted = df.sort_values(["Client Name", "Planitem Performed"])
+    df_sorted["DateOnly"] = pd.to_datetime(df_sorted["Planitem Performed"]).dt.normalize()
+    df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+    df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+    tx_groups = (
+        df_sorted.groupby(["Client Name", "Block"])
+        .agg(
+            Amount=("Amount", "sum"),
+            StartDate=("DateOnly", "min"),
+            EndDate=("DateOnly", "max"),
+            Patients=("Patient Name", lambda x: ", ".join(sorted(set(x.astype(str))))),
+        )
+        .reset_index()
+    )
+    def format_date_range(r):
+        start, end = r["StartDate"], r["EndDate"]
+        if pd.isna(start) and pd.isna(end): return "-"
+        if pd.isna(start): return f"→ {end.strftime('%d %b %Y')}"
+        if pd.isna(end): return start.strftime("%d %b %Y")
+        if start == end: return start.strftime("%d %b %Y")
+        return f"{start.strftime('%d %b %Y')} → {end.strftime('%d %b %Y')}"
+    tx_groups["DateRange"] = tx_groups.apply(format_date_range, axis=1)
+    largest_tx = tx_groups.sort_values("Amount", ascending=False).head(5)
+    largest_tx = largest_tx[["Client Name", "DateRange", "Patients", "Amount"]]
+    largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
+    st.dataframe(largest_tx, use_container_width=True)
+
+    # --------------------------------
+    # Preventive Care Uptake
+    # --------------------------------
+    st.subheader("🦟 Preventive Care Uptake (All Data)")
+    df_all = st.session_state["working_df"].copy()
+    total_patients = df_all["Patient Name"].nunique()
+
+    flea_pattern = "|".join(FLEA_WORM_KEYWORDS)
+    flea_patients = df_all[df_all["Plan Item Name"].str.contains(flea_pattern, case=False, na=False)]["Patient Name"].nunique()
+
+    food_pattern = "|".join(FOOD_KEYWORDS)
+    food_patients = df_all[df_all["Plan Item Name"].str.contains(food_pattern, case=False, na=False)]["Patient Name"].nunique()
+
+    # Dentals > 500 AED
+    dental_patients = 0
+    dental_rows = df_all[df_all["Plan Item Name"].str.contains("dental", case=False, na=False)]
+    if not dental_rows.empty:
+        d_sorted = df_all.sort_values(["Client Name", "Planitem Performed"])
+        d_sorted["DateOnly"] = pd.to_datetime(d_sorted["Planitem Performed"]).dt.normalize()
+        d_sorted["DayDiff"] = d_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+        d_sorted["Block"] = d_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+        tx = (
+            d_sorted.groupby(["Client Name", "Block"])
+            .agg(Amount=("Amount", "sum"), Patients=("Patient Name", lambda x: set(x.astype(str))))
+            .reset_index()
+        )
+        dental_blocks = d_sorted[d_sorted["Plan Item Name"].str.contains("dental", case=False, na=False)][["Client Name","Block"]].drop_duplicates()
+        qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name","Block"])
+        qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 500]
+        patients = set()
+        for patlist in qualifying_blocks["Patients"]:
+            patients.update(patlist)
+        dental_patients = len(patients)
+
+    if total_patients > 0:
+        cols = st.columns(6)
+        metrics = {
+            "Total Patients": total_patients,
+            "Flea/Worm Patients": flea_patients,
+            "Flea/Worm %": f"{flea_patients/total_patients:.1%}",
+            "Food Patients": food_patients,
+            "Food %": f"{food_patients/total_patients:.1%}",
+            "Dental >500": f"{dental_patients} ({dental_patients/total_patients:.1%})",
+        }
+        for i, (label, value) in enumerate(metrics.items()):
+            cols[i].markdown(
+                f"""
+                <div style='background-color:#f0f9ff; border:1px solid #b6e0fe;
+                            padding:12px; border-radius:10px; text-align:center;'>
+                    <div style='font-size:14px; color:#0369a1;'>{label}</div>
+                    <div style='font-size:22px; font-weight:bold;'>{value}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("No patients found in dataset.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# Run Factoids
 run_factoids()
-
-
-
-
-
-
-
-
-
-
-
-
