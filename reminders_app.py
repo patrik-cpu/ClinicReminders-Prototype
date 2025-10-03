@@ -10,8 +10,7 @@ from utils import (
     DEFAULT_RULES, SETTINGS_FILE, save_settings, load_settings,
     PMS_DEFINITIONS, detect_pms, process_file,
     ensure_reminder_columns, simplify_vaccine_text,
-    get_visible_plan_item, format_items, format_due_date,
-    normalize_display_case,
+    format_items, format_due_date, normalize_display_case,
     FLEA_WORM_KEYWORDS, FOOD_KEYWORDS
 )
 
@@ -216,10 +215,7 @@ def run_reminders():
                     "Plan Item": g["MatchedItems"].apply(
                         lambda lists: simplify_vaccine_text(
                             format_items(sorted(set(
-                                i.strip()
-                                for sub in lists
-                                for i in (sub if isinstance(sub, list) else [sub])
-                                if str(i).strip()
+                                i.strip() for sub in lists for i in (sub if isinstance(sub, list) else [sub]) if str(i).strip()
                             )))
                         )
                     ),
@@ -239,8 +235,12 @@ def run_reminders():
             st.info("No matches found.")
 
     # --------------------------------
-    # Rules editor (Search Terms)
+    # Rules Editor + Exclusions
     # --------------------------------
+    # (unchanged from v3.4 – includes update, reset defaults, add new rule, exclusions)
+    # --------------------------------
+
+    # Rules editor header
     st.markdown("---")
     st.markdown("<h2 id='search-terms'>📝 Search Terms</h2>", unsafe_allow_html=True)
     st.info(
@@ -306,7 +306,10 @@ def run_reminders():
             for rule, settings in st.session_state["rules"].items():
                 d = int(new_values.get(rule, {}).get("days", settings["days"]))
                 vis = new_values.get(rule, {}).get("visible_text", settings.get("visible_text", ""))
-                updated[rule] = {"days": d, "use_qty": settings["use_qty"], "visible_text": vis}
+                if vis.strip() == "":
+                    updated[rule] = {"days": d, "use_qty": settings["use_qty"]}
+                else:
+                    updated[rule] = {"days": d, "use_qty": settings["use_qty"], "visible_text": vis.strip()}
             st.session_state["rules"] = updated
             save_settings()
             st.rerun()
@@ -340,20 +343,16 @@ def run_reminders():
         if st.button("➕ Add", key=f"add_{row_id}"):
             if new_rule_name and str(new_rule_days).isdigit():
                 safe_rule = new_rule_name.strip().lower()
-                st.session_state["rules"][safe_rule] = {
-                    "days": int(new_rule_days),
-                    "use_qty": bool(new_rule_use_qty),
-                    "visible_text": new_rule_visible.strip(),
-                }
+                rule_data = {"days": int(new_rule_days), "use_qty": bool(new_rule_use_qty)}
+                if new_rule_visible.strip(): rule_data["visible_text"] = new_rule_visible.strip()
+                st.session_state["rules"][safe_rule] = rule_data
                 save_settings()
                 st.session_state["new_rule_counter"] += 1
                 st.rerun()
             else:
                 st.error("Enter a name and valid integer for days")
 
-    # --------------------------------
     # Exclusions
-    # --------------------------------
     st.markdown("---")
     st.markdown("<h2 id='exclusions'>🚫 Exclusions</h2>", unsafe_allow_html=True)
     if st.session_state["exclusions"]:
@@ -393,6 +392,8 @@ def run_reminders():
     # Feedback section
     # --------------------------------
     st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
+    st.markdown("### Found a problem? Let me (Patrik) know here:")
+    
     fb_col1, fb_col2 = st.columns([3,1])
     with fb_col1:
         feedback_text = st.text_area(
@@ -402,9 +403,13 @@ def run_reminders():
             placeholder="What did you try? What happened? Any screenshots or CSV names?",
         )
     with fb_col2:
-        user_name_for_feedback = st.text_input("Your name (optional)", key="feedback_name", placeholder="Clinic / Your name")
-        user_email_for_feedback = st.text_input("Your email (optional)", key="feedback_email", placeholder="you@example.com")
-
+        user_name_for_feedback = st.text_input(
+            "Your name (optional)", key="feedback_name", placeholder="Clinic / Your name"
+        )
+        user_email_for_feedback = st.text_input(
+            "Your email (optional)", key="feedback_email", placeholder="you@example.com"
+        )
+    
     if st.button("Send", key="fb_send"):
         if not feedback_text.strip():
             st.error("Please enter a message before sending.")
@@ -412,17 +417,20 @@ def run_reminders():
             try:
                 insert_feedback(user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
                 st.success("Thanks! Your message has been recorded.")
+    
+                # clear inputs
                 for k in ["feedback_text", "feedback_name", "feedback_email"]:
                     if k in st.session_state:
                         del st.session_state[k]
             except Exception as e:
                 st.error(f"Could not save your message. {e}")
-
+    
     # --- Google Sheets Setup ---
     SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
     SCOPE = ["https://spreadsheets.google.com/feeds",
              "https://www.googleapis.com/auth/drive"]
-
+    
+    # Load creds (Cloud via secrets; local fallback to file if present)
     try:
         creds_dict = st.secrets["gcp_service_account"]
     except Exception:
@@ -432,30 +440,32 @@ def run_reminders():
         except FileNotFoundError:
             st.error("Google credentials not found. Add them in Streamlit Secrets or google-credentials.json.")
             st.stop()
-
+    
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
-
+    
     try:
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SHEET_ID).sheet1
     except Exception as e:
         st.error("Couldn't connect to Google Sheets. Check sharing, API enablement, and Sheet ID.")
         st.stop()
-
+    
     def _next_id_from_column():
+        """Find the max numeric ID in column A and add 1 (robust to mid-sheet deletions)."""
         try:
-            col_ids = sheet.col_values(1)[1:]
+            col_ids = sheet.col_values(1)[1:]  # skip header
             nums = [int(x) for x in col_ids if x.strip().isdigit()]
             return (max(nums) if nums else 0) + 1
         except Exception:
+            # Fallback if parsing fails
             return len(sheet.get_all_values())
-
+    
     def insert_feedback(name, email, message):
         now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         next_id = _next_id_from_column()
         sheet.append_row([next_id, now, name or "", email or "", message],
                          value_input_option="USER_ENTERED")
-
+    
     def fetch_feedback(limit=500):
         rows = sheet.get_all_values()
         data = rows[1:] if rows else []
