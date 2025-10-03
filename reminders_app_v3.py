@@ -1351,7 +1351,7 @@ LABWORK_KEYWORDS = [
 ]
 
 ANAESTHETIC_KEYWORDS = [
-    "anaesthesia", "anesthesia", "general anaesthetic", "ga", "propofol", "isoflurane","spay","castrate","neuter","anae","surgery",'alfaxane",
+    "anaesthesia", "anesthesia", "general anaesthetic", "ga", "propofol", "isoflurane","spay","castrate","neuter","anae","surgery","alfaxane",
     "alfaxalone"
 ]
 
@@ -1619,6 +1619,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
