@@ -95,22 +95,19 @@ def run_reminders():
         accept_multiple_files=True
     )
 
-    if "file_summaries" not in st.session_state:
-        st.session_state["file_summaries"] = []
-    if "datasets" not in st.session_state:
-        st.session_state["datasets"] = []
-    
+    # Always initialize datasets and summaries
+    datasets = []
+    summary_rows = []
+
     if files:
-        summary_rows = []
-        datasets = []
         for file in files:
             df, pms_name = process_file(file, st.session_state["rules"])
             pms_name = pms_name or "Undetected"
-    
+
             from_date, to_date = None, None
             if "Planitem Performed" in df.columns:
                 from_date, to_date = df["Planitem Performed"].min(), df["Planitem Performed"].max()
-    
+
             summary_rows.append({
                 "File name": file.name,
                 "PMS": pms_name,
@@ -118,16 +115,17 @@ def run_reminders():
                 "To": to_date.strftime("%d %b %Y") if pd.notna(to_date) else "-"
             })
             datasets.append((pms_name, df))
-    
-        # persist in session state
+
+        # Save into session state
         st.session_state["file_summaries"] = summary_rows
         st.session_state["datasets"] = datasets
-    
-    # Always display the last summaries, even when switching tabs
-    if st.session_state["file_summaries"]:
-        st.dataframe(pd.DataFrame(st.session_state["file_summaries"]), use_container_width=True)
 
+        # Show uploaded file summaries
+        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
+    # --- Use session state if nothing uploaded this run ---
+    datasets = st.session_state.get("datasets", [])
+    if datasets:
         all_pms = {p for p, _ in datasets}
         if len(all_pms) == 1 and "Undetected" not in all_pms:
             working_df = pd.concat([df for _, df in datasets], ignore_index=True)
@@ -245,12 +243,6 @@ def run_reminders():
             st.dataframe(grouped_search, use_container_width=True)
         else:
             st.info("No matches found.")
-
-    # --------------------------------
-    # Rules Editor + Exclusions
-    # --------------------------------
-    # (unchanged from v3.4 – includes update, reset defaults, add new rule, exclusions)
-    # --------------------------------
 
     # Rules editor header
     st.markdown("---")
