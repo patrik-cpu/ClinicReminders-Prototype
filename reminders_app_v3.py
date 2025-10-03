@@ -1321,6 +1321,7 @@ if st.button("Send", key="fb_send"):
 # --------------------------------
 
 # Preventive Care Keyword Lists
+# Preventive Care & Service Keyword Lists
 FLEA_WORM_KEYWORDS = [
     "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
     "nexgard", "simparica", "advocate", "worm", "praz", "fenbend"
@@ -1332,6 +1333,22 @@ FOOD_KEYWORDS = [
     "nutro", "pouch", "tin", "can", "canned", "wet", "dry", "kibble",
     "tuna", "chicken", "beef", "salmon", "lamb", "duck",
     "senior", "diet", "food", "grain"
+]
+
+XRAY_KEYWORDS = [
+    "xray", "x-ray", "radiograph", "thoracic xray", "abdominal xray"
+]
+
+ULTRASOUND_KEYWORDS = [
+    "ultrasound", "echo", "abdominal ultrasound", "cardiac ultrasound", "usg"
+]
+
+LABWORK_KEYWORDS = [
+    "cbc", "blood test", "lab", "biochemistry", "haematology", "urinalysis", "labwork"
+]
+
+ANAESTHETIC_KEYWORDS = [
+    "anaesthesia", "anesthesia", "sedation", "general anaesthetic", "ga", "propofol", "isoflurane"
 ]
 
 def run_factoids():
@@ -1395,7 +1412,7 @@ def run_factoids():
         st.warning("⚠ All revenues are showing as 0. Please confirm the correct revenue column mapping.")
 
     # --------------------------------
-    # At a Glance (Daily Activity KPIs)
+    # At a Glance (Daily Activity KPIs + Unique Patient Services)
     # --------------------------------
     st.subheader("📌 At a Glance")
 
@@ -1431,7 +1448,7 @@ def run_factoids():
                 "Avg Patients/Day": int(round(daily["Patients"].mean())),
             }
 
-
+    # KPI cards
     if daily_kpis:
         cols = st.columns(len(daily_kpis))
         for i, (label, value) in enumerate(daily_kpis.items()):
@@ -1445,23 +1462,20 @@ def run_factoids():
                 """,
                 unsafe_allow_html=True,
             )
-    else:
-        st.info("No daily activity data available.")
 
     # --------------------------------
-    # Preventive Care Uptake (moved up here)
+    # Unique Patient Uptake (cards)
     # --------------------------------
-    st.subheader("🦟 Preventive Care Uptake")
-
     total_patients = df["Animal Name"].nunique()
 
-    flea_pattern = "|".join(FLEA_WORM_KEYWORDS)
-    flea_patients = df[df["Item Name"].str.contains(flea_pattern, case=False, na=False)]["Animal Name"].nunique()
+    flea_patients = df[df["Item Name"].str.contains("|".join(FLEA_WORM_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    food_patients = df[df["Item Name"].str.contains("|".join(FOOD_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    xray_patients = df[df["Item Name"].str.contains("|".join(XRAY_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    us_patients   = df[df["Item Name"].str.contains("|".join(ULTRASOUND_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    lab_patients  = df[df["Item Name"].str.contains("|".join(LABWORK_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    anaesth_patients = df[df["Item Name"].str.contains("|".join(ANAESTHETIC_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
 
-    food_pattern = "|".join(FOOD_KEYWORDS)
-    food_patients = df[df["Item Name"].str.contains(food_pattern, case=False, na=False)]["Animal Name"].nunique()
-
-    # Dental transactions > 500 (per client-day-block)
+    # Dental block logic (to avoid double counting) — reuse your existing dental code
     dental_patients = 0
     dental_rows = df[df["Item Name"].str.contains("dental", case=False, na=False)]
     if not dental_rows.empty:
@@ -1483,20 +1497,25 @@ def run_factoids():
             patients.update(patlist)
         dental_patients = len(patients)
 
+    # Build cards
     if total_patients > 0:
-        cols = st.columns(4)
+        cols = st.columns(7)  # 7 cards side by side
         metrics = {
             "Total Unique Patients": f"{total_patients:,}",
             "Unique Patients Buying Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
             "Unique Patients Buying Food": f"{food_patients:,} ({food_patients/total_patients:.1%})",
             "Unique Patients Having Dentals": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
+            "Unique Patients Having X-rays": f"{xray_patients:,} ({xray_patients/total_patients:.1%})",
+            "Unique Patients Having Ultrasounds": f"{us_patients:,} ({us_patients/total_patients:.1%})",
+            "Unique Patients Having Lab Work": f"{lab_patients:,} ({lab_patients/total_patients:.1%})",
+            "Unique Patients Having Anaesthetics": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
         }
 
         for i, (label, value) in enumerate(metrics.items()):
-            cols[i].markdown(
+            cols[i % 4].markdown(  # 4 per row
                 f"""
                 <div style='background-color:#e0f2fe; border:1px solid #0284c7;
-                            padding:12px; border-radius:10px; text-align:center;'>
+                            padding:12px; border-radius:10px; text-align:center; margin-bottom:10px;'>
                     <div style='font-size:14px; color:#0c4a6e; font-weight:600;'>{label}</div>
                     <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
                 </div>
@@ -1521,13 +1540,18 @@ def run_factoids():
         total_rev = top_items["TotalRevenue"].sum()
         top_items["% of Total Revenue"] = (top_items["TotalRevenue"] / total_rev * 100).round(1)
 
-        top_items["TotalRevenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
-        top_items["TotalCount"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
+        # Format numbers
+        top_items["Revenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
+        top_items["How Many"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
         top_items["% of Total Revenue"] = top_items["% of Total Revenue"].astype(str) + "%"
+
+        # Reorder & rename
+        top_items = top_items[["Revenue", "% of Total Revenue", "How Many"]]
 
         st.dataframe(top_items, use_container_width=True)
     else:
         st.info("No items found for the selected period.")
+
 
     # --------------------------------
     # Top Spending Clients
@@ -1587,6 +1611,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
