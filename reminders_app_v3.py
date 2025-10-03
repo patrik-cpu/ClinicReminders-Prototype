@@ -1428,10 +1428,15 @@ def run_factoids():
         total_pats = month_df["Animal Name"].nunique()
         match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
         pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
-        current_results.append({"Month": m.strftime("%b"), "Year": m.year, "MonthYear": m.strftime("%b %Y"),
-                                "Percent": round(pct, 1), "Offset": 0})
+        current_results.append({
+            "Month": m.strftime("%b"),
+            "Year": m.year,
+            "MonthYear": m.strftime("%b %Y"),
+            "Percent": round(pct, 1),
+            "Offset": 0
+        })
     current_df = pd.DataFrame(current_results)
-
+    
     # Previous-year ghost bars
     ghost_results = []
     for m in current_months:
@@ -1441,18 +1446,31 @@ def run_factoids():
         match_prev = prev_df[prev_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
         if total_prev > 0:
             pct_prev = (match_prev / total_prev * 100)
-            ghost_results.append({"Month": m.strftime("%b"), "Year": prev.year, "MonthYear": m.strftime("%b %Y"),
-                                  "Percent": round(pct_prev, 1), "Offset": -0.2})
+            ghost_results.append({
+                "Month": m.strftime("%b"),
+                "Year": prev.year,
+                "MonthYear": m.strftime("%b %Y"),
+                "Percent": round(pct_prev, 1),
+                "Offset": -0.2
+            })
     ghost_df = pd.DataFrame(ghost_results)
-
+    
+    # ✅ Ensure both DFs always have the same columns, even if empty
+    if current_df.empty:
+        current_df = pd.DataFrame(columns=["Month", "Year", "MonthYear", "Percent", "Offset"])
+    if ghost_df.empty:
+        ghost_df = pd.DataFrame(columns=["Month", "Year", "MonthYear", "Percent", "Offset"])
+    
+    # Combine into one
     plot_df = pd.concat([current_df, ghost_df], ignore_index=True)
 
     # Tooltip
     tooltip = [
-        alt.Tooltip("Month:N", title="Month"),
-        alt.Tooltip("Year:O", title="Year"),
-        alt.Tooltip("Percent:Q", format=".1f", title="%"),
+        alt.Tooltip("Month", type="nominal", title="Month"),
+        alt.Tooltip("Year", type="ordinal", title="Year"),
+        alt.Tooltip("Percent", type="quantitative", format=".1f", title="%"),
     ]
+
 
     # KPI colours
     KPI_COLOURS = {
@@ -1652,179 +1670,7 @@ def run_factoids():
                 """,
                 unsafe_allow_html=True,
             )
-    # --------------------------------
-    # 📊 Monthly Breakdown Chart
-    # --------------------------------
-    st.subheader("📊 Monthly Breakdown Chart")
     
-    df_all = st.session_state["working_df"].copy()
-    
-    # Canonical columns guard
-    for col, default in [
-        ("ChargeDate", pd.NaT),
-        ("Client Name", ""),
-        ("Animal Name", ""),
-        ("Item Name", ""),
-    ]:
-        if col not in df_all.columns:
-            df_all[col] = default
-    
-    # Parse dates
-    if not pd.api.types.is_datetime64_any_dtype(df_all["ChargeDate"]):
-        df_all["ChargeDate"] = parse_dates(df_all["ChargeDate"])
-    
-    df_all = df_all.dropna(subset=["ChargeDate"])
-    df_all["YearMonth"] = df_all["ChargeDate"].dt.to_period("M").dt.to_timestamp()
-    
-    # Define 12-month window
-    latest_month = df_all["YearMonth"].max()
-    month_list = pd.period_range(end=latest_month.to_period("M"), periods=12, freq="M").to_timestamp()
-    
-    # Define KPI groups (regex patterns)
-    KPI_GROUPS = {
-        "Unique Patients Having Dentals": r"dental",
-        "Unique Patients Having X-rays": r"xray|x-ray|radiograph|radiology",
-        "Unique Patients Having Ultrasounds": r"ultrasound|echo|afast|tfast|a-fast|t-fast",
-        "Unique Patients Buying Flea/Worm": r"bravecto|revolution|deworm|frontline|milbe|milpro|nexgard|simparica|advocate|worm|praz|fenbend",
-        "Unique Patients Buying Food": r"hill's|hills|royal canin|purina|proplan|iams|eukanuba|orijen|acana|farmina|vetlife|wellness|taste of the wild|nutro|pouch|tin|can|canned|wet|dry|kibble",
-        "Unique Patients Having Lab Work": r"cbc|blood test|lab|biochemistry|haematology|urinalysis|idexx|ghp|chem|felv|fiv|urine|elisa|pcr|microscop|cytology|smear|faecal|fecal|swab|parvo|distemper|giardia",
-        "Unique Patients Having Anaesthetics": r"anaesth|anesth|propofol|isoflurane|spay|castrate|neuter|alfax",
-        "Unique Patients Hospitalised": r"hospitalisation|hospitalization",
-    }
-    
-    # Dropdown for KPI selection
-    selected_kpi = st.selectbox("Select metric:", list(KPI_GROUPS.keys()))
-    
-    # Compute monthly percentages for latest year
-    pattern = KPI_GROUPS[selected_kpi]
-    results = []
-    for m in month_list:
-        month_df = df_all[df_all["YearMonth"] == m]
-        total_pats = month_df["Animal Name"].nunique()
-        match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
-        pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
-        results.append({"Month": m.strftime("%b %Y"), "Percent": round(pct, 1), "Year": m.year})
-    
-    chart_df = pd.DataFrame(results)
-    
-    # Compute previous year (ghost) values
-    yoy_results = []
-    for m in month_list:
-        prev_year = m - pd.DateOffset(years=1)
-        prev_df = df_all[df_all["YearMonth"] == prev_year]
-        total_prev = prev_df["Animal Name"].nunique()
-        match_prev = prev_df[prev_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
-        pct_prev = (match_prev / total_prev * 100) if total_prev > 0 else None
-        if pct_prev is not None:
-            yoy_results.append({"Month": m.strftime("%b %Y"), "Percent": round(pct_prev, 1), "Year": prev_year.year})
-    
-    yoy_df = pd.DataFrame(yoy_results)
-    
-    # Merge current + previous year data
-    full_chart_df = pd.concat([chart_df, yoy_df], ignore_index=True)
-    
-    # Define colours per KPI
-    KPI_COLOURS = {
-        "Unique Patients Having Dentals": "#60a5fa",      # blue
-        "Unique Patients Having X-rays": "#f87171",       # red
-        "Unique Patients Having Ultrasounds": "#34d399",  # green
-        "Unique Patients Buying Flea/Worm": "#fbbf24",    # amber
-        "Unique Patients Buying Food": "#a78bfa",         # purple
-        "Unique Patients Having Lab Work": "#fb923c",     # orange
-        "Unique Patients Having Anaesthetics": "#22d3ee", # cyan
-        "Unique Patients Hospitalised": "#f472b6",        # pink
-    }
-    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
-    
-    import altair as alt
-
-    # -----------------------------
-    # Build current 12-month dataset
-    # -----------------------------
-    current_months = pd.period_range(end=latest_month.to_period("M"), periods=12, freq="M").to_timestamp()
-    
-    current_results = []
-    for m in current_months:
-        month_df = df_all[df_all["YearMonth"] == m]
-        total_pats = month_df["Animal Name"].nunique()
-        match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
-        pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
-        current_results.append({
-            "Month": m.strftime("%b"),           # tooltip
-            "Year": m.year,                      # tooltip
-            "MonthYear": m.strftime("%b %Y"),    # axis labels
-            "Percent": round(pct, 1),
-            "Offset": 0                          # solid bar
-        })
-    
-    current_df = pd.DataFrame(current_results)
-    
-    # -----------------------------
-    # Build ghost bars (previous year if exists)
-    # -----------------------------
-    ghost_results = []
-    for m in current_months:
-        prev = m - pd.DateOffset(years=1)
-        prev_df = df_all[df_all["YearMonth"] == prev]
-        total_prev = prev_df["Animal Name"].nunique()
-        match_prev = prev_df[prev_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
-        if total_prev > 0:
-            pct_prev = (match_prev / total_prev * 100)
-            ghost_results.append({
-                "Month": m.strftime("%b"),
-                "Year": prev.year,
-                "MonthYear": m.strftime("%b %Y"),  # aligns to same month slot
-                "Percent": round(pct_prev, 1),
-                "Offset": -0.2                     # ghost bar sits left, close
-            })
-    
-    ghost_df = pd.DataFrame(ghost_results)
-    
-    # -----------------------------
-    # Combine
-    # -----------------------------
-    plot_df = pd.concat([current_df, ghost_df], ignore_index=True)
-    
-    # Tooltip
-    tooltip = [
-        alt.Tooltip("Month:N", title="Month"),
-        alt.Tooltip("Year:O", title="Year"),
-        alt.Tooltip("Percent:Q", format=".1f", title="%"),
-    ]
-    
-    # -----------------------------
-    # Build chart
-    # -----------------------------
-    bars = (
-        alt.Chart(plot_df)
-        .mark_bar(size=18)
-        .encode(
-            x=alt.X(
-                "MonthYear:N",
-                sort=[m.strftime("%b %Y") for m in current_months],
-                axis=alt.Axis(labelAngle=30, title=None),
-                scale=alt.Scale(paddingInner=0.25, paddingOuter=0.05)  # ✅ corrected
-            ),
-            xOffset="Offset:O",
-            y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
-            color=alt.condition(
-                alt.datum.Offset == 0,
-                alt.value(bar_color),     # current = solid
-                alt.value(bar_color)      # ghost = same colour
-            ),
-            opacity=alt.condition(
-                alt.datum.Offset == 0,
-                alt.value(1),             # solid
-                alt.value(0.35),          # ghost
-            ),
-            tooltip=tooltip,
-        )
-        .properties(width=700, height=400, title=f"{selected_kpi} - Last 12 Months")
-    )
-    
-    st.altair_chart(bars, use_container_width=True)
-
-
     # --------------------------------
     # Top Items by Revenue
     # --------------------------------
@@ -1910,4 +1756,5 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
