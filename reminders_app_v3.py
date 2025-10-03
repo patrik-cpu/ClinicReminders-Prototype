@@ -1646,41 +1646,79 @@ def run_factoids():
     bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
     
     import altair as alt
-    # Merge year into MonthLabel for clarity
-    full_chart_df["MonthLabel"] = full_chart_df["Month"]
+
+    # -----------------------------
+    # Build current 12-month dataset
+    # -----------------------------
+    current_months = pd.period_range(end=latest_month.to_period("M"), periods=12, freq="M").to_timestamp()
     
-    # Add Offset: 0 = current year, -0.5 = previous year (so bars touch side-by-side)
-    full_chart_df["Offset"] = full_chart_df["Year"].apply(
-        lambda y: 0 if y == latest_month.year else -0.5
-    )
+    current_results = []
+    for m in current_months:
+        month_df = df_all[df_all["YearMonth"] == m]
+        total_pats = month_df["Animal Name"].nunique()
+        match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
+        pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
+        current_results.append({
+            "Month": m.strftime("%b"),
+            "Year": m.year,
+            "Percent": round(pct, 1),
+            "Offset": 0
+        })
     
-    # Drop ghost bars where data doesn’t exist (already handled: only appended if % available)
-    # So no need for extra filtering here.
+    current_df = pd.DataFrame(current_results)
     
-    # Tooltip
+    # -----------------------------
+    # Build ghost bars (previous year if exists)
+    # -----------------------------
+    ghost_results = []
+    for m in current_months:
+        prev = m - pd.DateOffset(years=1)
+        prev_df = df_all[df_all["YearMonth"] == prev]
+        total_prev = prev_df["Animal Name"].nunique()
+        match_prev = prev_df[prev_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
+        if total_prev > 0:
+            pct_prev = (match_prev / total_prev * 100)
+            ghost_results.append({
+                "Month": m.strftime("%b"),
+                "Year": prev.year,
+                "Percent": round(pct_prev, 1),
+                "Offset": -0.4   # small negative offset so ghost sits just left, almost touching
+            })
+    
+    ghost_df = pd.DataFrame(ghost_results)
+    
+    # -----------------------------
+    # Combine into one dataframe
+    # -----------------------------
+    plot_df = pd.concat([current_df, ghost_df], ignore_index=True)
+    
+    # Tooltip with month + year separated
     tooltip = [
-        alt.Tooltip("MonthLabel:N", title="Month"),
-        alt.Tooltip("Year:N"),
+        alt.Tooltip("Month:N", title="Month"),
+        alt.Tooltip("Year:O", title="Year"),
         alt.Tooltip("Percent:Q", format=".1f", title="%"),
     ]
     
+    # -----------------------------
+    # Build chart
+    # -----------------------------
     bars = (
-        alt.Chart(full_chart_df)
-        .mark_bar(size=20)
+        alt.Chart(plot_df)
+        .mark_bar(size=18)   # narrow enough to allow touching
         .encode(
-            x=alt.X("MonthLabel:N", sort=list(chart_df["Month"]),
+            x=alt.X("Month:N", sort=[m.strftime("%b") for m in current_months],
                     axis=alt.Axis(labelAngle=30, title=None)),
-            xOffset="Offset:O",
+            xOffset="Offset:O",   # offset to place ghost beside solid
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
             color=alt.condition(
-                alt.datum.Year == latest_month.year,
-                alt.value(bar_color),     # solid for current year
-                alt.value(bar_color)      # same color for ghost
+                alt.datum.Offset == 0,
+                alt.value(bar_color),     # current = solid
+                alt.value(bar_color)      # ghost = same colour
             ),
             opacity=alt.condition(
-                alt.datum.Year == latest_month.year,
-                alt.value(1),             # current = fully opaque
-                alt.value(0.35),          # ghost = 35% opacity
+                alt.datum.Offset == 0,
+                alt.value(1),             # current = opaque
+                alt.value(0.35),          # ghost = 35%
             ),
             tooltip=tooltip,
         )
@@ -1688,9 +1726,6 @@ def run_factoids():
     )
     
     st.altair_chart(bars, use_container_width=True)
-
-
-
     # --------------------------------
     # Top Items by Revenue
     # --------------------------------
@@ -1776,6 +1811,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
