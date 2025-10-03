@@ -1371,7 +1371,7 @@ def run_factoids():
     largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
     st.dataframe(largest_tx, use_container_width=True)
 
-    # --------------------------------
+        # --------------------------------
     # Preventive Care Uptake
     # --------------------------------
     st.subheader("🦟 Preventive Care Uptake (All Data)")
@@ -1418,10 +1418,10 @@ def run_factoids():
         for i, (label, value) in enumerate(metrics.items()):
             cols[i].markdown(
                 f"""
-                <div style='background-color:#f0f9ff; border:1px solid #b6e0fe;
+                <div style='background-color:#e0f2fe; border:1px solid #0284c7;
                             padding:12px; border-radius:10px; text-align:center;'>
-                    <div style='font-size:14px; color:#0369a1;'>{label}</div>
-                    <div style='font-size:22px; font-weight:bold;'>{value}</div>
+                    <div style='font-size:14px; color:#0c4a6e; font-weight:600;'>{label}</div>
+                    <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1429,8 +1429,10 @@ def run_factoids():
     else:
         st.info("No patients found in dataset.")
 
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 # Run Factoids
 run_factoids()
+
