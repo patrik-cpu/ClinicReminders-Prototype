@@ -1619,13 +1619,29 @@ def run_factoids():
     
     chart_df = pd.DataFrame(results)
     
+    # Define custom colours for each KPI
+    KPI_COLOURS = {
+        "Unique Patients Having Dentals": "#60a5fa",      # blue
+        "Unique Patients Having X-rays": "#f87171",       # red
+        "Unique Patients Having Ultrasounds": "#34d399",  # green
+        "Unique Patients Buying Flea/Worm": "#fbbf24",    # amber
+        "Unique Patients Buying Food": "#a78bfa",         # purple
+        "Unique Patients Having Lab Work": "#fb923c",     # orange
+        "Unique Patients Having Anaesthetics": "#22d3ee", # cyan
+        "Unique Patients Hospitalised": "#f472b6",        # pink
+    }
+    
+    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")  # fallback = blue
+    
     # Bar chart with Altair
     import altair as alt
     chart = (
         alt.Chart(chart_df)
-        .mark_bar(color="#60a5fa")
+        .mark_bar(size=20, color=bar_color)  # narrower bars + dynamic colour
         .encode(
-            x=alt.X("Month:N", sort=list(chart_df["Month"]), title="Month"),
+            x=alt.X("Month:N", sort=list(chart_df["Month"]),
+                    title="Month",
+                    axis=alt.Axis(labelAngle=30)),  # less tilt
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
             tooltip=["Month", "Percent"]
         )
@@ -1633,7 +1649,6 @@ def run_factoids():
     )
     
     st.altair_chart(chart, use_container_width=True)
-
 
     # --------------------------------
     # Top Items by Revenue
@@ -1721,6 +1736,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
