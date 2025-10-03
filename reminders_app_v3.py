@@ -1380,6 +1380,13 @@ def run_factoids():
     # --------------------------------
     st.subheader("🦟 Preventive Care Uptake (All Data)")
     df_all = st.session_state["working_df"].copy()
+
+    # Safety: ensure required columns exist
+    if "Patient Name" not in df_all.columns:
+        df_all["Patient Name"] = ""
+    if "Amount" not in df_all.columns:
+        df_all["Amount"] = 0
+
     total_patients = df_all["Patient Name"].nunique()
 
     flea_pattern = "|".join(FLEA_WORM_KEYWORDS)
@@ -1388,19 +1395,30 @@ def run_factoids():
     food_pattern = "|".join(FOOD_KEYWORDS)
     food_patients = df_all[df_all["Plan Item Name"].str.contains(food_pattern, case=False, na=False)]["Patient Name"].nunique()
 
-    # Dentals > 500 AED
+    # Dental transactions > 500
     dental_patients = 0
     dental_rows = df_all[df_all["Plan Item Name"].str.contains("dental", case=False, na=False)]
     if not dental_rows.empty:
-        d_sorted = df_all.sort_values(["Client Name", "Planitem Performed"])
+        d_sorted = df_all.sort_values(["Client Name", "Planitem Performed"]).copy()
+
+        if "Patient Name" not in d_sorted.columns:
+            d_sorted["Patient Name"] = ""
+        if "Amount" not in d_sorted.columns:
+            d_sorted["Amount"] = 0
+
         d_sorted["DateOnly"] = pd.to_datetime(d_sorted["Planitem Performed"]).dt.normalize()
         d_sorted["DayDiff"] = d_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
         d_sorted["Block"] = d_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+
         tx = (
             d_sorted.groupby(["Client Name", "Block"])
-            .agg(Amount=("Amount", "sum"), Patients=("Patient Name", lambda x: set(x.astype(str))))
+            .agg(
+                Amount=("Amount", "sum"),
+                Patients=("Patient Name", lambda x: set(x.astype(str)))
+            )
             .reset_index()
         )
+
         dental_blocks = d_sorted[d_sorted["Plan Item Name"].str.contains("dental", case=False, na=False)][["Client Name","Block"]].drop_duplicates()
         qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name","Block"])
         qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 500]
@@ -1431,11 +1449,13 @@ def run_factoids():
     else:
         st.info("No patients found in dataset.")
 
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 # Run Factoids
 run_factoids()
+
 
 
 
