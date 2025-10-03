@@ -1562,9 +1562,9 @@ def run_factoids():
                 unsafe_allow_html=True,
             )
     # --------------------------------
-    # 📊 Unique Patients Having Dentals (% by Month)
+    # 📊 Monthly Breakdown Chart
     # --------------------------------
-    st.subheader("🦷 Unique Patients Having Dentals (% by Month)")
+    st.subheader("📊 Monthly Breakdown Chart")
     
     df_all = st.session_state["working_df"].copy()
     
@@ -1582,45 +1582,58 @@ def run_factoids():
     if not pd.api.types.is_datetime64_any_dtype(df_all["ChargeDate"]):
         df_all["ChargeDate"] = parse_dates(df_all["ChargeDate"])
     
-    # Drop rows without valid dates
     df_all = df_all.dropna(subset=["ChargeDate"])
-    
-    # Extract year-month
     df_all["YearMonth"] = df_all["ChargeDate"].dt.to_period("M").dt.to_timestamp()
     
-    # Define the 12-month window ending with latest month
+    # Define 12-month window
     latest_month = df_all["YearMonth"].max()
     month_list = pd.period_range(end=latest_month.to_period("M"), periods=12, freq="M").to_timestamp()
     
-    # For each month, compute %
+    # Define KPI groups (regex patterns)
+    KPI_GROUPS = {
+        "Unique Patients Having Dentals": r"dental",
+        "Unique Patients Having X-rays": r"xray|x-ray|radiograph|radiology",
+        "Unique Patients Having Ultrasounds": r"ultrasound|echo|afast|tfast|a-fast|t-fast",
+        "Unique Patients Buying Flea/Worm": r"bravecto|revolution|deworm|frontline|milbe|milpro|nexgard|simparica|advocate|worm|praz|fenbend",
+        "Unique Patients Buying Food": r"hill's|hills|royal canin|purina|proplan|iams|eukanuba|orijen|acana|farmina|vetlife|wellness|taste of the wild|nutro|pouch|tin|can|canned|wet|dry|kibble",
+        "Unique Patients Having Lab Work": r"cbc|blood test|lab|biochemistry|haematology|urinalysis|idexx|ghp|chem|felv|fiv|urine|elisa|pcr|microscop|cytology|smear|faecal|fecal|swab|parvo|distemper|giardia",
+        "Unique Patients Having Anaesthetics": r"anaesth|anesth|propofol|isoflurane|spay|castrate|neuter|alfax",
+        "Unique Patients Hospitalised": r"hospitalisation|hospitalization",
+    }
+    
+    # Dropdown for KPI selection
+    selected_kpi = st.selectbox("Select metric:", list(KPI_GROUPS.keys()))
+    
+    # Compute monthly percentages
     results = []
+    pattern = KPI_GROUPS[selected_kpi]
+    
     for m in month_list:
         month_df = df_all[df_all["YearMonth"] == m]
         total_pats = month_df["Animal Name"].nunique()
     
-        dental_pats = month_df[month_df["Item Name"].str.contains("dental", case=False, na=False)]["Animal Name"].nunique()
+        match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
     
-        pct = (dental_pats / total_pats * 100) if total_pats > 0 else 0
-        results.append({"Month": m.strftime("%b %Y"), "Dental %": pct})
+        pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
+        results.append({"Month": m.strftime("%b %Y"), "Percent": pct})
     
     chart_df = pd.DataFrame(results)
     
-    # Bar chart (months left-to-right oldest → newest)
-    # Use Streamlit native charting (Altair/Vega-Lite)
+    # Bar chart with Altair
     import altair as alt
-    
     chart = (
         alt.Chart(chart_df)
-        .mark_bar(color="#60a5fa")  # blue bars
+        .mark_bar(color="#60a5fa")
         .encode(
             x=alt.X("Month:N", sort=list(chart_df["Month"]), title="Month"),
-            y=alt.Y("Dental %:Q", title="Unique Patients with Dentals (%)"),
-            tooltip=["Month", "Dental %"]
+            y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
+            tooltip=["Month", "Percent"]
         )
-        .properties(width=700, height=400, title="Unique Patients Having Dentals (%) - Last 12 Months")
+        .properties(width=700, height=400, title=f"{selected_kpi} - Last 12 Months")
     )
     
     st.altair_chart(chart, use_container_width=True)
+
 
     # --------------------------------
     # Top Items by Revenue
@@ -1708,6 +1721,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
