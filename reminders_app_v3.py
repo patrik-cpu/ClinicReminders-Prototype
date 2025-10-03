@@ -1712,7 +1712,7 @@ def run_factoids():
                 "MonthYear:N",
                 sort=[m.strftime("%b %Y") for m in current_months],
                 axis=alt.Axis(labelAngle=30, title=None),
-                scale=alt.Scale(bandPaddingInner=0.25, bandPaddingOuter=0.05)  # tighter clusters
+                scale=alt.Scale(paddingInner=0.25, paddingOuter=0.05)  # ✅ corrected
             ),
             xOffset="Offset:O",
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
@@ -1732,6 +1732,7 @@ def run_factoids():
     )
     
     st.altair_chart(bars, use_container_width=True)
+
 
     # --------------------------------
     # Top Items by Revenue
@@ -1818,6 +1819,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
