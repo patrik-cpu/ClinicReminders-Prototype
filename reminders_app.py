@@ -94,7 +94,8 @@ def run_reminders():
         accept_multiple_files=True
     )
 
-    datasets, summary_rows, working_df = [], [], None
+    datasets, summary_rows = [], []
+
 
     if files:
         for file in files:
