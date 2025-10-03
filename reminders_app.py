@@ -96,7 +96,7 @@ def run_reminders():
     )
 
     if "file_summaries" not in st.session_state:
-    st.session_state["file_summaries"] = []
+        st.session_state["file_summaries"] = []
     if "datasets" not in st.session_state:
         st.session_state["datasets"] = []
     
