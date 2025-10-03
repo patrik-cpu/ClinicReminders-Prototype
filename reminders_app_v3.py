@@ -1516,9 +1516,15 @@ def run_factoids():
           .sort_values("TotalRevenue", ascending=False)
           .head(20)
     )
+
     if not top_items.empty:
+        total_rev = top_items["TotalRevenue"].sum()
+        top_items["% of Total Revenue"] = (top_items["TotalRevenue"] / total_rev * 100).round(1)
+
         top_items["TotalRevenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
         top_items["TotalCount"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
+        top_items["% of Total Revenue"] = top_items["% of Total Revenue"].astype(str) + "%"
+
         st.dataframe(top_items, use_container_width=True)
     else:
         st.info("No items found for the selected period.")
@@ -1581,6 +1587,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
