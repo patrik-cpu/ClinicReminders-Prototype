@@ -240,8 +240,10 @@ def process_file(file, rules):
     else:
         raise ValueError("Unsupported file type")
 
-    # Clean column names
-    df.columns = [c.strip().replace("\u00a0", " ").replace("\ufeff", "") for c in df.columns]
+    # --- Normalize column names (same cleaning as detect_pms) ---
+    def _normalize(c):
+        return str(c).replace("\u00a0", " ").replace("\ufeff", "").strip()
+    df.columns = [_normalize(c) for c in df.columns]
 
     # Detect PMS
     pms_name = detect_pms(df)
@@ -272,38 +274,42 @@ def process_file(file, rules):
     # Rename columns
     df.rename(columns=rename_map, inplace=True)
 
-    # --- Handle Amount column consistently ---
-    if "amount" in mappings and mappings["amount"] in df.columns:
-        df["Amount"] = (
-            df[mappings["amount"]]
-            .astype(str)
-            .str.replace(r"[^\d.\-]", "", regex=True)  # remove non-numeric chars
-        )
-        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+    # --- Handle Amount column robustly ---
+    if "amount" in mappings:
+        amount_col = mappings["amount"]
+        if amount_col in df.columns:
+            df["Amount"] = (
+                df[amount_col]
+                .astype(str)
+                .str.replace(r"[^\d.\-]", "", regex=True)  # strip non-numerics
+            )
+            df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+        else:
+            st.warning(f"⚠ Amount column '{amount_col}' not found in uploaded file. Defaulting to 0.")
+            df["Amount"] = 0
     else:
         df["Amount"] = 0
 
-    # Parse dates
+    # --- Parse dates ---
     if "Planitem Performed" in df.columns:
         df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
 
-    # Ensure Quantity column
+    # --- Ensure Quantity column ---
     qty_col = mappings.get("qty")
     df["Quantity"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1)
 
-    # Map intervals (reminders)
+    # --- Map reminder intervals ---
     df = map_intervals(df, rules)
     df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
     df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
     df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
 
-    # Lowercase helper columns
+    # --- Helper lowercase cols ---
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
     df["_item_lower"] = df["Plan Item Name"].astype(str).str.lower()
 
     return df, pms_name
-
 
 # --------------------------------
 # Preventive Care Keyword Lists
