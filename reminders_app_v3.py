@@ -1386,13 +1386,117 @@ def run_factoids():
     if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
         df["ChargeDate"] = parse_dates(df["ChargeDate"])
 
-    # -------------------------
-    # Select Period (relative to dataset max date)
-    # -------------------------
     latest_date = df["ChargeDate"].max()
     if pd.isna(latest_date):
         st.warning("⚠ No valid dates found in dataset.")
         return
+
+    # Precompute YearMonth for grouping
+    df["YearMonth"] = df["ChargeDate"].dt.to_period("M").dt.to_timestamp()
+
+    # -------------------------
+    # 📊 Monthly Breakdown Chart (moved to top)
+    # -------------------------
+
+    # KPI regex patterns
+    KPI_GROUPS = {
+        "Unique Patients Having Dentals": r"dental",
+        "Unique Patients Having X-rays": r"xray|x-ray|radiograph|radiology",
+        "Unique Patients Having Ultrasounds": r"ultrasound|echo|afast|tfast|a-fast|t-fast",
+        "Unique Patients Buying Flea/Worm": r"bravecto|revolution|deworm|frontline|milbe|milpro|nexgard|simparica|advocate|worm|praz|fenbend",
+        "Unique Patients Buying Food": r"hill's|hills|royal canin|purina|proplan|iams|eukanuba|orijen|acana|farmina|vetlife|wellness|taste of the wild|nutro|pouch|tin|can|canned|wet|dry|kibble",
+        "Unique Patients Having Lab Work": r"cbc|blood test|lab|biochemistry|haematology|urinalysis|idexx|ghp|chem|felv|fiv|urine|elisa|pcr|microscop|cytology|smear|faecal|fecal|swab|parvo|distemper|giardia",
+        "Unique Patients Having Anaesthetics": r"anaesth|anesth|propofol|isoflurane|spay|castrate|neuter|alfax",
+        "Unique Patients Hospitalised": r"hospitalisation|hospitalization",
+    }
+
+    # Styled dropdown for KPI selection
+    st.markdown(
+        "<div style='font-size:18px; font-weight:bold; color:blue;'>Select Metric:</div>",
+        unsafe_allow_html=True
+    )
+    selected_kpi = st.selectbox("", list(KPI_GROUPS.keys()), key="factoid_metric", label_visibility="collapsed")
+
+    # Current 12 months
+    current_months = pd.period_range(end=latest_date.to_period("M"), periods=12, freq="M").to_timestamp()
+    pattern = KPI_GROUPS[selected_kpi]
+
+    # Current-year bars
+    current_results = []
+    for m in current_months:
+        month_df = df[df["YearMonth"] == m]
+        total_pats = month_df["Animal Name"].nunique()
+        match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
+        pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
+        current_results.append({"Month": m.strftime("%b"), "Year": m.year, "MonthYear": m.strftime("%b %Y"),
+                                "Percent": round(pct, 1), "Offset": 0})
+    current_df = pd.DataFrame(current_results)
+
+    # Previous-year ghost bars
+    ghost_results = []
+    for m in current_months:
+        prev = m - pd.DateOffset(years=1)
+        prev_df = df[df["YearMonth"] == prev]
+        total_prev = prev_df["Animal Name"].nunique()
+        match_prev = prev_df[prev_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
+        if total_prev > 0:
+            pct_prev = (match_prev / total_prev * 100)
+            ghost_results.append({"Month": m.strftime("%b"), "Year": prev.year, "MonthYear": m.strftime("%b %Y"),
+                                  "Percent": round(pct_prev, 1), "Offset": -0.2})
+    ghost_df = pd.DataFrame(ghost_results)
+
+    plot_df = pd.concat([current_df, ghost_df], ignore_index=True)
+
+    # Tooltip
+    tooltip = [
+        alt.Tooltip("Month:N", title="Month"),
+        alt.Tooltip("Year:O", title="Year"),
+        alt.Tooltip("Percent:Q", format=".1f", title="%"),
+    ]
+
+    # KPI colours
+    KPI_COLOURS = {
+        "Unique Patients Having Dentals": "#60a5fa",
+        "Unique Patients Having X-rays": "#f87171",
+        "Unique Patients Having Ultrasounds": "#34d399",
+        "Unique Patients Buying Flea/Worm": "#fbbf24",
+        "Unique Patients Buying Food": "#a78bfa",
+        "Unique Patients Having Lab Work": "#fb923c",
+        "Unique Patients Having Anaesthetics": "#22d3ee",
+        "Unique Patients Hospitalised": "#f472b6",
+    }
+    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
+
+    # Dynamic chart title
+    chart_title = f"Percentage of Clinic Patients Each Month {selected_kpi.split('Unique Patients')[-1].strip()} - Last 12 Months"
+
+    # Chart
+    bars = (
+        alt.Chart(plot_df)
+        .mark_bar(size=18)
+        .encode(
+            x=alt.X("MonthYear:N",
+                    sort=[m.strftime("%b %Y") for m in current_months],
+                    axis=alt.Axis(labelAngle=30, title=None),
+                    scale=alt.Scale(paddingInner=0.25, paddingOuter=0.05)),
+            xOffset="Offset:O",
+            y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
+            color=alt.condition(alt.datum.Offset == 0, alt.value(bar_color), alt.value(bar_color)),
+            opacity=alt.condition(alt.datum.Offset == 0, alt.value(1), alt.value(0.35)),
+            tooltip=tooltip,
+        )
+        .properties(width=700, height=400, title=chart_title)
+    )
+
+    st.altair_chart(bars, use_container_width=True)
+
+    # -------------------------
+    # 📅 Select Period dropdown (styled red)
+    # -------------------------
+    st.markdown(
+        "<div style='font-size:18px; font-weight:bold; color:red;'>Select Period:</div>",
+        unsafe_allow_html=True
+    )
 
     period_options = [
         "All Data",
@@ -1400,26 +1504,13 @@ def run_factoids():
         "Prev Quarter (of most recent data)",
         "Prev Year (of most recent data)"
     ]
-    selected = st.selectbox("Select period:", period_options, index=0)
-
-    if selected == "Prev 30 Days (of most recent data)":
-        cutoff = latest_date - pd.Timedelta(days=30)
-        df = df[df["ChargeDate"] >= cutoff]
-    elif selected == "Prev Quarter (of most recent data)":
-        cutoff = latest_date - pd.DateOffset(months=3)
-        df = df[df["ChargeDate"] >= cutoff]
-    elif selected == "Prev Year (of most recent data)":
-        cutoff = latest_date - pd.DateOffset(years=1)
-        df = df[df["ChargeDate"] >= cutoff]
-    # else All Data → no filtering
-
-
-    st.markdown("<div style='max-width:85%;'>", unsafe_allow_html=True)
-    if df.empty:
-        st.info("No transactions found in this period.")
-    elif df["Amount"].sum() == 0:
-        st.warning("⚠ All revenues are showing as 0. Please confirm the correct revenue column mapping.")
-
+    selected = st.selectbox(
+        "",  # hide default label
+        period_options,
+        index=0,
+        label_visibility="collapsed",
+        key="factoids_period_select"
+    )
     # --------------------------------
     # 📌 At a Glance (Daily KPIs + Unique Patient Uptake)
     # --------------------------------
@@ -1819,3 +1910,4 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
