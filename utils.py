@@ -101,70 +101,168 @@ def detect_pms(df: pd.DataFrame) -> str:
             return pms_name
     return None
 
+# --------------------------------
+# Helpers
+# --------------------------------
+def simplify_vaccine_text(text: str) -> str:
+    if not isinstance(text, str): return text
+    parts = [p.strip() for p in text.replace(" and ", ",").split(",") if p.strip()]
+    cleaned = [p.strip() for p in parts if p]
+    if not cleaned: return text
+    cleaned_lower = [c.lower() for c in cleaned]
+    if "vaccination" in cleaned_lower and len(cleaned) > 1:
+        cleaned = [c for c in cleaned if c.lower() != "vaccination"]
+    is_vax = lambda s: s.lower().endswith("vaccine") or s.lower().endswith("vaccines") or s.lower() in ["vaccination","vaccine(s)"]
+    if all(is_vax(c) for c in cleaned):
+        stripped = []
+        for c in cleaned:
+            tokens = c.split()
+            if tokens and tokens[-1].lower().startswith("vaccine"): tokens = tokens[:-1]
+            stripped.append(" ".join(tokens).strip())
+        stripped = [s for s in stripped if s]
+        if len(stripped) == 1: return stripped[0] + " Vaccine"
+        if len(stripped) == 2: return f"{stripped[0]} and {stripped[1]} Vaccines"
+        return f"{', '.join(stripped[:-1])} and {stripped[-1]} Vaccines"
+    if len(cleaned) == 1: return cleaned[0]
+    if len(cleaned) == 2: return f"{cleaned[0]} and {cleaned[1]}"
+    return f"{', '.join(cleaned[:-1])} and {cleaned[-1]}"
+
+def format_items(item_list):
+    items = [str(x).strip() for x in item_list if str(x).strip()]
+    if not items: return ""
+    if len(items) == 1: return items[0]
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+def format_due_date(date_str: str) -> str:
+    try:
+        dt = pd.to_datetime(date_str, format="%d %b %Y", errors="coerce")
+        if pd.isna(dt): return f"on {date_str}"
+        day = dt.day
+        suffix = "th" if 10 <= day % 100 <= 20 else {1:"st",2:"nd",3:"rd"}.get(day%10,"th")
+        return f"on the {day}{suffix} of {dt.strftime('%B')}, {dt.year}"
+    except Exception:
+        return f"on {date_str}"
+
+def normalize_display_case(text: str) -> str:
+    if not isinstance(text, str): return text
+    return " ".join([w.capitalize() if w.isupper() and len(w) > 1 else w for w in text.split()])
+
+def normalize_item_name(name: str) -> str:
+    if not isinstance(name, str): return ""
+    name = unicodedata.normalize("NFKC", name).lower()
+    name = re.sub(r"[\u00a0\ufeff]", " ", name)
+    name = re.sub(r"[-+/().,]", " ", name)
+    return re.sub(r"\s+", " ", name).strip()
+
+def map_intervals(df, rules):
+    df = df.copy()
+    df["MatchedItems"] = [[] for _ in range(len(df))]
+    df["IntervalDays"] = pd.NA
+    for idx, row in df.iterrows():
+        normalized = normalize_item_name(row.get("Plan Item Name", ""))
+        matches, interval_values = [], []
+        for rule, settings in rules.items():
+            rule_norm = rule.lower().strip()
+            if rule_norm in normalized:
+                vis = settings.get("visible_text")
+                matches.append(vis.strip() if vis and vis.strip() else row.get("Plan Item Name", rule))
+                days = settings["days"]
+                if settings.get("use_qty"):
+                    qty = pd.to_numeric(row.get("Quantity", 1), errors="coerce")
+                    qty = int(qty) if pd.notna(qty) else 1
+                    days *= max(qty, 1)
+                interval_values.append(days)
+        if matches:
+            df.at[idx, "MatchedItems"] = matches
+            df.at[idx, "IntervalDays"] = min(interval_values)
+        else:
+            df.at[idx, "MatchedItems"] = [row.get("Plan Item Name", "")]
+            df.at[idx, "IntervalDays"] = pd.NA
+    return df
+
 def parse_dates(series: pd.Series) -> pd.Series:
-    return pd.to_datetime(series, errors="coerce", dayfirst=True)
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return pd.to_datetime(series, errors="coerce")
+    numeric = pd.to_numeric(series, errors="coerce")
+    if numeric.notna().sum() > 0:
+        base_1900 = pd.Timestamp("1899-12-30")
+        dt_1900 = base_1900 + pd.to_timedelta(numeric, unit="D")
+        valid_1900 = dt_1900.dt.year.between(1990, 2100)
+        base_1904 = pd.Timestamp("1904-01-01")
+        dt_1904 = base_1904 + pd.to_timedelta(numeric, unit="D")
+        valid_1904 = dt_1904.dt.year.between(1990, 2100)
+        return dt_1904 if valid_1904.sum() > valid_1900.sum() else dt_1900
+    s = series.astype(str).str.replace("\u00a0"," ",regex=False).str.replace("\ufeff","",regex=False).str.strip()
+    formats = ["%d/%b/%Y","%d-%b-%Y","%d-%b-%y","%d/%m/%Y","%m/%d/%Y","%Y-%m-%d","%Y.%m.%d",
+               "%d/%m/%Y %H:%M","%d/%m/%Y %H:%M:%S","%Y-%m-%d %H:%M:%S","%Y-%m-%d %H:%M"]
+    for fmt in formats:
+        parsed = pd.to_datetime(s, format=fmt, errors="coerce")
+        if parsed.notna().sum() > 0: return parsed
+    parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    if parsed.notna().sum() > 0: return parsed
+    return pd.to_datetime(s, errors="coerce")
 
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     if df is None or df.empty:
-        return pd.DataFrame(columns=[
-            "DueDateFmt","Client Name","ChargeDateFmt","Patient Name",
-            "MatchedItems","Quantity","IntervalDays","NextDueDate","Planitem Performed"
-        ])
+        return pd.DataFrame(columns=["DueDateFmt","Client Name","ChargeDateFmt","Patient Name",
+                                     "MatchedItems","Quantity","IntervalDays","NextDueDate","Planitem Performed"])
     df = df.copy()
-    if "Quantity" not in df.columns:
-        df["Quantity"] = 1
+    if "Quantity" not in df.columns: df["Quantity"] = 1
+    df = map_intervals(df, rules)
     if "Planitem Performed" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["Planitem Performed"]):
         df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
+    days = pd.to_numeric(df["IntervalDays"], errors="coerce")
+    df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(days, unit="D")
+    df["ChargeDateFmt"] = pd.to_datetime(df["Planitem Performed"]).dt.strftime("%d %b %Y")
+    df["DueDateFmt"] = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
+    for col in ["Patient Name", "Client Name"]:
+        if col not in df.columns: df[col] = ""
+    df["MatchedItems"] = df["MatchedItems"].apply(lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else []))
     return df
 
 @st.cache_data
 def process_file(file, rules):
-    if file.name.endswith(".csv"):
-        df = pd.read_csv(file)
-    else:
-        df = pd.read_excel(file)
+    name = file.name.lower()
+    if name.endswith(".csv"): df = pd.read_csv(file)
+    elif name.endswith((".xls", ".xlsx")): df = pd.read_excel(file)
+    else: raise ValueError("Unsupported file type")
     df.columns = [c.strip() for c in df.columns]
     pms_name = detect_pms(df)
-    if not pms_name:
-        return df, None
+    if not pms_name: return df, None
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
     if pms_name == "ezyVet":
-        df["Client Name"] = (
-            df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
-            df[mappings["client_last"]].fillna("").astype(str).str.strip()
-        ).str.strip()
+        df["Client Name"] = (df[mappings["client_first"]].fillna("").astype(str).str.strip() + " " +
+                             df[mappings["client_last"]].fillna("").astype(str).str.strip()).str.strip()
         df["Amount"] = pd.to_numeric(df[mappings["amount"]], errors="coerce")
-        rename_map = {
-            mappings["date"]: "Planitem Performed",
-            mappings["animal"]: "Patient Name",
-            mappings["item"]: "Plan Item Name",
-        }
+        rename_map = {mappings["date"]: "Planitem Performed", mappings["animal"]: "Patient Name", mappings["item"]: "Plan Item Name"}
     else:
-        rename_map = {
-            mappings["date"]: "Planitem Performed",
-            mappings["client"]: "Client Name",
-            mappings["animal"]: "Patient Name",
-            mappings["item"]: "Plan Item Name",
-        }
-        if "amount" in mappings:
-            df["Amount"] = pd.to_numeric(df[mappings["amount"]], errors="coerce")
-        else:
-            df["Amount"] = 0
+        rename_map = {mappings["date"]: "Planitem Performed", mappings["client"]: "Client Name", mappings["animal"]: "Patient Name", mappings["item"]: "Plan Item Name"}
+        if "amount" in mappings: df["Amount"] = pd.to_numeric(df[mappings["amount"]], errors="coerce")
+        else: df["Amount"] = 0
     df.rename(columns=rename_map, inplace=True)
-    df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
+    if "Planitem Performed" in df.columns: df["Planitem Performed"] = parse_dates(df["Planitem Performed"])
     qty_col = mappings.get("qty")
     df["Quantity"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1)
+    df = map_intervals(df, rules)
+    df["NextDueDate"] = df["Planitem Performed"] + pd.to_timedelta(df["IntervalDays"], unit="D")
+    df["ChargeDateFmt"] = df["Planitem Performed"].dt.strftime("%d %b %Y")
+    df["DueDateFmt"] = df["NextDueDate"].dt.strftime("%d %b %Y")
+    df["_client_lower"] = df["Client Name"].astype(str).str.lower()
+    df["_animal_lower"] = df["Patient Name"].astype(str).str.lower()
+    df["_item_lower"] = df["Plan Item Name"].astype(str).str.lower()
     return df, pms_name
 
 # --------------------------------
 # Preventive Care Keyword Lists
 # --------------------------------
 FLEA_WORM_KEYWORDS = [
-    "bravecto", "revolution", "deworm", "frontline"
+    "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro", "nexgard", "simparica", "advocate", "worm","praz","fenbend"
 ]
 
 FOOD_KEYWORDS = [
-    "hill's", "hills", "royal canin", "purina", "proplan",
-    "pouch", "tuna", "chicken", "beef", "salmon",
-    "kitten", "puppy", "adult", "diet", "food"
+    "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
+    "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild", "nutro",
+    "pouch", "tin", "can", "canned", "wet", "dry", "kibble",
+    "tuna", "chicken", "beef", "salmon", "lamb", "duck",
+    "senior", "diet", "food", "grain"
 ]
