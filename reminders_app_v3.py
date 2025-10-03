@@ -1659,10 +1659,11 @@ def run_factoids():
         match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
         pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
         current_results.append({
-            "Month": m.strftime("%b"),
-            "Year": m.year,
+            "Month": m.strftime("%b"),           # tooltip
+            "Year": m.year,                      # tooltip
+            "MonthYear": m.strftime("%b %Y"),    # axis labels
             "Percent": round(pct, 1),
-            "Offset": 0
+            "Offset": 0                          # solid bar
         })
     
     current_df = pd.DataFrame(current_results)
@@ -1681,18 +1682,19 @@ def run_factoids():
             ghost_results.append({
                 "Month": m.strftime("%b"),
                 "Year": prev.year,
+                "MonthYear": m.strftime("%b %Y"),  # aligns to same month slot
                 "Percent": round(pct_prev, 1),
-                "Offset": -0.4   # small negative offset so ghost sits just left, almost touching
+                "Offset": -0.2                     # ghost bar sits left, close
             })
     
     ghost_df = pd.DataFrame(ghost_results)
     
     # -----------------------------
-    # Combine into one dataframe
+    # Combine
     # -----------------------------
     plot_df = pd.concat([current_df, ghost_df], ignore_index=True)
     
-    # Tooltip with month + year separated
+    # Tooltip
     tooltip = [
         alt.Tooltip("Month:N", title="Month"),
         alt.Tooltip("Year:O", title="Year"),
@@ -1704,11 +1706,15 @@ def run_factoids():
     # -----------------------------
     bars = (
         alt.Chart(plot_df)
-        .mark_bar(size=18)   # narrow enough to allow touching
+        .mark_bar(size=18)
         .encode(
-            x=alt.X("Month:N", sort=[m.strftime("%b") for m in current_months],
-                    axis=alt.Axis(labelAngle=30, title=None)),
-            xOffset="Offset:O",   # offset to place ghost beside solid
+            x=alt.X(
+                "MonthYear:N",
+                sort=[m.strftime("%b %Y") for m in current_months],
+                axis=alt.Axis(labelAngle=30, title=None),
+                scale=alt.Scale(bandPaddingInner=0.25, bandPaddingOuter=0.05)  # tighter clusters
+            ),
+            xOffset="Offset:O",
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
             color=alt.condition(
                 alt.datum.Offset == 0,
@@ -1717,8 +1723,8 @@ def run_factoids():
             ),
             opacity=alt.condition(
                 alt.datum.Offset == 0,
-                alt.value(1),             # current = opaque
-                alt.value(0.35),          # ghost = 35%
+                alt.value(1),             # solid
+                alt.value(0.35),          # ghost
             ),
             tooltip=tooltip,
         )
@@ -1726,6 +1732,7 @@ def run_factoids():
     )
     
     st.altair_chart(bars, use_container_width=True)
+
     # --------------------------------
     # Top Items by Revenue
     # --------------------------------
@@ -1811,6 +1818,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
