@@ -1646,36 +1646,46 @@ def run_factoids():
     bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
     
     import altair as alt
+
+    # Merge year into MonthLabel for clarity
+    full_chart_df["MonthLabel"] = full_chart_df["Month"]
     
-    # Current year bars
-    bars_current = (
-        alt.Chart(full_chart_df[full_chart_df["Year"] == latest_month.year])
-        .mark_bar(size=20, color=bar_color, opacity=1)
+    # Add an offset column: current year = 0, previous year = -1
+    full_chart_df["Offset"] = full_chart_df["Year"].apply(
+        lambda y: 0 if y == latest_month.year else -1
+    )
+    
+    # Tooltip with year included
+    tooltip = [
+        alt.Tooltip("MonthLabel:N", title="Month"),
+        alt.Tooltip("Year:N"),
+        alt.Tooltip("Percent:Q", format=".1f", title="%"),
+    ]
+    
+    bars = (
+        alt.Chart(full_chart_df)
+        .mark_bar(size=20)
         .encode(
-            x=alt.X("Month:N", sort=list(chart_df["Month"]),
-                    axis=alt.Axis(labelAngle=30, title=None)),  # no x-axis title
+            x=alt.X("MonthLabel:N", sort=list(chart_df["Month"]),
+                    axis=alt.Axis(labelAngle=30, title=None)),
+            xOffset="Offset:O",   # <-- pushes ghost bar left
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
-            tooltip=[alt.Tooltip("Month:N"), alt.Tooltip("Percent:Q", format=".1f")]
+            color=alt.condition(
+                alt.datum.Year == latest_month.year,
+                alt.value(bar_color),       # solid colour for current year
+                alt.value(bar_color),       # same colour for prev year...
+            ),
+            opacity=alt.condition(
+                alt.datum.Year == latest_month.year,
+                alt.value(1),               # fully opaque
+                alt.value(0.5),             # ghosted
+            ),
+            tooltip=tooltip,
         )
+        .properties(width=700, height=400, title=f"{selected_kpi} - Last 12 Months")
     )
     
-    # Previous year bars (ghosted at 50% opacity)
-    bars_prev = (
-        alt.Chart(full_chart_df[full_chart_df["Year"] != latest_month.year])
-        .mark_bar(size=20, color=bar_color, opacity=0.5)
-        .encode(
-            x=alt.X("Month:N", sort=list(chart_df["Month"]),
-                    axis=alt.Axis(title=None)),
-            y=alt.Y("Percent:Q"),
-            tooltip=[alt.Tooltip("Month:N"), alt.Tooltip("Percent:Q", format=".1f")]
-        )
-    )
-    
-    chart = (bars_prev + bars_current).properties(
-        width=700, height=400, title=f"{selected_kpi} - Last 12 Months"
-    )
-    
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(bars, use_container_width=True)
 
 
     # --------------------------------
@@ -1764,6 +1774,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
