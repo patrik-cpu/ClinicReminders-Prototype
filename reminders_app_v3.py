@@ -1503,7 +1503,6 @@ def run_factoids():
 
     # Build cards
     if total_patients > 0:
-        cols = st.columns(7)  # 7 cards side by side
         metrics = {
             "Total Unique Patients": f"{total_patients:,}",
             "Unique Patients Buying Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
@@ -1515,17 +1514,22 @@ def run_factoids():
             "Unique Patients Having Anaesthetics": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
         }
 
-        for i, (label, value) in enumerate(metrics.items()):
-            cols[i % 4].markdown(  # 4 per row
-                f"""
-                <div style='background-color:#e0f2fe; border:1px solid #0284c7;
-                            padding:12px; border-radius:10px; text-align:center; margin-bottom:10px;'>
-                    <div style='font-size:14px; color:#0c4a6e; font-weight:600;'>{label}</div>
-                    <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        # Render 5 cards per row
+        metric_items = list(metrics.items())
+        for row_start in range(0, len(metric_items), 5):
+            cols = st.columns(5)
+            for i, (label, value) in enumerate(metric_items[row_start:row_start+5]):
+                cols[i].markdown(
+                    f"""
+                    <div style='background-color:#e0f2fe; border:1px solid #0284c7;
+                                padding:12px; border-radius:10px; text-align:center; margin-bottom:10px;'>
+                        <div style='font-size:14px; color:#0c4a6e; font-weight:600;'>{label}</div>
+                        <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
     else:
         st.info("No patients found in dataset.")
 
@@ -1615,6 +1619,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
