@@ -106,7 +106,8 @@ def run_factoids():
         d_sorted = df_all.sort_values(["Client Name","Planitem Performed"])
         d_sorted["DateOnly"] = pd.to_datetime(d_sorted["Planitem Performed"]).dt.normalize()
         d_sorted["DayDiff"] = d_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-        d_sorted["Block"] = d_sorted.groupby("Client Name")["DayDiff"].apply(lambda x: (x > 1).cumsum())
+        d_sorted["Block"] = d_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+
         tx = (d_sorted.groupby(["Client Name","Block"])
               .agg(Amount=("Amount","sum"), StartDate=("DateOnly","min"),
                    EndDate=("DateOnly","max"), Patients=("Patient Name", lambda x: set(x.astype(str))))
