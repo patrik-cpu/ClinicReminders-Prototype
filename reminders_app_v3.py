@@ -1604,22 +1604,35 @@ def run_factoids():
     # Dropdown for KPI selection
     selected_kpi = st.selectbox("Select metric:", list(KPI_GROUPS.keys()))
     
-    # Compute monthly percentages
-    results = []
+    # Compute monthly percentages for latest year
     pattern = KPI_GROUPS[selected_kpi]
-    
+    results = []
     for m in month_list:
         month_df = df_all[df_all["YearMonth"] == m]
         total_pats = month_df["Animal Name"].nunique()
-    
         match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
-    
         pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
-        results.append({"Month": m.strftime("%b %Y"), "Percent": pct})
+        results.append({"Month": m.strftime("%b %Y"), "Percent": round(pct, 1), "Year": m.year})
     
     chart_df = pd.DataFrame(results)
     
-    # Define custom colours for each KPI
+    # Compute previous year (ghost) values
+    yoy_results = []
+    for m in month_list:
+        prev_year = m - pd.DateOffset(years=1)
+        prev_df = df_all[df_all["YearMonth"] == prev_year]
+        total_prev = prev_df["Animal Name"].nunique()
+        match_prev = prev_df[prev_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
+        pct_prev = (match_prev / total_prev * 100) if total_prev > 0 else None
+        if pct_prev is not None:
+            yoy_results.append({"Month": m.strftime("%b %Y"), "Percent": round(pct_prev, 1), "Year": prev_year.year})
+    
+    yoy_df = pd.DataFrame(yoy_results)
+    
+    # Merge current + previous year data
+    full_chart_df = pd.concat([chart_df, yoy_df], ignore_index=True)
+    
+    # Define colours per KPI
     KPI_COLOURS = {
         "Unique Patients Having Dentals": "#60a5fa",      # blue
         "Unique Patients Having X-rays": "#f87171",       # red
@@ -1630,25 +1643,40 @@ def run_factoids():
         "Unique Patients Having Anaesthetics": "#22d3ee", # cyan
         "Unique Patients Hospitalised": "#f472b6",        # pink
     }
+    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
     
-    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")  # fallback = blue
-    
-    # Bar chart with Altair
     import altair as alt
-    chart = (
-        alt.Chart(chart_df)
-        .mark_bar(size=30, color=bar_color)  # narrower bars + dynamic colour
+    
+    # Current year bars
+    bars_current = (
+        alt.Chart(full_chart_df[full_chart_df["Year"] == latest_month.year])
+        .mark_bar(size=20, color=bar_color, opacity=1)
         .encode(
             x=alt.X("Month:N", sort=list(chart_df["Month"]),
-                    title="Month",
-                    axis=alt.Axis(labelAngle=30)),  # less tilt
+                    axis=alt.Axis(labelAngle=30, title=None)),  # no x-axis title
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
-            tooltip=["Month", "Percent"]
+            tooltip=[alt.Tooltip("Month:N"), alt.Tooltip("Percent:Q", format=".1f")]
         )
-        .properties(width=700, height=400, title=f"{selected_kpi} - Last 12 Months")
+    )
+    
+    # Previous year bars (ghosted at 50% opacity)
+    bars_prev = (
+        alt.Chart(full_chart_df[full_chart_df["Year"] != latest_month.year])
+        .mark_bar(size=20, color=bar_color, opacity=0.5)
+        .encode(
+            x=alt.X("Month:N", sort=list(chart_df["Month"]),
+                    axis=alt.Axis(title=None)),
+            y=alt.Y("Percent:Q"),
+            tooltip=[alt.Tooltip("Month:N"), alt.Tooltip("Percent:Q", format=".1f")]
+        )
+    )
+    
+    chart = (bars_prev + bars_current).properties(
+        width=700, height=400, title=f"{selected_kpi} - Last 12 Months"
     )
     
     st.altair_chart(chart, use_container_width=True)
+
 
     # --------------------------------
     # Top Items by Revenue
@@ -1736,6 +1764,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
