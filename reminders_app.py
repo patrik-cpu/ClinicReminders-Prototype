@@ -11,7 +11,8 @@ from utils import (
     PMS_DEFINITIONS, detect_pms, process_file,
     ensure_reminder_columns, simplify_vaccine_text,
     get_visible_plan_item, format_items, format_due_date,
-    normalize_display_case
+    normalize_display_case,
+    FLEA_WORM_KEYWORDS, FOOD_KEYWORDS
 )
 
 @st.cache_data(ttl=30)
