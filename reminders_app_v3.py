@@ -495,7 +495,7 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 
     # Compute next due dates
     days = pd.to_numeric(df["IntervalDays"], errors="coerce")
-    df["NextDueDate"] = df["ChargeDate"] + pd.to_datetime(days, unit="D", errors="coerce") - pd.Timestamp("1970-01-01")
+    df["NextDueDate"] = df["ChargeDate"] + pd.to_timedelta(days, unit="D")
     # The above keeps NaT where IntervalDays is NA
 
     # Format dates
@@ -1617,6 +1617,7 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
+
 
 
 
