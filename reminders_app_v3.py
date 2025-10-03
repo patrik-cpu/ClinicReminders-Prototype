@@ -1519,14 +1519,38 @@ def run_factoids():
     else:
         st.info("No patients found in dataset.")
         
-    # Render cards 5 per row
-    metric_items = list(metrics.items())
+    # --- Reorder Factoid cards ---
+    # Ensure Total Unique Patients comes first, then Max/Avg Patients per Day, then everything else
+    
+    ordered_labels = [
+        "Total Unique Patients",
+        "Max Patients/Day",
+        "Avg Patients/Day",
+    ]
+    
+    # Extract the reordered first group
+    primary_metrics = [(k, v) for k, v in metrics.items() if any(k.startswith(lbl) for lbl in ordered_labels)]
+    
+    # Then append the rest (excluding those already placed)
+    remaining_metrics = [(k, v) for k, v in metrics.items() if not any(k.startswith(lbl) for lbl in ordered_labels)]
+    
+    # Combine
+    metric_items = primary_metrics + remaining_metrics
+    
+    # --- Render with color overrides ---
     for row_start in range(0, len(metric_items), 5):
         cols = st.columns(5)
         for i, (label, value) in enumerate(metric_items[row_start:row_start+5]):
+    
+            # Light blue background for "Total Unique Patients"
+            if label.startswith("Total Unique Patients"):
+                bg_color = "#dbeafe"   # light blue
+            else:
+                bg_color = "#f1f5f9"   # default grey
+    
             cols[i].markdown(
                 f"""
-                <div style='background-color:#f1f5f9; border:1px solid #94a3b8;
+                <div style='background-color:{bg_color}; border:1px solid #94a3b8;
                             padding:14px; border-radius:10px; text-align:center; margin-bottom:12px;'>
                     <div style='font-size:14px; color:#334155; font-weight:600;'>{label}</div>
                     <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
@@ -1534,6 +1558,7 @@ def run_factoids():
                 """,
                 unsafe_allow_html=True,
             )
+
 
     # --------------------------------
     # Top Items by Revenue
@@ -1621,18 +1646,3 @@ def run_factoids():
 
 # Run Factoids
 run_factoids()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
