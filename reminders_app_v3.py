@@ -1507,7 +1507,7 @@ def run_factoids():
     month_match = month_match.reindex(current_months, fill_value=0)
     pct = (month_match / month_total.replace(0, pd.NA) * 100).fillna(0).round(1)
     current_df = pd.DataFrame({
-        "MonthYear": pd.to_datetime(current_months).dt.strftime("%b %Y"),
+        "MonthYear": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b %Y"),
         "Percent": pct.values,
         "Offset": 0,
     })
@@ -1545,12 +1545,12 @@ def run_factoids():
     
     # Combine into a single dataframe for charting
     plot_df = pd.DataFrame({
-        "MonthYear": pd.to_datetime(current_months).dt.strftime("%b %Y"),
+        "MonthYear": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b %Y"),
         "Percent": pct_current.values,
         "Offset": 0,
         "Label": "This Year",
     }).append(pd.DataFrame({
-        "MonthYear": pd.to_datetime(current_months).dt.strftime("%b %Y"),
+        "MonthYear": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b %Y"),
         "Percent": pct_prev.values,
         "Offset": -0.2,
         "Label": "Last Year",
@@ -2020,6 +2020,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
