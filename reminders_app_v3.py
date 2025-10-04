@@ -1797,8 +1797,52 @@ def run_factoids():
         st.info("No transactions found.")
 
     st.markdown("</div>", unsafe_allow_html=True)
+    
+    # -------------------------
+    # 📊 Revenue Concentration Curve
+    # -------------------------
+    rev_by_client = (
+        df.groupby("Client Name", dropna=False)["Amount"]
+          .sum()
+          .sort_values(ascending=False)
+          .reset_index()
+    )
+    
+    if not rev_by_client.empty and rev_by_client["Amount"].sum() > 0:
+        total_rev_all = float(rev_by_client["Amount"].sum())
+        n_clients = len(rev_by_client)
+    
+        # Rank clients by spend and compute cumulative revenue %
+        rev_by_client["Rank"] = rev_by_client.index + 1
+        rev_by_client["TopClientPercent"] = rev_by_client["Rank"] / n_clients * 100.0
+        rev_by_client["CumRevenue"] = rev_by_client["Amount"].cumsum()
+        rev_by_client["CumRevenuePercent"] = rev_by_client["CumRevenue"] / total_rev_all * 100.0
+    
+        st.altair_chart(
+            alt.Chart(rev_by_client)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("TopClientPercent:Q", title="Top X% of Clients"),
+                y=alt.Y("CumRevenuePercent:Q", title="% of Total Revenue"),
+                tooltip=[
+                    alt.Tooltip("Client Name:N", title="Client"),
+                    alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
+                    alt.Tooltip("TopClientPercent:Q", title="Top X%", format=".1f"),
+                    alt.Tooltip("CumRevenuePercent:Q", title="Cum. % Revenue", format=".1f"),
+                ],
+            )
+            .properties(
+                title="Revenue Concentration - What % of Revenue is Made Up by the Top X% Spending Clients",
+                height=400,
+                width=700,
+            ),
+            use_container_width=True,
+        )
+    else:
+        st.info("No client revenue available to plot revenue concentration.")
 
 run_factoids()
+
 
 
 
