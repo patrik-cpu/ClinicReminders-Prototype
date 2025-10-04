@@ -1512,18 +1512,49 @@ def run_factoids():
         "Offset": 0,
     })
 
-    # ghost bars (previous year)
-    prev_index = current_months - pd.DateOffset(years=1)
-    month_total_prev = month_total.reindex(prev_index, fill_value=0)
-    month_match_prev = month_match.reindex(prev_index, fill_value=0)
-    pct_prev = (month_match_prev / month_total_prev.replace(0, pd.NA) * 100).fillna(0).round(1)
-    ghost_df = pd.DataFrame({
+    # -------------------------
+    # Ghost bars (previous-year YoY comparison)
+    # -------------------------
+    # Compute the same KPI for all months in your dataset
+    all_months = df["ChargeDate"].dt.to_period("M").dt.to_timestamp().unique()
+    all_months = pd.Series(sorted(all_months))
+    
+    # Build last 24 months for context
+    target_months = all_months[all_months >= (latest_date - pd.DateOffset(months=23))]
+    
+    # Compute totals and matches for *all months*, not just last 12
+    month_total_all = df.groupby("YearMonth")["Animal Name"].nunique()
+    mask_all = df["Item Name"].str.contains(pattern_rx, na=False)
+    month_match_all = df[mask_all].groupby("YearMonth")["Animal Name"].nunique()
+    
+    # Build aligned previous-year pairs
+    current_months = target_months[-12:]
+    prev_months = current_months - pd.DateOffset(years=1)
+    
+    pct_current = (
+        (month_match_all.reindex(current_months, fill_value=0) /
+         month_total_all.reindex(current_months, fill_value=0).replace(0, pd.NA))
+        * 100
+    ).fillna(0).round(1)
+    
+    pct_prev = (
+        (month_match_all.reindex(prev_months, fill_value=0) /
+         month_total_all.reindex(prev_months, fill_value=0).replace(0, pd.NA))
+        * 100
+    ).fillna(0).round(1)
+    
+    # Combine into a single dataframe for charting
+    plot_df = pd.DataFrame({
+        "MonthYear": current_months.strftime("%b %Y"),
+        "Percent": pct_current.values,
+        "Offset": 0,
+        "Label": "This Year",
+    }).append(pd.DataFrame({
         "MonthYear": current_months.strftime("%b %Y"),
         "Percent": pct_prev.values,
         "Offset": -0.2,
-    })
-
-    plot_df = pd.concat([current_df, ghost_df], ignore_index=True)
+        "Label": "Last Year",
+    }), ignore_index=True)
 
     # Chart colors
     KPI_COLOURS = {
@@ -1548,15 +1579,25 @@ def run_factoids():
         alt.Chart(plot_df)
         .mark_bar(size=18)
         .encode(
-            x=alt.X("MonthYear:N", sort=current_months.strftime("%b %Y"), axis=alt.Axis(labelAngle=30, title=None)),
+            x=alt.X("MonthYear:N", sort=current_months.strftime("%b %Y"),
+                    axis=alt.Axis(labelAngle=30, title=None)),
             xOffset="Offset:O",
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
-            color=alt.condition(alt.datum.Offset == 0, alt.value(bar_color), alt.value(bar_color)),
-            opacity=alt.condition(alt.datum.Offset == 0, alt.value(1), alt.value(0.35)),
-            tooltip=tooltip,
+            color=alt.Color("Label:N", scale=alt.Scale(domain=["This Year", "Last Year"],
+                                                      range=[bar_color, "#d1d5db"]),
+                            legend=alt.Legend(title=None)),
+            tooltip=[
+                alt.Tooltip("Label:N", title="Year"),
+                alt.Tooltip("MonthYear:N", title="Month"),
+                alt.Tooltip("Percent:Q", format=".1f", title="%"),
+            ],
         )
-        .properties(width=700, height=400, title=f"Percentage of Clinic Patients Each Month {selected_kpi.split('Unique Patients')[-1].strip()} - Last 12 Months")
+        .properties(
+            width=700, height=400,
+            title=f"{selected_kpi} – Last 12 Months vs Previous Year"
+        )
     )
+
     st.altair_chart(bars, use_container_width=True)
     
     # -------------------------
@@ -1979,6 +2020,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
