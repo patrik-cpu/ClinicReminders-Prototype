@@ -1739,45 +1739,45 @@ def run_factoids():
             "Patient with Most Transactions",
         ]
         
-        def render_card_group(title, keys, fuzzy=False):
-            """Render a group of cards with optional fuzzy key matching."""
-            if not any(k in metrics for k in keys):
-                return
-        
-            st.markdown(
-                f"<h4 style='font-size:17px; font-weight:700; color:#475569; margin-top:1rem; margin-bottom:0.4rem;'>{title}</h4>",
-                unsafe_allow_html=True
-            )
-        
-            cols = st.columns(5)
-            i = 0
-        
-            # Allow fuzzy matching if requested (for metrics with date suffixes)
-            for key in keys:
-                matched_key = key
-                if fuzzy:
-                    for existing in metrics.keys():
-                        if existing.startswith(key):
-                            matched_key = existing
-                            break
-        
-                if matched_key in metrics:
-                    value = metrics.get(matched_key, "–")
-                    font_size = adjust_font_size(value)
-                    bg_color = "#f1f5f9" if not matched_key.startswith("Total Unique Patients") else "#dbeafe"
-                    cols[i % 5].markdown(
-                        CARD_STYLE.format(bg_color=bg_color, label=matched_key, value=value, font_size=font_size),
-                        unsafe_allow_html=True,
-                    )
-                    i += 1
-                    if i % 5 == 0 and matched_key != keys[-1]:
-                        cols = st.columns(5)
-        
-        # --- Final render calls (remove duplicates and fix fuzzy max keys) ---
-        render_card_group("⭐ Core", core_keys, fuzzy=True)
-        render_card_group("🐾 Patient Breakdown", patient_breakdown_keys)
-        render_card_group("💼 Transaction Numbers", transaction_keys)
-        render_card_group("🎉 Fun Facts", fun_fact_keys)
+    def render_card_group(title, keys, fuzzy=False):
+        """Render a group of cards with optional fuzzy key matching."""
+        if not any(k in metrics for k in keys):
+            return
+    
+        st.markdown(
+            f"<h4 style='font-size:17px; font-weight:700; color:#475569; margin-top:1rem; margin-bottom:0.4rem;'>{title}</h4>",
+            unsafe_allow_html=True
+        )
+    
+        cols = st.columns(5)
+        i = 0
+    
+        # Allow fuzzy matching if requested (for metrics with date suffixes)
+        for key in keys:
+            matched_key = key
+            if fuzzy:
+                for existing in metrics.keys():
+                    if existing.startswith(key):
+                        matched_key = existing
+                        break
+    
+            if matched_key in metrics:
+                value = metrics.get(matched_key, "–")
+                font_size = adjust_font_size(value)
+                bg_color = "#f1f5f9" if not matched_key.startswith("Total Unique Patients") else "#dbeafe"
+                cols[i % 5].markdown(
+                    CARD_STYLE.format(bg_color=bg_color, label=matched_key, value=value, font_size=font_size),
+                    unsafe_allow_html=True,
+                )
+                i += 1
+                if i % 5 == 0 and matched_key != keys[-1]:
+                    cols = st.columns(5)
+    
+    # --- Final render calls (remove duplicates and fix fuzzy max keys) ---
+    render_card_group("⭐ Core", core_keys, fuzzy=True)
+    render_card_group("🐾 Patient Breakdown", patient_breakdown_keys)
+    render_card_group("💼 Transaction Numbers", transaction_keys)
+    render_card_group("🎉 Fun Facts", fun_fact_keys)
 
 
 
@@ -1910,6 +1910,7 @@ def run_factoids():
         st.info("No client revenue available to plot revenue concentration.")
 
 run_factoids()
+
 
 
 
