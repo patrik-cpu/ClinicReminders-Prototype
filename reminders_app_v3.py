@@ -1650,16 +1650,51 @@ def run_factoids():
         st.info("No patients found in dataset.")
     
     # --- New metrics (fun + transactional) ---
-    common_pet = df["Animal Name"].dropna().str.strip().value_counts().head(1)
+    # 1️⃣ Unique patient list (for proper name counts)
+    unique_patients = (
+        df[["Client Name", "Animal Name"]]
+        .dropna()
+        .drop_duplicates()
+    )
+    
+    common_pet = (
+        unique_patients["Animal Name"]
+        .value_counts()
+        .head(1)
+    )
     if not common_pet.empty:
         metrics["Most Common Pet Name"] = f"{common_pet.index[0]} ({common_pet.iloc[0]:,})"
     
-    top_patient = (
-        df.groupby(["Animal Name", "Client Name"]).size().reset_index(name="Count").sort_values("Count", ascending=False).head(1)
-    )
-    if not top_patient.empty:
-        row = top_patient.iloc[0]
-        metrics["Patient with Most Transactions"] = f"{row['Animal Name']} ({row['Client Name']}) – {int(row['Count']):,}"
+    # 2️⃣ True transaction count per patient (using unique visit blocks)
+    if not df.empty:
+        df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
+        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
+        df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+        df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+    
+        transactions = (
+            df_sorted.groupby(["Client Name", "Block"])
+            .agg(
+                StartDate=("DateOnly", "min"),
+                Patients=("Animal Name", lambda x: list(set(x.astype(str))))
+            )
+            .reset_index()
+        )
+    
+        patient_tx_counts = (
+            transactions.explode("Patients")
+            .groupby(["Patients", "Client Name"])
+            .size()
+            .reset_index(name="VisitCount")
+            .sort_values("VisitCount", ascending=False)
+        )
+    
+        if not patient_tx_counts.empty:
+            top_patient = patient_tx_counts.iloc[0]
+            metrics["Patient with Most Transactions"] = (
+                f"{top_patient['Patients']} ({top_patient['Client Name']}) – {int(top_patient['VisitCount']):,}"
+            )
+
     
     vacc_patients = df[df["Item Name"].str.contains("|".join(VACCINE_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
     if total_patients > 0:
@@ -1908,6 +1943,7 @@ def run_factoids():
         st.info("No client revenue available to plot revenue concentration.")
 
 run_factoids()
+
 
 
 
