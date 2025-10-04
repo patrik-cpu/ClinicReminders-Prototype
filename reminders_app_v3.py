@@ -976,7 +976,6 @@ if working_df is not None:
     # Weekly Reminders
     st.markdown("---")
     st.markdown("<h2 id='reminders'>📅 Reminders</h2>", unsafe_allow_html=True)
-    st.markdown("---")
     st.markdown("<div id='weekly-reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("#### 📅 Weekly Reminders")
 
@@ -1887,6 +1886,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
