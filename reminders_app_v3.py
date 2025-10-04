@@ -1312,37 +1312,6 @@ def fetch_feedback(limit=500):
     data = rows[1:] if rows else []
     return data[-limit:] if data else []
 
-# Feedback section
-st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
-st.markdown("### Found a problem? Let me (Patrik) know here:")
-
-fb_col1, fb_col2 = st.columns([3,1])
-with fb_col1:
-    feedback_text = st.text_area(
-        "Describe the issue or suggestion",
-        key="feedback_text",
-        height=120,
-        placeholder="What did you try? What happened? Any screenshots or CSV names?",
-    )
-with fb_col2:
-    user_name_for_feedback = st.text_input("Your name (optional)", key="feedback_name", placeholder="Clinic / Your name")
-    user_email_for_feedback = st.text_input("Your email (optional)", key="feedback_email", placeholder="you@example.com")
-
-if st.button("Send", key="fb_send"):
-    if not feedback_text.strip():
-        st.error("Please enter a message before sending.")
-    else:
-        try:
-            insert_feedback(user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
-            st.success("Thanks! Your message has been recorded.")
-
-            # clear inputs
-            for k in ["feedback_text", "feedback_name", "feedback_email"]:
-                if k in st.session_state:
-                    del st.session_state[k]
-        except Exception as e:
-            st.error(f"Could not save your message. {e}")
-
 # --------------------------------
 # Factoids Section
 # --------------------------------
@@ -1597,7 +1566,8 @@ def run_factoids():
     # --------------------------------
     # 📌 At a Glance Metrics
     # --------------------------------
-    st.markdown("<h3 id='factoids-ataglance'>📌 At a Glance</h3>", unsafe_allow_html=True)
+    st.markdown("<div id='factoids-ataglance' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("### 📌 At a Glance")
 
     # --- Block computation (reused) ---
     df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
@@ -1801,23 +1771,34 @@ def run_factoids():
     render_card_group("🎉 Fun Facts", fun_fact_keys)
 
     # -------------------------
-    # 💰 Top 20 Items by Revenue
+    # 💰 Top 20 Items by Revenue (Table 1)
     # -------------------------
-    st.markdown("<h3 id='factoids-tables'>📋 Tables</h3>", unsafe_allow_html=True)
 
+    # 🔗 Sidebar anchor for “Tables” section
+    st.markdown("<div id='factoids-tables' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("### 📋 Tables")
+
+    # Table title
+    st.markdown("#### 💰 Top 20 Items by Revenue (Table 1)")
+    
     top_items = (
         df.groupby("Item Name")
         .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Qty", "sum"))
         .sort_values("TotalRevenue", ascending=False)
         .head(20)
     )
+    
     if not top_items.empty:
         total_rev = top_items["TotalRevenue"].sum()
         top_items["% of Total Revenue"] = (top_items["TotalRevenue"] / total_rev * 100).round(1)
         top_items["Revenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
         top_items["How Many"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
         top_items["% of Total Revenue"] = top_items["% of Total Revenue"].astype(str) + "%"
-        st.dataframe(top_items[["Revenue", "% of Total Revenue", "How Many"]], use_container_width=True)
+    
+        st.dataframe(
+            top_items[["Revenue", "% of Total Revenue", "How Many"]],
+            use_container_width=True
+        )
     else:
         st.info("No items found for the selected period.")
 
@@ -1861,4 +1842,35 @@ def run_factoids():
         st.info("No transactions found.")
 
 run_factoids()
+
+# Feedback section
+st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
+st.markdown("### Found a problem? Let me (Patrik) know here:")
+
+fb_col1, fb_col2 = st.columns([3,1])
+with fb_col1:
+    feedback_text = st.text_area(
+        "Describe the issue or suggestion",
+        key="feedback_text",
+        height=120,
+        placeholder="What did you try? What happened? Any screenshots or CSV names?",
+    )
+with fb_col2:
+    user_name_for_feedback = st.text_input("Your name (optional)", key="feedback_name", placeholder="Clinic / Your name")
+    user_email_for_feedback = st.text_input("Your email (optional)", key="feedback_email", placeholder="you@example.com")
+
+if st.button("Send", key="fb_send"):
+    if not feedback_text.strip():
+        st.error("Please enter a message before sending.")
+    else:
+        try:
+            insert_feedback(user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
+            st.success("Thanks! Your message has been recorded.")
+
+            # clear inputs
+            for k in ["feedback_text", "feedback_name", "feedback_email"]:
+                if k in st.session_state:
+                    del st.session_state[k]
+        except Exception as e:
+            st.error(f"Could not save your message. {e}")
 
