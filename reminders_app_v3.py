@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
+
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
 
@@ -37,7 +38,7 @@ st.sidebar.markdown(
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders Prototype v4.0 (with Factoids!)")
+    st.title("ClinicReminders Prototype v4.1 (with Factoids!)")
 st.markdown("---")
 
 # --------------------------------
@@ -1845,3 +1846,4 @@ def run_factoids():
         st.info("No client revenue available to plot revenue concentration.")
 
 run_factoids()
+
