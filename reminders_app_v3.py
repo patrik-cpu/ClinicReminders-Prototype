@@ -1805,7 +1805,7 @@ def run_factoids():
     # -------------------------
     # 💎 Top 5 Spending Clients
     # -------------------------
-    st.subheader("💎 Top 5 Spending Clients")
+    st.markdown("#### 💎 Top 5 Spending Clients (Table 2)")
     clients_nonblank = df[df["Client Name"].astype(str).str.strip() != ""]
     if not clients_nonblank.empty:
         top_clients = (
@@ -1824,7 +1824,7 @@ def run_factoids():
     # -------------------------
     # 📈 Top 5 Largest Client Transactions
     # -------------------------
-    st.subheader("📈 Top 5 Largest Client Transactions")
+    st.markdown("#### 📈 Top 5 Largest Client Transactions (Table 3)")
     tx_groups = transactions.copy()
     tx_groups["Patients"] = tx_groups["Patients"].apply(lambda s: ", ".join(sorted(s)))
     largest_tx = tx_groups.sort_values("Amount", ascending=False).head(5)
@@ -1843,9 +1843,13 @@ def run_factoids():
 
 run_factoids()
 
-# Feedback section
-st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
+# --------------------------------
+# 💬 Feedback
+# --------------------------------
+st.markdown("<div id='feedback' class='anchor-offset'></div>", unsafe_allow_html=True)
+st.markdown("## 💬 Feedback")
 st.markdown("### Found a problem? Let me (Patrik) know here:")
+
 
 fb_col1, fb_col2 = st.columns([3,1])
 with fb_col1:
@@ -1873,4 +1877,5 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
