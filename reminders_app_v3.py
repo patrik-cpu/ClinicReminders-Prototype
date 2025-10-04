@@ -11,6 +11,8 @@ from datetime import date, datetime, timedelta
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
+_SPACE_RX = re.compile(r"\s+")
+_CURRENCY_RX = re.compile(r"[^\d.\-]")
 
 # Sidebar "table of contents"
 st.sidebar.markdown(
@@ -120,14 +122,19 @@ DEFAULT_RULES = {
 # --------------------------------
 SETTINGS_FILE = "clinicreminders_settings.json"
 
+_last_settings = None  # global cache
+
 def save_settings():
+    global _last_settings
     settings = {
         "rules": st.session_state["rules"],
         "exclusions": st.session_state["exclusions"],
         "user_name": st.session_state["user_name"],
     }
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f)
+    if settings != _last_settings:  # only write if changed
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f)
+        _last_settings = settings
 
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
@@ -227,13 +234,12 @@ PMS_DEFINITIONS = {
 }
 
 def normalize_columns(cols):
-    """Normalize header strings for reliable comparisons."""
     cleaned = []
     for c in cols:
         if not isinstance(c, str):
             c = str(c)
         c = c.replace("\u00a0", " ").replace("\ufeff", "")
-        c = re.sub(r"\s+", " ", c).strip().lower()
+        c = _SPACE_RX.sub(" ", c).strip().lower()
         cleaned.append(c)
     return cleaned
 
@@ -241,8 +247,10 @@ def detect_pms(df: pd.DataFrame) -> str:
     """
     Robust PMS detection using small unique key-sets per PMS.
     Returns one of: 'VETport', 'Xpress', 'ezyVet', or None.
+    Optimized: avoids redundant normalize_columns() calls.
     """
-    df_cols = set(normalize_columns(df.columns))
+    # Normalize once
+    normalized_cols = set(normalize_columns(df.columns))
 
     # Unique key sets (lowercased)
     v_keys = {"planitem performed", "plan item amount"}
@@ -250,19 +258,22 @@ def detect_pms(df: pd.DataFrame) -> str:
     e_keys = {"invoice date", "total invoiced (excl)", "product name", "first name", "last name"}
 
     # Prefer stronger (more specific) matches
-    if v_keys.issubset(df_cols):
+    if v_keys.issubset(normalized_cols):
         return "VETport"
-    if e_keys.issubset(df_cols):
+    if e_keys.issubset(normalized_cols):
         return "ezyVet"
-    if x_keys.issubset(df_cols):
+    if x_keys.issubset(normalized_cols):
         return "Xpress"
 
     # Fallback: try the long lists in PMS_DEFINITIONS as a last resort, first match wins
     for pms_name, definition in PMS_DEFINITIONS.items():
-        required = set(normalize_columns(definition["columns"]))
-        if required.issubset(df_cols):
+        required = set(definition["columns"])
+        required = set(normalize_columns(required))  # normalize once per PMS, not per df
+        if required.issubset(normalized_cols):
             return pms_name
+
     return None
+
 
 
 # --------------------------------
@@ -362,6 +373,7 @@ def normalize_item_name(name: str) -> str:
     name = re.sub(r"[-+/().,]", " ", name)       # separators
     return re.sub(r"\s+", " ", name).strip()
 
+@st.cache_data(show_spinner=False)
 def map_intervals(df, rules):
     """
     Map item names to rules (by substring match) and compute IntervalDays.
@@ -446,7 +458,8 @@ def parse_dates(series: pd.Series) -> pd.Series:
     # Fallback: pandas inference
     parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
     return parsed.dt.normalize()
-
+    
+@st.cache_data(show_spinner=False)
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     """
     Ensure canonical reminder fields exist using the standardized schema:
@@ -512,25 +525,15 @@ def normalize_display_case(text: str) -> str:
     return " ".join(fixed)
 
 def clean_revenue_column(series: pd.Series) -> pd.Series:
-    """
-    Universal cleaner for revenue/amount columns.
-    - remove commas, currency symbols, other text
-    - convert to numeric, fill NaN with 0
-    """
     return (
         series.astype(str)
         .str.replace(",", "", regex=False)
-        .str.replace(r"[^\d.\-]", "", regex=True)
-        .str.strip()
+        .str.replace(_CURRENCY_RX, "", regex=True)
         .pipe(pd.to_numeric, errors="coerce")
         .fillna(0)
     )
 
-# --------------------------------
-# Cached CSV processor
-# --------------------------------
-
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def process_file(file_bytes, filename, rules):
     """
     Read the file bytes + filename, detect PMS, clean revenue, standardize to:
@@ -626,9 +629,10 @@ def process_file(file_bytes, filename, rules):
     df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
 
     # Parse dates
-    if "ChargeDate" in df.columns:
-        df["ChargeDate"] = parse_dates(df["ChargeDate"])
-        df["ChargeDate"] = df["ChargeDate"].dt.normalize()
+    if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
+        if "ChargeDate" in df.columns:
+            df["ChargeDate"] = parse_dates(df["ChargeDate"])
+            df["ChargeDate"] = df["ChargeDate"].dt.normalize()
 
     # Helper lowercase cols
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
@@ -636,6 +640,34 @@ def process_file(file_bytes, filename, rules):
     df["_item_lower"] = df["Item Name"].astype(str).str.lower()
 
     return df, pms_name, amount_col
+    
+@st.cache_data(show_spinner=False)
+def summarize_uploads(files, rules):
+    """Read and summarize all uploaded files. Cached for speed."""
+    datasets, summary_rows = [], []
+
+    for file in files:
+        file_bytes = file.read()
+        df, pms_name, amount_col = process_file(file_bytes, file.name, rules)
+        pms_name = pms_name or "Undetected"
+
+        from_date, to_date = None, None
+        if "ChargeDate" in df.columns:
+            try:
+                from_date = df["ChargeDate"].min()
+                to_date = df["ChargeDate"].max()
+            except Exception:
+                pass
+
+        summary_rows.append({
+            "File name": file.name,
+            "PMS": pms_name,
+            "From": from_date.strftime("%d %b %Y") if pd.notna(from_date) else "-",
+            "To": to_date.strftime("%d %b %Y") if pd.notna(to_date) else "-"
+        })
+        datasets.append((pms_name, df))
+
+    return datasets, summary_rows
 
 # --------------------------------
 # Tutorial section
@@ -672,40 +704,17 @@ if "last_uploaded_files" not in st.session_state:
     st.session_state["last_uploaded_files"] = []
 current_files = [f.name for f in files] if files else []
 if current_files != st.session_state["last_uploaded_files"]:
-    # Clear Streamlit cache and also remove any stored working_df
-    try:
-        st.cache_data.clear()
-    except Exception:
-        pass
+    if current_files != st.session_state.get("last_uploaded_files", []):
+        st.session_state["last_uploaded_files"] = current_files
+        st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
+
     st.session_state["last_uploaded_files"] = current_files
     # Also clear previously stored working_df in session state to avoid stale data
     if "working_df" in st.session_state:
         del st.session_state["working_df"]
 
 if files:
-    for file in files:
-        # Read bytes and pass filename for cache keying
-        file_bytes = file.read()
-        df, pms_name, amount_col = process_file(file_bytes, file.name, st.session_state["rules"])
-        pms_name = pms_name or "Undetected"
-
-        # Diagnostics outside cache are already printed inside process_file; still include summary
-        from_date, to_date = None, None
-        if "ChargeDate" in df.columns:
-            try:
-                from_date = df["ChargeDate"].min()
-                to_date = df["ChargeDate"].max()
-            except Exception:
-                from_date, to_date = None, None
-
-        summary_rows.append({
-            "File name": file.name,
-            "PMS": pms_name,
-            "From": from_date.strftime("%d %b %Y") if pd.notna(from_date) else "-",
-            "To": to_date.strftime("%d %b %Y") if pd.notna(to_date) else "-"
-        })
-        datasets.append((pms_name, df))
-
+    datasets, summary_rows = summarize_uploads(files, st.session_state["rules"])
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
     all_pms = {p for p, _ in datasets}
@@ -728,7 +737,6 @@ if files:
                 st.warning("PMS mismatch or some files missing expected canonical columns. Reminders cannot be generated reliably.")
         except Exception:
             st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
-
 
 # --------------------------------
 # Render Tables
@@ -1015,13 +1023,11 @@ if working_df is not None:
     
     if search_term:
         q = search_term.lower()
-        mask = (
-            df["_client_lower"].str.contains(q, regex=False) |
-            df["_animal_lower"].str.contains(q, regex=False) |
-            df["_item_lower"].str.contains(q, regex=False)
-        )
-        filtered = df[mask].copy()
-    
+        filtered = df.query(
+            "_client_lower.str.contains(@q, regex=False) or _animal_lower.str.contains(@q, regex=False) or _item_lower.str.contains(@q, regex=False)",
+            engine="python"
+        ).copy()
+
         filtered2 = ensure_reminder_columns(filtered, st.session_state["rules"])
     
         if not filtered2.empty:
@@ -1289,13 +1295,11 @@ def insert_feedback(name, email, message):
     sheet.append_row([next_id, now, name or "", email or "", message],
                      value_input_option="USER_ENTERED")
 
-
+@st.cache_data(ttl=60)
 def fetch_feedback(limit=500):
     rows = sheet.get_all_values()
     data = rows[1:] if rows else []
     return data[-limit:] if data else []
-
-
 
 # Feedback section
 st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
@@ -1840,27 +1844,4 @@ def run_factoids():
     else:
         st.info("No client revenue available to plot revenue concentration.")
 
-
-
 run_factoids()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
