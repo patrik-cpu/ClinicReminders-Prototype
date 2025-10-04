@@ -15,23 +15,31 @@ def fetch_feedback_cached(limit=500):
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
 
-# Sidebar "table of contents"
+# Sidebar "table of contents" — simplified navigation
 st.sidebar.markdown(
     """
-    <div style="font-size:18px; font-weight:bold;">📂 Navigation</div>
-    <ul style="list-style-type:none; padding-left:0; line-height:1.8;">
+    <ul style="list-style-type:none; padding-left:0; line-height:1.8; font-size:16px;">
       <li><a href="#tutorial" style="text-decoration:none;">📖 Tutorial</a></li>
-      <li><a href="#upload-data" style="text-decoration:none;">📂 Upload Data</a></li>
-      <li><a href="#weekly-reminders" style="text-decoration:none;">📅 Weekly Reminders</a></li>
-      <li><a href="#search" style="text-decoration:none;">🔍 Search</a></li>
-      <li><a href="#search-terms" style="text-decoration:none;">📝 Search Terms</a></li>
-      <li><a href="#exclusions" style="text-decoration:none;">🚫 Exclusions</a></li>
-      <li><a href="#feedback" style="text-decoration:none;">💬 Feedback</a></li>
+      <li><a href="#data-upload" style="text-decoration:none;">📂 Data Upload</a></li>
+      <li><a href="#reminders" style="text-decoration:none;">📅 Reminders</a></li>
+        <ul style="list-style-type:none; padding-left:1.2em; line-height:1.6;">
+          <li><a href="#weekly-reminders" style="text-decoration:none;">🔹 Weekly Reminders</a></li>
+          <li><a href="#search" style="text-decoration:none;">🔹 Search</a></li>
+          <li><a href="#search-terms" style="text-decoration:none;">🔹 Search Terms</a></li>
+          <li><a href="#exclusions" style="text-decoration:none;">🔹 Exclusions</a></li>
+        </ul>
       <li><a href="#factoids" style="text-decoration:none;">📊 Factoids</a></li>
+        <ul style="list-style-type:none; padding-left:1.2em; line-height:1.6;">
+          <li><a href="#factoids-charts" style="text-decoration:none;">🔹 Charts</a></li>
+          <li><a href="#factoids-ataglance" style="text-decoration:none;">🔹 At a Glance</a></li>
+          <li><a href="#factoids-tables" style="text-decoration:none;">🔹 Tables</a></li>
+        </ul>
+      <li><a href="#feedback" style="text-decoration:none;">💬 Feedback</a></li>
     </ul>
     """,
     unsafe_allow_html=True,
 )
+
 
 # --------------------------------
 # Title
@@ -687,8 +695,8 @@ st.info(
 )
 
 # --- Upload Data section (replace existing) ---
-st.markdown("<div id='upload-data' class='anchor-offset'></div>", unsafe_allow_html=True)
-st.markdown("## 📂 Upload Data - Do this first!")
+st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
+st.markdown("## 📂 Data Upload - Do This First!")
 
 files = st.file_uploader(
     "Upload Sales Plan file(s)",
@@ -965,6 +973,8 @@ if working_df is not None:
 
 
     # Weekly Reminders
+    st.markdown("---")
+    st.markdown("<h2 id='reminders'>📅 Reminders</h2>", unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("<h2 id='weekly-reminders'>📅 Weekly Reminders</h2>", unsafe_allow_html=True)
     st.info("💡 Pick a Start Date to see reminders for the next 7-day window. Click WA to prepare a message.")
@@ -1399,7 +1409,8 @@ VACCINE_RX          = _rx(VACCINE_KEYWORDS)
 
 def run_factoids():
     st.markdown("<h2 id='factoids'>📊 Factoids</h2>", unsafe_allow_html=True)
-    st.info("📈 Quick insights into your clinic's activity and sales.")
+    st.info("📈 Quick insights into your clinic's activity, performance, and trends.")
+
 
     # --- early exit if no data ---
     if "working_df" not in st.session_state or st.session_state["working_df"] is None or st.session_state["working_df"].empty:
@@ -1430,6 +1441,8 @@ def run_factoids():
 
     # --- Precompute YearMonth ---
     df["YearMonth"] = df["ChargeDate"].dt.to_period("M").dt.to_timestamp()
+    
+    st.markdown("<h3 id='factoids-charts'>📈 Charts</h3>", unsafe_allow_html=True)
 
     # -------------------------
     # 📊 KPI CHART
@@ -1515,7 +1528,49 @@ def run_factoids():
         .properties(width=700, height=400, title=f"Percentage of Clinic Patients Each Month {selected_kpi.split('Unique Patients')[-1].strip()} - Last 12 Months")
     )
     st.altair_chart(bars, use_container_width=True)
+    
+    # -------------------------
+    # 📊 Revenue Concentration Curve
+    # -------------------------
+    st.markdown("---")
+    st.subheader("📊 Revenue Concentration Curve")
+    rev_by_client = (
+        df.groupby("Client Name", dropna=False)["Amount"]
+        .sum()
+        .sort_values(ascending=False)
+        .reset_index()
+    )
+    if not rev_by_client.empty and rev_by_client["Amount"].sum() > 0:
+        total_rev_all = float(rev_by_client["Amount"].sum())
+        n_clients = len(rev_by_client)
+        rev_by_client["Rank"] = rev_by_client.index + 1
+        rev_by_client["TopClientPercent"] = rev_by_client["Rank"] / n_clients * 100.0
+        rev_by_client["CumRevenue"] = rev_by_client["Amount"].cumsum()
+        rev_by_client["CumRevenuePercent"] = rev_by_client["CumRevenue"] / total_rev_all * 100.0
 
+        st.altair_chart(
+            alt.Chart(rev_by_client)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("TopClientPercent:Q", title="Top X% of Clients"),
+                y=alt.Y("CumRevenuePercent:Q", title="% of Total Revenue"),
+                tooltip=[
+                    alt.Tooltip("Client Name:N", title="Client"),
+                    alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
+                    alt.Tooltip("TopClientPercent:Q", title="Top X%", format=".1f"),
+                    alt.Tooltip("CumRevenuePercent:Q", title="Cum. % Revenue", format=".1f"),
+                ],
+            )
+            .properties(
+                title="Revenue Concentration - What % of Revenue is Made Up by the Top X% Spending Clients (Mouse-over for details)",
+                height=400,
+                width=700,
+            ),
+            use_container_width=True,
+        )
+    else:
+        st.info("No client revenue available to plot revenue concentration.")
+        
     # -------------------------
     # 📅 Select Period dropdown
     # -------------------------
@@ -1542,7 +1597,7 @@ def run_factoids():
     # --------------------------------
     # 📌 At a Glance Metrics
     # --------------------------------
-    st.subheader("📌 At a Glance")
+    st.markdown("<h3 id='factoids-ataglance'>📌 At a Glance</h3>", unsafe_allow_html=True)
 
     # --- Block computation (reused) ---
     df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
@@ -1748,7 +1803,8 @@ def run_factoids():
     # -------------------------
     # 💰 Top 20 Items by Revenue
     # -------------------------
-    st.subheader("💰 Top 20 Items by Revenue")
+    st.markdown("<h3 id='factoids-tables'>📋 Tables</h3>", unsafe_allow_html=True)
+
     top_items = (
         df.groupby("Item Name")
         .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Qty", "sum"))
@@ -1804,45 +1860,5 @@ def run_factoids():
     else:
         st.info("No transactions found.")
 
-    # -------------------------
-    # 📊 Revenue Concentration Curve
-    # -------------------------
-    st.subheader("📊 Revenue Concentration Curve")
-    rev_by_client = (
-        df.groupby("Client Name", dropna=False)["Amount"]
-        .sum()
-        .sort_values(ascending=False)
-        .reset_index()
-    )
-    if not rev_by_client.empty and rev_by_client["Amount"].sum() > 0:
-        total_rev_all = float(rev_by_client["Amount"].sum())
-        n_clients = len(rev_by_client)
-        rev_by_client["Rank"] = rev_by_client.index + 1
-        rev_by_client["TopClientPercent"] = rev_by_client["Rank"] / n_clients * 100.0
-        rev_by_client["CumRevenue"] = rev_by_client["Amount"].cumsum()
-        rev_by_client["CumRevenuePercent"] = rev_by_client["CumRevenue"] / total_rev_all * 100.0
-
-        st.altair_chart(
-            alt.Chart(rev_by_client)
-            .mark_line(point=True)
-            .encode(
-                x=alt.X("TopClientPercent:Q", title="Top X% of Clients"),
-                y=alt.Y("CumRevenuePercent:Q", title="% of Total Revenue"),
-                tooltip=[
-                    alt.Tooltip("Client Name:N", title="Client"),
-                    alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
-                    alt.Tooltip("TopClientPercent:Q", title="Top X%", format=".1f"),
-                    alt.Tooltip("CumRevenuePercent:Q", title="Cum. % Revenue", format=".1f"),
-                ],
-            )
-            .properties(
-                title="Revenue Concentration - What % of Revenue is Made Up by the Top X% Spending Clients (Mouse-over for details)",
-                height=400,
-                width=700,
-            ),
-            use_container_width=True,
-        )
-    else:
-        st.info("No client revenue available to plot revenue concentration.")
-
 run_factoids()
+
