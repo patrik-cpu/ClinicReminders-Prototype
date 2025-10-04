@@ -1678,21 +1678,35 @@ def run_factoids():
             metrics[k] = f"{v:,} ({v/total_clients:.1%})"
     
     # ----------------------------
-    # 🧱 Card rendering (grouped sections)
+    # 🧱 Card rendering (clean + fixes)
     # ----------------------------
+    
+    # ✅ consistent card height and dynamic font scaling
     CARD_STYLE = """
     <div style='background-color:{bg_color};
-                border:1px solid #475569;
-                padding:18px;
+                border:1px solid #94a3b8;
+                padding:16px;
                 border-radius:10px;
                 text-align:center;
                 margin-bottom:12px;
-                min-height:130px;'>
-        <div style='font-size:14px; color:#e2e8f0; font-weight:600;'>{label}</div>
-        <div style='font-size:26px; font-weight:bold; color:#f8fafc; margin-top:4px;'>{value}</div>
+                min-height:120px;
+                display:flex;
+                flex-direction:column;
+                justify-content:center;'>
+        <div style='font-size:13px; color:#334155; font-weight:600; line-height:1.2;'>{label}</div>
+        <div style='font-size:{font_size}px; font-weight:700; color:#0f172a; margin-top:6px;'>{value}</div>
     </div>
     """
     
+    def adjust_font_size(text, base_size=22, min_size=16):
+        """Shrink font size if text is long."""
+        if len(text) > 25:
+            return min_size
+        elif len(text) > 18:
+            return base_size - 2
+        return base_size
+    
+    # --- card groups ---
     core_keys = [
         "Total Unique Patients",
         "Max Patients/Day",
@@ -1724,6 +1738,37 @@ def run_factoids():
         "Most Common Pet Name",
         "Patient with Most Transactions",
     ]
+    
+    # ✅ smaller, cleaner subheadings
+    def render_card_group(title, keys):
+        if not any(k in metrics for k in keys):
+            return
+        st.markdown(
+            f"<h4 style='font-size:18px; font-weight:700; color:#475569; margin-top:1.2rem;'>{title}</h4>",
+            unsafe_allow_html=True
+        )
+    
+        cols = st.columns(5)
+        i = 0
+        for key in keys:
+            if key in metrics:
+                value = metrics[key]
+                font_size = adjust_font_size(value)
+                bg_color = "#f1f5f9" if key != "Total Unique Patients" else "#dbeafe"
+                cols[i % 5].markdown(
+                    CARD_STYLE.format(bg_color=bg_color, label=key, value=value, font_size=font_size),
+                    unsafe_allow_html=True,
+                )
+                i += 1
+                if i % 5 == 0 and key != keys[-1]:
+                    cols = st.columns(5)
+    
+    # --- render grouped sections ---
+    render_card_group("⭐ Core", core_keys)
+    render_card_group("🐾 Patient Breakdown", patient_breakdown_keys)
+    render_card_group("💼 Transaction Numbers", transaction_keys)
+    render_card_group("🎉 Fun Facts", fun_fact_keys)
+
     
     def render_card_group(title, keys):
         if not any(k in metrics for k in keys):
@@ -1878,6 +1923,7 @@ def run_factoids():
         st.info("No client revenue available to plot revenue concentration.")
 
 run_factoids()
+
 
 
 
