@@ -1420,19 +1420,15 @@ def run_factoids():
 
     # KPI regex patterns (added one line for vaccination)
     KPI_GROUPS = {
-        "Unique Patients Having Dentals": r"dental",
-        KPI_GROUPS = {
-            "Unique Patients Having Dentals": "dental",
-            "Unique Patients Having X-rays": "|".join(XRAY_KEYWORDS),
-            "Unique Patients Having Ultrasounds": "|".join(ULTRASOUND_KEYWORDS),
-            "Unique Patients Buying Flea/Worm": "|".join(FLEA_WORM_KEYWORDS),
-            "Unique Patients Buying Food": "|".join(FOOD_KEYWORDS),
-            "Unique Patients Having Lab Work": "|".join(LABWORK_KEYWORDS),
-            "Unique Patients Having Anaesthetics": "|".join(ANAESTHETIC_KEYWORDS),
-            "Unique Patients Hospitalised": "|".join(HOSPITALISATION_KEYWORDS),
-            "Unique Patients Vaccinated": "|".join(VACCINE_KEYWORDS),
-        }
-
+        "Unique Patients Having Dentals": "dental",
+        "Unique Patients Having X-rays": "|".join(XRAY_KEYWORDS),
+        "Unique Patients Having Ultrasounds": "|".join(ULTRASOUND_KEYWORDS),
+        "Unique Patients Buying Flea/Worm": "|".join(FLEA_WORM_KEYWORDS),
+        "Unique Patients Buying Food": "|".join(FOOD_KEYWORDS),
+        "Unique Patients Having Lab Work": "|".join(LABWORK_KEYWORDS),
+        "Unique Patients Having Anaesthetics": "|".join(ANAESTHETIC_KEYWORDS),
+        "Unique Patients Hospitalised": "|".join(HOSPITALISATION_KEYWORDS),
+        "Unique Patients Vaccinated": "|".join(VACCINE_KEYWORDS),
     }
 
     # Styled dropdown for KPI selection (unchanged)
@@ -1803,6 +1799,7 @@ def run_factoids():
     st.markdown("</div>", unsafe_allow_html=True)
 
 run_factoids()
+
 
 
 
