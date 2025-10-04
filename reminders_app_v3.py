@@ -1781,11 +1781,16 @@ def run_factoids():
     )
     def format_date_range(r):
         start, end = r["StartDate"], r["EndDate"]
-        if pd.isna(start) and pd.isna(end): return "-"
-        if pd.isna(start): return f"→ {end.strftime('%d %b %Y')}"
-        if pd.isna(end): return start.strftime("%d %b %Y")
-        if start == end): return start.strftime("%d %b %Y")
+        if pd.isna(start) and pd.isna(end):
+            return "-"
+        if pd.isna(start):
+            return f"→ {end.strftime('%d %b %Y')}"
+        if pd.isna(end):
+            return start.strftime("%d %b %Y")
+        if start == end:
+            return start.strftime("%d %b %Y")
         return f"{start.strftime('%d %b %Y')} → {end.strftime('%d %b %Y')}"
+
     tx_groups["DateRange"] = tx_groups.apply(format_date_range, axis=1)
     largest_tx = tx_groups.sort_values("Amount", ascending=False).head(5)
     if not largest_tx.empty:
@@ -1798,6 +1803,7 @@ def run_factoids():
     st.markdown("</div>", unsafe_allow_html=True)
 
 run_factoids()
+
 
 
 
