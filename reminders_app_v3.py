@@ -41,7 +41,6 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-
 # --------------------------------
 # Title
 # --------------------------------
@@ -1859,7 +1858,7 @@ def run_factoids():
     st.markdown("### 📋 Tables")
 
     # Table title
-    st.markdown("#### 💰 Top 20 Items by Revenue (Table 1)")
+    st.markdown("#### 💰 Top 20 Items by Revenue")
     
     top_items = (
         df.groupby("Item Name")
@@ -1885,8 +1884,9 @@ def run_factoids():
     # -------------------------
     # 💎 Top 5 Spending Clients
     # -------------------------
-    st.markdown("#### 💎 Top 5 Spending Clients (Table 2)")
-   clients_nonblank = (
+    st.markdown("#### 💎 Top 5 Spending Clients")
+    
+    clients_nonblank = (
         df.dropna(subset=["Client Name"])
         .assign(Client_Clean=df["Client Name"].astype(str).str.strip())
     )
@@ -1904,7 +1904,7 @@ def run_factoids():
             .rename("Total Spend")
             .to_frame()
         )
-
+    
         top_clients["Total Spend"] = top_clients["Total Spend"].apply(lambda x: f"{int(x):,}")
         st.dataframe(top_clients, use_container_width=True)
     else:
@@ -1913,10 +1913,15 @@ def run_factoids():
     # -------------------------
     # 📈 Top 5 Largest Client Transactions
     # -------------------------
-    st.markdown("#### 📈 Top 5 Largest Client Transactions (Table 3)")
+    st.markdown("#### 📈 Top 5 Largest Client Transactions")
     tx_groups = transactions.copy()
     tx_groups["Patients"] = tx_groups["Patients"].apply(
-        lambda s: ", ".join(sorted([p for p in s if isinstance(p, str) and p.strip() != "" and "counter" not in p.lower()]))
+        lambda s: ", ".join(sorted([
+            p for p in s
+            if isinstance(p, str)
+            and p.strip() != ""
+            and "counter" not in p.lower()
+        ]))
     )
     tx_groups = tx_groups[
         tx_groups["Client Name"].notna()
@@ -1974,6 +1979,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
