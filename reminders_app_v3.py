@@ -1578,13 +1578,14 @@ def run_factoids():
         alt.Tooltip("Percent:Q", format=".1f", title="%"),
     ]
     
-    current_months = pd.to_datetime(current_months)
+    # Ensure current_months is a clean list of strings for sorting
+    x_labels = pd.to_datetime(current_months).strftime("%b %Y").tolist()
     bars = (
         alt.Chart(plot_df)
         .mark_bar(size=18)
         .encode(
-            x=alt.X("MonthYear:N", sort=current_months.strftime("%b %Y"),
-                    axis=alt.Axis(labelAngle=30, title=None)),
+            x=alt.X("MonthYear:N", sort=x_labels,
+                axis=alt.Axis(labelAngle=30, title=None)),
             xOffset="Offset:O",
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
             color=alt.Color("Label:N", scale=alt.Scale(domain=["This Year", "Last Year"],
@@ -2023,3 +2024,4 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
