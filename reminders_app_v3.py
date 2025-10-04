@@ -732,7 +732,7 @@ st.markdown("<h2 id='tutorial'>📖 Tutorial - Read me first!</h2>", unsafe_allo
 st.info(
     "### 🧭 READ THIS FIRST!\n"
     "This prototype does two main things:\n\n"
-    "1️⃣ **Sets Reminders** for all sorts of things — Vaccines, Dentals, Flea/Worm, Librela/Solensia, and anything else.\n"
+    "1️⃣ **Sets Reminders** for all sorts of things — Vaccines, Dentals, Flea/Worm, Librela/Solensia, and anything else.\n\n"
     "2️⃣ **Shows you interesting Factoids** about your clinic. Use the sidebar on the left to navigate.\n\n"
     "### 📋 How to use:\n"
     "**STEP 1:** Upload your data. Patrik has probably provided you with this.  \n"
@@ -1939,6 +1939,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
