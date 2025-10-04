@@ -1706,39 +1706,41 @@ def run_factoids():
             return base_size - 2
         return base_size
     
-        # --- card groups ---
-        core_keys = [
-            "Total Unique Patients",
-            "Max Patients/Day",
-            "Avg Patients/Day",
-            "Max Transactions/Day",
-            "Avg Transactions/Day",
-        ]
-        
-        patient_breakdown_keys = [
-            "Unique Patients Having Dentals",
-            "Unique Patients Having X-rays",
-            "Unique Patients Having Ultrasounds",
-            "Unique Patients Buying Flea/Worm",
-            "Unique Patients Buying Food",
-            "Unique Patients Having Lab Work",
-            "Unique Patients Having Anaesthetics",
-            "Unique Patients Hospitalised",
-            "Unique Patients Vaccinated",
-        ]
-        
-        transaction_keys = [
-            "Clients with 1 Transaction",
-            "Clients with 2 Transactions",
-            "Clients with 3-5 Transactions",
-            "Clients with 6+ Transactions",
-        ]
-        
-        fun_fact_keys = [
-            "Most Common Pet Name",
-            "Patient with Most Transactions",
-        ]
-        
+    
+    # --- card groups (now in correct scope) ---
+    core_keys = [
+        "Total Unique Patients",
+        "Max Patients/Day",
+        "Avg Patients/Day",
+        "Max Transactions/Day",
+        "Avg Transactions/Day",
+    ]
+    
+    patient_breakdown_keys = [
+        "Unique Patients Having Dentals",
+        "Unique Patients Having X-rays",
+        "Unique Patients Having Ultrasounds",
+        "Unique Patients Buying Flea/Worm",
+        "Unique Patients Buying Food",
+        "Unique Patients Having Lab Work",
+        "Unique Patients Having Anaesthetics",
+        "Unique Patients Hospitalised",
+        "Unique Patients Vaccinated",
+    ]
+    
+    transaction_keys = [
+        "Clients with 1 Transaction",
+        "Clients with 2 Transactions",
+        "Clients with 3-5 Transactions",
+        "Clients with 6+ Transactions",
+    ]
+    
+    fun_fact_keys = [
+        "Most Common Pet Name",
+        "Patient with Most Transactions",
+    ]
+    
+    
     def render_card_group(title, keys, fuzzy=False):
         """Render a group of cards with optional fuzzy key matching."""
         if not any(k in metrics for k in keys):
@@ -1773,17 +1775,13 @@ def run_factoids():
                 if i % 5 == 0 and matched_key != keys[-1]:
                     cols = st.columns(5)
     
-    # --- Final render calls (remove duplicates and fix fuzzy max keys) ---
+    
+    # --- Final render calls ---
     render_card_group("⭐ Core", core_keys, fuzzy=True)
     render_card_group("🐾 Patient Breakdown", patient_breakdown_keys)
     render_card_group("💼 Transaction Numbers", transaction_keys)
     render_card_group("🎉 Fun Facts", fun_fact_keys)
 
-
-
-    # -------------------------
-    # (Everything below here stays exactly as in your file)
-    # -------------------------
 
     # Top Items by Revenue
     st.subheader("💰 Top 20 Items by Revenue")
@@ -1910,6 +1908,7 @@ def run_factoids():
         st.info("No client revenue available to plot revenue concentration.")
 
 run_factoids()
+
 
 
 
