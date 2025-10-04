@@ -1371,6 +1371,14 @@ HOSPITALISATION_KEYWORDS = [
     "hospitalisation", "hospitalization"
 ]
 
+VACCINE_KEYWORDS = [
+    "vaccine", "vaccination", "booster",
+    "rabies", "dhpp", "dhppil", "tricat", "pch", "pcl", "leukemia",
+    "fvr", "feline viral rhinotracheitis", "calici", "panleukopenia",
+    "lepto", "kennel cough", "bordetella", "parvo", "distemper",
+    "lyme", "influenza", "flu", "vacc"
+]
+
 
 def run_factoids():
     st.markdown("<h2 id='factoids'>📊 Factoids</h2>", unsafe_allow_html=True)
@@ -1407,33 +1415,59 @@ def run_factoids():
     df["YearMonth"] = df["ChargeDate"].dt.to_period("M").dt.to_timestamp()
 
     # -------------------------
-    # 📊 Monthly Breakdown Chart (moved to top)
+    # 📊 Metric selection
     # -------------------------
-
-    # KPI regex patterns
     KPI_GROUPS = {
         "Unique Patients Having Dentals": r"dental",
         "Unique Patients Having X-rays": r"xray|x-ray|radiograph|radiology",
         "Unique Patients Having Ultrasounds": r"ultrasound|echo|afast|tfast|a-fast|t-fast",
         "Unique Patients Buying Flea/Worm": r"bravecto|revolution|deworm|frontline|milbe|milpro|nexgard|simparica|advocate|worm|praz|fenbend",
-        "Unique Patients Buying Food": r"hill's|hills|royal canin|purina|proplan|iams|eukanuba|orijen|acana|farmina|vetlife|wellness|taste of the wild|nutro|pouch|tin|can|canned|wet|dry|kibble",
+        "Unique Patients Buying Food": r"hill's|hills|royal canin|purina|proplan|iams|eukanuba|orijen|acana|farmina|vetlife|wellness|taste of the wild|nutro|pouch|tin|can|canned|wet|dry|kibble|rc",
         "Unique Patients Having Lab Work": r"cbc|blood test|lab|biochemistry|haematology|urinalysis|idexx|ghp|chem|felv|fiv|urine|elisa|pcr|microscop|cytology|smear|faecal|fecal|swab|parvo|distemper|giardia",
         "Unique Patients Having Anaesthetics": r"anaesth|anesth|propofol|isoflurane|spay|castrate|neuter|alfax",
         "Unique Patients Hospitalised": r"hospitalisation|hospitalization",
     }
 
-    # Styled dropdown for KPI selection
     st.markdown(
         "<div style='font-size:18px; font-weight:bold; color:blue;'>Select Metric:</div>",
         unsafe_allow_html=True
     )
     selected_kpi = st.selectbox("", list(KPI_GROUPS.keys()), key="factoid_metric", label_visibility="collapsed")
 
-    # Current 12 months
-    current_months = pd.period_range(end=latest_date.to_period("M"), periods=12, freq="M").to_timestamp()
-    pattern = KPI_GROUPS[selected_kpi]
+    # -------------------------
+    # 📅 Select Period
+    # -------------------------
+    st.markdown(
+        "<div style='font-size:18px; font-weight:bold; color:red;'>Select Period:</div>",
+        unsafe_allow_html=True
+    )
+    period_options = [
+        "All Data",
+        "Prev 30 Days (of most recent data)",
+        "Prev Quarter (of most recent data)",
+        "Prev Year (of most recent data)"
+    ]
+    selected_period = st.selectbox(
+        "", period_options, index=0, label_visibility="collapsed", key="factoids_period_select"
+    )
 
-    # Current-year bars
+    if not pd.isna(latest_date):
+        if selected_period == "Prev 30 Days (of most recent data)":
+            start_date = latest_date - pd.DateOffset(days=30)
+            df = df[df["ChargeDate"] >= start_date]
+        elif selected_period == "Prev Quarter (of most recent data)":
+            start_date = latest_date - pd.DateOffset(months=3)
+            df = df[df["ChargeDate"] >= start_date]
+        elif selected_period == "Prev Year (of most recent data)":
+            start_date = latest_date - pd.DateOffset(years=1)
+            df = df[df["ChargeDate"] >= start_date]
+
+    # -------------------------
+    # 📊 Monthly Breakdown Chart
+    # -------------------------
+    pattern = KPI_GROUPS[selected_kpi]
+    current_months = pd.period_range(end=latest_date.to_period("M"), periods=12, freq="M").to_timestamp()
+
     current_results = []
     for m in current_months:
         month_df = df[df["YearMonth"] == m]
@@ -1444,128 +1478,31 @@ def run_factoids():
             "Month": m.strftime("%b"),
             "Year": m.year,
             "MonthYear": m.strftime("%b %Y"),
-            "Percent": round(pct, 1),
-            "Offset": 0
+            "Percent": round(pct, 1)
         })
-    current_df = pd.DataFrame(current_results)
-    
-    # Previous-year ghost bars
-    ghost_results = []
-    for m in current_months:
-        prev = m - pd.DateOffset(years=1)
-        prev_df = df[df["YearMonth"] == prev]
-        total_prev = prev_df["Animal Name"].nunique()
-        match_prev = prev_df[prev_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
-        if total_prev > 0:
-            pct_prev = (match_prev / total_prev * 100)
-            ghost_results.append({
-                "Month": m.strftime("%b"),
-                "Year": prev.year,
-                "MonthYear": m.strftime("%b %Y"),
-                "Percent": round(pct_prev, 1),
-                "Offset": -0.2
-            })
-    ghost_df = pd.DataFrame(ghost_results)
-    
-    # ✅ Ensure both DFs always have the same columns, even if empty
-    if current_df.empty:
-        current_df = pd.DataFrame(columns=["Month", "Year", "MonthYear", "Percent", "Offset"])
-    if ghost_df.empty:
-        ghost_df = pd.DataFrame(columns=["Month", "Year", "MonthYear", "Percent", "Offset"])
-    
-    # Combine into one
-    plot_df = pd.concat([current_df, ghost_df], ignore_index=True)
 
-    # Tooltip
-    tooltip = [
-        alt.Tooltip("Month:N", title="Month"),
-        alt.Tooltip("Year:O", title="Year"),
-        alt.Tooltip("Percent:Q", format=".1f", title="%"),
-    ]
+    plot_df = pd.DataFrame(current_results)
 
-
-    # KPI colours
-    KPI_COLOURS = {
-        "Unique Patients Having Dentals": "#60a5fa",
-        "Unique Patients Having X-rays": "#f87171",
-        "Unique Patients Having Ultrasounds": "#34d399",
-        "Unique Patients Buying Flea/Worm": "#fbbf24",
-        "Unique Patients Buying Food": "#a78bfa",
-        "Unique Patients Having Lab Work": "#fb923c",
-        "Unique Patients Having Anaesthetics": "#22d3ee",
-        "Unique Patients Hospitalised": "#f472b6",
-    }
-    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
-
-    # Dynamic chart title
-    chart_title = f"Percentage of Clinic Patients Each Month {selected_kpi.split('Unique Patients')[-1].strip()} - Last 12 Months"
-
-    # Chart
-    bars = (
+    bar_color = "#60a5fa"
+    st.altair_chart(
         alt.Chart(plot_df)
         .mark_bar(size=18)
         .encode(
-            x=alt.X("MonthYear:N",
-                    sort=[m.strftime("%b %Y") for m in current_months],
-                    axis=alt.Axis(labelAngle=30, title=None),
-                    scale=alt.Scale(paddingInner=0.25, paddingOuter=0.05)),
-            xOffset="Offset:O",
+            x=alt.X("MonthYear:N", sort=[m.strftime("%b %Y") for m in current_months]),
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
-            color=alt.condition(alt.datum.Offset == 0, alt.value(bar_color), alt.value(bar_color)),
-            opacity=alt.condition(alt.datum.Offset == 0, alt.value(1), alt.value(0.35)),
-            tooltip=tooltip,
+            tooltip=["MonthYear:N", "Percent:Q"]
         )
-        .properties(width=700, height=400, title=chart_title)
+        .properties(width=700, height=400, title=f"{selected_kpi} - Last 12 Months"),
+        use_container_width=True
     )
-
-    st.altair_chart(bars, use_container_width=True)
 
     # -------------------------
-    # 📅 Select Period dropdown (styled red)
+    # 📌 At a Glance
     # -------------------------
-    st.markdown(
-        "<div style='font-size:18px; font-weight:bold; color:red;'>Select Period:</div>",
-        unsafe_allow_html=True
-    )
-
-    period_options = [
-        "All Data",
-        "Prev 30 Days (of most recent data)",
-        "Prev Quarter (of most recent data)",
-        "Prev Year (of most recent data)"
-    ]
-    selected = st.selectbox(
-        "",  # hide default label
-        period_options,
-        index=0,
-        label_visibility="collapsed",
-        key="factoids_period_select"
-    )
-    # Apply period filter before calculations
-    if pd.isna(latest_date):
-        st.warning("⚠ No valid dates available to filter by period.")
-    else:
-        if selected == "Prev 30 Days (of most recent data)":
-            start_date = latest_date - pd.DateOffset(days=30)
-            df = df[df["ChargeDate"] >= start_date]
-    
-        elif selected == "Prev Quarter (of most recent data)":
-            start_date = latest_date - pd.DateOffset(months=3)
-            df = df[df["ChargeDate"] >= start_date]
-    
-        elif selected == "Prev Year (of most recent data)":
-            start_date = latest_date - pd.DateOffset(years=1)
-            df = df[df["ChargeDate"] >= start_date]
-
-    
-    # else: "All Data" → no filtering
-
-    # --------------------------------
-    # 📌 At a Glance (Daily KPIs + Unique Patient Uptake)
-    # --------------------------------
     st.subheader("📌 At a Glance")
+    metrics = {}
 
-    daily_kpis = {}
+    # Daily transactions and patient stats
     if not df.empty:
         df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
         df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
@@ -1591,120 +1528,93 @@ def run_factoids():
     else:
         daily = pd.DataFrame()
 
-    # Build metrics dictionary
     metrics = {}
-
     if not daily.empty:
         max_tx_day = daily["ClientTransactions"].idxmax()
         max_pat_day = daily["Patients"].idxmax()
-        
         metrics[f"Max Transactions/Day ({max_tx_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_tx_day, 'ClientTransactions']):,}"
         metrics["Avg Transactions/Day"] = f"{int(round(daily['ClientTransactions'].mean())):,}"
-        
         metrics[f"Max Patients/Day ({max_pat_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_pat_day, 'Patients']):,}"
         metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
-
     else:
         metrics["Max Transactions/Day"] = "-"
         metrics["Avg Transactions/Day"] = "-"
         metrics["Max Patients/Day"] = "-"
         metrics["Avg Patients/Day"] = "-"
 
-
-    # Unique patient services
+    # 🐾 New cards
     total_patients = df["Animal Name"].nunique()
+    common_pet = df["Animal Name"].dropna().str.strip().value_counts().head(1)
+    if not common_pet.empty:
+        metrics["Most Common Pet Name"] = f"{common_pet.index[0]} ({common_pet.iloc[0]:,})"
 
-    flea_patients = df[df["Item Name"].str.contains("|".join(FLEA_WORM_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    food_patients = df[df["Item Name"].str.contains("|".join(FOOD_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    xray_patients = df[df["Item Name"].str.contains("|".join(XRAY_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    us_patients   = df[df["Item Name"].str.contains("|".join(ULTRASOUND_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    lab_patients  = df[df["Item Name"].str.contains("|".join(LABWORK_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    anaesth_patients = df[df["Item Name"].str.contains("|".join(ANAESTHETIC_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    hosp_patients = df[df["Item Name"].str.contains("|".join(HOSPITALISATION_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
+    top_patient = df["Animal Name"].value_counts().head(1)
+    if not top_patient.empty:
+        metrics["Patient with Most Transactions"] = f"{top_patient.index[0]} ({top_patient.iloc[0]:,})"
 
-    # Dental block logic (avoid double counting within visits)
-    dental_patients = 0
-    dental_rows = df[df["Item Name"].str.contains("dental", case=False, na=False)]
-    if not dental_rows.empty:
-        d_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
-        d_sorted["DateOnly"] = pd.to_datetime(d_sorted["ChargeDate"]).dt.normalize()
-        d_sorted["DayDiff"] = d_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-        d_sorted["Block"] = d_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
-
-        tx = (
-            d_sorted.groupby(["Client Name", "Block"])
-            .agg(Amount=("Amount", "sum"), Patients=("Animal Name", lambda x: set(x.astype(str))))
-            .reset_index()
-        )
-        dental_blocks = d_sorted[d_sorted["Item Name"].str.contains("dental", case=False, na=False)][["Client Name","Block"]].drop_duplicates()
-        qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name","Block"])
-        qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 700]
-        patients = set()
-        for patlist in qualifying_blocks["Patients"]:
-            patients.update(patlist)
-        dental_patients = len(patients)
-
+    VACCINE_KEYWORDS = ["rabies", "dhppil", "leukemia", "tricat", "kennel cough", "vaccine"]
+    vacc_patients = df[df["Item Name"].str.contains("|".join(VACCINE_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
     if total_patients > 0:
-        metrics.update({
-            "Total Unique Patients": f"{total_patients:,}",
-            "Unique Patients Buying Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
-            "Unique Patients Buying Food": f"{food_patients:,} ({food_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Dentals</b>": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
-            "Unique Patients Having <b>X-rays</b>": f"{xray_patients:,} ({xray_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Ultrasounds</b>": f"{us_patients:,} ({us_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Lab Work</b>": f"{lab_patients:,} ({lab_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Anaesthetics</b>": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
-            "Unique Patients <b>Hospitalised</b>": f"{hosp_patients:,} ({hosp_patients/total_patients:.1%})",
-        })
-    else:
-        st.info("No patients found in dataset.")
-        
-    # --- Reorder Factoid cards ---
-    # Force Total Unique Patients first (light blue), then Max/Avg Patients per Day, then the rest
-    
-    ordered_labels = [
-        "Total Unique Patients",
-        "Max Patients/Day",
-        "Avg Patients/Day",
-    ]
-    
-    # First, put the three key metrics in this exact order if they exist
-    primary_metrics = []
-    for lbl in ordered_labels:
-        for k, v in metrics.items():
-            if k.startswith(lbl):
-                primary_metrics.append((k, v))
-    
-    # Then append everything else
-    remaining_metrics = [(k, v) for k, v in metrics.items() if (k, v) not in primary_metrics]
-    
-    metric_items = primary_metrics + remaining_metrics
-    
-    # --- Render with color overrides ---
-    for row_start in range(0, len(metric_items), 5):
+        metrics["Unique Patients Vaccinated"] = f"{vacc_patients:,} ({vacc_patients/total_patients:.1%})"
+
+    # Visit frequency
+    visits_per_client = df.groupby("Client Name")["ChargeDate"].nunique()
+    bucket_counts = {
+        "Clients with 1 Transaction": (visits_per_client == 1).sum(),
+        "Clients with 2 Transactions": (visits_per_client == 2).sum(),
+        "Clients with 3-5 Transactions": ((visits_per_client >= 3) & (visits_per_client <= 5)).sum(),
+        "Clients with 6+ Transactions": (visits_per_client >= 6).sum()
+    }
+    total_clients = visits_per_client.shape[0]
+    for label, count in bucket_counts.items():
+        if total_clients > 0:
+            pct = count / total_clients
+            metrics[label] = f"{count:,} ({pct:.1%})"
+
+    # Render metric cards
+    for row_start in range(0, len(metrics), 5):
         cols = st.columns(5)
-        for i, (label, value) in enumerate(metric_items[row_start:row_start+5]):
-    
-            # Light blue background for "Total Unique Patients"
-            if label.startswith("Total Unique Patients"):
-                bg_color = "#dbeafe"   # light blue
-            else:
-                bg_color = "#f1f5f9"   # default grey
-    
+        for i, (label, value) in enumerate(list(metrics.items())[row_start:row_start+5]):
             cols[i].markdown(
                 f"""
-                <div style='background-color:{bg_color}; border:1px solid #94a3b8;
+                <div style='background-color:#f1f5f9; border:1px solid #94a3b8;
                             padding:14px; border-radius:10px; text-align:center; margin-bottom:12px;'>
                     <div style='font-size:14px; color:#334155; font-weight:600;'>{label}</div>
                     <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
                 </div>
-                """,
-                unsafe_allow_html=True,
+                """, unsafe_allow_html=True
             )
-    
-    # --------------------------------
-    # Top Items by Revenue
-    # --------------------------------
+
+    # -------------------------
+    # 💉 Vaccination % Chart
+    # -------------------------
+    vacc_chart_df = (
+        df.assign(Vaccinated=df["Item Name"].str.contains("|".join(VACCINE_KEYWORDS), case=False, na=False))
+        .groupby("YearMonth")
+        .agg(
+            Total=("Animal Name","nunique"),
+            Vaccinated=("Vaccinated", lambda x: df.loc[x.index[x],"Animal Name"].nunique())
+        )
+        .reset_index()
+    )
+    vacc_chart_df["Percent"] = (vacc_chart_df["Vaccinated"] / vacc_chart_df["Total"] * 100).fillna(0)
+
+    if not vacc_chart_df.empty:
+        st.altair_chart(
+            alt.Chart(vacc_chart_df)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("YearMonth:T", title="Month"),
+                y=alt.Y("Percent:Q", title="% Vaccinated"),
+                tooltip=["YearMonth:T","Vaccinated","Total","Percent"]
+            )
+            .properties(title="Unique Patients Vaccinated (%) Over Time", height=400),
+            use_container_width=True
+        )
+
+    # -------------------------
+    # 💰 Top 20 Items by Revenue
+    # -------------------------
     st.subheader("💰 Top 20 Items by Revenue")
     top_items = (
         df.groupby("Item Name")
@@ -1712,26 +1622,20 @@ def run_factoids():
           .sort_values("TotalRevenue", ascending=False)
           .head(20)
     )
-
     if not top_items.empty:
         total_rev = top_items["TotalRevenue"].sum()
         top_items["% of Total Revenue"] = (top_items["TotalRevenue"] / total_rev * 100).round(1)
-
-        # Format numbers
         top_items["Revenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
         top_items["How Many"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
         top_items["% of Total Revenue"] = top_items["% of Total Revenue"].astype(str) + "%"
-
-        # Reorder & rename
         top_items = top_items[["Revenue", "% of Total Revenue", "How Many"]]
-
         st.dataframe(top_items, use_container_width=True)
     else:
         st.info("No items found for the selected period.")
 
-    # --------------------------------
-    # Top Spending Clients
-    # --------------------------------
+    # -------------------------
+    # 💎 Top 5 Spending Clients
+    # -------------------------
     st.subheader("💎 Top 5 Spending Clients")
     clients_nonblank = df[df["Client Name"].astype(str).str.strip() != ""]
     if not clients_nonblank.empty:
@@ -1748,9 +1652,9 @@ def run_factoids():
     else:
         st.info("No client spend data for the selected period.")
 
-    # --------------------------------
-    # Largest Transactions
-    # --------------------------------
+    # -------------------------
+    # 📈 Top 5 Largest Client Transactions
+    # -------------------------
     st.subheader("📈 Top 5 Largest Client Transactions")
     df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
     df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
@@ -1782,11 +1686,33 @@ def run_factoids():
     else:
         st.info("No transactions found.")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    # -------------------------
+    # 📊 Revenue Concentration
+    # -------------------------
+    st.subheader("📊 Revenue Concentration")
+    rev_by_client = (
+        df.groupby("Client Name")["Amount"].sum()
+        .sort_values(ascending=False)
+        .reset_index()
+    )
+    rev_by_client["CumulativeRevenue"] = rev_by_client["Amount"].cumsum()
+    rev_by_client["CumulativeRevenuePct"] = rev_by_client["CumulativeRevenue"] / rev_by_client["Amount"].sum() * 100
+    rev_by_client["ClientRank"] = (rev_by_client.index + 1) / len(rev_by_client) * 100
 
+    st.altair_chart(
+        alt.Chart(rev_by_client)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("ClientRank:Q", title="Top X% of Clients"),
+            y=alt.Y("CumulativeRevenuePct:Q", title="% of Total Revenue"),
+            tooltip=["Client Name","Amount","CumulativeRevenuePct"]
+        )
+        .properties(title="Revenue Concentration (Lorenz Curve)", height=400),
+        use_container_width=True
+    )
 
-# Run Factoids
 run_factoids()
+
 
 
 
