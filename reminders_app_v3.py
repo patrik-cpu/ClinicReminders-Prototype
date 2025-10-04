@@ -20,7 +20,7 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 st.sidebar.markdown(
     """
     <ul style="list-style-type:none; padding-left:0; line-height:1.8; font-size:16px;">
-      <li><a href="#tutorial" style="text-decoration:none;">📖 Tutorial</a></li>
+      <li><a href="#tutorial" style="text-decoration:none;">📖 !Tutorial - Read</a></li>
       <li><a href="#data-upload" style="text-decoration:none;">📂 Data Upload</a></li>
       <li><a href="#reminders" style="text-decoration:none;">📅 Reminders</a></li>
         <ul style="list-style-type:none; padding-left:1.2em; line-height:1.6;">
@@ -520,6 +520,45 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
         lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
     )
     return df
+    
+def drop_early_duplicates(df):
+    """
+    Remove reminders where the same client-animal-item combination 
+    was purchased again before its next due date (e.g., early vaccination).
+    """
+    if df.empty:
+        return df
+
+    df = df.sort_values(["Client Name", "Animal Name", "MatchedItems", "ChargeDate"]).copy()
+    keep_mask = [True] * len(df)
+
+    for idx, row in df.iterrows():
+        client = row.get("Client Name")
+        animal = row.get("Animal Name")
+        items = row.get("MatchedItems", [])
+        charge_date = row.get("ChargeDate")
+        due_date = row.get("NextDueDate")
+
+        # Skip if missing essential data
+        if not isinstance(items, list) or pd.isna(charge_date) or pd.isna(due_date):
+            continue
+
+        # For each matched item, check if another record exists between charge and due dates
+        subset = df[
+            (df["Client Name"] == client)
+            & (df["Animal Name"] == animal)
+            & (df["ChargeDate"] > charge_date)
+            & (df["ChargeDate"] <= due_date)
+        ]
+
+        # If any overlapping item is seen again (same visible text), skip this one
+        if not subset.empty:
+            subset_items = subset["MatchedItems"].explode().str.lower().unique().tolist()
+            current_items = [i.lower() for i in items]
+            if any(i in subset_items for i in current_items):
+                keep_mask[idx] = False
+
+    return df.loc[keep_mask].reset_index(drop=True)
 
 def normalize_display_case(text: str) -> str:
     """If a word is ALL CAPS, convert to Title Case. Else leave as-is."""
@@ -682,7 +721,7 @@ def summarize_uploads(files, rules):
 # --------------------------------
 # Tutorial section
 # --------------------------------
-st.markdown("<h2 id='tutorial'>📖 Tutorial</h2>", unsafe_allow_html=True)
+st.markdown("<h2 id='tutorial'>📖 Tutorial - Read me first!</h2>", unsafe_allow_html=True)
 
 st.info(
     "1. How it works: ClinicReminders checks when an item/service was purchased (e.g. Bravecto or Dental cleaning), "
@@ -697,7 +736,7 @@ st.info(
 
 # --- Upload Data section (replace existing) ---
 st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
-st.markdown("## 📂 Data Upload - Do This First!")
+st.markdown("## 📂 Data Upload")
 
 files = st.file_uploader(
     "Upload Sales Plan file(s)",
@@ -983,6 +1022,7 @@ if working_df is not None:
     
     # Prepare reminder fields on the fully standardized df
     prepared = ensure_reminder_columns(df, st.session_state["rules"])
+    prepared = drop_early_duplicates(prepared)
     
     latest_date = prepared["ChargeDate"].max()
     default_start = (latest_date + timedelta(days=1)).date() if pd.notna(latest_date) else date.today()
@@ -1028,6 +1068,7 @@ if working_df is not None:
         st.info("No reminders in the selected week.")
 
     # --------------------------------
+    # Search
     # --------------------------------
     st.markdown("---")
     st.markdown("<div id='search' class='anchor-offset'></div>", unsafe_allow_html=True)
@@ -1044,6 +1085,7 @@ if working_df is not None:
         ).copy()
 
         filtered2 = ensure_reminder_columns(filtered, st.session_state["rules"])
+        filtered2 = drop_early_duplicates(filtered2)
     
         if not filtered2.empty:
             g = filtered2.groupby(["DueDateFmt", "Client Name"], dropna=False)
@@ -1886,6 +1928,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
