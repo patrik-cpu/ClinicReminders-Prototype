@@ -1558,37 +1558,37 @@ def run_factoids():
             df = df[df["ChargeDate"] >= start_date]
 
     # --------------------------------
-    # 📌 At a Glance (your existing cards first)
+    # 📌 At a Glance (grouped cards)
     # --------------------------------
     st.subheader("📌 At a Glance")
-
+    
     daily_kpis = {}
     if not df.empty:
         df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
         df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
         df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
         df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
-
+    
         transactions = (
             df_sorted.groupby(["Client Name", "Block"])
             .agg(
-                StartDate=("DateOnly","min"),
-                EndDate=("DateOnly","max"),
+                StartDate=("DateOnly", "min"),
+                EndDate=("DateOnly", "max"),
                 Patients=("Animal Name", lambda x: set(x.astype(str))),
-                Amount=("Amount","sum")
+                Amount=("Amount", "sum")
             )
             .reset_index()
         )
         transactions["DateOnly"] = transactions["StartDate"]
-
+    
         daily = transactions.groupby("DateOnly").agg(
-            ClientTransactions=("Block","count"),
+            ClientTransactions=("Block", "count"),
             Patients=("Patients", lambda pats: len(set().union(*pats)) if len(pats) else 0)
         )
     else:
         daily = pd.DataFrame()
-
-    # Build metrics dictionary (existing)
+    
+    # --- Metrics computation (unchanged) ---
     metrics = {}
     if not daily.empty:
         max_tx_day = daily["ClientTransactions"].idxmax()
@@ -1602,10 +1602,9 @@ def run_factoids():
         metrics["Avg Transactions/Day"] = "-"
         metrics["Max Patients/Day"] = "-"
         metrics["Avg Patients/Day"] = "-"
-
-    # Your existing unique patient service metrics
+    
+    # --- Unique-patient metrics (unchanged logic) ---
     total_patients = df["Animal Name"].nunique()
-
     flea_patients = df[df["Item Name"].str.contains("|".join(FLEA_WORM_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
     food_patients = df[df["Item Name"].str.contains("|".join(FOOD_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
     xray_patients = df[df["Item Name"].str.contains("|".join(XRAY_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
@@ -1613,8 +1612,8 @@ def run_factoids():
     lab_patients  = df[df["Item Name"].str.contains("|".join(LABWORK_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
     anaesth_patients = df[df["Item Name"].str.contains("|".join(ANAESTHETIC_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
     hosp_patients = df[df["Item Name"].str.contains("|".join(HOSPITALISATION_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-
-    # Dental block logic (unchanged)
+    
+    # Dental logic (same)
     dental_patients = 0
     dental_rows = df[df["Item Name"].str.contains("dental", case=False, na=False)]
     if not dental_rows.empty:
@@ -1622,55 +1621,50 @@ def run_factoids():
         d_sorted["DateOnly"] = pd.to_datetime(d_sorted["ChargeDate"]).dt.normalize()
         d_sorted["DayDiff"] = d_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
         d_sorted["Block"] = d_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
-
         tx = (
             d_sorted.groupby(["Client Name", "Block"])
             .agg(Amount=("Amount", "sum"), Patients=("Animal Name", lambda x: set(x.astype(str))))
             .reset_index()
         )
-        dental_blocks = d_sorted[d_sorted["Item Name"].str.contains("dental", case=False, na=False)][["Client Name","Block"]].drop_duplicates()
-        qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name","Block"])
+        dental_blocks = d_sorted[d_sorted["Item Name"].str.contains("dental", case=False, na=False)][["Client Name", "Block"]].drop_duplicates()
+        qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name", "Block"])
         qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 700]
         patients = set()
         for patlist in qualifying_blocks["Patients"]:
             patients.update(patlist)
         dental_patients = len(patients)
-
+    
     if total_patients > 0:
         metrics.update({
             "Total Unique Patients": f"{total_patients:,}",
             "Unique Patients Buying Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
             "Unique Patients Buying Food": f"{food_patients:,} ({food_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Dentals</b>": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
-            "Unique Patients Having <b>X-rays</b>": f"{xray_patients:,} ({xray_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Ultrasounds</b>": f"{us_patients:,} ({us_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Lab Work</b>": f"{lab_patients:,} ({lab_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Anaesthetics</b>": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
-            "Unique Patients <b>Hospitalised</b>": f"{hosp_patients:,} ({hosp_patients/total_patients:.1%})",
+            "Unique Patients Having Dentals": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
+            "Unique Patients Having X-rays": f"{xray_patients:,} ({xray_patients/total_patients:.1%})",
+            "Unique Patients Having Ultrasounds": f"{us_patients:,} ({us_patients/total_patients:.1%})",
+            "Unique Patients Having Lab Work": f"{lab_patients:,} ({lab_patients/total_patients:.1%})",
+            "Unique Patients Having Anaesthetics": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
+            "Unique Patients Hospitalised": f"{hosp_patients:,} ({hosp_patients/total_patients:.1%})",
         })
     else:
         st.info("No patients found in dataset.")
-
-    # ---------- NEW CARDS (appended at the end, respecting Select Period) ----------
-    # 1) Most Common Pet Name
+    
+    # --- New metrics (fun + transactional) ---
     common_pet = df["Animal Name"].dropna().str.strip().value_counts().head(1)
     if not common_pet.empty:
         metrics["Most Common Pet Name"] = f"{common_pet.index[0]} ({common_pet.iloc[0]:,})"
-
-    # 2) Patient with Most Transactions (animal + owner + count)
+    
     top_patient = (
-        df.groupby(["Animal Name","Client Name"]).size().reset_index(name="Count").sort_values("Count",ascending=False).head(1)
+        df.groupby(["Animal Name", "Client Name"]).size().reset_index(name="Count").sort_values("Count", ascending=False).head(1)
     )
     if not top_patient.empty:
         row = top_patient.iloc[0]
         metrics["Patient with Most Transactions"] = f"{row['Animal Name']} ({row['Client Name']}) – {int(row['Count']):,}"
-
-    # 3) Unique Patients Vaccinated
-    vacc_patients = df[df["Item Name"].str.contains("vaccine|vaccination|rabies|dhpp|tricat|leukemia|kennel cough", case=False, na=False)]["Animal Name"].nunique()
+    
+    vacc_patients = df[df["Item Name"].str.contains("|".join(VACCINE_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
     if total_patients > 0:
         metrics["Unique Patients Vaccinated"] = f"{vacc_patients:,} ({vacc_patients/total_patients:.1%})"
-
-    # 4) Visit Frequency Cards
+    
     visits_per_client = df.groupby("Client Name")["ChargeDate"].nunique()
     total_clients = visits_per_client.shape[0]
     if total_clients > 0:
@@ -1680,38 +1674,80 @@ def run_factoids():
             "Clients with 3-5 Transactions": ((visits_per_client >= 3) & (visits_per_client <= 5)).sum(),
             "Clients with 6+ Transactions": (visits_per_client >= 6).sum(),
         }
-        for k,v in buckets.items():
+        for k, v in buckets.items():
             metrics[k] = f"{v:,} ({v/total_clients:.1%})"
-
-    # ---------- render cards (keep your ordering logic) ----------
-    ordered_labels = [
+    
+    # ----------------------------
+    # 🧱 Card rendering (grouped sections)
+    # ----------------------------
+    CARD_STYLE = """
+    <div style='background-color:{bg_color};
+                border:1px solid #475569;
+                padding:18px;
+                border-radius:10px;
+                text-align:center;
+                margin-bottom:12px;
+                min-height:130px;'>
+        <div style='font-size:14px; color:#e2e8f0; font-weight:600;'>{label}</div>
+        <div style='font-size:26px; font-weight:bold; color:#f8fafc; margin-top:4px;'>{value}</div>
+    </div>
+    """
+    
+    core_keys = [
         "Total Unique Patients",
         "Max Patients/Day",
         "Avg Patients/Day",
+        "Max Transactions/Day",
+        "Avg Transactions/Day",
     ]
-    primary_metrics = []
-    for lbl in ordered_labels:
-        for k, v in metrics.items():
-            if k.startswith(lbl):
-                primary_metrics.append((k, v))
-    remaining_metrics = [(k, v) for k, v in metrics.items() if (k, v) not in primary_metrics]
-    metric_items = primary_metrics + remaining_metrics
-
-    for row_start in range(0, len(metric_items), 5):
+    
+    patient_breakdown_keys = [
+        "Unique Patients Having Dentals",
+        "Unique Patients Having X-rays",
+        "Unique Patients Having Ultrasounds",
+        "Unique Patients Buying Flea/Worm",
+        "Unique Patients Buying Food",
+        "Unique Patients Having Lab Work",
+        "Unique Patients Having Anaesthetics",
+        "Unique Patients Hospitalised",
+        "Unique Patients Vaccinated",
+    ]
+    
+    transaction_keys = [
+        "Clients with 1 Transaction",
+        "Clients with 2 Transactions",
+        "Clients with 3-5 Transactions",
+        "Clients with 6+ Transactions",
+    ]
+    
+    fun_fact_keys = [
+        "Most Common Pet Name",
+        "Patient with Most Transactions",
+    ]
+    
+    def render_card_group(title, keys):
+        if not any(k in metrics for k in keys):
+            return
+        st.markdown(f"### {title}")
         cols = st.columns(5)
-        for i, (label, value) in enumerate(metric_items[row_start:row_start+5]):
-            # Light blue only for Total Unique Patients (unchanged)
-            bg_color = "#dbeafe" if label.startswith("Total Unique Patients") else "#f1f5f9"
-            cols[i].markdown(
-                f"""
-                <div style='background-color:{bg_color}; border:1px solid #94a3b8;
-                            padding:14px; border-radius:10px; text-align:center; margin-bottom:12px;'>
-                    <div style='font-size:14px; color:#334155; font-weight:600;'>{label}</div>
-                    <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        i = 0
+        for key in keys:
+            if key in metrics:
+                bg_color = "#1e293b" if key != "Total Unique Patients" else "#2563eb"
+                cols[i % 5].markdown(
+                    CARD_STYLE.format(bg_color=bg_color, label=key, value=metrics[key]),
+                    unsafe_allow_html=True,
+                )
+                i += 1
+                if i % 5 == 0 and key != keys[-1]:
+                    cols = st.columns(5)
+    
+    # --- Render grouped sections ---
+    render_card_group("💎 Core", core_keys)
+    render_card_group("🐾 Patient Breakdown", patient_breakdown_keys)
+    render_card_group("💼 Transaction Numbers", transaction_keys)
+    render_card_group("🎉 Fun Facts", fun_fact_keys)
+
 
     # -------------------------
     # (Everything below here stays exactly as in your file)
@@ -1842,6 +1878,7 @@ def run_factoids():
         st.info("No client revenue available to plot revenue concentration.")
 
 run_factoids()
+
 
 
 
