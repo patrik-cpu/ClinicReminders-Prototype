@@ -1720,14 +1720,32 @@ def run_factoids():
 
     patient_tx_counts = (
         transactions.explode("Patients")
+        .dropna(subset=["Patients", "Client Name"])
+        .query("Patients.str.strip() != '' and Client_Name.str.strip() != ''", engine="python")
+        .copy()
+    )
+    
+    # Normalize text for filtering out junk like 'SALE COUNTER'
+    patient_tx_counts["Patients"] = patient_tx_counts["Patients"].astype(str).str.strip()
+    patient_tx_counts["Client Name"] = patient_tx_counts["Client Name"].astype(str).str.strip()
+    patient_tx_counts = patient_tx_counts[
+        ~patient_tx_counts["Patients"].str.lower().str.contains("counter")
+        & ~patient_tx_counts["Client Name"].str.lower().str.contains("counter")
+    ]
+    
+    patient_tx_counts = (
+        patient_tx_counts
         .groupby(["Patients", "Client Name"])
         .size()
         .reset_index(name="VisitCount")
         .sort_values("VisitCount", ascending=False)
     )
+    
     if not patient_tx_counts.empty:
         top_patient = patient_tx_counts.iloc[0]
-        metrics["Patient with Most Transactions"] = f"{top_patient['Patients']} ({top_patient['Client Name']}) – {int(top_patient['VisitCount']):,}"
+        metrics["Patient with Most Transactions"] = (
+            f"{top_patient['Patients']} ({top_patient['Client Name']}) – {int(top_patient['VisitCount']):,}"
+        )
 
     visits_per_client = df.groupby("Client Name")["ChargeDate"].nunique()
     total_clients = visits_per_client.shape[0]
@@ -1868,16 +1886,25 @@ def run_factoids():
     # 💎 Top 5 Spending Clients
     # -------------------------
     st.markdown("#### 💎 Top 5 Spending Clients (Table 2)")
-    clients_nonblank = df[df["Client Name"].astype(str).str.strip() != ""]
+   clients_nonblank = (
+        df.dropna(subset=["Client Name"])
+        .assign(Client_Clean=df["Client Name"].astype(str).str.strip())
+    )
+    clients_nonblank = clients_nonblank[
+        (clients_nonblank["Client_Clean"] != "")
+        & (~clients_nonblank["Client_Clean"].str.lower().str.contains("counter"))
+    ]
+    
     if not clients_nonblank.empty:
         top_clients = (
-            clients_nonblank.groupby("Client Name")["Amount"]
+            clients_nonblank.groupby("Client_Clean")["Amount"]
             .sum()
             .sort_values(ascending=False)
             .head(5)
             .rename("Total Spend")
             .to_frame()
         )
+
         top_clients["Total Spend"] = top_clients["Total Spend"].apply(lambda x: f"{int(x):,}")
         st.dataframe(top_clients, use_container_width=True)
     else:
@@ -1888,8 +1915,16 @@ def run_factoids():
     # -------------------------
     st.markdown("#### 📈 Top 5 Largest Client Transactions (Table 3)")
     tx_groups = transactions.copy()
-    tx_groups["Patients"] = tx_groups["Patients"].apply(lambda s: ", ".join(sorted(s)))
+    tx_groups["Patients"] = tx_groups["Patients"].apply(
+        lambda s: ", ".join(sorted([p for p in s if isinstance(p, str) and p.strip() != "" and "counter" not in p.lower()]))
+    )
+    tx_groups = tx_groups[
+        tx_groups["Client Name"].notna()
+        & tx_groups["Client Name"].astype(str).str.strip().ne("")
+        & ~tx_groups["Client Name"].astype(str).str.lower().str.contains("counter")
+    ]
     largest_tx = tx_groups.sort_values("Amount", ascending=False).head(5)
+
     if not largest_tx.empty:
         largest_tx = largest_tx[["Client Name", "StartDate", "EndDate", "Patients", "Amount"]]
         largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
@@ -1939,6 +1974,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
