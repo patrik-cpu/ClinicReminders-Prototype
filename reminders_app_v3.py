@@ -1,4 +1,5 @@
 import pandas as pd
+import altair as alt
 import unicodedata
 import streamlit as st
 import re
@@ -10,6 +11,9 @@ from datetime import date, datetime, timedelta
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
+
+_SPACE_RX = re.compile(r"\s+")
+_CURRENCY_RX = re.compile(r"[^\d.\-]")
 
 # Sidebar "table of contents"
 st.sidebar.markdown(
@@ -34,7 +38,7 @@ st.sidebar.markdown(
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders Prototype v3.4 (stable)")
+    st.title("ClinicReminders Prototype v4.1 (with Factoids!)")
 st.markdown("---")
 
 # --------------------------------
@@ -119,14 +123,19 @@ DEFAULT_RULES = {
 # --------------------------------
 SETTINGS_FILE = "clinicreminders_settings.json"
 
+_last_settings = None  # global cache
+
 def save_settings():
+    global _last_settings
     settings = {
         "rules": st.session_state["rules"],
         "exclusions": st.session_state["exclusions"],
         "user_name": st.session_state["user_name"],
     }
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f)
+    if settings != _last_settings:  # only write if changed
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f)
+        _last_settings = settings
 
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
@@ -226,13 +235,12 @@ PMS_DEFINITIONS = {
 }
 
 def normalize_columns(cols):
-    """Normalize header strings for reliable comparisons."""
     cleaned = []
     for c in cols:
         if not isinstance(c, str):
             c = str(c)
         c = c.replace("\u00a0", " ").replace("\ufeff", "")
-        c = re.sub(r"\s+", " ", c).strip().lower()
+        c = _SPACE_RX.sub(" ", c).strip().lower()
         cleaned.append(c)
     return cleaned
 
@@ -240,8 +248,10 @@ def detect_pms(df: pd.DataFrame) -> str:
     """
     Robust PMS detection using small unique key-sets per PMS.
     Returns one of: 'VETport', 'Xpress', 'ezyVet', or None.
+    Optimized: avoids redundant normalize_columns() calls.
     """
-    df_cols = set(normalize_columns(df.columns))
+    # Normalize once
+    normalized_cols = set(normalize_columns(df.columns))
 
     # Unique key sets (lowercased)
     v_keys = {"planitem performed", "plan item amount"}
@@ -249,19 +259,22 @@ def detect_pms(df: pd.DataFrame) -> str:
     e_keys = {"invoice date", "total invoiced (excl)", "product name", "first name", "last name"}
 
     # Prefer stronger (more specific) matches
-    if v_keys.issubset(df_cols):
+    if v_keys.issubset(normalized_cols):
         return "VETport"
-    if e_keys.issubset(df_cols):
+    if e_keys.issubset(normalized_cols):
         return "ezyVet"
-    if x_keys.issubset(df_cols):
+    if x_keys.issubset(normalized_cols):
         return "Xpress"
 
     # Fallback: try the long lists in PMS_DEFINITIONS as a last resort, first match wins
     for pms_name, definition in PMS_DEFINITIONS.items():
-        required = set(normalize_columns(definition["columns"]))
-        if required.issubset(df_cols):
+        required = set(definition["columns"])
+        required = set(normalize_columns(required))  # normalize once per PMS, not per df
+        if required.issubset(normalized_cols):
             return pms_name
+
     return None
+
 
 
 # --------------------------------
@@ -361,6 +374,7 @@ def normalize_item_name(name: str) -> str:
     name = re.sub(r"[-+/().,]", " ", name)       # separators
     return re.sub(r"\s+", " ", name).strip()
 
+@st.cache_data(show_spinner=False)
 def map_intervals(df, rules):
     """
     Map item names to rules (by substring match) and compute IntervalDays.
@@ -445,7 +459,8 @@ def parse_dates(series: pd.Series) -> pd.Series:
     # Fallback: pandas inference
     parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
     return parsed.dt.normalize()
-
+    
+@st.cache_data(show_spinner=False)
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     """
     Ensure canonical reminder fields exist using the standardized schema:
@@ -511,25 +526,15 @@ def normalize_display_case(text: str) -> str:
     return " ".join(fixed)
 
 def clean_revenue_column(series: pd.Series) -> pd.Series:
-    """
-    Universal cleaner for revenue/amount columns.
-    - remove commas, currency symbols, other text
-    - convert to numeric, fill NaN with 0
-    """
     return (
         series.astype(str)
         .str.replace(",", "", regex=False)
-        .str.replace(r"[^\d.\-]", "", regex=True)
-        .str.strip()
+        .str.replace(_CURRENCY_RX, "", regex=True)
         .pipe(pd.to_numeric, errors="coerce")
         .fillna(0)
     )
 
-# --------------------------------
-# Cached CSV processor
-# --------------------------------
-
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def process_file(file_bytes, filename, rules):
     """
     Read the file bytes + filename, detect PMS, clean revenue, standardize to:
@@ -625,9 +630,10 @@ def process_file(file_bytes, filename, rules):
     df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
 
     # Parse dates
-    if "ChargeDate" in df.columns:
-        df["ChargeDate"] = parse_dates(df["ChargeDate"])
-        df["ChargeDate"] = df["ChargeDate"].dt.normalize()
+    if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
+        if "ChargeDate" in df.columns:
+            df["ChargeDate"] = parse_dates(df["ChargeDate"])
+            df["ChargeDate"] = df["ChargeDate"].dt.normalize()
 
     # Helper lowercase cols
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
@@ -635,6 +641,34 @@ def process_file(file_bytes, filename, rules):
     df["_item_lower"] = df["Item Name"].astype(str).str.lower()
 
     return df, pms_name, amount_col
+    
+@st.cache_data(show_spinner=False)
+def summarize_uploads(files, rules):
+    """Read and summarize all uploaded files. Cached for speed."""
+    datasets, summary_rows = [], []
+
+    for file in files:
+        file_bytes = file.read()
+        df, pms_name, amount_col = process_file(file_bytes, file.name, rules)
+        pms_name = pms_name or "Undetected"
+
+        from_date, to_date = None, None
+        if "ChargeDate" in df.columns:
+            try:
+                from_date = df["ChargeDate"].min()
+                to_date = df["ChargeDate"].max()
+            except Exception:
+                pass
+
+        summary_rows.append({
+            "File name": file.name,
+            "PMS": pms_name,
+            "From": from_date.strftime("%d %b %Y") if pd.notna(from_date) else "-",
+            "To": to_date.strftime("%d %b %Y") if pd.notna(to_date) else "-"
+        })
+        datasets.append((pms_name, df))
+
+    return datasets, summary_rows
 
 # --------------------------------
 # Tutorial section
@@ -671,40 +705,17 @@ if "last_uploaded_files" not in st.session_state:
     st.session_state["last_uploaded_files"] = []
 current_files = [f.name for f in files] if files else []
 if current_files != st.session_state["last_uploaded_files"]:
-    # Clear Streamlit cache and also remove any stored working_df
-    try:
-        st.cache_data.clear()
-    except Exception:
-        pass
+    if current_files != st.session_state.get("last_uploaded_files", []):
+        st.session_state["last_uploaded_files"] = current_files
+        st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
+
     st.session_state["last_uploaded_files"] = current_files
     # Also clear previously stored working_df in session state to avoid stale data
     if "working_df" in st.session_state:
         del st.session_state["working_df"]
 
 if files:
-    for file in files:
-        # Read bytes and pass filename for cache keying
-        file_bytes = file.read()
-        df, pms_name, amount_col = process_file(file_bytes, file.name, st.session_state["rules"])
-        pms_name = pms_name or "Undetected"
-
-        # Diagnostics outside cache are already printed inside process_file; still include summary
-        from_date, to_date = None, None
-        if "ChargeDate" in df.columns:
-            try:
-                from_date = df["ChargeDate"].min()
-                to_date = df["ChargeDate"].max()
-            except Exception:
-                from_date, to_date = None, None
-
-        summary_rows.append({
-            "File name": file.name,
-            "PMS": pms_name,
-            "From": from_date.strftime("%d %b %Y") if pd.notna(from_date) else "-",
-            "To": to_date.strftime("%d %b %Y") if pd.notna(to_date) else "-"
-        })
-        datasets.append((pms_name, df))
-
+    datasets, summary_rows = summarize_uploads(files, st.session_state["rules"])
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
     all_pms = {p for p, _ in datasets}
@@ -727,7 +738,6 @@ if files:
                 st.warning("PMS mismatch or some files missing expected canonical columns. Reminders cannot be generated reliably.")
         except Exception:
             st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
-
 
 # --------------------------------
 # Render Tables
@@ -1014,13 +1024,11 @@ if working_df is not None:
     
     if search_term:
         q = search_term.lower()
-        mask = (
-            df["_client_lower"].str.contains(q, regex=False) |
-            df["_animal_lower"].str.contains(q, regex=False) |
-            df["_item_lower"].str.contains(q, regex=False)
-        )
-        filtered = df[mask].copy()
-    
+        filtered = df.query(
+            "_client_lower.str.contains(@q, regex=False) or _animal_lower.str.contains(@q, regex=False) or _item_lower.str.contains(@q, regex=False)",
+            engine="python"
+        ).copy()
+
         filtered2 = ensure_reminder_columns(filtered, st.session_state["rules"])
     
         if not filtered2.empty:
@@ -1254,12 +1262,23 @@ except Exception:
 
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
 
+import time
+
+sheet = None
 try:
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).sheet1
-except Exception as e:
-    st.error("Couldn't connect to Google Sheets. Check sharing, API enablement, and Sheet ID.")
-    st.stop()
+    start = time.time()
+    while sheet is None and (time.time() - start) < 5:
+        try:
+            sheet = client.open_by_key(SHEET_ID).sheet1
+        except Exception:
+            time.sleep(0.5)  # retry every half second
+except Exception:
+    sheet = None
+
+if sheet is None:
+    st.warning("⚠ Couldn't connect to Google Sheets. Check sharing, API enablement, and Sheet ID. Continuing without Sheets integration.")
+
 
 def _next_id_from_column():
     """Find the max numeric ID in column A and add 1 (robust to mid-sheet deletions)."""
@@ -1277,13 +1296,11 @@ def insert_feedback(name, email, message):
     sheet.append_row([next_id, now, name or "", email or "", message],
                      value_input_option="USER_ENTERED")
 
-
+@st.cache_data(ttl=60)
 def fetch_feedback(limit=500):
     rows = sheet.get_all_values()
     data = rows[1:] if rows else []
     return data[-limit:] if data else []
-
-
 
 # Feedback section
 st.markdown("<h2 id='feedback'>💬 Feedback</h2>", unsafe_allow_html=True)
@@ -1359,18 +1376,39 @@ HOSPITALISATION_KEYWORDS = [
     "hospitalisation", "hospitalization"
 ]
 
+VACCINE_KEYWORDS = [
+    "vaccine", "vaccination", "booster",
+    "rabies", "dhpp", "dhppil", "tricat", "pch", "pcl", "leukemia",
+    "fvr", "feline viral rhinotracheitis", "calici", "panleukopenia",
+    "lepto", "kennel cough", "bordetella", "parvo", "distemper",
+    "lyme", "influenza", "flu", "vacc"
+]
+
+def _rx(words):
+    # literal OR; matches current behavior that looks for substrings
+    return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
+
+XRAY_RX             = _rx(XRAY_KEYWORDS)
+ULTRASOUND_RX       = _rx(ULTRASOUND_KEYWORDS)
+FLEA_WORM_RX        = _rx(FLEA_WORM_KEYWORDS)
+FOOD_RX             = _rx(FOOD_KEYWORDS)
+LABWORK_RX          = _rx(LABWORK_KEYWORDS)
+ANAESTHETIC_RX      = _rx(ANAESTHETIC_KEYWORDS)
+HOSPITALISATION_RX  = _rx(HOSPITALISATION_KEYWORDS)
+VACCINE_RX          = _rx(VACCINE_KEYWORDS)
 
 def run_factoids():
     st.markdown("<h2 id='factoids'>📊 Factoids</h2>", unsafe_allow_html=True)
     st.info("📈 Quick insights into your clinic's activity and sales.")
 
+    # --- early exit if no data ---
     if "working_df" not in st.session_state or st.session_state["working_df"] is None or st.session_state["working_df"].empty:
         st.warning("⚠ Please upload data first in the '📂 Upload Data' section (Reminders).")
         return
 
     df = st.session_state["working_df"].copy()
 
-    # Canonical columns guard
+    # --- Canonical safety ---
     for col, default in [
         ("ChargeDate", pd.NaT),
         ("Client Name", ""),
@@ -1382,122 +1420,189 @@ def run_factoids():
         if col not in df.columns:
             df[col] = default
 
-    # Parse dates
     if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
         df["ChargeDate"] = parse_dates(df["ChargeDate"])
 
-    # -------------------------
-    # Select Period (relative to dataset max date)
-    # -------------------------
     latest_date = df["ChargeDate"].max()
     if pd.isna(latest_date):
         st.warning("⚠ No valid dates found in dataset.")
         return
 
+    # --- Precompute YearMonth ---
+    df["YearMonth"] = df["ChargeDate"].dt.to_period("M").dt.to_timestamp()
+
+    # -------------------------
+    # 📊 KPI CHART
+    # -------------------------
+    KPI_GROUPS = {
+        "Unique Patients Having Dentals": re.compile("dental", re.I),
+        "Unique Patients Having X-rays": XRAY_RX,
+        "Unique Patients Having Ultrasounds": ULTRASOUND_RX,
+        "Unique Patients Buying Flea/Worm": FLEA_WORM_RX,
+        "Unique Patients Buying Food": FOOD_RX,
+        "Unique Patients Having Lab Work": LABWORK_RX,
+        "Unique Patients Having Anaesthetics": ANAESTHETIC_RX,
+        "Unique Patients Hospitalised": HOSPITALISATION_RX,
+        "Unique Patients Vaccinated": VACCINE_RX,
+    }
+
+    st.markdown(
+        "<div style='font-size:18px; font-weight:bold; color:blue;'>Select Metric:</div>",
+        unsafe_allow_html=True
+    )
+    selected_kpi = st.selectbox("", list(KPI_GROUPS.keys()), key="factoid_metric", label_visibility="collapsed")
+    pattern_rx = KPI_GROUPS[selected_kpi]
+
+    # --- Compute KPI monthly percentages efficiently ---
+    current_months = pd.period_range(end=latest_date.to_period("M"), periods=12, freq="M").to_timestamp()
+
+    month_total = df.groupby("YearMonth")["Animal Name"].nunique()
+    mask = df["Item Name"].str.contains(pattern_rx, na=False)
+    month_match = df[mask].groupby("YearMonth")["Animal Name"].nunique()
+
+    month_total = month_total.reindex(current_months, fill_value=0)
+    month_match = month_match.reindex(current_months, fill_value=0)
+    pct = (month_match / month_total.replace(0, pd.NA) * 100).fillna(0).round(1)
+    current_df = pd.DataFrame({
+        "MonthYear": current_months.strftime("%b %Y"),
+        "Percent": pct.values,
+        "Offset": 0,
+    })
+
+    # ghost bars (previous year)
+    prev_index = current_months - pd.DateOffset(years=1)
+    month_total_prev = month_total.reindex(prev_index, fill_value=0)
+    month_match_prev = month_match.reindex(prev_index, fill_value=0)
+    pct_prev = (month_match_prev / month_total_prev.replace(0, pd.NA) * 100).fillna(0).round(1)
+    ghost_df = pd.DataFrame({
+        "MonthYear": current_months.strftime("%b %Y"),
+        "Percent": pct_prev.values,
+        "Offset": -0.2,
+    })
+
+    plot_df = pd.concat([current_df, ghost_df], ignore_index=True)
+
+    # Chart colors
+    KPI_COLOURS = {
+        "Unique Patients Having Dentals": "#60a5fa",
+        "Unique Patients Having X-rays": "#f87171",
+        "Unique Patients Having Ultrasounds": "#34d399",
+        "Unique Patients Buying Flea/Worm": "#fbbf24",
+        "Unique Patients Buying Food": "#a78bfa",
+        "Unique Patients Having Lab Work": "#fb923c",
+        "Unique Patients Having Anaesthetics": "#22d3ee",
+        "Unique Patients Hospitalised": "#f472b6",
+        "Unique Patients Vaccinated": "#84cc16",
+    }
+    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
+
+    tooltip = [
+        alt.Tooltip("MonthYear:N", title="Month"),
+        alt.Tooltip("Percent:Q", format=".1f", title="%"),
+    ]
+
+    bars = (
+        alt.Chart(plot_df)
+        .mark_bar(size=18)
+        .encode(
+            x=alt.X("MonthYear:N", sort=current_months.strftime("%b %Y"), axis=alt.Axis(labelAngle=30, title=None)),
+            xOffset="Offset:O",
+            y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
+            color=alt.condition(alt.datum.Offset == 0, alt.value(bar_color), alt.value(bar_color)),
+            opacity=alt.condition(alt.datum.Offset == 0, alt.value(1), alt.value(0.35)),
+            tooltip=tooltip,
+        )
+        .properties(width=700, height=400, title=f"Percentage of Clinic Patients Each Month {selected_kpi.split('Unique Patients')[-1].strip()} - Last 12 Months")
+    )
+    st.altair_chart(bars, use_container_width=True)
+
+    # -------------------------
+    # 📅 Select Period dropdown
+    # -------------------------
+    st.markdown("<div style='font-size:18px; font-weight:bold; color:red;'>Select Period:</div>", unsafe_allow_html=True)
     period_options = [
         "All Data",
         "Prev 30 Days (of most recent data)",
         "Prev Quarter (of most recent data)",
         "Prev Year (of most recent data)"
     ]
-    selected = st.selectbox("Select period:", period_options, index=0)
+    selected = st.selectbox("", period_options, index=0, label_visibility="collapsed", key="factoids_period_select")
 
-    if selected == "Prev 30 Days (of most recent data)":
-        cutoff = latest_date - pd.Timedelta(days=30)
-        df = df[df["ChargeDate"] >= cutoff]
-    elif selected == "Prev Quarter (of most recent data)":
-        cutoff = latest_date - pd.DateOffset(months=3)
-        df = df[df["ChargeDate"] >= cutoff]
-    elif selected == "Prev Year (of most recent data)":
-        cutoff = latest_date - pd.DateOffset(years=1)
-        df = df[df["ChargeDate"] >= cutoff]
-    # else All Data → no filtering
-
-
-    st.markdown("<div style='max-width:85%;'>", unsafe_allow_html=True)
-    if df.empty:
-        st.info("No transactions found in this period.")
-    elif df["Amount"].sum() == 0:
-        st.warning("⚠ All revenues are showing as 0. Please confirm the correct revenue column mapping.")
+    if not pd.isna(latest_date):
+        if selected == "Prev 30 Days (of most recent data)":
+            start_date = latest_date - pd.DateOffset(days=30)
+            df = df[df["ChargeDate"] >= start_date]
+        elif selected == "Prev Quarter (of most recent data)":
+            start_date = latest_date - pd.DateOffset(months=3)
+            df = df[df["ChargeDate"] >= start_date]
+        elif selected == "Prev Year (of most recent data)":
+            start_date = latest_date - pd.DateOffset(years=1)
+            df = df[df["ChargeDate"] >= start_date]
 
     # --------------------------------
-    # 📌 At a Glance (Daily KPIs + Unique Patient Uptake)
+    # 📌 At a Glance Metrics
     # --------------------------------
     st.subheader("📌 At a Glance")
 
-    daily_kpis = {}
-    if not df.empty:
-        df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
-        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
-        df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-        df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+    # --- Block computation (reused) ---
+    df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
+    df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
+    df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+    df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
 
-        transactions = (
-            df_sorted.groupby(["Client Name", "Block"])
-            .agg(
-                StartDate=("DateOnly","min"),
-                EndDate=("DateOnly","max"),
-                Patients=("Animal Name", lambda x: set(x.astype(str))),
-                Amount=("Amount","sum")
-            )
-            .reset_index()
+    transactions = (
+        df_sorted.groupby(["Client Name", "Block"])
+        .agg(
+            StartDate=("DateOnly", "min"),
+            EndDate=("DateOnly", "max"),
+            Patients=("Animal Name", lambda x: set(x.astype(str))),
+            Amount=("Amount", "sum"),
         )
-        transactions["DateOnly"] = transactions["StartDate"]
+        .reset_index()
+    )
 
-        daily = transactions.groupby("DateOnly").agg(
-            ClientTransactions=("Block","count"),
-            Patients=("Patients", lambda pats: len(set().union(*pats)) if len(pats) else 0)
-        )
-    else:
-        daily = pd.DataFrame()
+    daily = transactions.groupby("StartDate").agg(
+        ClientTransactions=("Block", "count"),
+        Patients=("Patients", lambda pats: len(set().union(*pats)) if len(pats) else 0),
+    )
 
-    # Build metrics dictionary
+    # --- Daily metrics ---
     metrics = {}
-
     if not daily.empty:
         max_tx_day = daily["ClientTransactions"].idxmax()
         max_pat_day = daily["Patients"].idxmax()
-        
         metrics[f"Max Transactions/Day ({max_tx_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_tx_day, 'ClientTransactions']):,}"
         metrics["Avg Transactions/Day"] = f"{int(round(daily['ClientTransactions'].mean())):,}"
-        
         metrics[f"Max Patients/Day ({max_pat_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_pat_day, 'Patients']):,}"
         metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
-
     else:
         metrics["Max Transactions/Day"] = "-"
         metrics["Avg Transactions/Day"] = "-"
         metrics["Max Patients/Day"] = "-"
         metrics["Avg Patients/Day"] = "-"
 
-
-    # Unique patient services
+    # --- Unique patient metrics ---
     total_patients = df["Animal Name"].nunique()
+    flea_patients = df[df["Item Name"].str.contains(FLEA_WORM_RX, na=False)]["Animal Name"].nunique()
+    food_patients = df[df["Item Name"].str.contains(FOOD_RX, na=False)]["Animal Name"].nunique()
+    xray_patients = df[df["Item Name"].str.contains(XRAY_RX, na=False)]["Animal Name"].nunique()
+    us_patients = df[df["Item Name"].str.contains(ULTRASOUND_RX, na=False)]["Animal Name"].nunique()
+    lab_patients = df[df["Item Name"].str.contains(LABWORK_RX, na=False)]["Animal Name"].nunique()
+    anaesth_patients = df[df["Item Name"].str.contains(ANAESTHETIC_RX, na=False)]["Animal Name"].nunique()
+    hosp_patients = df[df["Item Name"].str.contains(HOSPITALISATION_RX, na=False)]["Animal Name"].nunique()
+    vacc_patients = df[df["Item Name"].str.contains(VACCINE_RX, na=False)]["Animal Name"].nunique()
 
-    flea_patients = df[df["Item Name"].str.contains("|".join(FLEA_WORM_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    food_patients = df[df["Item Name"].str.contains("|".join(FOOD_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    xray_patients = df[df["Item Name"].str.contains("|".join(XRAY_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    us_patients   = df[df["Item Name"].str.contains("|".join(ULTRASOUND_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    lab_patients  = df[df["Item Name"].str.contains("|".join(LABWORK_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    anaesth_patients = df[df["Item Name"].str.contains("|".join(ANAESTHETIC_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-    hosp_patients = df[df["Item Name"].str.contains("|".join(HOSPITALISATION_KEYWORDS), case=False, na=False)]["Animal Name"].nunique()
-
-    # Dental block logic (avoid double counting within visits)
+    # Dental logic (unique block threshold)
     dental_patients = 0
     dental_rows = df[df["Item Name"].str.contains("dental", case=False, na=False)]
     if not dental_rows.empty:
-        d_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
-        d_sorted["DateOnly"] = pd.to_datetime(d_sorted["ChargeDate"]).dt.normalize()
-        d_sorted["DayDiff"] = d_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-        d_sorted["Block"] = d_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
-
         tx = (
-            d_sorted.groupby(["Client Name", "Block"])
+            df_sorted.groupby(["Client Name", "Block"])
             .agg(Amount=("Amount", "sum"), Patients=("Animal Name", lambda x: set(x.astype(str))))
             .reset_index()
         )
-        dental_blocks = d_sorted[d_sorted["Item Name"].str.contains("dental", case=False, na=False)][["Client Name","Block"]].drop_duplicates()
-        qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name","Block"])
+        dental_blocks = df_sorted[df_sorted["Item Name"].str.contains("dental", case=False, na=False)][["Client Name", "Block"]].drop_duplicates()
+        qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name", "Block"])
         qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 700]
         patients = set()
         for patlist in qualifying_blocks["Patients"]:
@@ -1507,328 +1612,237 @@ def run_factoids():
     if total_patients > 0:
         metrics.update({
             "Total Unique Patients": f"{total_patients:,}",
+            "Unique Patients Having Dentals": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
+            "Unique Patients Having X-rays": f"{xray_patients:,} ({xray_patients/total_patients:.1%})",
+            "Unique Patients Having Ultrasounds": f"{us_patients:,} ({us_patients/total_patients:.1%})",
             "Unique Patients Buying Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
             "Unique Patients Buying Food": f"{food_patients:,} ({food_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Dentals</b>": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
-            "Unique Patients Having <b>X-rays</b>": f"{xray_patients:,} ({xray_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Ultrasounds</b>": f"{us_patients:,} ({us_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Lab Work</b>": f"{lab_patients:,} ({lab_patients/total_patients:.1%})",
-            "Unique Patients Having <b>Anaesthetics</b>": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
-            "Unique Patients <b>Hospitalised</b>": f"{hosp_patients:,} ({hosp_patients/total_patients:.1%})",
+            "Unique Patients Having Lab Work": f"{lab_patients:,} ({lab_patients/total_patients:.1%})",
+            "Unique Patients Having Anaesthetics": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
+            "Unique Patients Hospitalised": f"{hosp_patients:,} ({hosp_patients/total_patients:.1%})",
+            "Unique Patients Vaccinated": f"{vacc_patients:,} ({vacc_patients/total_patients:.1%})",
         })
     else:
         st.info("No patients found in dataset.")
-        
-    # --- Reorder Factoid cards ---
-    # Force Total Unique Patients first (light blue), then Max/Avg Patients per Day, then the rest
-    
-    ordered_labels = [
+
+    # --- Fun + transactional metrics ---
+    unique_patients = df[["Client Name", "Animal Name"]].dropna().drop_duplicates()
+    common_pet = unique_patients["Animal Name"].value_counts().head(1)
+    if not common_pet.empty:
+        metrics["Most Common Pet Name"] = f"{common_pet.index[0]} ({common_pet.iloc[0]:,})"
+
+    patient_tx_counts = (
+        transactions.explode("Patients")
+        .groupby(["Patients", "Client Name"])
+        .size()
+        .reset_index(name="VisitCount")
+        .sort_values("VisitCount", ascending=False)
+    )
+    if not patient_tx_counts.empty:
+        top_patient = patient_tx_counts.iloc[0]
+        metrics["Patient with Most Transactions"] = f"{top_patient['Patients']} ({top_patient['Client Name']}) – {int(top_patient['VisitCount']):,}"
+
+    visits_per_client = df.groupby("Client Name")["ChargeDate"].nunique()
+    total_clients = visits_per_client.shape[0]
+    if total_clients > 0:
+        buckets = {
+            "Clients with 1 Transaction": (visits_per_client == 1).sum(),
+            "Clients with 2 Transactions": (visits_per_client == 2).sum(),
+            "Clients with 3-5 Transactions": ((visits_per_client >= 3) & (visits_per_client <= 5)).sum(),
+            "Clients with 6+ Transactions": (visits_per_client >= 6).sum(),
+        }
+        for k, v in buckets.items():
+            metrics[k] = f"{v:,} ({v/total_clients:.1%})"
+
+    # ----------------------------
+    # 🧱 Card rendering
+    # ----------------------------
+    CARD_STYLE = """
+    <div style='background-color:{bg_color};
+                border:1px solid #94a3b8;
+                padding:16px;
+                border-radius:10px;
+                text-align:center;
+                margin-bottom:12px;
+                min-height:120px;
+                display:flex;
+                flex-direction:column;
+                justify-content:center;'>
+        <div style='font-size:13px; color:#334155; font-weight:600; line-height:1.2;'>{label}</div>
+        <div style='font-size:{font_size}px; font-weight:700; color:#0f172a; margin-top:6px;'>{value}</div>
+    </div>
+    """
+
+    def adjust_font_size(text, base_size=22, min_size=16):
+        if len(text) > 25:
+            return min_size
+        elif len(text) > 18:
+            return base_size - 2
+        return base_size
+
+    core_keys = [
         "Total Unique Patients",
         "Max Patients/Day",
         "Avg Patients/Day",
+        "Max Transactions/Day",
+        "Avg Transactions/Day",
     ]
-    
-    # First, put the three key metrics in this exact order if they exist
-    primary_metrics = []
-    for lbl in ordered_labels:
-        for k, v in metrics.items():
-            if k.startswith(lbl):
-                primary_metrics.append((k, v))
-    
-    # Then append everything else
-    remaining_metrics = [(k, v) for k, v in metrics.items() if (k, v) not in primary_metrics]
-    
-    metric_items = primary_metrics + remaining_metrics
-    
-    # --- Render with color overrides ---
-    for row_start in range(0, len(metric_items), 5):
-        cols = st.columns(5)
-        for i, (label, value) in enumerate(metric_items[row_start:row_start+5]):
-    
-            # Light blue background for "Total Unique Patients"
-            if label.startswith("Total Unique Patients"):
-                bg_color = "#dbeafe"   # light blue
-            else:
-                bg_color = "#f1f5f9"   # default grey
-    
-            cols[i].markdown(
-                f"""
-                <div style='background-color:{bg_color}; border:1px solid #94a3b8;
-                            padding:14px; border-radius:10px; text-align:center; margin-bottom:12px;'>
-                    <div style='font-size:14px; color:#334155; font-weight:600;'>{label}</div>
-                    <div style='font-size:22px; font-weight:bold; color:#0f172a;'>{value}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-    # --------------------------------
-    # 📊 Monthly Breakdown Chart
-    # --------------------------------
-    st.subheader("📊 Monthly Breakdown Chart")
-    
-    df_all = st.session_state["working_df"].copy()
-    
-    # Canonical columns guard
-    for col, default in [
-        ("ChargeDate", pd.NaT),
-        ("Client Name", ""),
-        ("Animal Name", ""),
-        ("Item Name", ""),
-    ]:
-        if col not in df_all.columns:
-            df_all[col] = default
-    
-    # Parse dates
-    if not pd.api.types.is_datetime64_any_dtype(df_all["ChargeDate"]):
-        df_all["ChargeDate"] = parse_dates(df_all["ChargeDate"])
-    
-    df_all = df_all.dropna(subset=["ChargeDate"])
-    df_all["YearMonth"] = df_all["ChargeDate"].dt.to_period("M").dt.to_timestamp()
-    
-    # Define 12-month window
-    latest_month = df_all["YearMonth"].max()
-    month_list = pd.period_range(end=latest_month.to_period("M"), periods=12, freq="M").to_timestamp()
-    
-    # Define KPI groups (regex patterns)
-    KPI_GROUPS = {
-        "Unique Patients Having Dentals": r"dental",
-        "Unique Patients Having X-rays": r"xray|x-ray|radiograph|radiology",
-        "Unique Patients Having Ultrasounds": r"ultrasound|echo|afast|tfast|a-fast|t-fast",
-        "Unique Patients Buying Flea/Worm": r"bravecto|revolution|deworm|frontline|milbe|milpro|nexgard|simparica|advocate|worm|praz|fenbend",
-        "Unique Patients Buying Food": r"hill's|hills|royal canin|purina|proplan|iams|eukanuba|orijen|acana|farmina|vetlife|wellness|taste of the wild|nutro|pouch|tin|can|canned|wet|dry|kibble",
-        "Unique Patients Having Lab Work": r"cbc|blood test|lab|biochemistry|haematology|urinalysis|idexx|ghp|chem|felv|fiv|urine|elisa|pcr|microscop|cytology|smear|faecal|fecal|swab|parvo|distemper|giardia",
-        "Unique Patients Having Anaesthetics": r"anaesth|anesth|propofol|isoflurane|spay|castrate|neuter|alfax",
-        "Unique Patients Hospitalised": r"hospitalisation|hospitalization",
-    }
-    
-    # Dropdown for KPI selection
-    selected_kpi = st.selectbox("Select metric:", list(KPI_GROUPS.keys()))
-    
-    # Compute monthly percentages for latest year
-    pattern = KPI_GROUPS[selected_kpi]
-    results = []
-    for m in month_list:
-        month_df = df_all[df_all["YearMonth"] == m]
-        total_pats = month_df["Animal Name"].nunique()
-        match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
-        pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
-        results.append({"Month": m.strftime("%b %Y"), "Percent": round(pct, 1), "Year": m.year})
-    
-    chart_df = pd.DataFrame(results)
-    
-    # Compute previous year (ghost) values
-    yoy_results = []
-    for m in month_list:
-        prev_year = m - pd.DateOffset(years=1)
-        prev_df = df_all[df_all["YearMonth"] == prev_year]
-        total_prev = prev_df["Animal Name"].nunique()
-        match_prev = prev_df[prev_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
-        pct_prev = (match_prev / total_prev * 100) if total_prev > 0 else None
-        if pct_prev is not None:
-            yoy_results.append({"Month": m.strftime("%b %Y"), "Percent": round(pct_prev, 1), "Year": prev_year.year})
-    
-    yoy_df = pd.DataFrame(yoy_results)
-    
-    # Merge current + previous year data
-    full_chart_df = pd.concat([chart_df, yoy_df], ignore_index=True)
-    
-    # Define colours per KPI
-    KPI_COLOURS = {
-        "Unique Patients Having Dentals": "#60a5fa",      # blue
-        "Unique Patients Having X-rays": "#f87171",       # red
-        "Unique Patients Having Ultrasounds": "#34d399",  # green
-        "Unique Patients Buying Flea/Worm": "#fbbf24",    # amber
-        "Unique Patients Buying Food": "#a78bfa",         # purple
-        "Unique Patients Having Lab Work": "#fb923c",     # orange
-        "Unique Patients Having Anaesthetics": "#22d3ee", # cyan
-        "Unique Patients Hospitalised": "#f472b6",        # pink
-    }
-    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
-    
-    import altair as alt
 
-    # -----------------------------
-    # Build current 12-month dataset
-    # -----------------------------
-    current_months = pd.period_range(end=latest_month.to_period("M"), periods=12, freq="M").to_timestamp()
-    
-    current_results = []
-    for m in current_months:
-        month_df = df_all[df_all["YearMonth"] == m]
-        total_pats = month_df["Animal Name"].nunique()
-        match_pats = month_df[month_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
-        pct = (match_pats / total_pats * 100) if total_pats > 0 else 0
-        current_results.append({
-            "Month": m.strftime("%b"),           # tooltip
-            "Year": m.year,                      # tooltip
-            "MonthYear": m.strftime("%b %Y"),    # axis labels
-            "Percent": round(pct, 1),
-            "Offset": 0                          # solid bar
-        })
-    
-    current_df = pd.DataFrame(current_results)
-    
-    # -----------------------------
-    # Build ghost bars (previous year if exists)
-    # -----------------------------
-    ghost_results = []
-    for m in current_months:
-        prev = m - pd.DateOffset(years=1)
-        prev_df = df_all[df_all["YearMonth"] == prev]
-        total_prev = prev_df["Animal Name"].nunique()
-        match_prev = prev_df[prev_df["Item Name"].str.contains(pattern, case=False, na=False)]["Animal Name"].nunique()
-        if total_prev > 0:
-            pct_prev = (match_prev / total_prev * 100)
-            ghost_results.append({
-                "Month": m.strftime("%b"),
-                "Year": prev.year,
-                "MonthYear": m.strftime("%b %Y"),  # aligns to same month slot
-                "Percent": round(pct_prev, 1),
-                "Offset": -0.2                     # ghost bar sits left, close
-            })
-    
-    ghost_df = pd.DataFrame(ghost_results)
-    
-    # -----------------------------
-    # Combine
-    # -----------------------------
-    plot_df = pd.concat([current_df, ghost_df], ignore_index=True)
-    
-    # Tooltip
-    tooltip = [
-        alt.Tooltip("Month:N", title="Month"),
-        alt.Tooltip("Year:O", title="Year"),
-        alt.Tooltip("Percent:Q", format=".1f", title="%"),
+    patient_breakdown_keys = [
+        "Unique Patients Having Dentals",
+        "Unique Patients Having X-rays",
+        "Unique Patients Having Ultrasounds",
+        "Unique Patients Buying Flea/Worm",
+        "Unique Patients Buying Food",
+        "Unique Patients Having Lab Work",
+        "Unique Patients Having Anaesthetics",
+        "Unique Patients Hospitalised",
+        "Unique Patients Vaccinated",
     ]
-    
-    # -----------------------------
-    # Build chart
-    # -----------------------------
-    bars = (
-        alt.Chart(plot_df)
-        .mark_bar(size=18)
-        .encode(
-            x=alt.X(
-                "MonthYear:N",
-                sort=[m.strftime("%b %Y") for m in current_months],
-                axis=alt.Axis(labelAngle=30, title=None),
-                scale=alt.Scale(paddingInner=0.25, paddingOuter=0.05)  # ✅ corrected
-            ),
-            xOffset="Offset:O",
-            y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
-            color=alt.condition(
-                alt.datum.Offset == 0,
-                alt.value(bar_color),     # current = solid
-                alt.value(bar_color)      # ghost = same colour
-            ),
-            opacity=alt.condition(
-                alt.datum.Offset == 0,
-                alt.value(1),             # solid
-                alt.value(0.35),          # ghost
-            ),
-            tooltip=tooltip,
+
+    transaction_keys = [
+        "Clients with 1 Transaction",
+        "Clients with 2 Transactions",
+        "Clients with 3-5 Transactions",
+        "Clients with 6+ Transactions",
+    ]
+
+    fun_fact_keys = [
+        "Most Common Pet Name",
+        "Patient with Most Transactions",
+    ]
+
+    def render_card_group(title, keys, fuzzy=False):
+        if not any(k in metrics for k in keys):
+            return
+        st.markdown(
+            f"<h4 style='font-size:17px; font-weight:700; color:#475569; margin-top:1rem; margin-bottom:0.4rem;'>{title}</h4>",
+            unsafe_allow_html=True,
         )
-        .properties(width=700, height=400, title=f"{selected_kpi} - Last 12 Months")
-    )
-    
-    st.altair_chart(bars, use_container_width=True)
+        cols = st.columns(5)
+        i = 0
+        for key in keys:
+            matched_key = key
+            if fuzzy:
+                for existing in metrics.keys():
+                    if existing.startswith(key):
+                        matched_key = existing
+                        break
+            if matched_key in metrics:
+                value = metrics.get(matched_key, "–")
+                font_size = adjust_font_size(value)
+                bg_color = "#f1f5f9" if not matched_key.startswith("Total Unique Patients") else "#dbeafe"
+                cols[i % 5].markdown(
+                    CARD_STYLE.format(bg_color=bg_color, label=matched_key, value=value, font_size=font_size),
+                    unsafe_allow_html=True,
+                )
+                i += 1
+                if i % 5 == 0 and matched_key != keys[-1]:
+                    cols = st.columns(5)
 
+    render_card_group("⭐ Core", core_keys, fuzzy=True)
+    render_card_group("🐾 Patient Breakdown", patient_breakdown_keys)
+    render_card_group("💼 Transaction Numbers", transaction_keys)
+    render_card_group("🎉 Fun Facts", fun_fact_keys)
 
-    # --------------------------------
-    # Top Items by Revenue
-    # --------------------------------
+    # -------------------------
+    # 💰 Top 20 Items by Revenue
+    # -------------------------
     st.subheader("💰 Top 20 Items by Revenue")
     top_items = (
         df.groupby("Item Name")
-          .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Qty", "sum"))
-          .sort_values("TotalRevenue", ascending=False)
-          .head(20)
+        .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Qty", "sum"))
+        .sort_values("TotalRevenue", ascending=False)
+        .head(20)
     )
-
     if not top_items.empty:
         total_rev = top_items["TotalRevenue"].sum()
         top_items["% of Total Revenue"] = (top_items["TotalRevenue"] / total_rev * 100).round(1)
-
-        # Format numbers
         top_items["Revenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
         top_items["How Many"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
         top_items["% of Total Revenue"] = top_items["% of Total Revenue"].astype(str) + "%"
-
-        # Reorder & rename
-        top_items = top_items[["Revenue", "% of Total Revenue", "How Many"]]
-
-        st.dataframe(top_items, use_container_width=True)
+        st.dataframe(top_items[["Revenue", "% of Total Revenue", "How Many"]], use_container_width=True)
     else:
         st.info("No items found for the selected period.")
 
-    # --------------------------------
-    # Top Spending Clients
-    # --------------------------------
+    # -------------------------
+    # 💎 Top 5 Spending Clients
+    # -------------------------
     st.subheader("💎 Top 5 Spending Clients")
     clients_nonblank = df[df["Client Name"].astype(str).str.strip() != ""]
     if not clients_nonblank.empty:
         top_clients = (
             clients_nonblank.groupby("Client Name")["Amount"]
-                            .sum()
-                            .sort_values(ascending=False)
-                            .head(5)
-                            .rename("Total Spend")
-                            .to_frame()
+            .sum()
+            .sort_values(ascending=False)
+            .head(5)
+            .rename("Total Spend")
+            .to_frame()
         )
         top_clients["Total Spend"] = top_clients["Total Spend"].apply(lambda x: f"{int(x):,}")
         st.dataframe(top_clients, use_container_width=True)
     else:
         st.info("No client spend data for the selected period.")
 
-    # --------------------------------
-    # Largest Transactions
-    # --------------------------------
+    # -------------------------
+    # 📈 Top 5 Largest Client Transactions
+    # -------------------------
     st.subheader("📈 Top 5 Largest Client Transactions")
-    df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
-    df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
-    df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-    df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
-    tx_groups = (
-        df_sorted.groupby(["Client Name", "Block"])
-        .agg(
-            Amount=("Amount", "sum"),
-            StartDate=("DateOnly", "min"),
-            EndDate=("DateOnly", "max"),
-            Patients=("Animal Name", lambda x: ", ".join(sorted(set(x.astype(str))))),
-        )
-        .reset_index()
-    )
-    def format_date_range(r):
-        start, end = r["StartDate"], r["EndDate"]
-        if pd.isna(start) and pd.isna(end): return "-"
-        if pd.isna(start): return f"→ {end.strftime('%d %b %Y')}"
-        if pd.isna(end): return start.strftime("%d %b %Y")
-        if start == end: return start.strftime("%d %b %Y")
-        return f"{start.strftime('%d %b %Y')} → {end.strftime('%d %b %Y')}"
-    tx_groups["DateRange"] = tx_groups.apply(format_date_range, axis=1)
+    tx_groups = transactions.copy()
+    tx_groups["Patients"] = tx_groups["Patients"].apply(lambda s: ", ".join(sorted(s)))
     largest_tx = tx_groups.sort_values("Amount", ascending=False).head(5)
     if not largest_tx.empty:
-        largest_tx = largest_tx[["Client Name", "DateRange", "Patients", "Amount"]]
+        largest_tx = largest_tx[["Client Name", "StartDate", "EndDate", "Patients", "Amount"]]
         largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
-        st.dataframe(largest_tx, use_container_width=True)
+        largest_tx["DateRange"] = largest_tx.apply(
+            lambda r: f"{r['StartDate'].strftime('%d %b %Y')} → {r['EndDate'].strftime('%d %b %Y')}"
+            if r["StartDate"] != r["EndDate"]
+            else r["StartDate"].strftime("%d %b %Y"),
+            axis=1,
+        )
+        st.dataframe(largest_tx[["Client Name", "DateRange", "Patients", "Amount"]], use_container_width=True)
     else:
         st.info("No transactions found.")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    # -------------------------
+    # 📊 Revenue Concentration Curve
+    # -------------------------
+    st.subheader("📊 Revenue Concentration Curve")
+    rev_by_client = (
+        df.groupby("Client Name", dropna=False)["Amount"]
+        .sum()
+        .sort_values(ascending=False)
+        .reset_index()
+    )
+    if not rev_by_client.empty and rev_by_client["Amount"].sum() > 0:
+        total_rev_all = float(rev_by_client["Amount"].sum())
+        n_clients = len(rev_by_client)
+        rev_by_client["Rank"] = rev_by_client.index + 1
+        rev_by_client["TopClientPercent"] = rev_by_client["Rank"] / n_clients * 100.0
+        rev_by_client["CumRevenue"] = rev_by_client["Amount"].cumsum()
+        rev_by_client["CumRevenuePercent"] = rev_by_client["CumRevenue"] / total_rev_all * 100.0
 
+        st.altair_chart(
+            alt.Chart(rev_by_client)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("TopClientPercent:Q", title="Top X% of Clients"),
+                y=alt.Y("CumRevenuePercent:Q", title="% of Total Revenue"),
+                tooltip=[
+                    alt.Tooltip("Client Name:N", title="Client"),
+                    alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
+                    alt.Tooltip("TopClientPercent:Q", title="Top X%", format=".1f"),
+                    alt.Tooltip("CumRevenuePercent:Q", title="Cum. % Revenue", format=".1f"),
+                ],
+            )
+            .properties(
+                title="Revenue Concentration - What % of Revenue is Made Up by the Top X% Spending Clients (Mouse-over for details)",
+                height=400,
+                width=700,
+            ),
+            use_container_width=True,
+        )
+    else:
+        st.info("No client revenue available to plot revenue concentration.")
 
-# Run Factoids
 run_factoids()
-
-
-
-
-
-
-
-
-
-
-
-
-
