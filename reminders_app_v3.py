@@ -1577,7 +1577,8 @@ def run_factoids():
         alt.Tooltip("MonthYear:N", title="Month"),
         alt.Tooltip("Percent:Q", format=".1f", title="%"),
     ]
-
+    
+    current_months = pd.to_datetime(current_months)
     bars = (
         alt.Chart(plot_df)
         .mark_bar(size=18)
@@ -1996,7 +1997,6 @@ st.markdown("<div id='feedback' class='anchor-offset'></div>", unsafe_allow_html
 st.markdown("## 💬 Feedback")
 st.markdown("### Found a problem? Let me (Patrik) know here:")
 
-
 fb_col1, fb_col2 = st.columns([3,1])
 with fb_col1:
     feedback_text = st.text_area(
@@ -2023,22 +2023,3 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
