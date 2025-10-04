@@ -1743,6 +1743,7 @@ def run_factoids():
     # -------------------------
     # 💰 Top 20 Items by Revenue
     # -------------------------
+    st.subheader("💰 Top 20 Items by Revenue")
     top_items = (
         df.groupby("Item Name")
         .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Qty", "sum"))
@@ -1762,6 +1763,7 @@ def run_factoids():
     # -------------------------
     # 💎 Top 5 Spending Clients
     # -------------------------
+    st.subheader("💎 Top 5 Spending Clients")
     clients_nonblank = df[df["Client Name"].astype(str).str.strip() != ""]
     if not clients_nonblank.empty:
         top_clients = (
@@ -1780,6 +1782,7 @@ def run_factoids():
     # -------------------------
     # 📈 Top 5 Largest Client Transactions
     # -------------------------
+    st.subheader("📈 Top 5 Largest Client Transactions")
     tx_groups = transactions.copy()
     tx_groups["Patients"] = tx_groups["Patients"].apply(lambda s: ", ".join(sorted(s)))
     largest_tx = tx_groups.sort_values("Amount", ascending=False).head(5)
@@ -1787,7 +1790,8 @@ def run_factoids():
         largest_tx = largest_tx[["Client Name", "StartDate", "EndDate", "Patients", "Amount"]]
         largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
         largest_tx["DateRange"] = largest_tx.apply(
-            lambda r: f"{r['StartDate'].strftime('%d %b %Y')} → {r['EndDate'].strftime('%d %b %Y')}" if r["StartDate"] != r["EndDate"]
+            lambda r: f"{r['StartDate'].strftime('%d %b %Y')} → {r['EndDate'].strftime('%d %b %Y')}"
+            if r["StartDate"] != r["EndDate"]
             else r["StartDate"].strftime("%d %b %Y"),
             axis=1,
         )
@@ -1798,6 +1802,7 @@ def run_factoids():
     # -------------------------
     # 📊 Revenue Concentration Curve
     # -------------------------
+    st.subheader("📊 Revenue Concentration Curve")
     rev_by_client = (
         df.groupby("Client Name", dropna=False)["Amount"]
         .sum()
@@ -1826,7 +1831,7 @@ def run_factoids():
                 ],
             )
             .properties(
-                title="Revenue Concentration - What % of Revenue is Made Up by the Top X% Spending Clients",
+                title="Revenue Concentration - What % of Revenue is Made Up by the Top X% Spending Clients (Mouse-over for details)",
                 height=400,
                 width=700,
             ),
@@ -1836,7 +1841,9 @@ def run_factoids():
         st.info("No client revenue available to plot revenue concentration.")
 
 
+
 run_factoids()
+
 
 
 
