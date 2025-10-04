@@ -1706,92 +1706,79 @@ def run_factoids():
             return base_size - 2
         return base_size
     
-    # --- card groups ---
-    core_keys = [
-        "Total Unique Patients",
-        "Max Patients/Day",
-        "Avg Patients/Day",
-        "Max Transactions/Day",
-        "Avg Transactions/Day",
-    ]
-    
-    patient_breakdown_keys = [
-        "Unique Patients Having Dentals",
-        "Unique Patients Having X-rays",
-        "Unique Patients Having Ultrasounds",
-        "Unique Patients Buying Flea/Worm",
-        "Unique Patients Buying Food",
-        "Unique Patients Having Lab Work",
-        "Unique Patients Having Anaesthetics",
-        "Unique Patients Hospitalised",
-        "Unique Patients Vaccinated",
-    ]
-    
-    transaction_keys = [
-        "Clients with 1 Transaction",
-        "Clients with 2 Transactions",
-        "Clients with 3-5 Transactions",
-        "Clients with 6+ Transactions",
-    ]
-    
-    fun_fact_keys = [
-        "Most Common Pet Name",
-        "Patient with Most Transactions",
-    ]
-    
-    # ✅ smaller, cleaner subheadings
-    def render_card_group(title, keys):
+        # --- card groups ---
+        core_keys = [
+            "Total Unique Patients",
+            "Max Patients/Day",
+            "Avg Patients/Day",
+            "Max Transactions/Day",
+            "Avg Transactions/Day",
+        ]
+        
+        patient_breakdown_keys = [
+            "Unique Patients Having Dentals",
+            "Unique Patients Having X-rays",
+            "Unique Patients Having Ultrasounds",
+            "Unique Patients Buying Flea/Worm",
+            "Unique Patients Buying Food",
+            "Unique Patients Having Lab Work",
+            "Unique Patients Having Anaesthetics",
+            "Unique Patients Hospitalised",
+            "Unique Patients Vaccinated",
+        ]
+        
+        transaction_keys = [
+            "Clients with 1 Transaction",
+            "Clients with 2 Transactions",
+            "Clients with 3-5 Transactions",
+            "Clients with 6+ Transactions",
+        ]
+        
+        fun_fact_keys = [
+            "Most Common Pet Name",
+            "Patient with Most Transactions",
+        ]
+        
+        def render_card_group(title, keys, fuzzy=False):
+        """Render a group of cards with optional fuzzy key matching."""
         if not any(k in metrics for k in keys):
             return
+    
         st.markdown(
-            f"<h4 style='font-size:18px; font-weight:700; color:#475569; margin-top:1.2rem;'>{title}</h4>",
+            f"<h4 style='font-size:17px; font-weight:700; color:#475569; margin-top:1rem; margin-bottom:0.4rem;'>{title}</h4>",
             unsafe_allow_html=True
         )
     
         cols = st.columns(5)
         i = 0
+    
+        # Allow fuzzy matching if requested (for metrics with date suffixes)
         for key in keys:
-            if key in metrics:
-                value = metrics[key]
+            matched_key = key
+            if fuzzy:
+                for existing in metrics.keys():
+                    if existing.startswith(key):
+                        matched_key = existing
+                        break
+    
+            if matched_key in metrics:
+                value = metrics.get(matched_key, "–")
                 font_size = adjust_font_size(value)
-                bg_color = "#f1f5f9" if key != "Total Unique Patients" else "#dbeafe"
+                bg_color = "#f1f5f9" if not matched_key.startswith("Total Unique Patients") else "#dbeafe"
                 cols[i % 5].markdown(
-                    CARD_STYLE.format(bg_color=bg_color, label=key, value=value, font_size=font_size),
+                    CARD_STYLE.format(bg_color=bg_color, label=matched_key, value=value, font_size=font_size),
                     unsafe_allow_html=True,
                 )
                 i += 1
-                if i % 5 == 0 and key != keys[-1]:
+                if i % 5 == 0 and matched_key != keys[-1]:
                     cols = st.columns(5)
     
-    # --- render grouped sections ---
-    render_card_group("⭐ Core", core_keys)
+    # --- Final render calls (remove duplicates and fix fuzzy max keys) ---
+    render_card_group("⭐ Core", core_keys, fuzzy=True)
     render_card_group("🐾 Patient Breakdown", patient_breakdown_keys)
     render_card_group("💼 Transaction Numbers", transaction_keys)
     render_card_group("🎉 Fun Facts", fun_fact_keys)
 
-    
-    def render_card_group(title, keys):
-        if not any(k in metrics for k in keys):
-            return
-        st.markdown(f"### {title}")
-        cols = st.columns(5)
-        i = 0
-        for key in keys:
-            if key in metrics:
-                bg_color = "#1e293b" if key != "Total Unique Patients" else "#2563eb"
-                cols[i % 5].markdown(
-                    CARD_STYLE.format(bg_color=bg_color, label=key, value=metrics[key]),
-                    unsafe_allow_html=True,
-                )
-                i += 1
-                if i % 5 == 0 and key != keys[-1]:
-                    cols = st.columns(5)
-    
-    # --- Render grouped sections ---
-    render_card_group("💎 Core", core_keys)
-    render_card_group("🐾 Patient Breakdown", patient_breakdown_keys)
-    render_card_group("💼 Transaction Numbers", transaction_keys)
-    render_card_group("🎉 Fun Facts", fun_fact_keys)
 
 
     # -------------------------
@@ -1923,6 +1910,7 @@ def run_factoids():
         st.info("No client revenue available to plot revenue concentration.")
 
 run_factoids()
+
 
 
 
