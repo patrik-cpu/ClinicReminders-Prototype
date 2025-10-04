@@ -977,7 +977,9 @@ if working_df is not None:
     st.markdown("---")
     st.markdown("<h2 id='reminders'>📅 Reminders</h2>", unsafe_allow_html=True)
     st.markdown("---")
-    st.markdown("<h2 id='weekly-reminders'>📅 Weekly Reminders</h2>", unsafe_allow_html=True)
+    st.markdown("<div id='weekly-reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("#### 📅 Weekly Reminders")
+
     st.info("💡 Pick a Start Date to see reminders for the next 7-day window. Click WA to prepare a message.")
     
     # Prepare reminder fields on the fully standardized df
@@ -1029,7 +1031,9 @@ if working_df is not None:
     # --------------------------------
     # --------------------------------
     st.markdown("---")
-    st.markdown("<h2 id='search'>🔍 Search</h2>", unsafe_allow_html=True)
+    st.markdown("<div id='search' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("#### 🔍 Search")
+
     st.info("💡 Search by client, animal, or item to find upcoming reminders.")
     search_term = st.text_input("Enter text to search (client, animal, or item)")
     
@@ -1072,7 +1076,9 @@ if working_df is not None:
 
     # Rules editor
     st.markdown("---")
-    st.markdown("<h2 id='search-terms'>📝 Search Terms</h2>", unsafe_allow_html=True)
+    st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("#### 📝 Search Terms")
+
     st.info(
         "1. See all current Search Terms, set their recurrence interval, and delete if necessary.\n"
         "2. Decide if the Quantity column should be considered (e.g. 1× Bravecto = 90 days, 2× Bravecto = 180 days).\n"
@@ -1216,7 +1222,8 @@ if working_df is not None:
     # Exclusions
     # --------------------------------
     st.markdown("---")
-    st.markdown("<h2 id='exclusions'>🚫 Exclusions</h2>", unsafe_allow_html=True)
+    st.markdown("<div id='exclusions' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("#### 🚫 Exclusions")
     st.info("💡 Add terms here to automatically hide reminders that contain them.")
     
     if st.session_state["exclusions"]:
@@ -1412,7 +1419,9 @@ def run_factoids():
     # --- Precompute YearMonth ---
     df["YearMonth"] = df["ChargeDate"].dt.to_period("M").dt.to_timestamp()
     
-    st.markdown("<h3 id='factoids-charts'>📈 Charts</h3>", unsafe_allow_html=True)
+    # Sidebar anchor for Charts section
+    st.markdown("<div id='factoids-charts' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("### 📈 Charts")
 
     # -------------------------
     # 📊 KPI CHART
@@ -1878,6 +1887,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
