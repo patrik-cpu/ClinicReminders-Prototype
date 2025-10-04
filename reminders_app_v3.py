@@ -1636,7 +1636,7 @@ def run_factoids():
         qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name","Block"])
         qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 700]
         patients = set()
-        for patlist in qualifying_blocks["Patients"]]:
+        for patlist in qualifying_blocks["Patients"]:
             patients.update(patlist)
         dental_patients = len(patients)
 
@@ -1798,6 +1798,7 @@ def run_factoids():
     st.markdown("</div>", unsafe_allow_html=True)
 
 run_factoids()
+
 
 
 
