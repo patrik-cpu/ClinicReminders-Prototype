@@ -1544,17 +1544,20 @@ def run_factoids():
     ).fillna(0).round(1)
     
     # Combine into a single dataframe for charting
-    plot_df = pd.DataFrame({
-        "MonthYear": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b %Y"),
-        "Percent": pct_current.values,
-        "Offset": 0,
-        "Label": "This Year",
-    }).append(pd.DataFrame({
-        "MonthYear": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b %Y"),
-        "Percent": pct_prev.values,
-        "Offset": -0.2,
-        "Label": "Last Year",
-    }), ignore_index=True)
+    plot_df = pd.concat([
+        pd.DataFrame({
+            "MonthYear": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b %Y"),
+            "Percent": pct_current.values,
+            "Offset": 0,
+            "Label": "This Year",
+        }),
+        pd.DataFrame({
+            "MonthYear": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b %Y"),
+            "Percent": pct_prev.values,
+            "Offset": -0.2,
+            "Label": "Last Year",
+        })
+    ], ignore_index=True)
 
     # Chart colors
     KPI_COLOURS = {
@@ -2020,6 +2023,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
