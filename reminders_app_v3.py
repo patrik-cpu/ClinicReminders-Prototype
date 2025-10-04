@@ -730,15 +730,16 @@ def summarize_uploads(files, rules):
 st.markdown("<h2 id='tutorial'>📖 Tutorial - Read me first!</h2>", unsafe_allow_html=True)
 
 st.info(
-    "READ THIS FIRST! This prototype does two main things:\n"
-    "1) Sets Reminders for all sorts of things (Vaccs, Dentals, Flea/Worm, Librela/Solensia, and anything else).\n"
-    "2) Shows you all sorts of interesting Factoids about your clinic. Use the SideBar on the left to Navigate.\n\n"
-    "How to use:\n"
-    "STEP 1: Upload your Data. Patrik has probably provided you with this.\n"
-    "STEP 2: Look at the Weekly Reminders. It will show you reminders due starting the week after the latest date in the data.\n"
-    "STEP 3: Click the 'WA' button to generate the template WhatsApp message for copying or direct sending.\n"
-    "STEP 4: Search Terms (which control what reminders are generated) can be added, modified, or deleted.\n"
-    "STEP 5: View the Factoids section for LOTS of interesting info! Contact Patrik for a thorough walk-through.\n\n"
+    "### 🧭 READ THIS FIRST!\n"
+    "This prototype does two main things:\n\n"
+    "1️⃣ **Sets Reminders** for all sorts of things — Vaccines, Dentals, Flea/Worm, Librela/Solensia, and anything else.\n"
+    "2️⃣ **Shows you interesting Factoids** about your clinic. Use the sidebar on the left to navigate.\n\n"
+    "### 📋 How to use:\n"
+    "**STEP 1:** Upload your data. Patrik has probably provided you with this.  \n"
+    "**STEP 2:** Look at the *Weekly Reminders* section. It shows reminders due starting the week after the latest date in your data.  \n"
+    "**STEP 3:** Click the *WA* button to generate a template WhatsApp message for copying or direct sending.  \n"
+    "**STEP 4:** *Search Terms* (which control what reminders are generated) can be added, modified, or deleted.  \n"
+    "**STEP 5:** View the *Factoids* section for lots of insights! Contact Patrik for a full walk-through.  \n\n"
     "There's more you can do, but this should be enough to get you started."
 )
 
@@ -1938,6 +1939,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
