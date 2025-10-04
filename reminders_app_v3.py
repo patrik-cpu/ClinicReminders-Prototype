@@ -529,36 +529,42 @@ def drop_early_duplicates(df):
     if df.empty:
         return df
 
-    df = df.sort_values(["Client Name", "Animal Name", "MatchedItems", "ChargeDate"]).copy()
+    # Convert lists in MatchedItems to comparable strings for sorting/grouping
+    df = df.copy()
+    df["MatchedItems_str"] = df["MatchedItems"].apply(
+        lambda x: ", ".join(sorted(x)) if isinstance(x, list) else str(x)
+    )
+
+    # Sort safely
+    df = df.sort_values(["Client Name", "Animal Name", "MatchedItems_str", "ChargeDate"]).reset_index(drop=True)
+
     keep_mask = [True] * len(df)
 
     for idx, row in df.iterrows():
         client = row.get("Client Name")
         animal = row.get("Animal Name")
-        items = row.get("MatchedItems", [])
+        item_str = row.get("MatchedItems_str", "")
         charge_date = row.get("ChargeDate")
         due_date = row.get("NextDueDate")
 
-        # Skip if missing essential data
-        if not isinstance(items, list) or pd.isna(charge_date) or pd.isna(due_date):
+        # Skip if missing key info
+        if not item_str or pd.isna(charge_date) or pd.isna(due_date):
             continue
 
-        # For each matched item, check if another record exists between charge and due dates
+        # Find later entries of the same item between charge and due date
         subset = df[
             (df["Client Name"] == client)
             & (df["Animal Name"] == animal)
+            & (df["MatchedItems_str"] == item_str)
             & (df["ChargeDate"] > charge_date)
             & (df["ChargeDate"] <= due_date)
         ]
 
-        # If any overlapping item is seen again (same visible text), skip this one
         if not subset.empty:
-            subset_items = subset["MatchedItems"].explode().str.lower().unique().tolist()
-            current_items = [i.lower() for i in items]
-            if any(i in subset_items for i in current_items):
-                keep_mask[idx] = False
+            # There is a later occurrence of the same item before due date → skip this row
+            keep_mask[idx] = False
 
-    return df.loc[keep_mask].reset_index(drop=True)
+    return df.loc[keep_mask].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
 
 def normalize_display_case(text: str) -> str:
     """If a word is ALL CAPS, convert to Title Case. Else leave as-is."""
@@ -1023,6 +1029,7 @@ if working_df is not None:
     # Prepare reminder fields on the fully standardized df
     prepared = ensure_reminder_columns(df, st.session_state["rules"])
     prepared = drop_early_duplicates(prepared)
+
     
     latest_date = prepared["ChargeDate"].max()
     default_start = (latest_date + timedelta(days=1)).date() if pd.notna(latest_date) else date.today()
@@ -1086,6 +1093,7 @@ if working_df is not None:
 
         filtered2 = ensure_reminder_columns(filtered, st.session_state["rules"])
         filtered2 = drop_early_duplicates(filtered2)
+
     
         if not filtered2.empty:
             g = filtered2.groupby(["DueDateFmt", "Client Name"], dropna=False)
@@ -1928,6 +1936,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
