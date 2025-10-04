@@ -730,14 +730,16 @@ def summarize_uploads(files, rules):
 st.markdown("<h2 id='tutorial'>📖 Tutorial - Read me first!</h2>", unsafe_allow_html=True)
 
 st.info(
-    "1. How it works: ClinicReminders checks when an item/service was purchased (e.g. Bravecto or Dental cleaning), "
-    "and sets a custom future reminder (e.g. 90 days or 1 year).\n"
-    "2. To start, upload your Invoiced Transactions data, and check that the PMS and date range is correct.\n"
-    "3. Once uploaded, click on 'Start Date 7-day Window'. You will see reminders coming up for the next 7 days.\n"
-    "4. Review the list of upcoming reminders. To generate a template WhatsApp message, click the WA button and review the output.\n"
-    "5. Review the Search Terms list below the main table to customise the reminders, their recurring interval, and other specifics.\n"
-    "6. You can also Add new terms or Delete terms.\n"
-    "7. There's a bit more you can do, but this should be enough to get you started!"
+    "READ THIS FIRST! This prototype does two main things:\n"
+    "1) Sets Reminders for all sorts of things (Vaccs, Dentals, Flea/Worm, Librela/Solensia, and anything else).\n"
+    "2) Shows you all sorts of interesting Factoids about your clinic. Use the SideBar on the left to Navigate.\n"
+    "How to use:\n"
+    "STEP 1: Upload your Data. Patrik has probably provided you with this.\n"
+    "STEP 2: Look at the Weekly Reminders. It will show you reminders due starting the week after the latest date in the data.\n"
+    "STEP 3: Click the 'WA' button to generate the template WhatsApp message for copying or direct sending.\n"
+    "STEP 4: Search terms (what Reminders are generated from" can be added, modified, or deleted.\n"
+    "STEP 5: View the Factoids section for LOTS of interesting info! Contact Patrik for a thorough walk-through.\n"
+    "There's more you can do, but this should be enough to get you started."
 )
 
 # --- Upload Data section (replace existing) ---
@@ -1936,6 +1938,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
