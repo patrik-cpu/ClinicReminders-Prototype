@@ -1579,13 +1579,14 @@ def run_factoids():
     ]
     
     # Ensure current_months is a clean list of strings for sorting
-    x_labels = pd.to_datetime(current_months).strftime("%b %Y").tolist()
+    x_labels = pd.to_datetime(current_months).dt.strftime("%b %Y").tolist()
+    
     bars = (
         alt.Chart(plot_df)
         .mark_bar(size=18)
         .encode(
             x=alt.X("MonthYear:N", sort=x_labels,
-                axis=alt.Axis(labelAngle=30, title=None)),
+                    axis=alt.Axis(labelAngle=30, title=None)),
             xOffset="Offset:O",
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
             color=alt.Color("Label:N", scale=alt.Scale(domain=["This Year", "Last Year"],
@@ -1602,8 +1603,9 @@ def run_factoids():
             title=f"{selected_kpi} – Last 12 Months vs Previous Year"
         )
     )
-
+    
     st.altair_chart(bars, use_container_width=True)
+
     
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -2024,4 +2026,5 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
