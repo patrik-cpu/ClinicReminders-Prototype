@@ -1497,18 +1497,21 @@ def run_factoids():
 
     # --- Fun Facts (unique pairs only)
     if not df_pairs.empty:
-        # ✅ Count pet names only once per unique client–animal pair
+        # ✅ Only count each unique client–animal combo once
         pet_counts = (
-            df_pairs.drop_duplicates(subset=["ClientKey", "AnimalKey"])["AnimalKey"]
-            .value_counts()
-            .reset_index()
-            .rename(columns={"index": "AnimalKey", "AnimalKey": "Count"})
+            df_pairs.drop_duplicates(subset=["ClientKey", "AnimalKey"])
+            .groupby("AnimalKey")
+            .size()
+            .reset_index(name="Count")
+            .sort_values("Count", ascending=False)
+            .reset_index(drop=True)
         )
     
         if not pet_counts.empty:
             top_name = str(pet_counts.iloc[0]["AnimalKey"]).title()
             top_count = int(pet_counts.iloc[0]["Count"])
             metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
+
 
     tx_exp = tx.explode("Patients").dropna(subset=["Patients"]).copy()
     if not tx_exp.empty:
@@ -1718,6 +1721,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
