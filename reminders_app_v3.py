@@ -1438,12 +1438,26 @@ VACCINE_RX          = _rx(VACCINE_KEYWORDS)
 def run_factoids():
     df = st.session_state.get("working_df")
     if df is None or df.empty:
+        st.warning("Upload data first.")
         return
 
+    df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
     dentals = df[df["Item Name"].str.contains("dental", case=False, na=False)]
-    data = dentals.groupby(dentals["ChargeDate"].dt.to_period("M"))["Animal Name"].nunique().tail(12)
 
-    st.altair_chart(alt.Chart(data.reset_index()).mark_bar().encode(x="ChargeDate:T", y="Animal Name:Q"))
+    data = (
+        dentals.groupby(dentals["ChargeDate"].dt.to_period("M"))["Animal Name"]
+        .nunique()
+        .sort_index()
+        .tail(12)
+    )
+
+    st.altair_chart(
+        alt.Chart(data.reset_index())
+        .mark_bar()
+        .encode(x="ChargeDate:T", y="Animal Name:Q"),
+        use_container_width=True,
+    )
+
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -1864,6 +1878,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
