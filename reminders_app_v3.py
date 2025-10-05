@@ -1308,6 +1308,27 @@ def run_factoids():
         merged["MonthDate"] = merged["Month"].dt.to_timestamp()
         color = conf["color"]
 
+                # Add datetime columns for proper month/year formatting
+        merged["MonthDate"] = merged["Month"].dt.to_timestamp()
+        df_blocked["MonthPeriod"] = df_blocked["ChargeDate"].dt.to_period("M")
+        monthly_prev_totals = (
+            df_blocked.groupby("MonthPeriod")["Animal Name"]
+            .nunique()
+            .reset_index()
+            .rename(columns={"Animal Name": "PrevTotalPatientsMonth"})
+        )
+        monthly_prev_totals["PrevMonthDate"] = monthly_prev_totals["MonthPeriod"].dt.to_timestamp()
+
+        merged = pd.merge(
+            merged,
+            monthly_prev_totals,
+            left_on="Month",
+            right_on="MonthPeriod",
+            how="left"
+        )
+
+        color = conf["color"]
+
         # --- ghost bars (30% opacity, offset left)
         ghost = (
             alt.Chart(merged)
@@ -1325,9 +1346,9 @@ def run_factoids():
                     axis=alt.Axis(format=".1%")
                 ),
                 tooltip=[
-                    alt.Tooltip("MonthDate:T", title="Month & Year", format="%b %Y"),
-                    alt.Tooltip("TotalPatientsMonth:Q", title="Monthly Patients", format=",.0f"),
-                    alt.Tooltip("PrevUniquePatients:Q", title=f"{choice} Patients (Prev-Year)", format=",.0f"),
+                    alt.Tooltip("PrevMonthDate:T", title="Month & Year", format="%b %Y"),
+                    alt.Tooltip("PrevTotalPatientsMonth:Q", title="Monthly Patients", format=",.0f"),
+                    alt.Tooltip("PrevUniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                     alt.Tooltip("PrevPercent:Q", title="%", format=".1%"),
                 ],
             )
@@ -1656,6 +1677,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
