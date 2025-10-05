@@ -1293,18 +1293,24 @@ def run_factoids():
                 if not prev_monthly.empty:
                     ghost_val = prev_monthly["Percent"].iloc[-1]
                     ghost_patients = prev_monthly["UniquePatients"].iloc[-1]
-                    ghost_data.append((row["MonthLabel"], ghost_val, ghost_patients))
+                    ghost_month = prev_monthly["Month"].iloc[-1]
+                    ghost_total = prev_monthly["TotalPatientsMonth"].iloc[-1]
+                    ghost_data.append((row["MonthLabel"], ghost_val, ghost_patients, ghost_month, ghost_total))
 
         # --- merge ghost values into monthly table
         merged = monthly.copy()
         merged["PrevPercent"] = pd.NA
         merged["PrevUniquePatients"] = pd.NA
-        for label, val, pats in ghost_data:
+        merged["PrevMonth"] = pd.NaT
+        merged["PrevTotalPatientsMonth"] = pd.NA
+        
+        for label, val, pats, pmonth, ptotal in ghost_data:
             merged.loc[merged["MonthLabel"] == label, "PrevPercent"] = val
             merged.loc[merged["MonthLabel"] == label, "PrevUniquePatients"] = pats
-
-        merged["has_ghost"] = merged["PrevPercent"].notna()
-        # ✅ Add a clean datetime column for tooltips without breaking MonthLabel
+            merged.loc[merged["MonthLabel"] == label, "PrevMonth"] = pmonth
+            merged.loc[merged["MonthLabel"] == label, "PrevTotalPatientsMonth"] = ptotal
+        
+        merged["PrevMonthDate"] = pd.to_datetime(merged["PrevMonth"].dt.to_timestamp(), errors="coerce")
         merged["MonthDate"] = merged["Month"].dt.to_timestamp()
         color = conf["color"]
 
@@ -1351,6 +1357,7 @@ def run_factoids():
                     alt.Tooltip("PrevUniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                     alt.Tooltip("PrevPercent:Q", title="%", format=".1%"),
                 ],
+
             )
         )
 
@@ -1371,6 +1378,7 @@ def run_factoids():
                     alt.Tooltip("UniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                     alt.Tooltip("Percent:Q", title="%", format=".1%"),
                 ],
+
             )
             .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
         )
@@ -1677,6 +1685,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
