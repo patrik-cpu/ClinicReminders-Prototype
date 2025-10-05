@@ -1582,10 +1582,11 @@ def run_factoids():
     bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
 
     # -------------------------
-    # Build correctly spaced side-by-side bars
+    # Build correctly spaced, centered, non-clipping side-by-side bars
     # -------------------------
     bar_width = 18
-    bar_shift = 9  # pixels to move bars left/right
+    bar_shift = 9
+    x_correction = 4  # small right shift for perfect label alignment
 
     base_encoding = {
         "x": alt.X(
@@ -1606,23 +1607,23 @@ def run_factoids():
         ],
     }
 
-    # Ghost layer (Previous Year) — faded, shifted left
+    # Ghost layer (Previous Year) — faded, to the left
     ghost_layer = (
         alt.Chart(ghost_df)
         .mark_bar(size=bar_width, color=bar_color, opacity=0.3)
         .encode(**base_encoding)
-        .encode(xOffset=alt.value(-bar_shift))
+        .encode(xOffset=alt.value(-bar_shift + x_correction))
     )
 
-    # Current layer (This Year) — solid, shifted right
+    # Current layer (This Year) — solid, to the right
     main_layer = (
         alt.Chart(current_df)
         .mark_bar(size=bar_width, color=bar_color, opacity=1.0)
         .encode(**base_encoding)
-        .encode(xOffset=alt.value(bar_shift))
+        .encode(xOffset=alt.value(bar_shift + x_correction))
     )
 
-    # Combine both layers
+    # Combine both layers and fix frame scaling
     bars = (
         (ghost_layer + main_layer)
         .properties(
@@ -1632,9 +1633,11 @@ def run_factoids():
         )
         .configure_axis(grid=False)
         .configure_view(strokeWidth=0)
+        .autosize("fit")  # keeps chart height fixed; bars scale properly
     )
 
     st.altair_chart(bars, use_container_width=True)
+
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -2055,6 +2058,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
