@@ -1379,47 +1379,46 @@ def run_factoids():
         st.altair_chart(chart, use_container_width=True)
 
     # ============================
-    # 📊 Revenue Concentration Curve
-    # ============================
-    st.markdown("---")
-    st.subheader("📊 Revenue Concentration Curve")
-
-    rev = df.groupby("Client Name", dropna=False)["Amount"].sum().sort_values(ascending=False).reset_index()
-    if not rev.empty and rev["Amount"].sum() > 0:
-        tot = float(rev["Amount"].sum())
-        n = len(rev)
-        rev["Rank"] = rev.index + 1
-        rev["TopPct"] = rev["Rank"] / n * 100
-        rev["CumPct"] = rev["Amount"].cumsum() / tot * 100
-        st.altair_chart(
-            alt.Chart(rev)
-            .mark_line(point=True)
-            .encode(
-                x=alt.X("TopPct:Q", title="Top X% of Clients"),
-                y=alt.Y("CumPct:Q", title="% of Total Revenue"),
-                tooltip=[
-                    alt.Tooltip("Client Name:N"),
-                    alt.Tooltip("Amount:Q", format=",.0f"),
-                    alt.Tooltip("TopPct:Q", format=".1f"),
-                    alt.Tooltip("CumPct:Q", format=".1f"),
-                ]
-            )
-            .properties(height=400, width=700),
-            use_container_width=True
-        )
-    else:
-        st.info("No client revenue data available.")
-
-    # ============================
-    # 📌 At a Glance (complete, fixed)
+    # 📌 At a Glance (canonical unique-patient counting; no carry-over)
     # ============================
     st.markdown("---")
     st.markdown("<div id='factoids-ataglance' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📌 At a Glance")
 
-    transactions = tx
+    transactions = tx  # alias
 
-    # --- Daily aggregates (per StartDate)
+    # ---- Canonicalization helpers (no cache; recomputed each rerun) ----
+    _WS_RX = re.compile(r"\s+")
+
+    def _canon(s: pd.Series) -> pd.Series:
+        return (
+            s.astype(str)
+             .str.normalize("NFKC")
+             .str.strip()
+             .str.replace(_WS_RX, " ", regex=True)
+             .str.lower()
+        )
+
+    BAD_CLIENTS = {
+        "counter", "sale counter", "walk-in", "walk in", "cash", "-", "walkin"
+    }
+
+    def canonical_pairs(_df: pd.DataFrame) -> pd.DataFrame:
+        """Return unique (ClientKey, AnimalKey) pairs after cleaning; drops blanks & junk clients."""
+        if _df is None or _df.empty:
+            return pd.DataFrame(columns=["ClientKey", "AnimalKey"])
+        sub = _df[["Client Name", "Animal Name"]].copy()
+        sub["ClientKey"] = _canon(sub["Client Name"])
+        sub["AnimalKey"] = _canon(sub["Animal Name"])
+        bad = (
+            sub["ClientKey"].isin(BAD_CLIENTS)
+            | (sub["ClientKey"] == "")
+            | (sub["AnimalKey"] == "")
+        )
+        sub = sub[~bad]
+        return sub[["ClientKey", "AnimalKey"]].drop_duplicates(ignore_index=True)
+
+    # --- Daily aggregates (per StartDate) for MAX/AVG cards (unchanged logic)
     daily = transactions.groupby("StartDate").agg(
         ClientTx=("Block", "count"),
         Patients=("Patients", lambda p: len(set().union(*p)) if len(p) else 0),
@@ -1435,12 +1434,12 @@ def run_factoids():
         metrics["Max Patients/Day"] = f"{int(daily.loc[max_pat_day, 'Patients']):,} ({max_pat_day.strftime('%d %b %Y')})"
         metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
 
-    # --- Total Unique Patients (unique client-animal pairs)
-    unique_pairs_all = df[["Client Name", "Animal Name"]].dropna().drop_duplicates()
-    total_unique_patients = unique_pairs_all.shape[0]
+    # --- Total Unique Patients (strict unique client-animal pairs on CURRENT df scope)
+    pairs_all = canonical_pairs(df)
+    total_unique_patients = len(pairs_all)
     metrics["Total Unique Patients"] = f"{total_unique_patients:,}"
 
-    # --- Patient Breakdown (unique patients per service)
+    # --- Patient Breakdown (unique pairs per service)
     masks = {
         "Dentals": re.compile("dental", re.I),
         "X-rays": _rx(XRAY_KEYWORDS),
@@ -1452,53 +1451,61 @@ def run_factoids():
         "Hospitalisations": _rx(HOSPITALISATION_KEYWORDS),
         "Vaccinations": _rx(VACCINE_KEYWORDS),
     }
-
-    for k, rx in masks.items():
-        matched = df[df["Item Name"].astype(str).str.contains(rx, na=False)]
-        count = matched[["Client Name", "Animal Name"]].dropna().drop_duplicates().shape[0]
+    for k, rxp in masks.items():
+        matched = df[df["Item Name"].astype(str).str.contains(rxp, na=False)]
+        pairs_k = canonical_pairs(matched)
+        c = len(pairs_k)
         if total_unique_patients > 0:
-            metrics[f"Unique Patients Having {k}"] = f"{count:,} ({count/total_unique_patients:.1%})"
+            metrics[f"Unique Patients Having {k}"] = f"{c:,} ({c/total_unique_patients:.1%})"
 
-    # --- Client Transaction Histogram
+    # --- Client Transaction Histogram (per client, unique visit days)
     tx_per_client = df.groupby("Client Name")["ChargeDate"].nunique()
-    total_clients = tx_per_client.shape[0]
+    total_clients = int(tx_per_client.shape[0])
     if total_clients > 0:
         hist = {
-            "Clients with 1 Transaction": (tx_per_client == 1).sum(),
-            "Clients with 2 Transactions": (tx_per_client == 2).sum(),
-            "Clients with 3–5 Transactions": ((tx_per_client >= 3) & (tx_per_client <= 5)).sum(),
-            "Clients with 6+ Transactions": (tx_per_client >= 6).sum(),
+            "Clients with 1 Transaction": int((tx_per_client == 1).sum()),
+            "Clients with 2 Transactions": int((tx_per_client == 2).sum()),
+            "Clients with 3–5 Transactions": int(((tx_per_client >= 3) & (tx_per_client <= 5)).sum()),
+            "Clients with 6+ Transactions": int((tx_per_client >= 6).sum()),
         }
         for k, v in hist.items():
             metrics[k] = f"{v:,} ({v/total_clients:.1%})"
 
-    # --- Fun Facts (unique pairs)
-    common_pet_counts = unique_pairs_all["Animal Name"].value_counts()
-    if not common_pet_counts.empty:
-        top_pet_name = common_pet_counts.index[0]
-        top_pet_count = int(common_pet_counts.iloc[0])
-        metrics["Most Common Pet Name"] = f"{top_pet_name} ({top_pet_count:,})"
+    # --- Fun Facts (use canonical pairs to avoid line-count inflation)
+    # Most Common Pet Name (by unique pairs)
+    if not pairs_all.empty:
+        name_counts = pairs_all["AnimalKey"].value_counts()
+        top_key = name_counts.index[0]
+        top_count = int(name_counts.iloc[0])
+        # Display name: title-case the canonical key (keeps it simple & stable)
+        display_name = top_key.title()
+        metrics["Most Common Pet Name"] = f"{display_name} ({top_count:,})"
 
-    # Patient with most transactions (unique client-animal pair)
-    tx_expanded = transactions.explode("Patients").dropna(subset=["Patients"]).copy()
-    tx_expanded["Patients"] = tx_expanded["Patients"].astype(str).str.strip()
-    tx_expanded = tx_expanded[tx_expanded["Patients"] != ""]
-    tx_pair_visits = (
-        tx_expanded
-        .assign(Client=tx_expanded["Client Name"].astype(str).str.strip())
-        .dropna(subset=["Client"])
-        .groupby(["Client", "Patients"])["StartDate"]
-        .nunique()
-        .reset_index(name="VisitCount")
-        .sort_values(["VisitCount", "Patients"], ascending=[False, True])
-    )
-    if not tx_pair_visits.empty:
-        top_row = tx_pair_visits.iloc[0]
-        metrics["Patient with Most Transactions"] = (
-            f"{top_row['Patients']} ({top_row['Client']}) – {int(top_row['VisitCount']):,}"
+    # Patient with Most Transactions: unique StartDate per canonical (Client, Animal)
+    te = transactions.explode("Patients").dropna(subset=["Patients"]).copy()
+    if not te.empty:
+        te["ClientKey"] = _canon(te["Client Name"])
+        te["AnimalKey"] = _canon(te["Patients"])
+        te = te[
+            (~te["ClientKey"].isin(BAD_CLIENTS))
+            & (te["ClientKey"] != "")
+            & (te["AnimalKey"] != "")
+        ]
+        counts = (
+            te.groupby(["ClientKey", "AnimalKey"])["StartDate"]
+              .nunique()
+              .reset_index(name="VisitCount")
+              .sort_values(["VisitCount", "AnimalKey"], ascending=[False, True])
         )
+        if not counts.empty:
+            best = counts.iloc[0]
+            # pick a representative display row for that (ClientKey, AnimalKey)
+            rep = te[(te["ClientKey"] == best["ClientKey"]) & (te["AnimalKey"] == best["AnimalKey"])].iloc[0]
+            display_patient = str(rep["Patients"]).strip()
+            display_client  = str(rep["Client Name"]).strip()
+            metrics["Patient with Most Transactions"] = f"{display_patient} ({display_client}) – {int(best['VisitCount']):,}"
 
-    # --- Card rendering (unchanged)
+    # --- Cards (unchanged renderer)
     CARD_STYLE = """<div style='background-color:{bg};
        border:1px solid #94a3b8;padding:16px;border-radius:10px;text-align:center;
        margin-bottom:12px;min-height:120px;display:flex;flex-direction:column;justify-content:center;'>
@@ -1685,6 +1692,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
