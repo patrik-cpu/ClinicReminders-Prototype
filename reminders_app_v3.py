@@ -1445,13 +1445,6 @@ def run_factoids():
         return
 
     df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
-    def run_factoids():
-    df = st.session_state.get("working_df")
-    if df is None or df.empty:
-        st.warning("Upload data first.")
-        return
-
-    df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
 
     # ============================
     # 📈 Charts Section (Interactive)
@@ -2026,6 +2019,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
