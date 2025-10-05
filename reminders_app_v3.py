@@ -1331,7 +1331,7 @@ def run_factoids():
                 x=alt.X(
                     "MonthLabel:N",
                     sort=merged["MonthLabel"].tolist(),
-                    axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-10)
+                    axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)
                 ),
                 y=alt.Y("PrevPercent:Q", title="% Patients", axis=alt.Axis(format=".1%")),
                 tooltip=[
@@ -1352,7 +1352,7 @@ def run_factoids():
                 x=alt.X(
                     "MonthLabel:N",
                     sort=merged["MonthLabel"].tolist(),
-                    axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-10)
+                    axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)
                 ),
                 y=alt.Y("Percent:Q", title="% Patients", axis=alt.Axis(format=".1%")),
                 tooltip=[
@@ -1667,6 +1667,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
