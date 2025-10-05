@@ -1372,7 +1372,7 @@ def run_factoids():
                 title=f"% of Monthly Patients Having {choice} (with previous-year ghost bars)"
             )
         )
-
+        st.markdown("<br>", unsafe_allow_html=True)
         st.altair_chart(chart, use_container_width=True)
 
 
@@ -1668,6 +1668,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
