@@ -1454,21 +1454,21 @@ def run_factoids():
     st.info("Each chart shows the % of total unique patients receiving a given service per month (last 12 months).")
 
     # ----------------------------------------------------------
-    # Cached computation (main heavy logic)
+    # Cached base computation
     # ----------------------------------------------------------
     @st.cache_data(show_spinner=False)
     def compute_base_transactions(df):
-        """Precompute all transaction blocks (used for multiple factoids)."""
+        """Build transaction blocks and patient totals per month (cached)."""
         if df.empty or "ChargeDate" not in df.columns:
-            return pd.DataFrame(), pd.Series(dtype="int64")
+            return pd.DataFrame(), pd.Series(dtype="int64"), pd.DataFrame()
 
-        df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
-        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
-        df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-        df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+        df_blocked = df.sort_values(["Client Name", "ChargeDate"]).copy()
+        df_blocked["DateOnly"] = pd.to_datetime(df_blocked["ChargeDate"]).dt.normalize()
+        df_blocked["DayDiff"] = df_blocked.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+        df_blocked["Block"] = df_blocked.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
 
         tx = (
-            df_sorted.groupby(["Client Name", "Block"])
+            df_blocked.groupby(["Client Name", "Block"])
             .agg(
                 StartDate=("DateOnly", "min"),
                 EndDate=("DateOnly", "max"),
@@ -1478,32 +1478,33 @@ def run_factoids():
             .reset_index()
         )
 
-        # Total patients per month (for chart denominators)
-        df_sorted["Month"] = df_sorted["ChargeDate"].dt.to_period("M")
-        patients_per_month = df_sorted.groupby("Month")["Animal Name"].nunique()
-        return tx, patients_per_month
+        df_blocked["Month"] = df_blocked["ChargeDate"].dt.to_period("M")
+        patients_per_month = df_blocked.groupby("Month")["Animal Name"].nunique()
 
-    tx, patients_per_month = compute_base_transactions(df)
+        return tx, patients_per_month, df_blocked
+
+    tx, patients_per_month, df_blocked = compute_base_transactions(df)
 
     # ----------------------------------------------------------
     # Cached per-metric monthly computation
     # ----------------------------------------------------------
     @st.cache_data(show_spinner=False)
-    def compute_monthly_data(df, tx, patients_per_month, rx_pattern, apply_amount_filter=False):
-        """Compute month-by-month patient percentages (block-based, correct denominator)."""
-        if df.empty or "ChargeDate" not in df.columns:
+    def compute_monthly_data(df_blocked, tx, patients_per_month, rx_pattern, apply_amount_filter=False):
+        """Compute month-by-month % of patients using block-based logic and correct monthly denominator."""
+        if df_blocked.empty or "ChargeDate" not in df_blocked.columns:
             return pd.DataFrame()
 
         # --- Identify qualifying service blocks ---
         if isinstance(rx_pattern, re.Pattern):
-            mask = df["Item Name"].astype(str).apply(lambda s: bool(rx_pattern.search(s)))
-            service_rows = df[mask]
+            mask = df_blocked["Item Name"].astype(str).apply(lambda s: bool(rx_pattern.search(s)))
+            service_rows = df_blocked[mask]
         else:
-            service_rows = df[df["Item Name"].str.contains(rx_pattern, na=False, case=False)]
+            service_rows = df_blocked[df_blocked["Item Name"].str.contains(rx_pattern, na=False, case=False)]
 
         if service_rows.empty:
             return pd.DataFrame()
 
+        # ✅ df_blocked includes 'Block', so this will now work
         service_blocks = service_rows[["Client Name", "Block", "ChargeDate"]].drop_duplicates()
         qualifying_blocks = pd.merge(service_blocks, tx, on=["Client Name", "Block"], how="left")
 
@@ -1541,8 +1542,8 @@ def run_factoids():
     # ----------------------------------------------------------
     # Chart Rendering Function
     # ----------------------------------------------------------
-    def monthly_percent_chart(df, rx_pattern, category_label, color, apply_amount_filter=False):
-        monthly_data = compute_monthly_data(df, tx, patients_per_month, rx_pattern, apply_amount_filter)
+    def monthly_percent_chart(df_blocked, rx_pattern, category_label, color, apply_amount_filter=False):
+        monthly_data = compute_monthly_data(df_blocked, tx, patients_per_month, rx_pattern, apply_amount_filter)
         if monthly_data.empty:
             st.info(f"No qualifying {category_label.lower()} data found.")
             return
@@ -1558,18 +1559,19 @@ def run_factoids():
                 ),
                 y=alt.Y(
                     "Percent:Q",
-                    title=f"% of Total Patients Having {category_label}",
+                    title=f"% of Monthly Patients Having {category_label}",
                     axis=alt.Axis(format=".1%")
                 ),
                 tooltip=[
                     alt.Tooltip("MonthLabel:N", title="Month"),
                     alt.Tooltip("UniquePatients:Q", title=f"{category_label} Patients", format=",.0f"),
-                    alt.Tooltip("TotalPatientsMonth:Q", title="Total Patients in Month", format=",.0f"),
+                    alt.Tooltip("TotalPatientsMonth:Q", title="Total Patients (Month)", format=",.0f"),
                     alt.Tooltip("Percent:Q", title="% of Patients", format=".1%")
                 ],
             )
             .properties(height=400, width=700)
         )
+
         st.altair_chart(chart, use_container_width=True)
 
     # ----------------------------------------------------------
@@ -1605,14 +1607,12 @@ def run_factoids():
 
     config = metric_configs[metric_choice]
     monthly_percent_chart(
-        df,
+        df_blocked,
         rx_pattern=config["rx"],
         category_label=metric_choice,
         color=config["color"],
         apply_amount_filter=config.get("filter", False)
     )
-
-
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -2033,6 +2033,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
