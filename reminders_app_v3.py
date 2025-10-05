@@ -74,6 +74,13 @@ st.markdown(
     ''',
     unsafe_allow_html=True,
 )
+st.markdown("""
+<style>
+.block-container {
+    padding-top: 3rem !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # --------------------------------
 # Defaults
@@ -1372,12 +1379,8 @@ def run_factoids():
                 title=f"% of Monthly Patients Having {choice} (with previous-year ghost bars)"
             )
         )
-        st.markdown("<br>", unsafe_allow_html=True)
+        
         st.altair_chart(chart, use_container_width=True)
-
-
-
-
 
     # ============================
     # 📊 Revenue Concentration Curve
@@ -1668,6 +1671,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
