@@ -1309,6 +1309,10 @@ def run_factoids():
             merged.loc[merged["MonthLabel"] == label, "PrevTotalPatients"] = tot
 
         merged["has_ghost"] = merged["PrevPercent"].notna()
+
+        # ✅ Month-only string for tooltips (no year)
+        merged["MonthOnly"] = merged["MonthLabel"].str.split().str[0]
+
         color = conf["color"]
 
         # --- ghost bars (30% opacity, offset left)
@@ -1329,7 +1333,7 @@ def run_factoids():
                 ),
                 tooltip=[
                     alt.Tooltip("PrevYear:O", title="Year"),
-                    alt.Tooltip("MonthLabel:N", title="Month", format="%b"),
+                    alt.Tooltip("MonthOnly:N", title="Month"),  # ← month name only
                     alt.Tooltip("PrevTotalPatients:Q", title="Monthly Patients", format=",.0f"),
                     alt.Tooltip("PrevUniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                     alt.Tooltip("PrevPercent:Q", title="%", format=".1%"),
@@ -1350,7 +1354,7 @@ def run_factoids():
                 y=alt.Y("Percent:Q", axis=alt.Axis(format=".1%")),
                 tooltip=[
                     alt.Tooltip("Year:O", title="Year"),
-                    alt.Tooltip("MonthLabel:N", title="Month", format="%b"),
+                    alt.Tooltip("MonthOnly:N", title="Month"),  # ← month name only
                     alt.Tooltip("TotalPatientsMonth:Q", title="Monthly Patients", format=",.0f"),
                     alt.Tooltip("UniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                     alt.Tooltip("Percent:Q", title="%", format=".1%"),
@@ -1370,6 +1374,7 @@ def run_factoids():
         )
 
         st.altair_chart(chart, use_container_width=True)
+
 
 
 
@@ -1663,6 +1668,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
