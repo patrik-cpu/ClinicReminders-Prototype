@@ -1319,7 +1319,7 @@ def run_factoids():
         ghost = (
             alt.Chart(merged)
             .transform_filter("datum.PrevPercent != null")
-            .mark_bar(size=25, color=color, opacity=0.3, xOffset=-25)
+            .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
             .encode(
                 x=alt.X(
                     "MonthLabel:N",
@@ -1344,7 +1344,7 @@ def run_factoids():
         # --- current bars (centered unless ghost exists)
         current = (
             alt.Chart(merged)
-            .mark_bar(size=25, color=color)
+            .mark_bar(size=20, color=color)
             .encode(
                 x=alt.X(
                     "MonthLabel:N",
@@ -1668,6 +1668,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
