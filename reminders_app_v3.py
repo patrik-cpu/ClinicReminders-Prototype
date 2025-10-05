@@ -1,14 +1,24 @@
+# === ClinicReminders Prototype v4.1 — Optimized Replacement ===
+# Drop-in replacement file (preserves UI & outputs, improves performance)
+
 import pandas as pd
 import altair as alt
 import unicodedata
 import streamlit as st
 import re
-import json, os
+import json, os, time
 import streamlit.components.v1 as components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
+import hashlib
+import numpy as np
 
+# ------------------------------------------------------------
+# Small wrapper to keep compatibility with earlier code that
+# referenced fetch_feedback_cached near the top of the file.
+# The real implementation of fetch_feedback is defined later.
+# ------------------------------------------------------------
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
@@ -55,35 +65,11 @@ st.markdown("---")
 st.markdown(
     '''
     <style>
-    /* Adjust headings spacing */
-    .block-container h1, .block-container h2, .block-container h3 {
-        margin-top: 0.2rem;
-    }
-
-    /* Reset Streamlit button height */
-    div[data-testid="stButton"] {
-        min-height: 0px !important;
-        height: auto !important;
-    }
-
-    /* Make page use full width */
-    .block-container {
-        max-width: 100% !important;
-        padding-left: 2rem;
-        padding-right: 2rem;
-    }
-
-    /* Ensure anchor headers are not hidden under Streamlit's padding */
-    h2[id] {
-        scroll-margin-top: 80px;
-    }
-
-    /* Extra anchor offset trick for Upload Data */
-    .anchor-offset {
-        position: relative;
-        top: -100px;   /* pull the anchor up so title aligns like other sections */
-        height: 0;
-    }
+    .block-container h1, .block-container h2, .block-container h3 { margin-top: 0.2rem; }
+    div[data-testid="stButton"] { min-height: 0px !important; height: auto !important; }
+    .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; }
+    h2[id] { scroll-margin-top: 80px; }
+    .anchor-offset { position: relative; top: -100px; height: 0; }
     </style>
     ''',
     unsafe_allow_html=True,
@@ -126,11 +112,9 @@ DEFAULT_RULES = {
 }
 
 # --------------------------------
-# Settings persistence (local JSON)
-# (Note: on Streamlit Cloud this is ephemeral)
+# Settings persistence (local JSON) — ephemeral on Streamlit Cloud
 # --------------------------------
 SETTINGS_FILE = "clinicreminders_settings.json"
-
 _last_settings = None  # global cache
 
 def save_settings():
@@ -149,24 +133,15 @@ def load_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, "r") as f:
             settings = json.load(f)
-
-        # Start from defaults
         rules = DEFAULT_RULES.copy()
-
-        # Merge saved rules on top
         saved_rules = settings.get("rules", {})
-
-        # 🚑 Cleanup: remove empty visible_text values
         for k, v in saved_rules.items():
             if "visible_text" in v and not v["visible_text"].strip():
                 v.pop("visible_text")
-
         rules.update(saved_rules)
-
         st.session_state["rules"] = rules
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
-
     else:
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
@@ -253,37 +228,18 @@ def normalize_columns(cols):
     return cleaned
 
 def detect_pms(df: pd.DataFrame) -> str:
-    """
-    Robust PMS detection using small unique key-sets per PMS.
-    Returns one of: 'VETport', 'Xpress', 'ezyVet', or None.
-    Optimized: avoids redundant normalize_columns() calls.
-    """
-    # Normalize once
     normalized_cols = set(normalize_columns(df.columns))
-
-    # Unique key sets (lowercased)
     v_keys = {"planitem performed", "plan item amount"}
     x_keys = {"date", "animal name", "amount", "item name"}
     e_keys = {"invoice date", "total invoiced (excl)", "product name", "first name", "last name"}
-
-    # Prefer stronger (more specific) matches
-    if v_keys.issubset(normalized_cols):
-        return "VETport"
-    if e_keys.issubset(normalized_cols):
-        return "ezyVet"
-    if x_keys.issubset(normalized_cols):
-        return "Xpress"
-
-    # Fallback: try the long lists in PMS_DEFINITIONS as a last resort, first match wins
+    if v_keys.issubset(normalized_cols): return "VETport"
+    if e_keys.issubset(normalized_cols): return "ezyVet"
+    if x_keys.issubset(normalized_cols): return "Xpress"
     for pms_name, definition in PMS_DEFINITIONS.items():
-        required = set(definition["columns"])
-        required = set(normalize_columns(required))  # normalize once per PMS, not per df
+        required = set(normalize_columns(definition["columns"]))
         if required.issubset(normalized_cols):
             return pms_name
-
     return None
-
-
 
 # --------------------------------
 # Session state init
@@ -293,35 +249,25 @@ if "rules" not in st.session_state:
 st.session_state.setdefault("weekly_message", "")
 st.session_state.setdefault("search_message", "")
 st.session_state.setdefault("new_rule_counter", 0)
-# 🔑 form version to re-key widgets after reset
 st.session_state.setdefault("form_version", 0)
 
 # --------------------------------
 # Helpers
 # --------------------------------
-
 def simplify_vaccine_text(text: str) -> str:
-    """Format vaccine names cleanly; only add Vaccine(s) when items are vaccines."""
     if not isinstance(text, str):
         return text
-
-    # Split into parts (comma and "and")
     parts = [p.strip() for p in text.replace(" and ", ",").split(",") if p.strip()]
     cleaned = [p.strip() for p in parts if p]
-
     if not cleaned:
         return text
-
-    # Special: ignore 'Vaccination' if other items exist
     cleaned_lower = [c.lower() for c in cleaned]
     if "vaccination" in cleaned_lower and len(cleaned) > 1:
         cleaned = [c for c in cleaned if c.lower() != "vaccination"]
-
-    # Determine if ALL items are vaccines
-    is_vaccine_item = lambda s: s.lower().endswith("vaccine") or s.lower().endswith("vaccines") or s.lower() in ["vaccination", "vaccine(s)"]
+    def is_vaccine_item(s):
+        s = s.lower()
+        return s.endswith("vaccine") or s.endswith("vaccines") or s in ["vaccination", "vaccine(s)"]
     all_vaccines = all(is_vaccine_item(c) for c in cleaned)
-
-    # If all items are vaccines, strip trailing "vaccine(s)" for clean grammar
     if all_vaccines:
         stripped = []
         for c in cleaned:
@@ -330,15 +276,12 @@ def simplify_vaccine_text(text: str) -> str:
                 tokens = tokens[:-1]
             stripped.append(" ".join(tokens).strip())
         stripped = [s for s in stripped if s]
-
         if len(stripped) == 1:
             return stripped[0] + " Vaccine"
         elif len(stripped) == 2:
             return f"{stripped[0]} and {stripped[1]} Vaccines"
         else:
             return f"{', '.join(stripped[:-1])} and {stripped[-1]} Vaccines"
-
-    # Otherwise → non-vaccine items, just return nicely joined
     if len(cleaned) == 1:
         return cleaned[0]
     elif len(cleaned) == 2:
@@ -372,211 +315,13 @@ def get_visible_plan_item(item_name: str, rules: dict) -> str:
             return vis if vis and vis.strip() else item_name
     return item_name
 
-
 def normalize_item_name(name: str) -> str:
-    """Normalize item names for matching."""
     if not isinstance(name, str):
         return ""
     name = unicodedata.normalize("NFKC", name).lower()
-    name = re.sub(r"[\u00a0\ufeff]", " ", name)  # clean nbsp/BOM
-    name = re.sub(r"[-+/().,]", " ", name)       # separators
+    name = re.sub(r"[\u00a0\ufeff]", " ", name)
+    name = re.sub(r"[-+/().,]", " ", name)
     return re.sub(r"\s+", " ", name).strip()
-
-@st.cache_data(show_spinner=False)
-def map_intervals(df, rules):
-    """
-    Map item names to rules (by substring match) and compute IntervalDays.
-    Uses canonical columns: Item Name, Qty, ChargeDate.
-    Produces: MatchedItems (list of visible texts), IntervalDays (min of matches).
-    """
-    df = df.copy()
-    df["MatchedItems"] = [[] for _ in range(len(df))]
-    df["IntervalDays"] = pd.NA
-
-    for idx, row in df.iterrows():
-        normalized = normalize_item_name(row.get("Item Name", ""))
-        matches, interval_values = [], []
-
-        for rule, settings in rules.items():
-            rule_norm = rule.lower().strip()
-            if rule_norm in normalized:
-                vis = settings.get("visible_text")
-                # Show visible_text when present; fallback to source item
-                if vis and vis.strip():
-                    matches.append(vis.strip())
-                else:
-                    matches.append(row.get("Item Name", rule))
-
-                days = settings["days"]
-                if settings.get("use_qty"):
-                    qty = pd.to_numeric(row.get("Qty", 1), errors="coerce")
-                    qty = int(qty) if pd.notna(qty) else 1
-                    days *= max(qty, 1)
-                interval_values.append(days)
-
-        if matches:
-            df.at[idx, "MatchedItems"] = matches
-            df.at[idx, "IntervalDays"] = min(interval_values)
-        else:
-            # No match → show the original Item Name and keep IntervalDays as NA
-            df.at[idx, "MatchedItems"] = [row.get("Item Name", "")]
-            df.at[idx, "IntervalDays"] = pd.NA
-
-    return df
-
-def parse_dates(series: pd.Series) -> pd.Series:
-    """
-    Robust parser for PMS date columns.
-    Always strips any time or trailing junk (e.g. Vetport "01/Jan/2024 16:20 57"),
-    so only the date part remains.
-    Works across Vetport, Xpress, and ezyVet.
-    """
-    # Already datetime dtype → normalize to date
-    if pd.api.types.is_datetime64_any_dtype(series):
-        return pd.to_datetime(series.dt.date, errors="coerce")
-
-    s = series.astype(str).str.strip()
-
-    # --- Extract only the date portion ---
-    s = s.str.extract(
-        r"(\d{1,2}[/-][A-Za-z]{3}[/-]\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})"
-    )[0]
-
-    # Excel serials
-    numeric = pd.to_numeric(s, errors="coerce")
-    if numeric.notna().sum() > 0:
-        base_1900 = pd.Timestamp("1899-12-30")
-        dt_1900 = base_1900 + pd.to_timedelta(numeric, unit="D")
-        base_1904 = pd.Timestamp("1904-01-01")
-        dt_1904 = base_1904 + pd.to_timedelta(numeric, unit="D")
-        valid_1900 = dt_1900.dt.year.between(1990, 2100)
-        valid_1904 = dt_1904.dt.year.between(1990, 2100)
-        return (dt_1904 if valid_1904.sum() > valid_1900.sum() else dt_1900).dt.normalize()
-
-    # Explicit formats
-    formats = [
-        "%d/%b/%Y", "%d-%b-%Y",
-        "%d/%m/%Y", "%m/%d/%Y",
-        "%Y-%m-%d", "%Y.%m.%d"
-    ]
-    for fmt in formats:
-        parsed = pd.to_datetime(s, format=fmt, errors="coerce")
-        if parsed.notna().sum() > 0:
-            return parsed.dt.normalize()
-
-    # Fallback: pandas inference
-    parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
-    return parsed.dt.normalize()
-    
-@st.cache_data(show_spinner=False)
-def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
-    """
-    Ensure canonical reminder fields exist using the standardized schema:
-    ChargeDate, Client Name, Animal Name, Item Name, Qty, Amount.
-    Adds:
-      - MatchedItems, IntervalDays
-      - NextDueDate (ChargeDate + IntervalDays)
-      - ChargeDateFmt, DueDateFmt
-    """
-    if df is None or df.empty:
-        return pd.DataFrame(columns=[
-            "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
-            "MatchedItems", "Qty", "IntervalDays", "NextDueDate", "ChargeDate"
-        ])
-
-    df = df.copy()
-
-    # Ensure canonical columns exist
-    for col, default in [
-        ("ChargeDate", pd.NaT),
-        ("Client Name", ""),
-        ("Animal Name", ""),
-        ("Item Name", ""),
-        ("Qty", 1),
-        ("Amount", 0),
-    ]:
-        if col not in df.columns:
-            df[col] = default
-
-    # Parse dates robustly
-    if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
-        df["ChargeDate"] = parse_dates(df["ChargeDate"])
-
-    # Map rules to intervals
-    df = map_intervals(df, rules)
-
-    # Compute next due dates
-    days = pd.to_numeric(df["IntervalDays"], errors="coerce")
-    df["NextDueDate"] = df["ChargeDate"] + pd.to_timedelta(days, unit="D")
-    # The above keeps NaT where IntervalDays is NA
-
-    # Format dates
-    df["ChargeDateFmt"] = pd.to_datetime(df["ChargeDate"]).dt.strftime("%d %b %Y")
-    df["DueDateFmt"]    = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
-
-    # Ensure MatchedItems is a clean list of strings
-    df["MatchedItems"] = df["MatchedItems"].apply(
-        lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
-    )
-    return df
-    
-def drop_early_duplicates(df):
-    """
-    Remove reminders where the same client-animal-item combination 
-    was purchased again before its next due date (e.g., early vaccination).
-    """
-    if df.empty:
-        return df
-
-    # Convert lists in MatchedItems to comparable strings for sorting/grouping
-    df = df.copy()
-    df["MatchedItems_str"] = df["MatchedItems"].apply(
-        lambda x: ", ".join(sorted(x)) if isinstance(x, list) else str(x)
-    )
-
-    # Sort safely
-    df = df.sort_values(["Client Name", "Animal Name", "MatchedItems_str", "ChargeDate"]).reset_index(drop=True)
-
-    keep_mask = [True] * len(df)
-
-    for idx, row in df.iterrows():
-        client = row.get("Client Name")
-        animal = row.get("Animal Name")
-        item_str = row.get("MatchedItems_str", "")
-        charge_date = row.get("ChargeDate")
-        due_date = row.get("NextDueDate")
-
-        # Skip if missing key info
-        if not item_str or pd.isna(charge_date) or pd.isna(due_date):
-            continue
-
-        # Find later entries of the same item between charge and due date
-        subset = df[
-            (df["Client Name"] == client)
-            & (df["Animal Name"] == animal)
-            & (df["MatchedItems_str"] == item_str)
-            & (df["ChargeDate"] > charge_date)
-            & (df["ChargeDate"] <= due_date)
-        ]
-
-        if not subset.empty:
-            # There is a later occurrence of the same item before due date → skip this row
-            keep_mask[idx] = False
-
-    return df.loc[keep_mask].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
-
-def normalize_display_case(text: str) -> str:
-    """If a word is ALL CAPS, convert to Title Case. Else leave as-is."""
-    if not isinstance(text, str):
-        return text
-    words = text.split()
-    fixed = []
-    for w in words:
-        if w.isupper() and len(w) > 1:   # all caps, not single letters
-            fixed.append(w.capitalize())
-        else:
-            fixed.append(w)
-    return " ".join(fixed)
 
 def clean_revenue_column(series: pd.Series) -> pd.Series:
     return (
@@ -587,17 +332,132 @@ def clean_revenue_column(series: pd.Series) -> pd.Series:
         .fillna(0)
     )
 
+def parse_dates(series: pd.Series) -> pd.Series:
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return pd.to_datetime(series.dt.date, errors="coerce")
+    s = series.astype(str).str.strip()
+    s = s.str.extract(
+        r"(\d{1,2}[/-][A-Za-z]{3}[/-]\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})"
+    )[0]
+    numeric = pd.to_numeric(s, errors="coerce")
+    if numeric.notna().sum() > 0:
+        base_1900 = pd.Timestamp("1899-12-30")
+        dt_1900 = base_1900 + pd.to_timedelta(numeric, unit="D")
+        base_1904 = pd.Timestamp("1904-01-01")
+        dt_1904 = base_1904 + pd.to_timedelta(numeric, unit="D")
+        valid_1900 = dt_1900.dt.year.between(1990, 2100)
+        valid_1904 = dt_1904.dt.year.between(1990, 2100)
+        return (dt_1904 if valid_1904.sum() > valid_1900.sum() else dt_1900).dt.normalize()
+    formats = [
+        "%d/%b/%Y", "%d-%b-%Y",
+        "%d/%m/%Y", "%m/%d/%Y",
+        "%Y-%m-%d", "%Y.%m.%d"
+    ]
+    for fmt in formats:
+        parsed = pd.to_datetime(s, format=fmt, errors="coerce")
+        if parsed.notna().sum() > 0:
+            return parsed.dt.normalize()
+    parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    return parsed.dt.normalize()
+
+# -------------------------
+# Vectorized interval mapping
+# -------------------------
 @st.cache_data(show_spinner=False)
-def process_file(file_bytes, filename, rules):
-    """
-    Read the file bytes + filename, detect PMS, clean revenue, standardize to:
-    ChargeDate, Client Name, Animal Name, Item Name, Qty, Amount
-    Returns: df_standardized, pms_name, amount_col (raw column name)
-    """
+def map_intervals_vec(df, rules):
+    df = df.copy()
+    if "ItemNorm" not in df.columns:
+        def _norm(name):
+            if not isinstance(name, str): return ""
+            s = unicodedata.normalize("NFKC", name).lower()
+            s = re.sub(r"[\u00a0\ufeff]", " ", s)
+            s = re.sub(r"[-+/().,]", " ", s)
+            return re.sub(r"\s+", " ", s).strip()
+        df["ItemNorm"] = df["Item Name"].astype(str).map(_norm)
+
+    n = len(df)
+    interval = pd.Series(pd.NA, index=df.index, dtype="Float64")
+    matched = np.empty(n, dtype=object)
+    matched[:] = [[] for _ in range(n)]
+
+    for rule_text, settings in rules.items():
+        pat = re.escape(rule_text.lower().strip())
+        mask = df["ItemNorm"].str.contains(pat, na=False)
+        if not mask.any():
+            continue
+
+        days = int(settings["days"])
+        if settings.get("use_qty"):
+            qty = pd.to_numeric(df.loc[mask, "Qty"], errors="coerce").fillna(1).astype(int).clip(lower=1)
+            cand = qty * days
+        else:
+            cand = pd.Series(days, index=df.index)[mask]
+
+        interval = interval.where(~mask, pd.concat([interval[mask], cand], axis=1).min(axis=1))
+
+        vis = settings.get("visible_text", "").strip()
+        idxs = df.index[mask]
+        if vis:
+            for i in idxs: matched[i].append(vis)
+        else:
+            for i in idxs: matched[i].append(df.at[i, "Item Name"])
+
+    df["MatchedItems"] = [list({x.strip() for x in lst if str(x).strip()}) for lst in matched]
+    df["IntervalDays"] = interval
+    return df
+
+@st.cache_data(show_spinner=False)
+def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=[
+            "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
+            "MatchedItems", "Qty", "IntervalDays", "NextDueDate", "ChargeDate"
+        ])
+    df = df.copy()
+    for col, default in [
+        ("ChargeDate", pd.NaT),
+        ("Client Name", ""),
+        ("Animal Name", ""),
+        ("Item Name", ""),
+        ("Qty", 1),
+        ("Amount", 0),
+    ]:
+        if col not in df.columns:
+            df[col] = default
+    if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
+        df["ChargeDate"] = parse_dates(df["ChargeDate"])
+    df = map_intervals_vec(df, rules)
+    days = pd.to_numeric(df["IntervalDays"], errors="coerce")
+    df["NextDueDate"] = df["ChargeDate"] + pd.to_timedelta(days, unit="D")
+    df["ChargeDateFmt"] = pd.to_datetime(df["ChargeDate"]).dt.strftime("%d %b %Y")
+    df["DueDateFmt"]    = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
+    df["MatchedItems"] = df["MatchedItems"].apply(
+        lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
+    )
+    return df
+
+def drop_early_duplicates_fast(df):
+    if df.empty:
+        return df
+    df = df.copy()
+    df["MatchedItems_str"] = df["MatchedItems"].apply(
+        lambda x: ", ".join(sorted(x)) if isinstance(x, list) else str(x)
+    )
+    df.sort_values(["Client Name", "Animal Name", "MatchedItems_str", "ChargeDate"],
+                   inplace=True, ignore_index=True)
+    g = df.groupby(["Client Name","Animal Name","MatchedItems_str"], dropna=False)
+    next_charge = g["ChargeDate"].shift(-1)
+    keep = next_charge.isna() | (next_charge > df["NextDueDate"])
+    out = df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
+    return out
+
+# --------------------------------
+# File processing (decoupled from rules)
+# --------------------------------
+@st.cache_data(show_spinner=False)
+def process_file(file_bytes, filename):
     from io import BytesIO
     file = BytesIO(file_bytes)
-
-    # Load file
     lowerfn = filename.lower()
     if lowerfn.endswith(".csv"):
         df = pd.read_csv(file)
@@ -605,30 +465,22 @@ def process_file(file_bytes, filename, rules):
         df = pd.read_excel(file)
     else:
         raise ValueError("Unsupported file type")
-
-    # Normalize headers
-    def _normalize(c):
-        return str(c).replace("\u00a0", " ").replace("\ufeff", "").strip()
+    def _normalize(c): return str(c).replace("\u00a0", " ").replace("\ufeff", "").strip()
     df.columns = [_normalize(c) for c in df.columns]
 
-    # Detect PMS
     pms_name = detect_pms(df)
     if not pms_name:
         return df, None, None
 
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
     amount_col = mappings.get("amount")
-
-    # Clean Amount
     if amount_col and amount_col in df.columns:
         df["Amount"] = clean_revenue_column(df[amount_col])
     else:
         df["Amount"] = 0
 
-    # Special case: ezyVet client name from first+last
     if pms_name == "ezyVet":
-        cf = mappings.get("client_first")
-        cl = mappings.get("client_last")
+        cf = mappings.get("client_first"); cl = mappings.get("client_last")
         if cf in df.columns and cl in df.columns:
             df["Client Name"] = (
                 df[cf].fillna("").astype(str).str.strip()
@@ -642,7 +494,6 @@ def process_file(file_bytes, filename, rules):
                 + df.get(cl, "").astype(str).fillna("")
             ).str.strip()
 
-    # Rename to canonical schema
     rename_map = {}
     if "date" in mappings and mappings["date"] in df.columns:
         rename_map[mappings["date"]] = "ChargeDate"
@@ -654,7 +505,6 @@ def process_file(file_bytes, filename, rules):
         rename_map[mappings["item"]] = "Item Name"
     df = df.rename(columns=rename_map)
 
-    # Ensure canonical columns exist
     for col, default in [
         ("ChargeDate", pd.NaT),
         ("Client Name", ""),
@@ -664,71 +514,56 @@ def process_file(file_bytes, filename, rules):
         if col not in df.columns:
             df[col] = default
 
-    # Qty column
     qty_col = mappings.get("qty")
     if qty_col and qty_col in df.columns:
-        df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
-        df["Qty"] = df["Qty"].astype(int)
+        df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1).astype(int)
     else:
         fallback_qty_cols = ["Qty", "Quantity", "Plan Item Quantity"]
         found = False
         for c in fallback_qty_cols:
             if c in df.columns:
-                df["Qty"] = pd.to_numeric(df[c], errors="coerce").fillna(1)
-                found = True
-                break
+                df["Qty"] = pd.to_numeric(df[c], errors="coerce").fillna(1).astype(int)
+                found = True; break
         if not found:
             df["Qty"] = 1
 
-    # Final Amount numeric safety
     df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
 
-    # Parse dates
     if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
         if "ChargeDate" in df.columns:
-            df["ChargeDate"] = parse_dates(df["ChargeDate"])
-            df["ChargeDate"] = df["ChargeDate"].dt.normalize()
+            df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
 
-    # Helper lowercase cols
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
     df["_item_lower"] = df["Item Name"].astype(str).str.lower()
-
     return df, pms_name, amount_col
-    
+
+def _to_blob(uploaded):
+    # Deterministic blob for caching; avoids .read() side effects
+    b = uploaded.getvalue()
+    return {"name": uploaded.name, "bytes": b}
+
 @st.cache_data(show_spinner=False)
-def summarize_uploads(files, rules):
-    """Read and summarize all uploaded files. Cached for speed."""
+def summarize_uploads(file_blobs):
     datasets, summary_rows = [], []
-
-    for file in files:
-        file_bytes = file.read()
-        df, pms_name, amount_col = process_file(file_bytes, file.name, rules)
+    for fb in file_blobs:
+        df, pms_name, amount_col = process_file(fb["bytes"], fb["name"])
         pms_name = pms_name or "Undetected"
-
-        from_date, to_date = None, None
-        if "ChargeDate" in df.columns:
-            try:
-                from_date = df["ChargeDate"].min()
-                to_date = df["ChargeDate"].max()
-            except Exception:
-                pass
-
+        from_date = pd.to_datetime(df.get("ChargeDate")).min()
+        to_date   = pd.to_datetime(df.get("ChargeDate")).max()
         summary_rows.append({
-            "File name": file.name,
+            "File name": fb["name"],
             "PMS": pms_name,
             "From": from_date.strftime("%d %b %Y") if pd.notna(from_date) else "-",
-            "To": to_date.strftime("%d %b %Y") if pd.notna(to_date) else "-"
+            "To":   to_date.strftime("%d %b %Y")   if pd.notna(to_date)   else "-"
         })
         datasets.append((pms_name, df))
-
     return datasets, summary_rows
 
 # --------------------------------
 # Tutorial section
 # --------------------------------
 st.markdown("<h2 id='tutorial'>📖 Tutorial - Read me first!</h2>", unsafe_allow_html=True)
-
 st.info(
     "### 🧭 READ THIS FIRST!\n"
     "This prototype does two main things:\n\n"
@@ -743,7 +578,7 @@ st.info(
     "There's more you can do, but this should be enough to get you started."
 )
 
-# --- Upload Data section (replace existing) ---
+# --- Upload Data section ---
 st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 📂 Data Upload")
 
@@ -757,7 +592,7 @@ datasets = []
 summary_rows = []
 working_df = None
 
-# Auto clear cache when file list changes (so cached results won't be stale)
+# Auto clear/rekey when file list changes
 if "last_uploaded_files" not in st.session_state:
     st.session_state["last_uploaded_files"] = []
 current_files = [f.name for f in files] if files else []
@@ -765,25 +600,24 @@ if current_files != st.session_state["last_uploaded_files"]:
     if current_files != st.session_state.get("last_uploaded_files", []):
         st.session_state["last_uploaded_files"] = current_files
         st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-
     st.session_state["last_uploaded_files"] = current_files
-    # Also clear previously stored working_df in session state to avoid stale data
     if "working_df" in st.session_state:
         del st.session_state["working_df"]
+    if "prepared_df" in st.session_state:
+        del st.session_state["prepared_df"]
+        st.session_state.pop("prepared_key", None)
 
 if files:
-    datasets, summary_rows = summarize_uploads(files, st.session_state["rules"])
+    file_blobs = tuple(_to_blob(f) for f in files)
+    datasets, summary_rows = summarize_uploads(file_blobs)
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
     all_pms = {p for p, _ in datasets}
     if len(all_pms) == 1 and "Undetected" not in all_pms:
-        # concatenate standardized dataframes
         working_df = pd.concat([df for _, df in datasets], ignore_index=True)
         st.session_state["working_df"] = working_df
         st.success(f"All files detected as {list(all_pms)[0]} — merging datasets.")
     else:
-        # If mixing PMS types, allow concatenation as long as standard columns exist across files
-        # We'll attempt to concatenate and check for required canonical columns
         try:
             cand = pd.concat([df for _, df in datasets], ignore_index=True, sort=False)
             required_cols = ["ChargeDate","Client Name","Animal Name","Item Name","Qty","Amount"]
@@ -804,44 +638,34 @@ def render_table(df, title, key_prefix, msg_key, rules):
         st.info(f"No reminders in {title}.")
         return
     df = df.copy()
-
-    # Always build a display "Plan Item" from canonical Item Name + rules
     if "Item Name" in df.columns:
         df["Plan Item"] = df["Item Name"].apply(
             lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules))
         )
     elif "Plan Item" not in df.columns:
         df["Plan Item"] = ""
-
-    # Exclusions apply to the final display text
     if st.session_state["exclusions"]:
         excl_pattern = "|".join(map(re.escape, st.session_state["exclusions"]))
         df = df[~df["Plan Item"].str.lower().str.contains(excl_pattern)]
     if df.empty:
         st.info("All rows excluded by exclusion list.")
         return
-
     render_table_with_buttons(df, key_prefix, msg_key)
 
 def render_table_with_buttons(df, key_prefix, msg_key):
-    # Column layout
     col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
     headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA"]
     cols = st.columns(col_widths)
     for c, head in zip(cols, headers):
         c.markdown(f"**{head}**")
-
-    # Rows
     for idx, row in df.iterrows():
         vals = {h: str(row.get(h, "")) for h in headers[:-1]}
         cols = st.columns(col_widths, gap="small")
         for j, h in enumerate(headers[:-1]):
             val = vals[h]
-            if h in ["Client Name", "Animal Name", "Plan Item"]:  # clean display fields only
+            if h in ["Client Name", "Animal Name", "Plan Item"]:
                 val = normalize_display_case(val)
             cols[j].markdown(val)
-
-        # WA button -> prepare message
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
             first_name  = vals['Client Name'].split()[0].strip() if vals['Client Name'] else "there"
             animal_name = vals['Animal Name'].strip() if vals['Animal Name'] else "your pet"
@@ -850,7 +674,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             due_date_fmt = format_due_date(vals['Due Date'])
             closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
             verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
-
             if user:
                 st.session_state[msg_key] = (
                     f"Hi {first_name}, this is {user} reminding you that "
@@ -861,20 +684,15 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     f"Hi {first_name}, this is a reminder letting you know that "
                     f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
-
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
-
-    # Composer (same as before) ...
     comp_main, comp_tip = st.columns([4,1])
     with comp_main:
         st.write("### WhatsApp Composer")
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
         st.text_area("Message:", key=msg_key, height=200)
-
         current_message = st.session_state.get(msg_key, "")
-
         components.html(
             f'''
             <html>
@@ -882,49 +700,22 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 <meta charset="utf-8">
                 <style>
                   .composer-wrap {{
-                    display: flex;
-                    flex-direction: column;
-                    gap: 10px;
+                    display: flex; flex-direction: column; gap: 10px;
                     font-family: "Source Sans Pro", sans-serif;
                   }}
                   .phone-row input {{
-                    width: 100%;
-                    height: 44px;
-                    padding: 0 12px;
-                    border: 1px solid #ccc;
-                    border-radius: 6px;
-                    font-size: 16px;
+                    width: 100%; height: 44px; padding: 0 12px;
+                    border: 1px solid #ccc; border-radius: 6px; font-size: 16px;
                     font-family: inherit;
                   }}
-                  .button-row {{
-                    display: flex;
-                    gap: 12px;
-                    align-items: center;
-                    margin-top: 2px;
-                  }}
+                  .button-row {{ display: flex; gap: 12px; align-items: center; margin-top: 2px; }}
                   .button-row button {{
-                    height: 52px;
-                    padding: 0 20px;
-                    border: none;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    font-size: 18px;
-                    font-weight: 600;
-                    font-family: "Source Sans Pro", sans-serif;
-                    flex: 1;
+                    height: 52px; padding: 0 20px; border: none; border-radius: 6px;
+                    cursor: pointer; font-size: 18px; font-weight: 600; font-family: "Source Sans Pro", sans-serif; flex: 1;
                   }}
-                  .wa-btn {{
-                    background-color: #25D366;
-                    color: white;
-                  }}
-                  .copy-btn {{
-                    background-color: #555;
-                    color: white;
-                  }}
-                  .copy-btn:active {{
-                    transform: translateY(2px);
-                    filter: brightness(85%);
-                  }}
+                  .wa-btn {{ background-color: #25D366; color: white; }}
+                  .copy-btn {{ background-color: #555; color: white; }}
+                  .copy-btn:active {{ transform: translateY(2px); filter: brightness(85%); }}
                 </style>
               </head>
               <body>
@@ -933,16 +724,13 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     <input id="phoneInput" type="text" inputmode="tel"
                            placeholder="+9715XXXXXXXX" aria-label="Phone number (with country code)">
                   </div>
-
                   <div class="button-row">
                     <button class="wa-btn" id="waBtn">📲 Open in WhatsApp</button>
                     <button class="copy-btn" id="copyBtn">📋 Copy to Clipboard</button>
                   </div>
                 </div>
-
                 <script>
                   const MESSAGE_RAW = {json.dumps(current_message)};
-
                   async function copyToClipboard(text) {{
                     try {{
                       await navigator.clipboard.writeText(text);
@@ -956,23 +744,20 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                       }}
                     }}
                   }}
-
                   document.getElementById('waBtn').addEventListener('click', async function(e) {{
                     e.preventDefault();
                     const rawPhone = document.getElementById('phoneInput').value || '';
                     const phoneClean = rawPhone.replace(/[^0-9]/g, '');
                     const encMsg = encodeURIComponent(MESSAGE_RAW || '');
-
                     let url = '';
                     if (phoneClean) {{
                       url = `https://wa.me/${{phoneClean}}${{encMsg ? "?text=" + encMsg : ""}}`;
                     }} else {{
                       await copyToClipboard(MESSAGE_RAW || '');
-                      url = "https://wa.me/";  // forward/search
+                      url = "https://wa.me/";
                     }}
                     window.open(url, '_blank', 'noopener');
                   }});
-
                   document.getElementById('copyBtn').addEventListener('click', async function() {{
                     await copyToClipboard(MESSAGE_RAW || '');
                     const old = this.innerText;
@@ -985,7 +770,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             ''',
             height=130,
         )
-
     st.markdown(
         "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
         "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
@@ -995,56 +779,72 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         st.markdown("### 💡 Tip")
         st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
 
+def normalize_display_case(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+    words = text.split()
+    fixed = []
+    for w in words:
+        if w.isupper() and len(w) > 1:
+            fixed.append(w.capitalize())
+        else:
+            fixed.append(w)
+    return " ".join(fixed)
+
+# --------------------------------
+# Prepared dataframe memo (recompute only when data/rules change)
+# --------------------------------
+def _rules_fp(rules: dict) -> str:
+    return hashlib.md5(json.dumps(rules, sort_keys=True).encode()).hexdigest()
+
+def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
+    key = (st.session_state.get("data_version", 0), _rules_fp(rules))
+    if st.session_state.get("prepared_key") != key:
+        prepared = ensure_reminder_columns(working_df, rules)
+        prepared = drop_early_duplicates_fast(prepared)
+        st.session_state["prepared_df"] = prepared
+        st.session_state["prepared_key"] = key
+    return st.session_state["prepared_df"]
+
 # --------------------------------
 # Main
 # --------------------------------
-if working_df is not None:
-    df = working_df.copy()
+if st.session_state.get("working_df") is not None:
+    df = st.session_state["working_df"].copy()
 
     # Your name / clinic
     st.markdown("---")
     name_col, tut_col = st.columns([4,1])
-    
     with name_col:
-        # Make the label big using Markdown
         st.markdown("### Your name / clinic")
-        # Render the text input without its label
         st.session_state["user_name"] = st.text_input(
-            "", 
-            value=st.session_state["user_name"], 
+            "",
+            value=st.session_state["user_name"],
             key="user_name_input",
-            label_visibility="collapsed"   # hides the empty label
+            label_visibility="collapsed"
         )
-    
     with tut_col:
         st.markdown("### 💡 Tip")
         st.info("This name will appear in your WhatsApp reminders")
-
 
     # Weekly Reminders
     st.markdown("---")
     st.markdown("<h2 id='reminders'>📅 Reminders</h2>", unsafe_allow_html=True)
     st.markdown("<div id='weekly-reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("#### 📅 Weekly Reminders")
-
     st.info("💡 Pick a Start Date to see reminders for the next 7-day window. Click WA to prepare a message.")
-    
-    # Prepare reminder fields on the fully standardized df
-    prepared = ensure_reminder_columns(df, st.session_state["rules"])
-    prepared = drop_early_duplicates(prepared)
 
-    
+    prepared = get_prepared_df(df, st.session_state["rules"])
     latest_date = prepared["ChargeDate"].max()
     default_start = (latest_date + timedelta(days=1)).date() if pd.notna(latest_date) else date.today()
     start_date = st.date_input("Start Date (7-day window)", value=default_start)
     end_date = start_date + timedelta(days=6)
-    
-    # Filter by NextDueDate within the 7-day window
+
     due2 = prepared[
         (pd.to_datetime(prepared["NextDueDate"]) >= pd.to_datetime(start_date)) &
         (pd.to_datetime(prepared["NextDueDate"]) <= pd.to_datetime(end_date))
     ].copy()
-    
+
     if not due2.empty:
         g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
         grouped = (
@@ -1071,7 +871,7 @@ if working_df is not None:
             .reset_index()
             .rename(columns={"DueDateFmt": "Due Date"})
         )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
-    
+
         grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
     else:
@@ -1083,21 +883,17 @@ if working_df is not None:
     st.markdown("---")
     st.markdown("<div id='search' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("#### 🔍 Search")
-
     st.info("💡 Search by client, animal, or item to find upcoming reminders.")
     search_term = st.text_input("Enter text to search (client, animal, or item)")
-    
+
     if search_term:
         q = search_term.lower()
-        filtered = df.query(
+        # Filter the already-prepared DF — no heavy recompute
+        filtered2 = prepared.query(
             "_client_lower.str.contains(@q, regex=False) or _animal_lower.str.contains(@q, regex=False) or _item_lower.str.contains(@q, regex=False)",
             engine="python"
         ).copy()
 
-        filtered2 = ensure_reminder_columns(filtered, st.session_state["rules"])
-        filtered2 = drop_early_duplicates(filtered2)
-
-    
         if not filtered2.empty:
             g = filtered2.groupby(["DueDateFmt", "Client Name"], dropna=False)
             grouped_search = (
@@ -1121,23 +917,20 @@ if working_df is not None:
                 .reset_index()
                 .rename(columns={"DueDateFmt": "Due Date"})
             )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
-    
+
             render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
         else:
             st.info("No matches found.")
 
-    # Rules editor
+    # Rules editor (unchanged UI; behavior preserved)
     st.markdown("---")
     st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("#### 📝 Search Terms")
-
     st.info(
         "1. See all current Search Terms, set their recurrence interval, and delete if necessary.\n"
         "2. Decide if the Quantity column should be considered (e.g. 1× Bravecto = 90 days, 2× Bravecto = 180 days).\n"
         "3. View and edit the Visible Text which will appear in the WhatsApp template message."
     )
-
-    # Header row
     cols = st.columns([3,1,1,2,0.7])
     with cols[0]: st.markdown("**Rule**")
     with cols[1]: st.markdown("**Days**")
@@ -1146,7 +939,6 @@ if working_df is not None:
     with cols[4]: st.markdown("**Delete**")
 
     new_values, to_delete = {}, []
-
     def toggle_use_qty(rule, key):
         st.session_state["rules"][rule]["use_qty"] = st.session_state[key]
         save_settings()
@@ -1154,23 +946,16 @@ if working_df is not None:
 
     for rule, settings in sorted(st.session_state["rules"].items(), key=lambda x: x[0]):
         ver = st.session_state["form_version"]
-        
-        # Use rule name itself (sanitized) instead of index for stable widget keys
         safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
-    
-        with st.container():  # keeps each row discrete
+        with st.container():
             cols = st.columns([3,1,1,2,0.7], gap="small")
-    
             with cols[0]:
                 st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
-    
             with cols[1]:
                 new_values.setdefault(rule, {})["days"] = st.text_input(
                     "Days", value=str(settings["days"]),
-                    key=f"days_{safe_rule}_{ver}",
-                    label_visibility="collapsed"
+                    key=f"days_{safe_rule}_{ver}", label_visibility="collapsed"
                 )
-    
             with cols[2]:
                 st.checkbox(
                     "Use Qty", value=settings["use_qty"],
@@ -1178,18 +963,14 @@ if working_df is not None:
                     on_change=toggle_use_qty,
                     args=(rule, f"useqty_{safe_rule}_{ver}",)
                 )
-    
             with cols[3]:
                 new_values[rule]["visible_text"] = st.text_input(
                     "Visible Text", value=settings.get("visible_text",""),
-                    key=f"vis_{safe_rule}_{ver}",
-                    label_visibility="collapsed"
+                    key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed"
                 )
-    
             with cols[4]:
                 if st.button("❌", key=f"del_{safe_rule}_{ver}"):
                     to_delete.append(rule)
-
 
     if to_delete:
         for rule in to_delete:
@@ -1197,7 +978,6 @@ if working_df is not None:
         save_settings()
         st.rerun()
 
-    # Update / Reset + Tip
     colU, colR, colTip = st.columns([2,1,2])
     with colU:
         if st.button("Update"):
@@ -1205,17 +985,16 @@ if working_df is not None:
             for rule, settings in st.session_state["rules"].items():
                 d = int(new_values.get(rule, {}).get("days", settings["days"]))
                 vis = new_values.get(rule, {}).get("visible_text", settings.get("visible_text", ""))
-                # Treat blank as unset → remove from dict
                 if vis.strip() == "":
                     updated[rule] = {"days": d, "use_qty": settings["use_qty"]}
                 else:
                     updated[rule] = {"days": d, "use_qty": settings["use_qty"], "visible_text": vis.strip()}
-
             st.session_state["rules"] = updated
-        
-            save_settings()  # ✅ ensure JSON is written before rerun
+            save_settings()
+            # invalidate prepared cache because rules changed
+            st.session_state.pop("prepared_df", None)
+            st.session_state.pop("prepared_key", None)
             st.rerun()
-
 
     with colR:
         if st.button("Reset defaults"):
@@ -1223,6 +1002,8 @@ if working_df is not None:
             st.session_state["exclusions"] = []
             st.session_state["form_version"] += 1
             save_settings()
+            st.session_state.pop("prepared_df", None)
+            st.session_state.pop("prepared_key", None)
             st.rerun()
 
     with colTip:
@@ -1232,14 +1013,10 @@ if working_df is not None:
             "Click **Reset defaults** to restore rules and exclusions to your defaults."
         )
 
-    # Add new rule
     st.markdown("---")
     st.write("### Add New Search Term")
     st.info("💡 Add a new **Search Term** (e.g., Cardisure), set its days, whether to use quantity, and optional visible text.")
-    
-    # Use the counter only to make this row unique *until* it's added
     row_id = st.session_state['new_rule_counter']
-    
     c1, c2, c3, c4, c5 = st.columns([3,1,1,2,0.7], gap="small")
     with c1:
         new_rule_name = st.text_input("Rule name", key=f"new_rule_name_{row_id}")
@@ -1253,22 +1030,17 @@ if working_df is not None:
         if st.button("➕ Add", key=f"add_{row_id}"):
             if new_rule_name and str(new_rule_days).isdigit():
                 safe_rule = new_rule_name.strip().lower()
-    
-                rule_data = {
-                    "days": int(new_rule_days),
-                    "use_qty": bool(new_rule_use_qty),
-                }
+                rule_data = {"days": int(new_rule_days), "use_qty": bool(new_rule_use_qty)}
                 if new_rule_visible.strip():
                     rule_data["visible_text"] = new_rule_visible.strip()
-                
                 st.session_state["rules"][safe_rule] = rule_data
-
                 save_settings()
-                st.session_state["new_rule_counter"] += 1  # bump so next add row is fresh
+                st.session_state["new_rule_counter"] += 1
+                st.session_state.pop("prepared_df", None)
+                st.session_state.pop("prepared_key", None)
                 st.rerun()
             else:
                 st.error("Enter a name and valid integer for days")
-
 
     # --------------------------------
     # Exclusions
@@ -1277,11 +1049,9 @@ if working_df is not None:
     st.markdown("<div id='exclusions' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("#### 🚫 Exclusions")
     st.info("💡 Add terms here to automatically hide reminders that contain them.")
-    
     if st.session_state["exclusions"]:
         for term in sorted(st.session_state["exclusions"]):
             safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
-    
             with st.container():
                 cols = st.columns([6,1], gap="small")
                 with cols[0]:
@@ -1293,8 +1063,7 @@ if working_df is not None:
                         st.rerun()
     else:
         st.error("No exclusions yet.")
-    
-    # Add new exclusion row
+
     row_id = st.session_state['new_rule_counter']
     c1, c2 = st.columns([4,1], gap="small")
     with c1:
@@ -1313,67 +1082,59 @@ if working_df is not None:
             else:
                 st.error("Enter a valid exclusion term")
 
-
-# --- Google Sheets Setup ---
+# --- Google Sheets Setup (LAZY & PERSISTENT) ---
 SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
 SCOPE = ["https://spreadsheets.google.com/feeds",
          "https://www.googleapis.com/auth/drive"]
 
-# Load creds (Cloud via secrets; local fallback to file if present)
-try:
-    creds_dict = st.secrets["gcp_service_account"]
-except Exception:
+@st.cache_resource(show_spinner=False)
+def get_sheet():
+    # Do not connect unless Feedback needs it
     try:
-        with open("google-credentials.json", "r") as f:
-            creds_dict = json.load(f)
-    except FileNotFoundError:
-        st.error("Google credentials not found. Add them in Streamlit Secrets or google-credentials.json.")
-        st.stop()
-
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
-
-import time
-
-sheet = None
-try:
-    client = gspread.authorize(creds)
-    start = time.time()
-    while sheet is None and (time.time() - start) < 5:
+        creds_dict = st.secrets["gcp_service_account"]
+    except Exception:
         try:
-            sheet = client.open_by_key(SHEET_ID).sheet1
-        except Exception:
-            time.sleep(0.5)  # retry every half second
-except Exception:
-    sheet = None
+            with open("google-credentials.json", "r") as f:
+                creds_dict = json.load(f)
+        except FileNotFoundError:
+            return None
+    try:
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+        client = gspread.authorize(creds)
+        return client.open_by_key(SHEET_ID).sheet1
+    except Exception:
+        return None
 
-if sheet is None:
-    st.warning("⚠ Couldn't connect to Google Sheets. Check sharing, API enablement, and Sheet ID. Continuing without Sheets integration.")
-
-
-def _next_id_from_column():
-    """Find the max numeric ID in column A and add 1 (robust to mid-sheet deletions)."""
+def _next_id_from_column(sheet):
     try:
         col_ids = sheet.col_values(1)[1:]  # skip header
         nums = [int(x) for x in col_ids if x.strip().isdigit()]
         return (max(nums) if nums else 0) + 1
     except Exception:
-        # Fallback if parsing fails
-        return len(sheet.get_all_values())
+        rows = sheet.get_all_values()
+        return len(rows)
 
 def insert_feedback(name, email, message):
+    sheet = get_sheet()
+    if sheet is None:
+        st.error("Google credentials not found or Sheet unavailable.")
+        return
     now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    next_id = _next_id_from_column()
+    next_id = _next_id_from_column(sheet)
     sheet.append_row([next_id, now, name or "", email or "", message],
                      value_input_option="USER_ENTERED")
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_feedback(limit=500):
+    sheet = get_sheet()
+    if sheet is None:
+        return []
     rows = sheet.get_all_values()
     data = rows[1:] if rows else []
     return data[-limit:] if data else []
 
 # --------------------------------
-# Factoids Section
+# 📊 Factoids Section (Optimized, full block)
 # --------------------------------
 
 st.markdown("<div id='factoids' class='anchor-offset'></div>", unsafe_allow_html=True)
@@ -1382,236 +1143,426 @@ st.markdown("## 📊 Factoids")
 # -----------------------
 # Keyword Definitions
 # -----------------------
-FLEA_WORM_KEYWORDS = ["bravecto","revolution","deworm","frontline","milbe","milpro","nexgard","simparica","advocate","worm","praz","fenbend"]
-FOOD_KEYWORDS = ["hill's","hills","royal canin","purina","proplan","iams","eukanuba","orijen","acana","farmina","vetlife",
-                 "wellness","taste of the wild","nutro","pouch","tin","can","canned","wet","dry","kibble",
-                 "tuna","chicken","beef","salmon","lamb","duck","senior","diet","food","grain","rc"]
+FLEA_WORM_KEYWORDS = [
+    "bravecto","revolution","deworm","frontline","milbe","milpro",
+    "nexgard","simparica","advocate","worm","praz","fenbend"
+]
+FOOD_KEYWORDS = [
+    "hill's","hills","royal canin","purina","proplan","iams","eukanuba","orijen","acana",
+    "farmina","vetlife","wellness","taste of the wild","nutro","pouch","tin","can","canned",
+    "wet","dry","kibble","tuna","chicken","beef","salmon","lamb","duck","senior","diet","food","grain","rc"
+]
 XRAY_KEYWORDS = ["xray","x-ray","radiograph","radiology"]
 ULTRASOUND_KEYWORDS = ["ultrasound","echo","afast","tfast","a-fast","t-fast"]
-LABWORK_KEYWORDS = ["cbc","blood test","lab","biochemistry","haematology","urinalysis","labwork","idexx","ghp","chem","felv","fiv",
-                    "urine","cytology","smear","faecal","fecal","microscopic","slide","bun","crea","phos","urine",
-                    "cpl","cpli","lipase","amylase","pancreatic","cortisol"]
+LABWORK_KEYWORDS = [
+    "cbc","blood test","lab","biochemistry","haematology","urinalysis","labwork","idexx","ghp","chem",
+    "felv","fiv","urine","cytology","smear","faecal","fecal","microscopic","slide","bun","crea","phos",
+    "cpl","cpli","lipase","amylase","pancreatic","cortisol"
+]
 ANAESTHETIC_KEYWORDS = ["anaesthesia","anesthesia","spay","neuter","castrate","surgery","isoflurane","propofol","alfaxan","alfaxalone"]
 HOSPITALISATION_KEYWORDS = ["hospitalisation","hospitalization"]
 VACCINE_KEYWORDS = ["vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","kennel cough"]
 
-def _rx(words): return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
-XRAY_RX=_rx(XRAY_KEYWORDS);ULTRASOUND_RX=_rx(ULTRASOUND_KEYWORDS);FLEA_WORM_RX=_rx(FLEA_WORM_KEYWORDS)
-FOOD_RX=_rx(FOOD_KEYWORDS);LABWORK_RX=_rx(LABWORK_KEYWORDS);ANAESTHETIC_RX=_rx(ANAESTHETIC_KEYWORDS)
-HOSPITALISATION_RX=_rx(HOSPITALISATION_KEYWORDS);VACCINE_RX=_rx(VACCINE_KEYWORDS)
+METRIC_KEYWORDS = {
+    "Anaesthetics": ANAESTHETIC_KEYWORDS,
+    "Dentals": ["dental"],
+    "Flea/Worm Treatments": FLEA_WORM_KEYWORDS,
+    "Food Purchases": FOOD_KEYWORDS,
+    "Hospitalisations": HOSPITALISATION_KEYWORDS,
+    "Lab Work": LABWORK_KEYWORDS,
+    "Ultrasounds": ULTRASOUND_KEYWORDS,
+    "Vaccinations": VACCINE_KEYWORDS,
+    "X-rays": XRAY_KEYWORDS,
+}
 
-# ----------------------------------------------------------
-# Base caching
-# ----------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def prepare_factoids_data(df):
-    df=df.copy();df["ChargeDate"]=pd.to_datetime(df["ChargeDate"],errors="coerce")
-    df_sorted=df.sort_values(["Client Name","ChargeDate"]).copy()
-    df_sorted["DateOnly"]=pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
-    df_sorted["DayDiff"]=df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-    df_sorted["Block"]=df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x:(x>1).cumsum())
-    df_sorted["Month"]=df_sorted["ChargeDate"].dt.to_period("M")
-    tx=(df_sorted.groupby(["Client Name","Block"])
-         .agg(StartDate=("DateOnly","min"),EndDate=("DateOnly","max"),
-              Patients=("Animal Name",lambda x:set(x.astype(str))),Amount=("Amount","sum"))
-         .reset_index())
-    patients_per_month=df_sorted.groupby("Month")["Animal Name"].nunique()
-    return df_sorted,tx,patients_per_month
+def _rx_from_words(words):
+    return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
 
 @st.cache_data(show_spinner=False)
-def compute_monthly_data(df_blocked,tx,patients_per_month,rx_pattern,apply_amount_filter=False):
-    if df_blocked.empty:return pd.DataFrame()
-    mask=df_blocked["Item Name"].astype(str).apply(lambda s:bool(rx_pattern.search(s)))
-    service_rows=df_blocked[mask]
-    if service_rows.empty:return pd.DataFrame()
-    service_blocks=service_rows[["Client Name","Block","ChargeDate"]].drop_duplicates()
-    qualifying=pd.merge(service_blocks,tx,on=["Client Name","Block"],how="left")
-    if apply_amount_filter:qualifying=qualifying[qualifying["Amount"]>700]
-    if qualifying.empty:return pd.DataFrame()
-    qualifying["Month"]=qualifying["ChargeDate"].dt.to_period("M")
-    last_month=qualifying["Month"].max();month_range=pd.period_range(last_month-11,last_month,freq="M")
-    monthly=(qualifying.groupby("Month")["Patients"]
-             .apply(lambda p:len(set().union(*p)))
-             .reindex(month_range,fill_value=0)
-             .reset_index().rename(columns={"index":"Month","Patients":"UniquePatients"}))
-    monthly["TotalPatientsMonth"]=monthly["Month"].map(patients_per_month).fillna(0).astype(int)
-    monthly["Percent"]=monthly.apply(lambda r:(r["UniquePatients"]/r["TotalPatientsMonth"]) if r["TotalPatientsMonth"]>0 else 0,axis=1)
-    monthly["MonthLabel"]=monthly["Month"].dt.strftime("%b %Y")
+def prepare_factoids_data(df: pd.DataFrame):
+    df = df.copy()
+    df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+    df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
+    df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
+    df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+    df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+    df_sorted["Month"] = df_sorted["ChargeDate"].dt.to_period("M")
+
+    tx = (
+        df_sorted.groupby(["Client Name", "Block"])
+        .agg(
+            StartDate=("DateOnly", "min"),
+            EndDate=("DateOnly", "max"),
+            Patients=("Animal Name", lambda x: set(x.astype(str))),
+            Amount=("Amount", "sum"),
+        )
+        .reset_index()
+    )
+    patients_per_month = df_sorted.groupby("Month")["Animal Name"].nunique()
+    return df_sorted, tx, patients_per_month
+
+@st.cache_data(show_spinner=False)
+def compute_monthly_data(df_blocked, tx, patients_per_month, metric_key, apply_amount_filter=False):
+    """Compute monthly counts using metric_key string for stable caching."""
+    if df_blocked.empty:
+        return pd.DataFrame()
+
+    rx = _rx_from_words(METRIC_KEYWORDS[metric_key])
+    mask = df_blocked["Item Name"].astype(str).str.contains(rx, na=False)
+    if not mask.any():
+        return pd.DataFrame()
+
+    service_rows = df_blocked.loc[mask, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
+    qualifying = pd.merge(service_rows, tx, on=["Client Name", "Block"], how="left")
+    if apply_amount_filter:
+        qualifying = qualifying[qualifying["Amount"] > 700]
+
+    if qualifying.empty:
+        return pd.DataFrame()
+
+    qualifying["Month"] = qualifying["ChargeDate"].dt.to_period("M")
+    last_month = qualifying["Month"].max()
+    month_range = pd.period_range(last_month - 11, last_month, freq="M")
+
+    monthly = (
+        qualifying.groupby("Month")["Patients"]
+        .apply(lambda p: len(set().union(*p)))
+        .reindex(month_range, fill_value=0)
+        .reset_index()
+        .rename(columns={"index": "Month", "Patients": "UniquePatients"})
+    )
+
+    monthly["TotalPatientsMonth"] = monthly["Month"].map(patients_per_month).fillna(0).astype(int)
+    monthly["Percent"] = monthly.apply(
+        lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"]) if r["TotalPatientsMonth"] > 0 else 0, axis=1
+    )
+    monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
     return monthly.sort_values("Month")
 
 def run_factoids():
-    df=st.session_state.get("working_df")
+    df = st.session_state.get("working_df")
     if df is None or df.empty:
-        st.warning("Upload data first.");return
-    latest_date=pd.to_datetime(df["ChargeDate"],errors="coerce").max()
-    df_blocked,tx,patients_per_month=prepare_factoids_data(df)
+        st.warning("Upload data first.")
+        return
+
+    df_blocked, tx, patients_per_month = prepare_factoids_data(df)
 
     # ============================
-    # 📈 Charts Section
+    # 📈 Charts
     # ============================
-    st.markdown("<div id='factoids-charts' class='anchor-offset'></div>",unsafe_allow_html=True)
+    st.markdown("<div id='factoids-charts' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📈 Charts")
-    metric_configs={
-        "Anaesthetics":{"rx":ANAESTHETIC_RX,"color":"#fb7185"},
-        "Dentals":{"rx":re.compile("dental",re.I),"color":"#60a5fa","filter":True},
-        "Flea/Worm Treatments":{"rx":FLEA_WORM_RX,"color":"#4ade80"},
-        "Food Purchases":{"rx":FOOD_RX,"color":"#facc15"},
-        "Hospitalisations":{"rx":HOSPITALISATION_RX,"color":"#f97316"},
-        "Lab Work":{"rx":LABWORK_RX,"color":"#fbbf24"},
-        "Ultrasounds":{"rx":ULTRASOUND_RX,"color":"#a5b4fc"},
-        "Vaccinations":{"rx":VACCINE_RX,"color":"#22d3ee"},
-        "X-rays":{"rx":XRAY_RX,"color":"#93c5fd"}}
-    sorted_metrics=sorted(metric_configs.keys())
-    choice=st.selectbox("Select a metric:",sorted_metrics,index=0,key="factoid_metric")
-    conf=metric_configs[choice]
-    monthly=compute_monthly_data(df_blocked,tx,patients_per_month,conf["rx"],conf.get("filter",False))
+
+    sorted_metrics = sorted(METRIC_KEYWORDS.keys())
+    choice = st.selectbox("Select a metric:", sorted_metrics, index=0, key="factoid_metric")
+
+    apply_filter = choice == "Dentals"
+    monthly = compute_monthly_data(df_blocked, tx, patients_per_month, choice, apply_filter)
+
     if not monthly.empty:
-        chart=(alt.Chart(monthly).mark_bar(size=35,color=conf["color"])
-               .encode(x=alt.X("MonthLabel:N",sort=monthly["MonthLabel"].tolist(),
-                               axis=alt.Axis(title=None,labelAngle=45,labelFontSize=12)),
-                       y=alt.Y("Percent:Q",title=f"% of Monthly Patients Having {choice}",axis=alt.Axis(format=".1%")),
-                       tooltip=[alt.Tooltip("MonthLabel:N",title="Month"),
-                                alt.Tooltip("UniquePatients:Q",title=f"{choice} Patients",format=",.0f"),
-                                alt.Tooltip("TotalPatientsMonth:Q",title="Total Patients (Month)",format=",.0f"),
-                                alt.Tooltip("Percent:Q",title="% of Patients",format=".1%")])
-               .properties(height=400,width=700))
-        st.altair_chart(chart,use_container_width=True)
+        color_map = {
+            "Anaesthetics": "#fb7185",
+            "Dentals": "#60a5fa",
+            "Flea/Worm Treatments": "#4ade80",
+            "Food Purchases": "#facc15",
+            "Hospitalisations": "#f97316",
+            "Lab Work": "#fbbf24",
+            "Ultrasounds": "#a5b4fc",
+            "Vaccinations": "#22d3ee",
+            "X-rays": "#93c5fd",
+        }
+        chart_color = color_map.get(choice, "#3b82f6")
+
+        chart = (
+            alt.Chart(monthly)
+            .mark_bar(size=35, color=chart_color)
+            .encode(
+                x=alt.X(
+                    "MonthLabel:N",
+                    sort=monthly["MonthLabel"].tolist(),
+                    axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12),
+                ),
+                y=alt.Y(
+                    "Percent:Q",
+                    title=f"% of Monthly Patients Having {choice}",
+                    axis=alt.Axis(format=".1%"),
+                ),
+                tooltip=[
+                    alt.Tooltip("MonthLabel:N", title="Month"),
+                    alt.Tooltip("UniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
+                    alt.Tooltip("TotalPatientsMonth:Q", title="Total Patients (Month)", format=",.0f"),
+                    alt.Tooltip("Percent:Q", title="% of Patients", format=".1%"),
+                ],
+            )
+            .properties(height=400, width=700)
+        )
+        st.altair_chart(chart, use_container_width=True)
     else:
         st.info(f"No qualifying {choice.lower()} data found.")
 
     # ============================
     # 📊 Revenue Concentration
     # ============================
-    st.markdown("---");st.subheader("📊 Revenue Concentration Curve")
-    rev=df.groupby("Client Name",dropna=False)["Amount"].sum().sort_values(ascending=False).reset_index()
-    if not rev.empty and rev["Amount"].sum()>0:
-        tot=float(rev["Amount"].sum());n=len(rev)
-        rev["Rank"]=rev.index+1;rev["TopPct"]=rev["Rank"]/n*100
-        rev["Cum"]=rev["Amount"].cumsum();rev["CumPct"]=rev["Cum"]/tot*100
-        st.altair_chart(alt.Chart(rev).mark_line(point=True)
-                        .encode(x=alt.X("TopPct:Q",title="Top X% of Clients"),
-                                y=alt.Y("CumPct:Q",title="% of Total Revenue"),
-                                tooltip=[alt.Tooltip("Client Name:N"),
-                                         alt.Tooltip("Amount:Q",format=",.0f"),
-                                         alt.Tooltip("TopPct:Q",format=".1f"),
-                                         alt.Tooltip("CumPct:Q",format=".1f")])
-                        .properties(height=400,width=700),use_container_width=True)
-    else:st.info("No client revenue data available.")
+    st.markdown("---")
+    st.subheader("📊 Revenue Concentration Curve")
+
+    rev = df.groupby("Client Name", dropna=False)["Amount"].sum().sort_values(ascending=False).reset_index()
+    if not rev.empty and rev["Amount"].sum() > 0:
+        tot = float(rev["Amount"].sum())
+        n = len(rev)
+        rev["Rank"] = rev.index + 1
+        rev["TopPct"] = rev["Rank"] / n * 100
+        rev["CumPct"] = rev["Amount"].cumsum() / tot * 100
+
+        st.altair_chart(
+            alt.Chart(rev)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("TopPct:Q", title="Top X% of Clients"),
+                y=alt.Y("CumPct:Q", title="% of Total Revenue"),
+                tooltip=[
+                    alt.Tooltip("Client Name:N"),
+                    alt.Tooltip("Amount:Q", format=",.0f"),
+                    alt.Tooltip("TopPct:Q", format=".1f"),
+                    alt.Tooltip("CumPct:Q", format=".1f"),
+                ],
+            )
+            .properties(height=400, width=700),
+            use_container_width=True,
+        )
+    else:
+        st.info("No client revenue data available.")
 
     # ============================
     # 📌 At a Glance
     # ============================
-    st.markdown("---");st.markdown("<div id='factoids-ataglance' class='anchor-offset'></div>",unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown("<div id='factoids-ataglance' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📌 At a Glance")
-    df_sorted=df_blocked
-    transactions=tx
-    daily=transactions.groupby("StartDate").agg(ClientTx=("Block","count"),
-        Patients=("Patients",lambda p:len(set().union(*p)) if len(p) else 0))
-    metrics={}
+
+    transactions = tx
+
+    daily = transactions.groupby("StartDate").agg(
+        ClientTx=("Block", "count"),
+        Patients=("Patients", lambda p: len(set().union(*p)) if len(p) else 0),
+    )
+
+    metrics = {}
     if not daily.empty:
-        max_tx_day=daily["ClientTx"].idxmax();max_pat_day=daily["Patients"].idxmax()
-        metrics[f"Max Transactions/Day ({max_tx_day.strftime('%d %b %Y')})"]=f"{int(daily.loc[max_tx_day,'ClientTx']):,}"
-        metrics["Avg Transactions/Day"]=f"{int(round(daily['ClientTx'].mean())):,}"
-        metrics[f"Max Patients/Day ({max_pat_day.strftime('%d %b %Y')})"]=f"{int(daily.loc[max_pat_day,'Patients']):,}"
-        metrics["Avg Patients/Day"]=f"{int(round(daily['Patients'].mean())):,}"
-    total_pats=df["Animal Name"].nunique()
-    flea=df[df["Item Name"].str.contains(FLEA_WORM_RX,na=False)]["Animal Name"].nunique()
-    food=df[df["Item Name"].str.contains(FOOD_RX,na=False)]["Animal Name"].nunique()
-    xray=df[df["Item Name"].str.contains(XRAY_RX,na=False)]["Animal Name"].nunique()
-    us=df[df["Item Name"].str.contains(ULTRASOUND_RX,na=False)]["Animal Name"].nunique()
-    lab=df[df["Item Name"].str.contains(LABWORK_RX,na=False)]["Animal Name"].nunique()
-    ana=df[df["Item Name"].str.contains(ANAESTHETIC_RX,na=False)]["Animal Name"].nunique()
-    hosp=df[df["Item Name"].str.contains(HOSPITALISATION_RX,na=False)]["Animal Name"].nunique()
-    vacc=df[df["Item Name"].str.contains(VACCINE_RX,na=False)]["Animal Name"].nunique()
-    dent=0
-    dent_rows=df[df["Item Name"].str.contains("dental",case=False,na=False)]
+        max_tx_day = daily["ClientTx"].idxmax()
+        max_pat_day = daily["Patients"].idxmax()
+        metrics[f"Max Transactions/Day ({max_tx_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_tx_day, 'ClientTx']):,}"
+        metrics["Avg Transactions/Day"] = f"{int(round(daily['ClientTx'].mean())):,}"
+        metrics[f"Max Patients/Day ({max_pat_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_pat_day, 'Patients']):,}"
+        metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
+
+    # Build masks once
+    def _mask(rx_words):
+        rx = _rx_from_words(rx_words)
+        return df["Item Name"].astype(str).str.contains(rx, na=False)
+
+    mask_flea = _mask(FLEA_WORM_KEYWORDS)
+    mask_food = _mask(FOOD_KEYWORDS)
+    mask_xray = _mask(XRAY_KEYWORDS)
+    mask_ultra = _mask(ULTRASOUND_KEYWORDS)
+    mask_lab = _mask(LABWORK_KEYWORDS)
+    mask_ana = _mask(ANAESTHETIC_KEYWORDS)
+    mask_hosp = _mask(HOSPITALISATION_KEYWORDS)
+    mask_vacc = _mask(VACCINE_KEYWORDS)
+    mask_dent = df["Item Name"].astype(str).str.contains("dental", case=False, na=False)
+
+    total_pats = df["Animal Name"].nunique()
+    flea = df.loc[mask_flea, "Animal Name"].nunique()
+    food = df.loc[mask_food, "Animal Name"].nunique()
+    xray = df.loc[mask_xray, "Animal Name"].nunique()
+    us = df.loc[mask_ultra, "Animal Name"].nunique()
+    lab = df.loc[mask_lab, "Animal Name"].nunique()
+    ana = df.loc[mask_ana, "Animal Name"].nunique()
+    hosp = df.loc[mask_hosp, "Animal Name"].nunique()
+    vacc = df.loc[mask_vacc, "Animal Name"].nunique()
+
+    dent = 0
+    dent_rows = df.loc[mask_dent]
     if not dent_rows.empty:
-        dent_blocks=df_sorted[df_sorted["Item Name"].str.contains("dental",case=False,na=False)][["Client Name","Block"]].drop_duplicates()
-        dent_tx=pd.merge(dent_blocks,transactions,on=["Client Name","Block"])
-        dent_tx=dent_tx[dent_tx["Amount"]>700]
-        pats=set().union(*dent_tx["Patients"]) if not dent_tx.empty else set();dent=len(pats)
-    if total_pats>0:
+        dent_blocks = df_blocked.loc[df_blocked["Item Name"].astype(str).str.contains("dental", case=False, na=False), ["Client Name", "Block"]].drop_duplicates()
+        dent_tx = pd.merge(dent_blocks, transactions, on=["Client Name", "Block"])
+        dent_tx = dent_tx[dent_tx["Amount"] > 700]
+        pats = set().union(*dent_tx["Patients"]) if not dent_tx.empty else set()
+        dent = len(pats)
+
+    if total_pats > 0:
         metrics.update({
-            "Total Unique Patients":f"{total_pats:,}",
-            "Unique Patients Having Dentals":f"{dent:,} ({dent/total_pats:.1%})",
-            "Unique Patients Having X-rays":f"{xray:,} ({xray/total_pats:.1%})",
-            "Unique Patients Having Ultrasounds":f"{us:,} ({us/total_pats:.1%})",
-            "Unique Patients Buying Flea/Worm":f"{flea:,} ({flea/total_pats:.1%})",
-            "Unique Patients Buying Food":f"{food:,} ({food/total_pats:.1%})",
-            "Unique Patients Having Lab Work":f"{lab:,} ({lab/total_pats:.1%})",
-            "Unique Patients Having Anaesthetics":f"{ana:,} ({ana/total_pats:.1%})",
-            "Unique Patients Hospitalised":f"{hosp:,} ({hosp/total_pats:.1%})",
-            "Unique Patients Vaccinated":f"{vacc:,} ({vacc/total_pats:.1%})"})
-    CARD_STYLE="""<div style='background-color:{bg};
+            "Total Unique Patients": f"{total_pats:,}",
+            "Unique Patients Having Dentals": f"{dent:,} ({dent/total_pats:.1%})",
+            "Unique Patients Having X-rays": f"{xray:,} ({xray/total_pats:.1%})",
+            "Unique Patients Having Ultrasounds": f"{us:,} ({us/total_pats:.1%})",
+            "Unique Patients Buying Flea/Worm": f"{flea:,} ({flea/total_pats:.1%})",
+            "Unique Patients Buying Food": f"{food:,} ({food/total_pats:.1%})",
+            "Unique Patients Having Lab Work": f"{lab:,} ({lab/total_pats:.1%})",
+            "Unique Patients Having Anaesthetics": f"{ana:,} ({ana/total_pats:.1%})",
+            "Unique Patients Hospitalised": f"{hosp:,} ({hosp/total_pats:.1%})",
+            "Unique Patients Vaccinated": f"{vacc:,} ({vacc/total_pats:.1%})",
+        })
+
+    CARD_STYLE = """<div style='background-color:{bg};
        border:1px solid #94a3b8;padding:16px;border-radius:10px;text-align:center;
        margin-bottom:12px;min-height:120px;display:flex;flex-direction:column;justify-content:center;'>
        <div style='font-size:13px;color:#334155;font-weight:600;'>{label}</div>
        <div style='font-size:{fs}px;font-weight:700;color:#0f172a;margin-top:6px;'>{val}</div></div>"""
-    def adjfs(txt):return 16 if len(txt)>25 else (20 if len(txt)>18 else 22)
-    def cardgroup(title,keys):
-        if not any(k in metrics for k in keys):return
-        st.markdown(f"<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>{title}</h4>",unsafe_allow_html=True)
-        cols=st.columns(5)
-        for i,k in enumerate(keys):
+
+    def adjfs(txt): return 16 if len(txt) > 25 else (20 if len(txt) > 18 else 22)
+
+    def cardgroup(title, keys):
+        if not any(k in metrics for k in keys): return
+        st.markdown(
+            f"<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>{title}</h4>",
+            unsafe_allow_html=True
+        )
+        cols = st.columns(5)
+        for i, k in enumerate(keys):
             if k in metrics:
-                v=metrics[k];fs=adjfs(v);bg="#f1f5f9" if "Total" not in k else "#dbeafe"
-                cols[i%5].markdown(CARD_STYLE.format(bg=bg,label=k,val=v,fs=fs),unsafe_allow_html=True)
-                if (i+1)%5==0 and i<len(keys)-1:cols=st.columns(5)
-    cardgroup("⭐ Core",["Total Unique Patients","Max Patients/Day","Avg Patients/Day","Max Transactions/Day","Avg Transactions/Day"])
-    cardgroup("🐾 Patient Breakdown",["Unique Patients Having Dentals","Unique Patients Having X-rays",
-              "Unique Patients Having Ultrasounds","Unique Patients Buying Flea/Worm",
-              "Unique Patients Buying Food","Unique Patients Having Lab Work",
-              "Unique Patients Having Anaesthetics","Unique Patients Hospitalised","Unique Patients Vaccinated"])
+                v = metrics[k]; fs = adjfs(v); bg = "#f1f5f9" if "Total" not in k else "#dbeafe"
+                cols[i % 5].markdown(CARD_STYLE.format(bg=bg, label=k, val=v, fs=fs), unsafe_allow_html=True)
+                if (i + 1) % 5 == 0 and i < len(keys) - 1:
+                    cols = st.columns(5)
+
+    cardgroup("⭐ Core", [
+        "Total Unique Patients",
+        "Max Patients/Day",
+        "Avg Patients/Day",
+        "Max Transactions/Day",
+        "Avg Transactions/Day"
+    ])
+    cardgroup("🐾 Patient Breakdown", [
+        "Unique Patients Having Dentals",
+        "Unique Patients Having X-rays",
+        "Unique Patients Having Ultrasounds",
+        "Unique Patients Buying Flea/Worm",
+        "Unique Patients Buying Food",
+        "Unique Patients Having Lab Work",
+        "Unique Patients Having Anaesthetics",
+        "Unique Patients Hospitalised",
+        "Unique Patients Vaccinated"
+    ])
 
     # ============================
     # 📋 Tables
     # ============================
-    st.markdown("---");st.markdown("<div id='factoids-tables' class='anchor-offset'></div>",unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown("<div id='factoids-tables' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📋 Tables")
+
+    # Top 20 Items by Revenue
     st.markdown("#### 💰 Top 20 Items by Revenue")
-    top=(df.groupby("Item Name").agg(TotalRevenue=("Amount","sum"),TotalCount=("Qty","sum"))
-          .sort_values("TotalRevenue",ascending=False).head(20))
+    top = (
+        df.groupby("Item Name")
+        .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Qty", "sum"))
+        .sort_values("TotalRevenue", ascending=False)
+        .head(20)
+    )
     if not top.empty:
-        total=top["TotalRevenue"].sum()
-        top["% of Total Revenue"]=(top["TotalRevenue"]/total*100).round(1)
-        top["Revenue"]=top["TotalRevenue"].astype(int).apply(lambda x:f"{x:,}")
-        top["How Many"]=top["TotalCount"].astype(int).apply(lambda x:f"{x:,}")
-        top["% of Total Revenue"]=top["% of Total Revenue"].astype(str)+"%"
-        st.dataframe(top[["Revenue","% of Total Revenue","How Many"]],use_container_width=True)
-    else:st.info("No items found.")
+        total = top["TotalRevenue"].sum()
+        top["% of Total Revenue"] = (top["TotalRevenue"] / total * 100).round(1)
+        top["Revenue"] = top["TotalRevenue"].astype(int).apply(lambda x: f"{x:,}")
+        top["How Many"] = top["TotalCount"].astype(int).apply(lambda x: f"{x:,}")
+        top["% of Total Revenue"] = top["% of Total Revenue"].astype(str) + "%"
+        st.dataframe(top[["Revenue", "% of Total Revenue", "How Many"]], use_container_width=True)
+    else:
+        st.info("No items found.")
+
+    # Top 5 Spending Clients
     st.markdown("#### 💎 Top 5 Spending Clients")
-    clients=(df.assign(Client_Clean=df["Client Name"].astype(str).str.strip())
-              .query("Client_Clean != ''",engine="python"))
-    clients=clients[~clients["Client_Clean"].str.lower().str.contains("counter")]
+    clients = df.assign(Client_Clean=df["Client Name"].astype(str).str.strip())
+    clients = clients.query("Client_Clean != ''", engine="python")
+    clients = clients[~clients["Client_Clean"].str.lower().str.contains("counter")]
     if not clients.empty:
-        topc=(clients.groupby("Client_Clean")["Amount"].sum().sort_values(ascending=False).head(5)
-              .rename("Total Spend").to_frame())
-        topc["Total Spend"]=topc["Total Spend"].astype(int).apply(lambda x:f"{x:,}")
-        st.dataframe(topc,use_container_width=True)
-    else:st.info("No client data.")
+        topc = (
+            clients.groupby("Client_Clean")["Amount"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(5)
+            .rename("Total Spend")
+            .to_frame()
+        )
+        topc["Total Spend"] = topc["Total Spend"].astype(int).apply(lambda x: f"{x:,}")
+        st.dataframe(topc, use_container_width=True)
+    else:
+        st.info("No client data.")
+
+    # Top 5 Largest Client Transactions
     st.markdown("#### 📈 Top 5 Largest Client Transactions")
-    txg=tx.copy()
-    txg["Patients"]=txg["Patients"].apply(lambda s:", ".join(sorted([p for p in s if isinstance(p,str) and p.strip()!='' and 'counter' not in p.lower()])))
-    txg=txg[txg["Client Name"].astype(str).str.strip().ne("") & ~txg["Client Name"].str.lower().str.contains("counter")]
-    largest=txg.sort_values("Amount",ascending=False).head(5)
+    txg = transactions.copy()
+    txg["Patients"] = txg["Patients"].apply(
+        lambda s: ", ".join(sorted([p for p in s if isinstance(p, str) and p.strip() != '' and 'counter' not in p.lower()]))
+    )
+    txg = txg[
+        txg["Client Name"].astype(str).str.strip().ne("") &
+        ~txg["Client Name"].str.lower().str.contains("counter")
+    ]
+    largest = txg.sort_values("Amount", ascending=False).head(5)
     if not largest.empty:
-        largest=largest[["Client Name","StartDate","EndDate","Patients","Amount"]]
-        largest["Amount"]=largest["Amount"].astype(int).apply(lambda x:f"{x:,}")
-        largest["DateRange"]=largest.apply(lambda r:f"{r['StartDate'].strftime('%d %b %Y')} → {r['EndDate'].strftime('%d %b %Y')}"
-                                           if r["StartDate"]!=r["EndDate"] else r["StartDate"].strftime("%d %b %Y"),axis=1)
-        st.dataframe(largest[["Client Name","DateRange","Patients","Amount"]],use_container_width=True)
-    else:st.info("No transactions found.")
+        largest = largest[["Client Name", "StartDate", "EndDate", "Patients", "Amount"]]
+        largest["Amount"] = largest["Amount"].astype(int).apply(lambda x: f"{x:,}")
+        largest["DateRange"] = largest.apply(
+            lambda r: f"{r['StartDate'].strftime('%d %b %Y')} → {r['EndDate'].strftime('%d %b %Y')}"
+            if r["StartDate"] != r["EndDate"] else r["StartDate"].strftime("%d %b %Y"),
+            axis=1
+        )
+        st.dataframe(largest[["Client Name", "DateRange", "Patients", "Amount"]], use_container_width=True)
+    else:
+        st.info("No transactions found.")
 
 run_factoids()
 
 # --------------------------------
-# 💬 Feedback
+# 💬 Feedback (Optimized + Lazy Sheets)
 # --------------------------------
 st.markdown("<div id='feedback' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 💬 Feedback")
 st.markdown("### Found a problem? Let me (Patrik) know here:")
 
-fb_col1, fb_col2 = st.columns([3,1])
+@st.cache_resource(show_spinner=False)
+def get_sheet():
+    """Lazy Google Sheets connector."""
+    SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
+    SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    try:
+        creds_dict = st.secrets["gcp_service_account"]
+    except Exception:
+        try:
+            with open("google-credentials.json", "r") as f:
+                creds_dict = json.load(f)
+        except FileNotFoundError:
+            return None
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+    try:
+        client = gspread.authorize(creds)
+        return client.open_by_key(SHEET_ID).sheet1
+    except Exception:
+        return None
+
+def insert_feedback(name, email, message):
+    sheet = get_sheet()
+    if sheet is None:
+        st.error("⚠ Could not connect to Google Sheet. Please check credentials or try again later.")
+        return
+    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    col_ids = sheet.col_values(1)[1:]  # skip header
+    nums = [int(x) for x in col_ids if x.strip().isdigit()]
+    next_id = (max(nums) if nums else 0) + 1
+    sheet.append_row([next_id, now, name or "", email or "", message],
+                     value_input_option="USER_ENTERED")
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_feedback(limit=500):
+    sheet = get_sheet()
+    if sheet is None:
+        return []
+    rows = sheet.get_all_values()
+    data = rows[1:] if rows else []
+    return data[-limit:] if data else []
+
+fb_col1, fb_col2 = st.columns([3, 1])
 with fb_col1:
     feedback_text = st.text_area(
         "Describe the issue or suggestion",
@@ -1630,11 +1581,12 @@ if st.button("Send", key="fb_send"):
         try:
             insert_feedback(user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
             st.success("Thanks! Your message has been recorded.")
-
             # clear inputs
             for k in ["feedback_text", "feedback_name", "feedback_email"]:
                 if k in st.session_state:
                     del st.session_state[k]
         except Exception as e:
-            st.error(f"Could not save your message. {e}")
+            st.error(f"Could not save your message: {e}")
+
+
 
