@@ -77,7 +77,7 @@ st.markdown(
 st.markdown("""
 <style>
 .block-container {
-    padding-top: 3rem !important;
+    padding-top: 7rem !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1671,6 +1671,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
