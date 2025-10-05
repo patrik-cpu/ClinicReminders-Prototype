@@ -1496,12 +1496,12 @@ def run_factoids():
             metrics[k] = f"{v:,} ({v/total_clients:.1%})"
 
     # --- Fun Facts
-    pet_counts = (
-        df_pairs["AnimalKey"].value_counts().reset_index().rename(columns={"index": "AnimalKey", "AnimalKey": "Count"})
-    )
+    pet_counts = df_pairs["AnimalKey"].value_counts().reset_index()
+    pet_counts.columns = ["AnimalKey", "Count"]  # ✅ correct column order
+    
     if not pet_counts.empty:
-        top_name = pet_counts.loc[0, "AnimalKey"].title()
-        top_count = int(pet_counts.loc[0, "Count"])
+        top_name = str(pet_counts.iloc[0]["AnimalKey"]).title()
+        top_count = int(pet_counts.iloc[0]["Count"])
         metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
 
     tx_exp = tx.explode("Patients").dropna(subset=["Patients"]).copy()
@@ -1712,6 +1712,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
