@@ -1260,6 +1260,7 @@ def run_factoids():
         "Vaccinations": {"rx": _rx(VACCINE_KEYWORDS), "color": "#22d3ee"},
         "X-rays": {"rx": _rx(XRAY_KEYWORDS), "color": "#93c5fd"},
     }
+
     sorted_metrics = sorted(metric_configs.keys())
     choice = st.selectbox("Select a metric:", sorted_metrics, index=0, key="factoid_metric")
 
@@ -1276,27 +1277,32 @@ def run_factoids():
         merged = monthly.copy()
         merged["PrevPercent"] = None
         merged["PrevUniquePatients"] = None
+
         if mask_prev.any():
             df_prev = df_blocked.loc[mask_prev].copy()
             monthly_prev = compute_monthly_data(df_prev, tx, patients_per_month, conf["rx"], conf.get("filter", False))
             if not monthly_prev.empty:
                 monthly_prev = monthly_prev.rename(columns={
                     "Percent": "PrevPercent",
-                    "UniquePatients": "PrevUniquePatients",
-                    "TotalPatientsMonth": "PrevTotalPatientsMonth"
+                    "UniquePatients": "PrevUniquePatients"
                 })
                 merged = pd.merge(
                     merged,
-                    monthly_prev[["MonthLabel","PrevPercent","PrevUniquePatients","PrevTotalPatientsMonth"]],
+                    monthly_prev[["MonthLabel", "PrevPercent", "PrevUniquePatients"]],
                     on="MonthLabel",
                     how="left"
                 )
+
+        # Decide offsets dynamically: only offset if ghost exists
+        merged["has_ghost"] = merged["PrevPercent"].notna()
+        merged["offset_current"] = merged["has_ghost"].apply(lambda x: 10 if x else 0)
 
         color = conf["color"]
 
         # Ghost bars (previous year) – 30% opacity, offset left
         ghost = (
             alt.Chart(merged)
+            .transform_filter(alt.datum.PrevPercent != None)
             .mark_bar(size=20, color=color, opacity=0.3, xOffset=-10)
             .encode(
                 x=alt.X("MonthLabel:N",
@@ -1313,10 +1319,10 @@ def run_factoids():
             )
         )
 
-        # Current bars – solid, offset right
+        # Current bars – solid, only offset right if ghost exists
         current = (
             alt.Chart(merged)
-            .mark_bar(size=20, color=color, xOffset=10)
+            .mark_bar(size=20, color=color)
             .encode(
                 x=alt.X("MonthLabel:N", sort=merged["MonthLabel"].tolist()),
                 y=alt.Y("Percent:Q", axis=alt.Axis(format=".1%")),
@@ -1326,6 +1332,8 @@ def run_factoids():
                     alt.Tooltip("Percent:Q", title="Current %", format=".1%"),
                 ]
             )
+            .transform_calculate(xOffset="datum.has_ghost ? 10 : 0")
+            .mark_bar(size=20, color=color)
         )
 
         chart = alt.layer(ghost, current).resolve_scale(y="shared").properties(
@@ -1334,6 +1342,7 @@ def run_factoids():
             title=f"% of Monthly Patients Having {choice} (current vs previous-year ghost)"
         )
         st.altair_chart(chart, use_container_width=True)
+
 
     # ============================
     # 📊 Revenue Concentration Curve
@@ -1624,6 +1633,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
