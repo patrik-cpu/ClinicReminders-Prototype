@@ -1379,9 +1379,6 @@ def fetch_feedback(limit=500):
 st.markdown("<div id='factoids' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 📊 Factoids")
 
-st.markdown("<div id='factoids-charts' class='anchor-offset'></div>", unsafe_allow_html=True)
-st.markdown("### 📈 Charts")
-
 # Preventive Care & Service Keyword Lists
 FLEA_WORM_KEYWORDS = [
     "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
@@ -1448,30 +1445,40 @@ def run_factoids():
         return
 
     df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+    def run_factoids():
+    df = st.session_state.get("working_df")
+    if df is None or df.empty:
+        st.warning("Upload data first.")
+        return
+
+    df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+
     # ============================
     # 📈 Charts Section (Interactive)
     # ============================
-    
     st.markdown("<div id='factoids-charts' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📈 Charts")
     st.info("Each chart shows the % of total unique patients receiving a given service per month (last 12 months).")
-    
-    def monthly_percent_chart(df, rx_pattern, category_label, color, apply_amount_filter=False):
-        """Generate month-by-month % chart aligned with At-a-Glance logic."""
+
+    # ----------------------------------------------------------
+    # Cached computation (heavy logic only runs once per metric)
+    # ----------------------------------------------------------
+    @st.cache_data(show_spinner=False)
+    def compute_monthly_data(df, rx_pattern, apply_amount_filter=False):
+        """Compute month-by-month unique patient percentages using At-a-Glance logic."""
         if df.empty or "ChargeDate" not in df.columns:
-            st.warning(f"No data available for {category_label}.")
-            return
-    
-        # --- Ensure Qty integers ---
+            return pd.DataFrame()
+
+        # Ensure Qty is integer
         if "Qty" in df.columns:
             df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(0).astype(int)
-    
-        # --- Prepare transactional blocks (same as At a Glance) ---
+
+        # --- Build transaction blocks (same as At-a-Glance) ---
         df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
         df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
         df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
         df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
-    
+
         tx = (
             df_sorted.groupby(["Client Name", "Block"])
             .agg(
@@ -1482,82 +1489,89 @@ def run_factoids():
             )
             .reset_index()
         )
-    
-        # --- Handle regex patterns correctly (compiled or string) ---
+
+        # --- Identify qualifying service blocks ---
         if isinstance(rx_pattern, re.Pattern):
             mask = df_sorted["Item Name"].astype(str).apply(lambda s: bool(rx_pattern.search(s)))
-            qualifying_blocks = df_sorted[mask]
+            service_rows = df_sorted[mask]
         else:
-            qualifying_blocks = df_sorted[df_sorted["Item Name"].str.contains(rx_pattern, na=False, case=False)]
-    
-        if qualifying_blocks.empty:
-            st.warning(f"No qualifying {category_label.lower()} data found.")
-            return
-    
-        qualifying_blocks = qualifying_blocks[["Client Name", "Block", "DateOnly"]].drop_duplicates()
-        qualifying_blocks = pd.merge(qualifying_blocks, tx, on=["Client Name", "Block"], how="left")
-    
+            service_rows = df_sorted[df_sorted["Item Name"].str.contains(rx_pattern, na=False, case=False)]
+
+        if service_rows.empty:
+            return pd.DataFrame()
+
+        service_blocks = service_rows[["Client Name", "Block", "DateOnly"]].drop_duplicates()
+        qualifying_blocks = pd.merge(service_blocks, tx, on=["Client Name", "Block"], how="left")
+
+        # --- Apply >700 AED rule only for Dentals ---
         if apply_amount_filter:
             qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 700]
-    
+
+        if qualifying_blocks.empty:
+            return pd.DataFrame()
+
         qualifying_blocks["Month"] = qualifying_blocks["DateOnly"].dt.to_period("M")
-    
-        # --- Ensure exactly 12 calendar months ending with most recent month ---
-        if qualifying_blocks["Month"].notna().any():
-            last_month = qualifying_blocks["Month"].max()
-            month_range = pd.period_range(last_month - 11, last_month, freq="M")
-            monthly_data = (
-                qualifying_blocks.groupby("Month")["Patients"]
-                .apply(lambda pats: len(set().union(*pats)))
-                .reindex(month_range, fill_value=0)
-                .reset_index()
-                .rename(columns={"index": "Month", "Patients": "UniquePatients"})
-            )
-        else:
-            st.info("No monthly data found for chart.")
-            return
-    
+
+        # --- Always show 12 calendar months ending with latest month ---
+        last_month = qualifying_blocks["Month"].max()
+        month_range = pd.period_range(last_month - 11, last_month, freq="M")
+
+        monthly = (
+            qualifying_blocks.groupby("Month")["Patients"]
+            .apply(lambda pats: len(set().union(*pats)))
+            .reindex(month_range, fill_value=0)
+            .reset_index()
+            .rename(columns={"index": "Month", "Patients": "UniquePatients"})
+        )
+
         total_patients = df["Animal Name"].nunique()
         if total_patients == 0:
-            st.warning(f"No valid {category_label.lower()} records for chart.")
+            return pd.DataFrame()
+
+        monthly["Percent"] = monthly["UniquePatients"] / total_patients
+        monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
+        return monthly.sort_values("Month")
+
+    # ----------------------------------------------------------
+    # Chart Rendering Function
+    # ----------------------------------------------------------
+    def monthly_percent_chart(df, rx_pattern, category_label, color, apply_amount_filter=False):
+        monthly_data = compute_monthly_data(df, rx_pattern, apply_amount_filter)
+        if monthly_data.empty:
+            st.info(f"No qualifying {category_label.lower()} data found.")
             return
-    
-        monthly_data["Percent"] = monthly_data["UniquePatients"] / total_patients
-        monthly_data["MonthLabel"] = monthly_data["Month"].dt.strftime("%b %Y")
-    
-        # --- Sort months chronologically ---
-        monthly_data = monthly_data.sort_values("Month")
-    
-        # --- Chart ---
+
         chart = (
             alt.Chart(monthly_data)
             .mark_bar(size=35, color=color)
             .encode(
                 x=alt.X(
                     "MonthLabel:N",
-                    sort=monthly_data["MonthLabel"].tolist(),  # ✅ enforce true chronological order
-                    axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12)
+                    sort=monthly_data["MonthLabel"].tolist(),  # chronological order
+                    axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12),
                 ),
                 y=alt.Y(
                     "Percent:Q",
-                    title=f"% of Total Patients Having {category_label}",  # ✅ always matches dropdown
+                    title=f"% of Total Patients Having {category_label}",
                     axis=alt.Axis(format=".1%")
                 ),
                 tooltip=[
                     alt.Tooltip("MonthLabel:N", title="Month"),
                     alt.Tooltip("UniquePatients:Q", title=f"{category_label} Patients", format=",.0f"),
                     alt.Tooltip("Percent:Q", title="% of Patients", format=".1%")
-                ]
+                ],
             )
             .properties(height=400, width=700)
         )
-    
+
         st.altair_chart(chart, use_container_width=True)
-    
-    # --- Metric Configurations (Regex + Colors) ---
+
+    # ----------------------------------------------------------
+    # Metric Configurations (Regex + Colors)
+    # ----------------------------------------------------------
     metric_configs = {
         "Anaesthetics": {"rx": ANAESTHETIC_RX, "color": "#fb7185"},
-        "Dentals": {"rx": r"dental", "color": "#60a5fa", "filter": True},
+        "Dentals": {"rx": r"dental", "color": "#60a5fa", "filter": True},  # ✅ >700 rule ON
         "Flea/Worm Treatments": {"rx": FLEA_WORM_RX, "color": "#4ade80"},
         "Food Purchases": {"rx": FOOD_RX, "color": "#facc15"},
         "Hospitalisations": {"rx": HOSPITALISATION_RX, "color": "#f97316"},
@@ -1566,23 +1580,23 @@ def run_factoids():
         "Vaccinations": {"rx": VACCINE_RX, "color": "#22d3ee"},
         "X-rays": {"rx": XRAY_RX, "color": "#93c5fd"},
     }
-    
-    # --- Dropdown Selection (alphabetical + persistent default) ---
+
+    # ----------------------------------------------------------
+    # Dropdown (alphabetical + persistent selection)
+    # ----------------------------------------------------------
     sorted_metrics = sorted(metric_configs.keys())
     default_metric = sorted_metrics[0]
-    
-    # ensure a stable default selection on rerun
+
     if "selected_metric" not in st.session_state:
         st.session_state["selected_metric"] = default_metric
-    
+
     metric_choice = st.selectbox(
         "Select a metric to visualize:",
         sorted_metrics,
         index=sorted_metrics.index(st.session_state["selected_metric"]),
         key="selected_metric"
     )
-    
-    # --- Always get matching config dynamically ---
+
     config = metric_configs[metric_choice]
     monthly_percent_chart(
         df,
@@ -1591,6 +1605,7 @@ def run_factoids():
         color=config["color"],
         apply_amount_filter=config.get("filter", False)
     )
+
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -2011,6 +2026,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
