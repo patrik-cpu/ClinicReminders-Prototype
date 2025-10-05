@@ -1263,84 +1263,67 @@ def run_factoids():
 
     sorted_metrics = sorted(metric_configs.keys())
     choice = st.selectbox("Select a metric:", sorted_metrics, index=0, key="factoid_metric")
-
     conf = metric_configs[choice]
-    monthly = compute_monthly_data(df_blocked, tx, patients_per_month, conf["rx"], conf.get("filter", False))
 
+    monthly = compute_monthly_data(df_blocked, tx, patients_per_month, conf["rx"], conf.get("filter", False))
     if monthly.empty:
         st.info(f"No qualifying {choice.lower()} data found.")
     else:
-        # Build ghost (previous-year same month) data
-        # Identify months with matching previous-year data
+        # --- determine which months have previous-year equivalents
         monthly["Year"] = monthly["Month"].dt.year
         monthly["MonthNum"] = monthly["Month"].dt.month
-        
         df_blocked["Year"] = df_blocked["ChargeDate"].dt.year
         df_blocked["MonthNum"] = df_blocked["ChargeDate"].dt.month
-        
-        # For ghost matching: previous year, same month number
-        has_prev = []
+
+        prev_rows = []
         for _, row in monthly.iterrows():
-            y_prev = row["Year"] - 1
-            m_num = row["MonthNum"]
-            exists = (
-                (df_blocked["Year"] == y_prev) &
-                (df_blocked["MonthNum"] == m_num)
-            ).any()
-            has_prev.append(exists)
-        
-        monthly["HasPrevYearData"] = has_prev
-        
-        # Now mask only those months that have previous-year equivalents
-        mask_prev = df_blocked["ChargeDate"].dt.year.isin(monthly.loc[monthly["HasPrevYearData"], "Year"] - 1) & \
-                     df_blocked["ChargeDate"].dt.month.isin(monthly.loc[monthly["HasPrevYearData"], "MonthNum"])
+            y_prev, m_prev = row["Year"] - 1, row["MonthNum"]
+            subset = df_blocked[(df_blocked["Year"] == y_prev) & (df_blocked["MonthNum"] == m_prev)]
+            if not subset.empty:
+                prev_rows.append((row["MonthLabel"], y_prev, m_prev))
+        has_prev_months = [m for m,_,_ in prev_rows]
 
-        merged = monthly.copy()
-        merged["PrevPercent"] = None
-        merged["PrevUniquePatients"] = None
-
-        if mask_prev.any():
-            df_prev = df_blocked.loc[mask_prev].copy()
+        # --- compute previous-year monthly data once if any
+        df_prev = df_blocked[df_blocked["Year"].isin([r[1] for r in prev_rows])]
+        monthly_prev = pd.DataFrame()
+        if not df_prev.empty:
             monthly_prev = compute_monthly_data(df_prev, tx, patients_per_month, conf["rx"], conf.get("filter", False))
             if not monthly_prev.empty:
-                monthly_prev = monthly_prev.rename(columns={
-                    "Percent": "PrevPercent",
-                    "UniquePatients": "PrevUniquePatients"
-                })
-                merged = pd.merge(
-                    merged,
-                    monthly_prev[["MonthLabel", "PrevPercent", "PrevUniquePatients"]],
-                    on="MonthLabel",
-                    how="left"
-                )
+                monthly_prev = monthly_prev.rename(columns={"Percent":"PrevPercent","UniquePatients":"PrevUniquePatients"})
 
-        # Decide offsets dynamically: only offset if ghost exists
+        # --- safe merge: always ensure ghost columns exist
+        merged = monthly.copy()
+        if not monthly_prev.empty:
+            merged = pd.merge(merged, monthly_prev[["MonthLabel","PrevPercent","PrevUniquePatients"]],
+                              on="MonthLabel", how="left")
+        if "PrevPercent" not in merged.columns:
+            merged["PrevPercent"] = pd.NA
+            merged["PrevUniquePatients"] = pd.NA
+
         merged["has_ghost"] = merged["PrevPercent"].notna()
         merged["offset_current"] = merged["has_ghost"].apply(lambda x: 10 if x else 0)
 
         color = conf["color"]
 
-        # Ghost bars (previous year) – 30% opacity, offset left
+        # ghost bars (30% opacity, left)
         ghost = (
             alt.Chart(merged)
-            .transform_filter(alt.datum.PrevPercent != None)
+            .transform_filter("datum.PrevPercent != null")
             .mark_bar(size=20, color=color, opacity=0.3, xOffset=-10)
             .encode(
-                x=alt.X("MonthLabel:N",
-                        sort=merged["MonthLabel"].tolist(),
+                x=alt.X("MonthLabel:N", sort=merged["MonthLabel"].tolist(),
                         axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12)),
-                y=alt.Y("PrevPercent:Q",
-                        title=f"% of Monthly Patients Having {choice}",
+                y=alt.Y("PrevPercent:Q", title=f"% of Monthly Patients Having {choice}",
                         axis=alt.Axis(format=".1%")),
                 tooltip=[
                     alt.Tooltip("MonthLabel:N", title="Month"),
                     alt.Tooltip("PrevUniquePatients:Q", title="Prev-Year Patients", format=",.0f"),
                     alt.Tooltip("PrevPercent:Q", title="Prev-Year %", format=".1%"),
-                ]
+                ],
             )
         )
 
-        # Current bars – solid, only offset right if ghost exists
+        # current bars (centered unless ghost exists)
         current = (
             alt.Chart(merged)
             .mark_bar(size=20, color=color)
@@ -1351,19 +1334,16 @@ def run_factoids():
                     alt.Tooltip("MonthLabel:N", title="Month"),
                     alt.Tooltip("UniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                     alt.Tooltip("Percent:Q", title="Current %", format=".1%"),
-                ]
+                ],
             )
             .transform_calculate(xOffset="datum.has_ghost ? 10 : 0")
-            .mark_bar(size=20, color=color)
         )
 
         chart = alt.layer(ghost, current).resolve_scale(y="shared").properties(
-            height=400,
-            width=700,
-            title=f"% of Monthly Patients Having {choice} (current vs previous-year ghost)"
+            height=400, width=700,
+            title=f"% of Monthly Patients Having {choice} (Current vs Previous-Year Ghost)"
         )
         st.altair_chart(chart, use_container_width=True)
-
 
     # ============================
     # 📊 Revenue Concentration Curve
@@ -1654,6 +1634,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
