@@ -1379,624 +1379,228 @@ def fetch_feedback(limit=500):
 st.markdown("<div id='factoids' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 📊 Factoids")
 
-# Preventive Care & Service Keyword Lists
-FLEA_WORM_KEYWORDS = [
-    "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
-    "nexgard", "simparica", "advocate", "worm", "praz", "fenbend"
-]
+# -----------------------
+# Keyword Definitions
+# -----------------------
+FLEA_WORM_KEYWORDS = ["bravecto","revolution","deworm","frontline","milbe","milpro","nexgard","simparica","advocate","worm","praz","fenbend"]
+FOOD_KEYWORDS = ["hill's","hills","royal canin","purina","proplan","iams","eukanuba","orijen","acana","farmina","vetlife",
+                 "wellness","taste of the wild","nutro","pouch","tin","can","canned","wet","dry","kibble",
+                 "tuna","chicken","beef","salmon","lamb","duck","senior","diet","food","grain","rc"]
+XRAY_KEYWORDS = ["xray","x-ray","radiograph","radiology"]
+ULTRASOUND_KEYWORDS = ["ultrasound","echo","afast","tfast","a-fast","t-fast"]
+LABWORK_KEYWORDS = ["cbc","blood test","lab","biochemistry","haematology","urinalysis","labwork","idexx","ghp","chem","felv","fiv",
+                    "urine","cytology","smear","faecal","fecal","microscopic","slide","bun","crea","phos","urine",
+                    "cpl","cpli","lipase","amylase","pancreatic","cortisol"]
+ANAESTHETIC_KEYWORDS = ["anaesthesia","anesthesia","spay","neuter","castrate","surgery","isoflurane","propofol","alfaxan","alfaxalone"]
+HOSPITALISATION_KEYWORDS = ["hospitalisation","hospitalization"]
+VACCINE_KEYWORDS = ["vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","kennel cough"]
 
-FOOD_KEYWORDS = [
-    "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
-    "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
-    "nutro", "pouch", "tin", "can", "canned", "wet", "dry", "kibble",
-    "tuna", "chicken", "beef", "salmon", "lamb", "duck",
-    "senior", "diet", "food", "grain","rc"
-]
+def _rx(words): return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
+XRAY_RX=_rx(XRAY_KEYWORDS);ULTRASOUND_RX=_rx(ULTRASOUND_KEYWORDS);FLEA_WORM_RX=_rx(FLEA_WORM_KEYWORDS)
+FOOD_RX=_rx(FOOD_KEYWORDS);LABWORK_RX=_rx(LABWORK_KEYWORDS);ANAESTHETIC_RX=_rx(ANAESTHETIC_KEYWORDS)
+HOSPITALISATION_RX=_rx(HOSPITALISATION_KEYWORDS);VACCINE_RX=_rx(VACCINE_KEYWORDS)
 
-XRAY_KEYWORDS = [
-    "xray", "x-ray", "radiograph", "radiology"
-]
+# ----------------------------------------------------------
+# Base caching
+# ----------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def prepare_factoids_data(df):
+    df=df.copy();df["ChargeDate"]=pd.to_datetime(df["ChargeDate"],errors="coerce")
+    df_sorted=df.sort_values(["Client Name","ChargeDate"]).copy()
+    df_sorted["DateOnly"]=pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
+    df_sorted["DayDiff"]=df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+    df_sorted["Block"]=df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x:(x>1).cumsum())
+    df_sorted["Month"]=df_sorted["ChargeDate"].dt.to_period("M")
+    tx=(df_sorted.groupby(["Client Name","Block"])
+         .agg(StartDate=("DateOnly","min"),EndDate=("DateOnly","max"),
+              Patients=("Animal Name",lambda x:set(x.astype(str))),Amount=("Amount","sum"))
+         .reset_index())
+    patients_per_month=df_sorted.groupby("Month")["Animal Name"].nunique()
+    return df_sorted,tx,patients_per_month
 
-ULTRASOUND_KEYWORDS = [
-    "ultrasound", "echo", "afast", "tfast", "a-fast", "t-fast"
-]
-
-LABWORK_KEYWORDS = [
-    "cbc", "blood test", "lab", "biochemistry", "haematology", "urinalysis", "labwork", "idexx", "ghp", "chem", "FELV", "FIV", "urine",
-    "urinalysis","elisa","CHLAMYDIA","PCR", "MICROSCOPIQUE","biochem","cytology","smear","faecal","fecal","MICROSCOPIC","SWAB","Lyte",
-    "Catalyst","i-stat","istat","hematology","electrolyte","slide","bun","crea","phos","upc","sdma","lab","pcv","hct","uppc","Parasitology",
-    "parvo","distemper","giardia","pap","pre-anaesthetic","pre-anasthetic","cpl","cpli","lipase","amylase","pancreatic","cortisol","lddst","acth"
-]
-
-ANAESTHETIC_KEYWORDS = [
-    "anaesthesia", "anesthesia", "general anaesthetic", "ga", "propofol", "isoflurane","spay","castrate","neuter","anae","surgery","alfaxane",
-    "alfaxalone"
-]
-
-HOSPITALISATION_KEYWORDS = [
-    "hospitalisation", "hospitalization"
-]
-
-VACCINE_KEYWORDS = [
-    "vaccine", "vaccination", "booster",
-    "rabies", "dhpp", "dhppil", "tricat", "pch", "pcl", "leukemia",
-    "fvr", "feline viral rhinotracheitis", "calici", "panleukopenia",
-    "lepto", "kennel cough", "bordetella", "parvo", "distemper",
-    "lyme", "influenza", "flu", "vacc"
-]
-
-def _rx(words):
-    # literal OR; matches current behavior that looks for substrings
-    return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
-
-XRAY_RX             = _rx(XRAY_KEYWORDS)
-ULTRASOUND_RX       = _rx(ULTRASOUND_KEYWORDS)
-FLEA_WORM_RX        = _rx(FLEA_WORM_KEYWORDS)
-FOOD_RX             = _rx(FOOD_KEYWORDS)
-LABWORK_RX          = _rx(LABWORK_KEYWORDS)
-ANAESTHETIC_RX      = _rx(ANAESTHETIC_KEYWORDS)
-HOSPITALISATION_RX  = _rx(HOSPITALISATION_KEYWORDS)
-VACCINE_RX          = _rx(VACCINE_KEYWORDS)
+@st.cache_data(show_spinner=False)
+def compute_monthly_data(df_blocked,tx,patients_per_month,rx_pattern,apply_amount_filter=False):
+    if df_blocked.empty:return pd.DataFrame()
+    mask=df_blocked["Item Name"].astype(str).apply(lambda s:bool(rx_pattern.search(s)))
+    service_rows=df_blocked[mask]
+    if service_rows.empty:return pd.DataFrame()
+    service_blocks=service_rows[["Client Name","Block","ChargeDate"]].drop_duplicates()
+    qualifying=pd.merge(service_blocks,tx,on=["Client Name","Block"],how="left")
+    if apply_amount_filter:qualifying=qualifying[qualifying["Amount"]>700]
+    if qualifying.empty:return pd.DataFrame()
+    qualifying["Month"]=qualifying["ChargeDate"].dt.to_period("M")
+    last_month=qualifying["Month"].max();month_range=pd.period_range(last_month-11,last_month,freq="M")
+    monthly=(qualifying.groupby("Month")["Patients"]
+             .apply(lambda p:len(set().union(*p)))
+             .reindex(month_range,fill_value=0)
+             .reset_index().rename(columns={"index":"Month","Patients":"UniquePatients"}))
+    monthly["TotalPatientsMonth"]=monthly["Month"].map(patients_per_month).fillna(0).astype(int)
+    monthly["Percent"]=monthly.apply(lambda r:(r["UniquePatients"]/r["TotalPatientsMonth"]) if r["TotalPatientsMonth"]>0 else 0,axis=1)
+    monthly["MonthLabel"]=monthly["Month"].dt.strftime("%b %Y")
+    return monthly.sort_values("Month")
 
 def run_factoids():
-    df = st.session_state.get("working_df")
+    df=st.session_state.get("working_df")
     if df is None or df.empty:
-        st.warning("Upload data first.")
-        return
-
-    df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+        st.warning("Upload data first.");return
+    latest_date=pd.to_datetime(df["ChargeDate"],errors="coerce").max()
+    df_blocked,tx,patients_per_month=prepare_factoids_data(df)
 
     # ============================
-    # 📈 Charts Section (Interactive)
+    # 📈 Charts Section
     # ============================
-    st.markdown("<div id='factoids-charts' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("<div id='factoids-charts' class='anchor-offset'></div>",unsafe_allow_html=True)
     st.markdown("### 📈 Charts")
-    st.info("Each chart shows the % of total unique patients receiving a given service per month (last 12 months).")
-
-    # ----------------------------------------------------------
-    # Cached base computation
-    # ----------------------------------------------------------
-    @st.cache_data(show_spinner=False)
-    def compute_base_transactions(df):
-        """Build transaction blocks and patient totals per month (cached)."""
-        if df.empty or "ChargeDate" not in df.columns:
-            return pd.DataFrame(), pd.Series(dtype="int64"), pd.DataFrame()
-
-        df_blocked = df.sort_values(["Client Name", "ChargeDate"]).copy()
-        df_blocked["DateOnly"] = pd.to_datetime(df_blocked["ChargeDate"]).dt.normalize()
-        df_blocked["DayDiff"] = df_blocked.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-        df_blocked["Block"] = df_blocked.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
-
-        tx = (
-            df_blocked.groupby(["Client Name", "Block"])
-            .agg(
-                StartDate=("DateOnly", "min"),
-                EndDate=("DateOnly", "max"),
-                Patients=("Animal Name", lambda x: set(x.astype(str))),
-                Amount=("Amount", "sum"),
-            )
-            .reset_index()
-        )
-
-        df_blocked["Month"] = df_blocked["ChargeDate"].dt.to_period("M")
-        patients_per_month = df_blocked.groupby("Month")["Animal Name"].nunique()
-
-        return tx, patients_per_month, df_blocked
-
-    tx, patients_per_month, df_blocked = compute_base_transactions(df)
-
-    # ----------------------------------------------------------
-    # Cached per-metric monthly computation
-    # ----------------------------------------------------------
-    @st.cache_data(show_spinner=False)
-    def compute_monthly_data(df_blocked, tx, patients_per_month, rx_pattern, apply_amount_filter=False):
-        """Compute month-by-month % of patients using block-based logic and correct monthly denominator."""
-        if df_blocked.empty or "ChargeDate" not in df_blocked.columns:
-            return pd.DataFrame()
-
-        # --- Identify qualifying service blocks ---
-        if isinstance(rx_pattern, re.Pattern):
-            mask = df_blocked["Item Name"].astype(str).apply(lambda s: bool(rx_pattern.search(s)))
-            service_rows = df_blocked[mask]
-        else:
-            service_rows = df_blocked[df_blocked["Item Name"].str.contains(rx_pattern, na=False, case=False)]
-
-        if service_rows.empty:
-            return pd.DataFrame()
-
-        # ✅ df_blocked includes 'Block', so this will now work
-        service_blocks = service_rows[["Client Name", "Block", "ChargeDate"]].drop_duplicates()
-        qualifying_blocks = pd.merge(service_blocks, tx, on=["Client Name", "Block"], how="left")
-
-        # --- Apply >700 AED rule only for Dentals ---
-        if apply_amount_filter:
-            qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 700]
-
-        if qualifying_blocks.empty:
-            return pd.DataFrame()
-
-        qualifying_blocks["Month"] = qualifying_blocks["ChargeDate"].dt.to_period("M")
-
-        # --- Always last 12 calendar months ---
-        last_month = qualifying_blocks["Month"].max()
-        month_range = pd.period_range(last_month - 11, last_month, freq="M")
-
-        monthly = (
-            qualifying_blocks.groupby("Month")["Patients"]
-            .apply(lambda pats: len(set().union(*pats)))
-            .reindex(month_range, fill_value=0)
-            .reset_index()
-            .rename(columns={"index": "Month", "Patients": "UniquePatients"})
-        )
-
-        # --- Correct denominator: total patients in each month ---
-        monthly["TotalPatientsMonth"] = monthly["Month"].map(patients_per_month).fillna(0).astype(int)
-        monthly["Percent"] = monthly.apply(
-            lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"]) if r["TotalPatientsMonth"] > 0 else 0,
-            axis=1,
-        )
-
-        monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
-        return monthly.sort_values("Month")
-
-    # ----------------------------------------------------------
-    # Chart Rendering Function
-    # ----------------------------------------------------------
-    def monthly_percent_chart(df_blocked, rx_pattern, category_label, color, apply_amount_filter=False):
-        monthly_data = compute_monthly_data(df_blocked, tx, patients_per_month, rx_pattern, apply_amount_filter)
-        if monthly_data.empty:
-            st.info(f"No qualifying {category_label.lower()} data found.")
-            return
-
-        chart = (
-            alt.Chart(monthly_data)
-            .mark_bar(size=35, color=color)
-            .encode(
-                x=alt.X(
-                    "MonthLabel:N",
-                    sort=monthly_data["MonthLabel"].tolist(),
-                    axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12),
-                ),
-                y=alt.Y(
-                    "Percent:Q",
-                    title=f"% of Monthly Patients Having {category_label}",
-                    axis=alt.Axis(format=".1%")
-                ),
-                tooltip=[
-                    alt.Tooltip("MonthLabel:N", title="Month"),
-                    alt.Tooltip("UniquePatients:Q", title=f"{category_label} Patients", format=",.0f"),
-                    alt.Tooltip("TotalPatientsMonth:Q", title="Total Patients (Month)", format=",.0f"),
-                    alt.Tooltip("Percent:Q", title="% of Patients", format=".1%")
-                ],
-            )
-            .properties(height=400, width=700)
-        )
-
-        st.altair_chart(chart, use_container_width=True)
-
-    # ----------------------------------------------------------
-    # Metric Configurations
-    # ----------------------------------------------------------
-    metric_configs = {
-        "Anaesthetics": {"rx": ANAESTHETIC_RX, "color": "#fb7185"},
-        "Dentals": {"rx": r"dental", "color": "#60a5fa", "filter": True},  # >700 AED rule only for Dentals
-        "Flea/Worm Treatments": {"rx": FLEA_WORM_RX, "color": "#4ade80"},
-        "Food Purchases": {"rx": FOOD_RX, "color": "#facc15"},
-        "Hospitalisations": {"rx": HOSPITALISATION_RX, "color": "#f97316"},
-        "Lab Work": {"rx": LABWORK_RX, "color": "#fbbf24"},
-        "Ultrasounds": {"rx": ULTRASOUND_RX, "color": "#a5b4fc"},
-        "Vaccinations": {"rx": VACCINE_RX, "color": "#22d3ee"},
-        "X-rays": {"rx": XRAY_RX, "color": "#93c5fd"},
-    }
-
-    # ----------------------------------------------------------
-    # Dropdown (alphabetical + persistent)
-    # ----------------------------------------------------------
-    sorted_metrics = sorted(metric_configs.keys())
-    default_metric = sorted_metrics[0]
-
-    if "selected_metric" not in st.session_state:
-        st.session_state["selected_metric"] = default_metric
-
-    metric_choice = st.selectbox(
-        "Select a metric to visualize:",
-        sorted_metrics,
-        index=sorted_metrics.index(st.session_state["selected_metric"]),
-        key="selected_metric"
-    )
-
-    config = metric_configs[metric_choice]
-    monthly_percent_chart(
-        df_blocked,
-        rx_pattern=config["rx"],
-        category_label=metric_choice,
-        color=config["color"],
-        apply_amount_filter=config.get("filter", False)
-    )
-
-    # -------------------------
-    # 📊 Revenue Concentration Curve
-    # -------------------------
-    st.markdown("---")
-    st.subheader("📊 Revenue Concentration Curve")
-    rev_by_client = (
-        df.groupby("Client Name", dropna=False)["Amount"]
-        .sum()
-        .sort_values(ascending=False)
-        .reset_index()
-    )
-    if not rev_by_client.empty and rev_by_client["Amount"].sum() > 0:
-        total_rev_all = float(rev_by_client["Amount"].sum())
-        n_clients = len(rev_by_client)
-        rev_by_client["Rank"] = rev_by_client.index + 1
-        rev_by_client["TopClientPercent"] = rev_by_client["Rank"] / n_clients * 100.0
-        rev_by_client["CumRevenue"] = rev_by_client["Amount"].cumsum()
-        rev_by_client["CumRevenuePercent"] = rev_by_client["CumRevenue"] / total_rev_all * 100.0
-
-        st.altair_chart(
-            alt.Chart(rev_by_client)
-            .mark_line(point=True)
-            .encode(
-                x=alt.X("TopClientPercent:Q", title="Top X% of Clients"),
-                y=alt.Y("CumRevenuePercent:Q", title="% of Total Revenue"),
-                tooltip=[
-                    alt.Tooltip("Client Name:N", title="Client"),
-                    alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
-                    alt.Tooltip("TopClientPercent:Q", title="Top X%", format=".1f"),
-                    alt.Tooltip("CumRevenuePercent:Q", title="Cum. % Revenue", format=".1f"),
-                ],
-            )
-            .properties(
-                title="Revenue Concentration - What % of Revenue is Made Up by the Top X% Spending Clients (Mouse-over for details)",
-                height=400,
-                width=700,
-            ),
-            use_container_width=True,
-        )
+    metric_configs={
+        "Anaesthetics":{"rx":ANAESTHETIC_RX,"color":"#fb7185"},
+        "Dentals":{"rx":re.compile("dental",re.I),"color":"#60a5fa","filter":True},
+        "Flea/Worm Treatments":{"rx":FLEA_WORM_RX,"color":"#4ade80"},
+        "Food Purchases":{"rx":FOOD_RX,"color":"#facc15"},
+        "Hospitalisations":{"rx":HOSPITALISATION_RX,"color":"#f97316"},
+        "Lab Work":{"rx":LABWORK_RX,"color":"#fbbf24"},
+        "Ultrasounds":{"rx":ULTRASOUND_RX,"color":"#a5b4fc"},
+        "Vaccinations":{"rx":VACCINE_RX,"color":"#22d3ee"},
+        "X-rays":{"rx":XRAY_RX,"color":"#93c5fd"}}
+    sorted_metrics=sorted(metric_configs.keys())
+    choice=st.selectbox("Select a metric:",sorted_metrics,index=0,key="factoid_metric")
+    conf=metric_configs[choice]
+    monthly=compute_monthly_data(df_blocked,tx,patients_per_month,conf["rx"],conf.get("filter",False))
+    if not monthly.empty:
+        chart=(alt.Chart(monthly).mark_bar(size=35,color=conf["color"])
+               .encode(x=alt.X("MonthLabel:N",sort=monthly["MonthLabel"].tolist(),
+                               axis=alt.Axis(title=None,labelAngle=45,labelFontSize=12)),
+                       y=alt.Y("Percent:Q",title=f"% of Monthly Patients Having {choice}",axis=alt.Axis(format=".1%")),
+                       tooltip=[alt.Tooltip("MonthLabel:N",title="Month"),
+                                alt.Tooltip("UniquePatients:Q",title=f"{choice} Patients",format=",.0f"),
+                                alt.Tooltip("TotalPatientsMonth:Q",title="Total Patients (Month)",format=",.0f"),
+                                alt.Tooltip("Percent:Q",title="% of Patients",format=".1%")])
+               .properties(height=400,width=700))
+        st.altair_chart(chart,use_container_width=True)
     else:
-        st.info("No client revenue available to plot revenue concentration.")
-        
-    # -------------------------
-    # 📅 Select Period dropdown
-    # -------------------------
-    st.markdown("<div style='font-size:18px; font-weight:bold; color:red;'>Select Period:</div>", unsafe_allow_html=True)
-    period_options = [
-        "All Data",
-        "Prev 30 Days (of most recent data)",
-        "Prev Quarter (of most recent data)",
-        "Prev Year (of most recent data)"
-    ]
-    selected = st.selectbox("", period_options, index=0, label_visibility="collapsed", key="factoids_period_select")
+        st.info(f"No qualifying {choice.lower()} data found.")
 
-    if not pd.isna(latest_date):
-        if selected == "Prev 30 Days (of most recent data)":
-            start_date = latest_date - pd.DateOffset(days=30)
-            df = df[df["ChargeDate"] >= start_date]
-        elif selected == "Prev Quarter (of most recent data)":
-            start_date = latest_date - pd.DateOffset(months=3)
-            df = df[df["ChargeDate"] >= start_date]
-        elif selected == "Prev Year (of most recent data)":
-            start_date = latest_date - pd.DateOffset(years=1)
-            df = df[df["ChargeDate"] >= start_date]
+    # ============================
+    # 📊 Revenue Concentration
+    # ============================
+    st.markdown("---");st.subheader("📊 Revenue Concentration Curve")
+    rev=df.groupby("Client Name",dropna=False)["Amount"].sum().sort_values(ascending=False).reset_index()
+    if not rev.empty and rev["Amount"].sum()>0:
+        tot=float(rev["Amount"].sum());n=len(rev)
+        rev["Rank"]=rev.index+1;rev["TopPct"]=rev["Rank"]/n*100
+        rev["Cum"]=rev["Amount"].cumsum();rev["CumPct"]=rev["Cum"]/tot*100
+        st.altair_chart(alt.Chart(rev).mark_line(point=True)
+                        .encode(x=alt.X("TopPct:Q",title="Top X% of Clients"),
+                                y=alt.Y("CumPct:Q",title="% of Total Revenue"),
+                                tooltip=[alt.Tooltip("Client Name:N"),
+                                         alt.Tooltip("Amount:Q",format=",.0f"),
+                                         alt.Tooltip("TopPct:Q",format=".1f"),
+                                         alt.Tooltip("CumPct:Q",format=".1f")])
+                        .properties(height=400,width=700),use_container_width=True)
+    else:st.info("No client revenue data available.")
 
-    # --------------------------------
-    # 📌 At a Glance Metrics
-    # --------------------------------
-    st.markdown("<div id='factoids-ataglance' class='anchor-offset'></div>", unsafe_allow_html=True)
+    # ============================
+    # 📌 At a Glance
+    # ============================
+    st.markdown("---");st.markdown("<div id='factoids-ataglance' class='anchor-offset'></div>",unsafe_allow_html=True)
     st.markdown("### 📌 At a Glance")
-
-    # --- Block computation (reused) ---
-    df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
-    df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
-    df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
-    df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
-
-    transactions = (
-        df_sorted.groupby(["Client Name", "Block"])
-        .agg(
-            StartDate=("DateOnly", "min"),
-            EndDate=("DateOnly", "max"),
-            Patients=("Animal Name", lambda x: set(x.astype(str))),
-            Amount=("Amount", "sum"),
-        )
-        .reset_index()
-    )
-
-    daily = transactions.groupby("StartDate").agg(
-        ClientTransactions=("Block", "count"),
-        Patients=("Patients", lambda pats: len(set().union(*pats)) if len(pats) else 0),
-    )
-
-    # --- Daily metrics ---
-    metrics = {}
+    df_sorted=df_blocked
+    transactions=tx
+    daily=transactions.groupby("StartDate").agg(ClientTx=("Block","count"),
+        Patients=("Patients",lambda p:len(set().union(*p)) if len(p) else 0))
+    metrics={}
     if not daily.empty:
-        max_tx_day = daily["ClientTransactions"].idxmax()
-        max_pat_day = daily["Patients"].idxmax()
-        metrics[f"Max Transactions/Day ({max_tx_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_tx_day, 'ClientTransactions']):,}"
-        metrics["Avg Transactions/Day"] = f"{int(round(daily['ClientTransactions'].mean())):,}"
-        metrics[f"Max Patients/Day ({max_pat_day.strftime('%d %b %Y')})"] = f"{int(daily.loc[max_pat_day, 'Patients']):,}"
-        metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
-    else:
-        metrics["Max Transactions/Day"] = "-"
-        metrics["Avg Transactions/Day"] = "-"
-        metrics["Max Patients/Day"] = "-"
-        metrics["Avg Patients/Day"] = "-"
-
-    # --- Unique patient metrics ---
-    total_patients = df["Animal Name"].nunique()
-    flea_patients = df[df["Item Name"].str.contains(FLEA_WORM_RX, na=False)]["Animal Name"].nunique()
-    food_patients = df[df["Item Name"].str.contains(FOOD_RX, na=False)]["Animal Name"].nunique()
-    xray_patients = df[df["Item Name"].str.contains(XRAY_RX, na=False)]["Animal Name"].nunique()
-    us_patients = df[df["Item Name"].str.contains(ULTRASOUND_RX, na=False)]["Animal Name"].nunique()
-    lab_patients = df[df["Item Name"].str.contains(LABWORK_RX, na=False)]["Animal Name"].nunique()
-    anaesth_patients = df[df["Item Name"].str.contains(ANAESTHETIC_RX, na=False)]["Animal Name"].nunique()
-    hosp_patients = df[df["Item Name"].str.contains(HOSPITALISATION_RX, na=False)]["Animal Name"].nunique()
-    vacc_patients = df[df["Item Name"].str.contains(VACCINE_RX, na=False)]["Animal Name"].nunique()
-
-    # Dental logic (unique block threshold)
-    dental_patients = 0
-    dental_rows = df[df["Item Name"].str.contains("dental", case=False, na=False)]
-    if not dental_rows.empty:
-        tx = (
-            df_sorted.groupby(["Client Name", "Block"])
-            .agg(Amount=("Amount", "sum"), Patients=("Animal Name", lambda x: set(x.astype(str))))
-            .reset_index()
-        )
-        dental_blocks = df_sorted[df_sorted["Item Name"].str.contains("dental", case=False, na=False)][["Client Name", "Block"]].drop_duplicates()
-        qualifying_blocks = pd.merge(dental_blocks, tx, on=["Client Name", "Block"])
-        qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 700]
-        patients = set()
-        for patlist in qualifying_blocks["Patients"]:
-            patients.update(patlist)
-        dental_patients = len(patients)
-
-    if total_patients > 0:
+        max_tx_day=daily["ClientTx"].idxmax();max_pat_day=daily["Patients"].idxmax()
+        metrics[f"Max Transactions/Day ({max_tx_day.strftime('%d %b %Y')})"]=f"{int(daily.loc[max_tx_day,'ClientTx']):,}"
+        metrics["Avg Transactions/Day"]=f"{int(round(daily['ClientTx'].mean())):,}"
+        metrics[f"Max Patients/Day ({max_pat_day.strftime('%d %b %Y')})"]=f"{int(daily.loc[max_pat_day,'Patients']):,}"
+        metrics["Avg Patients/Day"]=f"{int(round(daily['Patients'].mean())):,}"
+    total_pats=df["Animal Name"].nunique()
+    flea=df[df["Item Name"].str.contains(FLEA_WORM_RX,na=False)]["Animal Name"].nunique()
+    food=df[df["Item Name"].str.contains(FOOD_RX,na=False)]["Animal Name"].nunique()
+    xray=df[df["Item Name"].str.contains(XRAY_RX,na=False)]["Animal Name"].nunique()
+    us=df[df["Item Name"].str.contains(ULTRASOUND_RX,na=False)]["Animal Name"].nunique()
+    lab=df[df["Item Name"].str.contains(LABWORK_RX,na=False)]["Animal Name"].nunique()
+    ana=df[df["Item Name"].str.contains(ANAESTHETIC_RX,na=False)]["Animal Name"].nunique()
+    hosp=df[df["Item Name"].str.contains(HOSPITALISATION_RX,na=False)]["Animal Name"].nunique()
+    vacc=df[df["Item Name"].str.contains(VACCINE_RX,na=False)]["Animal Name"].nunique()
+    dent=0
+    dent_rows=df[df["Item Name"].str.contains("dental",case=False,na=False)]
+    if not dent_rows.empty:
+        dent_blocks=df_sorted[df_sorted["Item Name"].str.contains("dental",case=False,na=False)][["Client Name","Block"]].drop_duplicates()
+        dent_tx=pd.merge(dent_blocks,transactions,on=["Client Name","Block"])
+        dent_tx=dent_tx[dent_tx["Amount"]>700]
+        pats=set().union(*dent_tx["Patients"]) if not dent_tx.empty else set();dent=len(pats)
+    if total_pats>0:
         metrics.update({
-            "Total Unique Patients": f"{total_patients:,}",
-            "Unique Patients Having Dentals": f"{dental_patients:,} ({dental_patients/total_patients:.1%})",
-            "Unique Patients Having X-rays": f"{xray_patients:,} ({xray_patients/total_patients:.1%})",
-            "Unique Patients Having Ultrasounds": f"{us_patients:,} ({us_patients/total_patients:.1%})",
-            "Unique Patients Buying Flea/Worm": f"{flea_patients:,} ({flea_patients/total_patients:.1%})",
-            "Unique Patients Buying Food": f"{food_patients:,} ({food_patients/total_patients:.1%})",
-            "Unique Patients Having Lab Work": f"{lab_patients:,} ({lab_patients/total_patients:.1%})",
-            "Unique Patients Having Anaesthetics": f"{anaesth_patients:,} ({anaesth_patients/total_patients:.1%})",
-            "Unique Patients Hospitalised": f"{hosp_patients:,} ({hosp_patients/total_patients:.1%})",
-            "Unique Patients Vaccinated": f"{vacc_patients:,} ({vacc_patients/total_patients:.1%})",
-        })
-    else:
-        st.info("No patients found in dataset.")
+            "Total Unique Patients":f"{total_pats:,}",
+            "Unique Patients Having Dentals":f"{dent:,} ({dent/total_pats:.1%})",
+            "Unique Patients Having X-rays":f"{xray:,} ({xray/total_pats:.1%})",
+            "Unique Patients Having Ultrasounds":f"{us:,} ({us/total_pats:.1%})",
+            "Unique Patients Buying Flea/Worm":f"{flea:,} ({flea/total_pats:.1%})",
+            "Unique Patients Buying Food":f"{food:,} ({food/total_pats:.1%})",
+            "Unique Patients Having Lab Work":f"{lab:,} ({lab/total_pats:.1%})",
+            "Unique Patients Having Anaesthetics":f"{ana:,} ({ana/total_pats:.1%})",
+            "Unique Patients Hospitalised":f"{hosp:,} ({hosp/total_pats:.1%})",
+            "Unique Patients Vaccinated":f"{vacc:,} ({vacc/total_pats:.1%})"})
+    CARD_STYLE="""<div style='background-color:{bg};
+       border:1px solid #94a3b8;padding:16px;border-radius:10px;text-align:center;
+       margin-bottom:12px;min-height:120px;display:flex;flex-direction:column;justify-content:center;'>
+       <div style='font-size:13px;color:#334155;font-weight:600;'>{label}</div>
+       <div style='font-size:{fs}px;font-weight:700;color:#0f172a;margin-top:6px;'>{val}</div></div>"""
+    def adjfs(txt):return 16 if len(txt)>25 else (20 if len(txt)>18 else 22)
+    def cardgroup(title,keys):
+        if not any(k in metrics for k in keys):return
+        st.markdown(f"<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>{title}</h4>",unsafe_allow_html=True)
+        cols=st.columns(5)
+        for i,k in enumerate(keys):
+            if k in metrics:
+                v=metrics[k];fs=adjfs(v);bg="#f1f5f9" if "Total" not in k else "#dbeafe"
+                cols[i%5].markdown(CARD_STYLE.format(bg=bg,label=k,val=v,fs=fs),unsafe_allow_html=True)
+                if (i+1)%5==0 and i<len(keys)-1:cols=st.columns(5)
+    cardgroup("⭐ Core",["Total Unique Patients","Max Patients/Day","Avg Patients/Day","Max Transactions/Day","Avg Transactions/Day"])
+    cardgroup("🐾 Patient Breakdown",["Unique Patients Having Dentals","Unique Patients Having X-rays",
+              "Unique Patients Having Ultrasounds","Unique Patients Buying Flea/Worm",
+              "Unique Patients Buying Food","Unique Patients Having Lab Work",
+              "Unique Patients Having Anaesthetics","Unique Patients Hospitalised","Unique Patients Vaccinated"])
 
-    # --- Fun + transactional metrics ---
-    unique_patients = df[["Client Name", "Animal Name"]].dropna().drop_duplicates()
-    common_pet = unique_patients["Animal Name"].value_counts().head(1)
-    if not common_pet.empty:
-        metrics["Most Common Pet Name"] = f"{common_pet.index[0]} ({common_pet.iloc[0]:,})"
-
-    patient_tx_counts = (
-        transactions.explode("Patients")
-        .dropna(subset=["Patients", "Client Name"])
-        .query("Patients.str.strip() != '' and `Client Name`.str.strip() != ''", engine="python")
-        .copy()
-    )
-    
-    # Normalize text for filtering out junk like 'SALE COUNTER'
-    patient_tx_counts["Patients"] = patient_tx_counts["Patients"].astype(str).str.strip()
-    patient_tx_counts["Client Name"] = patient_tx_counts["Client Name"].astype(str).str.strip()
-    patient_tx_counts = patient_tx_counts[
-        ~patient_tx_counts["Patients"].str.lower().str.contains("counter")
-        & ~patient_tx_counts["Client Name"].str.lower().str.contains("counter")
-    ]
-    
-    patient_tx_counts = (
-        patient_tx_counts
-        .groupby(["Patients", "Client Name"])
-        .size()
-        .reset_index(name="VisitCount")
-        .sort_values("VisitCount", ascending=False)
-    )
-    
-    if not patient_tx_counts.empty:
-        top_patient = patient_tx_counts.iloc[0]
-        metrics["Patient with Most Transactions"] = (
-            f"{top_patient['Patients']} ({top_patient['Client Name']}) – {int(top_patient['VisitCount']):,}"
-        )
-
-    visits_per_client = df.groupby("Client Name")["ChargeDate"].nunique()
-    total_clients = visits_per_client.shape[0]
-    if total_clients > 0:
-        buckets = {
-            "Clients with 1 Transaction": (visits_per_client == 1).sum(),
-            "Clients with 2 Transactions": (visits_per_client == 2).sum(),
-            "Clients with 3-5 Transactions": ((visits_per_client >= 3) & (visits_per_client <= 5)).sum(),
-            "Clients with 6+ Transactions": (visits_per_client >= 6).sum(),
-        }
-        for k, v in buckets.items():
-            metrics[k] = f"{v:,} ({v/total_clients:.1%})"
-
-    # ----------------------------
-    # 🧱 Card rendering
-    # ----------------------------
-    CARD_STYLE = """
-    <div style='background-color:{bg_color};
-                border:1px solid #94a3b8;
-                padding:16px;
-                border-radius:10px;
-                text-align:center;
-                margin-bottom:12px;
-                min-height:120px;
-                display:flex;
-                flex-direction:column;
-                justify-content:center;'>
-        <div style='font-size:13px; color:#334155; font-weight:600; line-height:1.2;'>{label}</div>
-        <div style='font-size:{font_size}px; font-weight:700; color:#0f172a; margin-top:6px;'>{value}</div>
-    </div>
-    """
-
-    def adjust_font_size(text, base_size=22, min_size=16):
-        if len(text) > 25:
-            return min_size
-        elif len(text) > 18:
-            return base_size - 2
-        return base_size
-
-    core_keys = [
-        "Total Unique Patients",
-        "Max Patients/Day",
-        "Avg Patients/Day",
-        "Max Transactions/Day",
-        "Avg Transactions/Day",
-    ]
-
-    patient_breakdown_keys = [
-        "Unique Patients Having Dentals",
-        "Unique Patients Having X-rays",
-        "Unique Patients Having Ultrasounds",
-        "Unique Patients Buying Flea/Worm",
-        "Unique Patients Buying Food",
-        "Unique Patients Having Lab Work",
-        "Unique Patients Having Anaesthetics",
-        "Unique Patients Hospitalised",
-        "Unique Patients Vaccinated",
-    ]
-
-    transaction_keys = [
-        "Clients with 1 Transaction",
-        "Clients with 2 Transactions",
-        "Clients with 3-5 Transactions",
-        "Clients with 6+ Transactions",
-    ]
-
-    fun_fact_keys = [
-        "Most Common Pet Name",
-        "Patient with Most Transactions",
-    ]
-
-    def render_card_group(title, keys, fuzzy=False):
-        if not any(k in metrics for k in keys):
-            return
-        st.markdown(
-            f"<h4 style='font-size:17px; font-weight:700; color:#475569; margin-top:1rem; margin-bottom:0.4rem;'>{title}</h4>",
-            unsafe_allow_html=True,
-        )
-        cols = st.columns(5)
-        i = 0
-        for key in keys:
-            matched_key = key
-            if fuzzy:
-                for existing in metrics.keys():
-                    if existing.startswith(key):
-                        matched_key = existing
-                        break
-            if matched_key in metrics:
-                value = metrics.get(matched_key, "–")
-                font_size = adjust_font_size(value)
-                bg_color = "#f1f5f9" if not matched_key.startswith("Total Unique Patients") else "#dbeafe"
-                cols[i % 5].markdown(
-                    CARD_STYLE.format(bg_color=bg_color, label=matched_key, value=value, font_size=font_size),
-                    unsafe_allow_html=True,
-                )
-                i += 1
-                if i % 5 == 0 and matched_key != keys[-1]:
-                    cols = st.columns(5)
-
-    render_card_group("⭐ Core", core_keys, fuzzy=True)
-    render_card_group("🐾 Patient Breakdown", patient_breakdown_keys)
-    render_card_group("💼 Transaction Numbers", transaction_keys)
-    render_card_group("🎉 Fun Facts", fun_fact_keys)
-
-    # -------------------------
-    # 💰 Top 20 Items by Revenue (Table 1)
-    # -------------------------
-
-    # 🔗 Sidebar anchor for “Tables” section
-    st.markdown("<div id='factoids-tables' class='anchor-offset'></div>", unsafe_allow_html=True)
+    # ============================
+    # 📋 Tables
+    # ============================
+    st.markdown("---");st.markdown("<div id='factoids-tables' class='anchor-offset'></div>",unsafe_allow_html=True)
     st.markdown("### 📋 Tables")
-
-    # Table title
     st.markdown("#### 💰 Top 20 Items by Revenue")
-    
-    top_items = (
-        df.groupby("Item Name")
-        .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Qty", "sum"))
-        .sort_values("TotalRevenue", ascending=False)
-        .head(20)
-    )
-    
-    if not top_items.empty:
-        total_rev = top_items["TotalRevenue"].sum()
-        top_items["% of Total Revenue"] = (top_items["TotalRevenue"] / total_rev * 100).round(1)
-        top_items["Revenue"] = top_items["TotalRevenue"].apply(lambda x: f"{int(x):,}")
-        top_items["How Many"] = top_items["TotalCount"].apply(lambda x: f"{int(x):,}")
-        top_items["% of Total Revenue"] = top_items["% of Total Revenue"].astype(str) + "%"
-    
-        st.dataframe(
-            top_items[["Revenue", "% of Total Revenue", "How Many"]],
-            use_container_width=True
-        )
-    else:
-        st.info("No items found for the selected period.")
-
-    # -------------------------
-    # 💎 Top 5 Spending Clients
-    # -------------------------
+    top=(df.groupby("Item Name").agg(TotalRevenue=("Amount","sum"),TotalCount=("Qty","sum"))
+          .sort_values("TotalRevenue",ascending=False).head(20))
+    if not top.empty:
+        total=top["TotalRevenue"].sum()
+        top["% of Total Revenue"]=(top["TotalRevenue"]/total*100).round(1)
+        top["Revenue"]=top["TotalRevenue"].astype(int).apply(lambda x:f"{x:,}")
+        top["How Many"]=top["TotalCount"].astype(int).apply(lambda x:f"{x:,}")
+        top["% of Total Revenue"]=top["% of Total Revenue"].astype(str)+"%"
+        st.dataframe(top[["Revenue","% of Total Revenue","How Many"]],use_container_width=True)
+    else:st.info("No items found.")
     st.markdown("#### 💎 Top 5 Spending Clients")
-    
-    clients_nonblank = (
-        df.dropna(subset=["Client Name"])
-        .assign(Client_Clean=df["Client Name"].astype(str).str.strip())
-    )
-    clients_nonblank = clients_nonblank[
-        (clients_nonblank["Client_Clean"] != "")
-        & (~clients_nonblank["Client_Clean"].str.lower().str.contains("counter"))
-    ]
-    
-    if not clients_nonblank.empty:
-        top_clients = (
-            clients_nonblank.groupby("Client_Clean")["Amount"]
-            .sum()
-            .sort_values(ascending=False)
-            .head(5)
-            .rename("Total Spend")
-            .to_frame()
-        )
-    
-        top_clients["Total Spend"] = top_clients["Total Spend"].apply(lambda x: f"{int(x):,}")
-        st.dataframe(top_clients, use_container_width=True)
-    else:
-        st.info("No client spend data for the selected period.")
-
-    # -------------------------
-    # 📈 Top 5 Largest Client Transactions
-    # -------------------------
+    clients=(df.assign(Client_Clean=df["Client Name"].astype(str).str.strip())
+              .query("Client_Clean != ''",engine="python"))
+    clients=clients[~clients["Client_Clean"].str.lower().str.contains("counter")]
+    if not clients.empty:
+        topc=(clients.groupby("Client_Clean")["Amount"].sum().sort_values(ascending=False).head(5)
+              .rename("Total Spend").to_frame())
+        topc["Total Spend"]=topc["Total Spend"].astype(int).apply(lambda x:f"{x:,}")
+        st.dataframe(topc,use_container_width=True)
+    else:st.info("No client data.")
     st.markdown("#### 📈 Top 5 Largest Client Transactions")
-    tx_groups = transactions.copy()
-    tx_groups["Patients"] = tx_groups["Patients"].apply(
-        lambda s: ", ".join(sorted([
-            p for p in s
-            if isinstance(p, str)
-            and p.strip() != ""
-            and "counter" not in p.lower()
-        ]))
-    )
-    tx_groups = tx_groups[
-        tx_groups["Client Name"].notna()
-        & tx_groups["Client Name"].astype(str).str.strip().ne("")
-        & ~tx_groups["Client Name"].astype(str).str.lower().str.contains("counter")
-    ]
-    largest_tx = tx_groups.sort_values("Amount", ascending=False).head(5)
-
-    if not largest_tx.empty:
-        largest_tx = largest_tx[["Client Name", "StartDate", "EndDate", "Patients", "Amount"]]
-        largest_tx["Amount"] = largest_tx["Amount"].apply(lambda x: f"{int(x):,}")
-        largest_tx["DateRange"] = largest_tx.apply(
-            lambda r: f"{r['StartDate'].strftime('%d %b %Y')} → {r['EndDate'].strftime('%d %b %Y')}"
-            if r["StartDate"] != r["EndDate"]
-            else r["StartDate"].strftime("%d %b %Y"),
-            axis=1,
-        )
-        st.dataframe(largest_tx[["Client Name", "DateRange", "Patients", "Amount"]], use_container_width=True)
-    else:
-        st.info("No transactions found.")
+    txg=tx.copy()
+    txg["Patients"]=txg["Patients"].apply(lambda s:", ".join(sorted([p for p in s if isinstance(p,str) and p.strip()!='' and 'counter' not in p.lower()])))
+    txg=txg[txg["Client Name"].astype(str).str.strip().ne("") & ~txg["Client Name"].str.lower().str.contains("counter")]
+    largest=txg.sort_values("Amount",ascending=False).head(5)
+    if not largest.empty:
+        largest=largest[["Client Name","StartDate","EndDate","Patients","Amount"]]
+        largest["Amount"]=largest["Amount"].astype(int).apply(lambda x:f"{x:,}")
+        largest["DateRange"]=largest.apply(lambda r:f"{r['StartDate'].strftime('%d %b %Y')} → {r['EndDate'].strftime('%d %b %Y')}"
+                                           if r["StartDate"]!=r["EndDate"] else r["StartDate"].strftime("%d %b %Y"),axis=1)
+        st.dataframe(largest[["Client Name","DateRange","Patients","Amount"]],use_container_width=True)
+    else:st.info("No transactions found.")
 
 run_factoids()
 
@@ -2033,3 +1637,4 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
