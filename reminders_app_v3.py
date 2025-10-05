@@ -1753,7 +1753,7 @@ def run_factoids():
     patient_tx_counts = (
         transactions.explode("Patients")
         .dropna(subset=["Patients", "Client Name"])
-        .query("Patients.str.strip() != '' and Client_Name.str.strip() != ''", engine="python")
+        .query("Patients.str.strip() != '' and `Client Name`.str.strip() != ''", engine="python")
         .copy()
     )
     
@@ -2011,6 +2011,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
