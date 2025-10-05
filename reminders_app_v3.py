@@ -1292,17 +1292,22 @@ def run_factoids():
                 if not prev_monthly.empty:
                     ghost_val = prev_monthly["Percent"].iloc[-1]
                     ghost_patients = prev_monthly["UniquePatients"].iloc[-1]
-                    ghost_data.append((row["MonthLabel"], year_prev, ghost_val, ghost_patients))
+                    ghost_total = prev_monthly["TotalPatientsMonth"].iloc[-1]
+                    ghost_data.append((row["MonthLabel"], year_prev, ghost_val, ghost_patients, ghost_total))
+
 
         # --- merge ghost results into monthly dataset
-        merged = monthly.copy()
         merged["PrevPercent"] = pd.NA
         merged["PrevUniquePatients"] = pd.NA
         merged["PrevYear"] = pd.NA
-        for label, yprev, val, pats in ghost_data:
+        merged["PrevTotalPatients"] = pd.NA
+        
+        for label, yprev, val, pats, tot in ghost_data:
             merged.loc[merged["MonthLabel"] == label, "PrevPercent"] = val
             merged.loc[merged["MonthLabel"] == label, "PrevUniquePatients"] = pats
             merged.loc[merged["MonthLabel"] == label, "PrevYear"] = yprev
+            merged.loc[merged["MonthLabel"] == label, "PrevTotalPatients"] = tot
+
 
         merged["has_ghost"] = merged["PrevPercent"].notna()
         color = conf["color"]
@@ -1325,11 +1330,12 @@ def run_factoids():
                 ),
                 tooltip=[
                     alt.Tooltip("PrevYear:O", title="Year"),
-                    alt.Tooltip("MonthLabel:N", title="Month"),
-                    alt.Tooltip("TotalPatientsMonth:Q", title="Monthly Patients", format=",.0f"),
+                    alt.Tooltip("MonthLabel:N", title="Month"),  # no year appended here
+                    alt.Tooltip("PrevTotalPatients:Q", title="Monthly Patients", format=",.0f"),
                     alt.Tooltip("PrevUniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                     alt.Tooltip("PrevPercent:Q", title="%", format=".1%"),
                 ],
+
             )
         )
 
@@ -1658,6 +1664,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
