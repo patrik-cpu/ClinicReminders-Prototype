@@ -1375,7 +1375,12 @@ def fetch_feedback(limit=500):
 # Factoids Section
 # --------------------------------
 
-# Preventive Care Keyword Lists
+st.markdown("<div id='factoids' class='anchor-offset'></div>", unsafe_allow_html=True)
+st.markdown("## 📊 Factoids")
+
+st.markdown("<div id='factoids-charts' class='anchor-offset'></div>", unsafe_allow_html=True)
+st.markdown("### 📈 Charts")
+
 # Preventive Care & Service Keyword Lists
 FLEA_WORM_KEYWORDS = [
     "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
@@ -1450,14 +1455,44 @@ def run_factoids():
         .sort_index()
         .tail(12)
     )
-
-    st.altair_chart(
-        alt.Chart(data.reset_index())
-        .mark_bar()
-        .encode(x="ChargeDate:T", y="Animal Name:Q"),
-        use_container_width=True,
-    )
-
+    
+    if not data.empty:
+        chart_data = data.reset_index()
+        chart_data["ChargeDate"] = chart_data["ChargeDate"].dt.to_timestamp()
+    
+        chart = (
+            alt.Chart(chart_data)
+            .mark_bar(size=30)  # thicker bars
+            .encode(
+                x=alt.X(
+                    "yearmonth(ChargeDate):T",
+                    axis=alt.Axis(
+                        title=None,
+                        labelAngle=45,
+                        labelFontSize=12,
+                        format="%b %Y"  # month and year
+                    )
+                ),
+                y=alt.Y(
+                    "Animal Name:Q",
+                    title="% of Total Patients Having Dentals",
+                    axis=alt.Axis(format="%")
+                ),
+                tooltip=[
+                    alt.Tooltip("ChargeDate:T", title="Month"),
+                    alt.Tooltip("Animal Name:Q", title="% of Patients", format=".1f")
+                ]
+            )
+            .properties(
+                title="Percentage of Total Patients Having Dentals - Mouse-over for Details",
+                height=400,
+                width=700,
+            )
+        )
+    
+        st.altair_chart(chart, use_container_width=True)
+    else:
+        st.info("No dental data found for chart.")
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -1878,6 +1913,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
