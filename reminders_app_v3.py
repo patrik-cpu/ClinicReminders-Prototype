@@ -1439,9 +1439,12 @@ def run_factoids():
     st.markdown("<h2 id='factoids'>📊 Factoids</h2>", unsafe_allow_html=True)
     st.info("📈 Quick insights into your clinic's activity, performance, and trends.")
 
-
-    # --- early exit if no data ---
-    if "working_df" not in st.session_state or st.session_state["working_df"] is None or st.session_state["working_df"].empty:
+    # --- Early exit if no data ---
+    if (
+        "working_df" not in st.session_state
+        or st.session_state["working_df"] is None
+        or st.session_state["working_df"].empty
+    ):
         st.warning("⚠ Please upload data first in the '📂 Upload Data' section (Reminders).")
         return
 
@@ -1469,7 +1472,7 @@ def run_factoids():
 
     # --- Precompute YearMonth ---
     df["YearMonth"] = df["ChargeDate"].dt.to_period("M").dt.to_timestamp()
-    
+
     # Sidebar anchor for Charts section
     st.markdown("<div id='factoids-charts' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📈 Charts")
@@ -1491,9 +1494,11 @@ def run_factoids():
 
     st.markdown(
         "<div style='font-size:18px; font-weight:bold; color:blue;'>Select Metric:</div>",
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
-    selected_kpi = st.selectbox("", list(KPI_GROUPS.keys()), key="factoid_metric", label_visibility="collapsed")
+    selected_kpi = st.selectbox(
+        "", list(KPI_GROUPS.keys()), key="factoid_metric", label_visibility="collapsed"
+    )
     pattern_rx = KPI_GROUPS[selected_kpi]
 
     # --- Compute KPI monthly percentages efficiently ---
@@ -1509,76 +1514,57 @@ def run_factoids():
     current_df = pd.DataFrame({
         "MonthYear": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b %Y"),
         "Percent": pct.values,
-        "Offset": 0,
     })
 
     # -------------------------
     # Ghost bars (previous-year YoY comparison)
     # -------------------------
-    # Compute the same KPI for all months in your dataset
     all_months = df["ChargeDate"].dt.to_period("M").dt.to_timestamp().unique()
     all_months = pd.Series(sorted(all_months))
-    
-    # Build last 24 months for context
     target_months = all_months[all_months >= (latest_date - pd.DateOffset(months=23))]
-    
-    # Compute totals and matches for *all months*, not just last 12
+
     month_total_all = df.groupby("YearMonth")["Animal Name"].nunique()
     mask_all = df["Item Name"].str.contains(pattern_rx, na=False)
     month_match_all = df[mask_all].groupby("YearMonth")["Animal Name"].nunique()
-    
-    # Build aligned previous-year pairs
+
     current_months = target_months[-12:]
     prev_months = current_months - pd.DateOffset(years=1)
-    
+
     pct_current = (
-        (month_match_all.reindex(current_months, fill_value=0) /
-         month_total_all.reindex(current_months, fill_value=0).replace(0, pd.NA))
-        * 100
+        (month_match_all.reindex(current_months, fill_value=0)
+         / month_total_all.reindex(current_months, fill_value=0).replace(0, pd.NA)) * 100
     ).fillna(0).round(1)
-    
+
     pct_prev = (
-        (month_match_all.reindex(prev_months, fill_value=0) /
-         month_total_all.reindex(prev_months, fill_value=0).replace(0, pd.NA))
-        * 100
+        (month_match_all.reindex(prev_months, fill_value=0)
+         / month_total_all.reindex(prev_months, fill_value=0).replace(0, pd.NA)) * 100
     ).fillna(0).round(1)
-    
+
     # -------------------------
-    # Build plotting frame with Month/Year for tooltips
+    # Build plotting data
     # -------------------------
     month_series = pd.Series(pd.to_datetime(current_months))
-    month_labels = month_series.dt.strftime("%b %Y")   # e.g. "Sep 2024"
-    month_names  = month_series.dt.strftime("%b")      # e.g. "Sep"
-    years_this   = month_series.dt.year.astype(str)
-    years_last   = (month_series.dt.year - 1).astype(str)
-    
+    month_labels = month_series.dt.strftime("%b %Y")
+    month_names = month_series.dt.strftime("%b")
+    years_this = month_series.dt.year.astype(str)
+    years_last = (month_series.dt.year - 1).astype(str)
+
     current_df = pd.DataFrame({
         "MonthYear": month_labels,
         "Month": month_names,
         "Year": years_this,
         "Percent": pct_current.values,
     })
-    
+
     ghost_df = pd.DataFrame({
         "MonthYear": month_labels,
         "Month": month_names,
         "Year": years_last,
         "Percent": pct_prev.values,
     })
-    
+
     x_labels = month_labels.tolist()
-    
-    # -------------------------
-    # Merge both into a single tidy DataFrame
-    # -------------------------
-    plot_df = pd.concat([
-        current_df.assign(Period="Current Year"),
-        ghost_df.assign(Period="Previous Year")
-    ])
-    
-    # Ensure MonthYear stays in correct order
-    plot_df["MonthYear"] = pd.Categorical(plot_df["MonthYear"], categories=x_labels, ordered=True)
-    
+
     # -------------------------
     # Colors
     # -------------------------
@@ -1593,50 +1579,62 @@ def run_factoids():
         "Unique Patients Hospitalised": "#f472b6",
         "Unique Patients Vaccinated": "#84cc16",
     }
-    main_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
-    
-    color_scale = alt.Scale(
-        domain=["Current Year", "Previous Year"],
-        range=[main_color, "#d1d5db"]  # grey for previous year
-    )
-    
+    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
+
     # -------------------------
-    # Build grouped bar chart (no manual offsets)
+    # Build correctly spaced side-by-side bars
     # -------------------------
-    bars = (
-        alt.Chart(plot_df)
-        .mark_bar(size=20)
-        .encode(
-            x=alt.X(
-                "MonthYear:N",
-                sort=x_labels,
-                axis=alt.Axis(
-                    labelAngle=0,
-                    title=None,
-                    labelPadding=12,   # keeps labels below chart
-                    labelFontSize=12
-                )
+    bar_width = 18
+    bar_shift = 9  # pixels to move bars left/right
+
+    base_encoding = {
+        "x": alt.X(
+            "MonthYear:N",
+            sort=x_labels,
+            axis=alt.Axis(
+                labelAngle=45,
+                title=None,
+                labelPadding=10,
+                labelFontSize=12
             ),
-            y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)", axis=alt.Axis(labelFontSize=12)),
-            color=alt.Color("Period:N", scale=color_scale, legend=alt.Legend(title=None, orient="top")),
-            tooltip=[
-                alt.Tooltip("Month:N", title="Month"),
-                alt.Tooltip("Year:N", title="Year"),
-                alt.Tooltip("Period:N", title="Period"),
-                alt.Tooltip("Percent:Q", format=".1f", title="%"),
-            ],
-        )
+        ),
+        "y": alt.Y("Percent:Q", title=f"{selected_kpi} (%)", axis=alt.Axis(labelFontSize=12)),
+        "tooltip": [
+            alt.Tooltip("Month:N", title="Month"),
+            alt.Tooltip("Year:N", title="Year"),
+            alt.Tooltip("Percent:Q", format=".1f", title="%"),
+        ],
+    }
+
+    # Ghost layer (Previous Year) — faded, shifted left
+    ghost_layer = (
+        alt.Chart(ghost_df)
+        .mark_bar(size=bar_width, color=bar_color, opacity=0.3)
+        .encode(**base_encoding)
+        .encode(xOffset=alt.value(-bar_shift))
+    )
+
+    # Current layer (This Year) — solid, shifted right
+    main_layer = (
+        alt.Chart(current_df)
+        .mark_bar(size=bar_width, color=bar_color, opacity=1.0)
+        .encode(**base_encoding)
+        .encode(xOffset=alt.value(bar_shift))
+    )
+
+    # Combine both layers
+    bars = (
+        (ghost_layer + main_layer)
         .properties(
             width=700,
             height=400,
-            title=f"{selected_kpi} – Last 12 Months vs Previous Year"
+            title=f"{selected_kpi} – Last 12 Months vs Previous Year",
         )
         .configure_axis(grid=False)
         .configure_view(strokeWidth=0)
     )
-    
-    st.altair_chart(bars, use_container_width=True)
 
+    st.altair_chart(bars, use_container_width=True)
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -2057,6 +2055,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
