@@ -1476,7 +1476,7 @@ def run_factoids():
             top_count = int(pet_counts.iloc[0])
             metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
 
-    # Patient with most transactions (unique (ClientKey,AnimalKey))
+    # Patient with most transactions (unique (ClientKey, AnimalKey))
     tx_exp = tx.explode("Patients").dropna(subset=["Patients"]).copy()
     if not tx_exp.empty:
         tx_exp["ClientKey"] = _canon(tx_exp["Client Name"])
@@ -1494,13 +1494,14 @@ def run_factoids():
         )
         if not visits.empty:
             top = visits.iloc[0]
-            # get representative readable names
-            client_disp = df.loc[
-                _canon(df["Client Name"]) == top["ClientKey"], "Client Name"
-            ].iloc[0]
-            animal_disp = df.loc[
-                _canon(df["Animal Name"]) == top["AnimalKey"], "Animal Name"
-            ].iloc[0]
+
+            # Try to recover readable names; fallback to canonical if missing
+            client_rows = df.loc[_canon(df["Client Name"]) == top["ClientKey"], "Client Name"]
+            animal_rows = df.loc[_canon(df["Animal Name"]) == top["AnimalKey"], "Animal Name"]
+
+            client_disp = str(client_rows.iloc[0]) if not client_rows.empty else top["ClientKey"].title()
+            animal_disp = str(animal_rows.iloc[0]) if not animal_rows.empty else top["AnimalKey"].title()
+
             metrics["Patient with Most Transactions"] = (
                 f"{animal_disp.strip()} ({client_disp.strip()}) – {int(top['VisitCount']):,}"
             )
@@ -1692,6 +1693,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
