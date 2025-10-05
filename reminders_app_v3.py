@@ -1310,7 +1310,12 @@ def run_factoids():
             merged.loc[merged["MonthLabel"] == label, "PrevMonth"] = pmonth
             merged.loc[merged["MonthLabel"] == label, "PrevTotalPatientsMonth"] = ptotal
         
-        merged["PrevMonthDate"] = pd.to_datetime(merged["PrevMonth"].dt.to_timestamp(), errors="coerce")
+        # handle Period or string without assuming .dt exists
+        merged["PrevMonthDate"] = pd.to_datetime(
+            merged["PrevMonth"].apply(lambda v: v.to_timestamp() if isinstance(v, pd.Period) else v),
+            errors="coerce"
+        )
+
         merged["MonthDate"] = merged["Month"].dt.to_timestamp()
         color = conf["color"]
 
@@ -1685,6 +1690,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
