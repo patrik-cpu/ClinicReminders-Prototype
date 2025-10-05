@@ -1271,8 +1271,29 @@ def run_factoids():
         st.info(f"No qualifying {choice.lower()} data found.")
     else:
         # Build ghost (previous-year same month) data
-        ghost_period_ordinals = [m - 12 for m in monthly["Month"].astype(int)]
-        mask_prev = df_blocked["ChargeDate"].dt.to_period("M").astype(int).isin(ghost_period_ordinals)
+        # Identify months with matching previous-year data
+        monthly["Year"] = monthly["Month"].dt.year
+        monthly["MonthNum"] = monthly["Month"].dt.month
+        
+        df_blocked["Year"] = df_blocked["ChargeDate"].dt.year
+        df_blocked["MonthNum"] = df_blocked["ChargeDate"].dt.month
+        
+        # For ghost matching: previous year, same month number
+        has_prev = []
+        for _, row in monthly.iterrows():
+            y_prev = row["Year"] - 1
+            m_num = row["MonthNum"]
+            exists = (
+                (df_blocked["Year"] == y_prev) &
+                (df_blocked["MonthNum"] == m_num)
+            ).any()
+            has_prev.append(exists)
+        
+        monthly["HasPrevYearData"] = has_prev
+        
+        # Now mask only those months that have previous-year equivalents
+        mask_prev = df_blocked["ChargeDate"].dt.year.isin(monthly.loc[monthly["HasPrevYearData"], "Year"] - 1) & \
+                     df_blocked["ChargeDate"].dt.month.isin(monthly.loc[monthly["HasPrevYearData"], "MonthNum"])
 
         merged = monthly.copy()
         merged["PrevPercent"] = None
@@ -1633,6 +1654,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
