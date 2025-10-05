@@ -1588,32 +1588,39 @@ def run_factoids():
     # -------------------------
     # Build Chart (two fixed-offset layers)
     # -------------------------
-    base = alt.Chart().encode(
-        x=alt.X("MonthYear:N", sort=x_labels,
-                axis=alt.Axis(labelAngle=30, title=None, labelPadding=8)),  # ✅ consistent label padding
-        y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
-        tooltip=[
+    # common axis + tooltip config
+    encoding = {
+        "x": alt.X("MonthYear:N", sort=x_labels,
+                   axis=alt.Axis(labelAngle=30, title=None, labelPadding=8)),
+        "y": alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
+        "tooltip": [
             alt.Tooltip("Year:N", title="Year"),
             alt.Tooltip("Month:N", title="Month"),
             alt.Tooltip("Percent:Q", format=".1f", title="%"),
         ],
-    )
+    }
     
-    # ✅ Fixed-pixel xOffset ensures perfect alignment regardless of screen scaling
+    # ✅ Ghost layer (faint, slightly left)
     ghost_layer = (
         alt.Chart(ghost_df)
         .mark_bar(size=18, opacity=0.3, color=bar_color)
+        .encode(**encoding)
         .encode(xOffset=alt.value(-6))
     )
     
+    # ✅ Main layer (solid, on top)
     main_layer = (
         alt.Chart(current_df)
         .mark_bar(size=18, opacity=1.0, color=bar_color)
+        .encode(**encoding)
         .encode(xOffset=alt.value(0))
     )
     
-    # Combine layers (conditional inclusion)
-    bars = (base + ghost_layer + main_layer) if has_prior else (base + main_layer)
+    # Combine only if previous-year data exists
+    if (ghost_df["Percent"].sum() > 0):
+        bars = ghost_layer + main_layer
+    else:
+        bars = main_layer
     
     bars = bars.properties(
         width=700,
@@ -1622,6 +1629,7 @@ def run_factoids():
     )
     
     st.altair_chart(bars, use_container_width=True)
+
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -2042,6 +2050,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
