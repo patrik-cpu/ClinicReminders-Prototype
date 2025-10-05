@@ -1592,8 +1592,12 @@ def run_factoids():
         "x": alt.X(
             "MonthYear:N",
             sort=x_labels,
-            axis=alt.Axis(labelAngle=30, title=None, labelPadding=8),
-            # keep both bars centered directly on tick mark
+            axis=alt.Axis(
+                labelAngle=30,
+                title=None,
+                labelPadding=10,      # normal spacing between labels and axis
+                labelAlign="center",
+            ),
         ),
         "y": alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
         "tooltip": [
@@ -1603,11 +1607,11 @@ def run_factoids():
         ],
     }
     
-    # Tighten the bars and overlap alignment
-    bar_width = 14  # slightly narrower
-    ghost_shift = -bar_width * 0.25  # small left shift (~25% of width)
+    # ✅ Keep bars same width, ghost just to the left (no overlap)
+    bar_width = 18
+    ghost_shift = -bar_width * 0.3   # about one-third bar width left offset
     
-    # Ghost bars: same color, faint, slightly left
+    # Ghost bars — same color, 30% opacity, slightly left
     ghost_layer = (
         alt.Chart(ghost_df)
         .mark_bar(size=bar_width, color=bar_color, opacity=0.3)
@@ -1616,7 +1620,7 @@ def run_factoids():
         .encode(xOffset=alt.value(ghost_shift))
     )
     
-    # Main bars: solid, no shift
+    # Main bars — solid, no offset
     main_layer = (
         alt.Chart(current_df)
         .mark_bar(size=bar_width, color=bar_color, opacity=1.0)
@@ -1624,19 +1628,21 @@ def run_factoids():
         .encode(xOffset=alt.value(0))
     )
     
-    # Combine, conditionally include ghost
-    if (ghost_df["Percent"].sum() > 0):
-        bars = ghost_layer + main_layer
-    else:
-        bars = main_layer
+    # Combine both layers (only if ghost data exists)
+    bars = (ghost_layer + main_layer) if (ghost_df["Percent"].sum() > 0) else main_layer
     
+    # Final layout — consistent width, centered labels
     bars = bars.properties(
         width=700,
         height=400,
         title=f"{selected_kpi} – Last 12 Months vs Previous Year",
-    ).configure_axisX(labelAlign="center", labelBaseline="top")
+    ).configure_axis(
+        labelFontSize=12,
+        titleFontSize=13,
+    )
     
     st.altair_chart(bars, use_container_width=True)
+
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -2057,6 +2063,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
