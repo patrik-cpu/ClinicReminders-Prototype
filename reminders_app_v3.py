@@ -1546,19 +1546,21 @@ def run_factoids():
     # Combine into a single dataframe for charting
     plot_df = pd.concat([
         pd.DataFrame({
-            "MonthYear": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b %Y"),
+            "Month": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b"),
+            "Year": pd.Series(pd.to_datetime(current_months)).dt.year.astype(str),
             "Percent": pct_current.values,
             "Offset": 0,
             "Label": "This Year",
         }),
         pd.DataFrame({
-            "MonthYear": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b %Y"),
+            "Month": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b"),
+            "Year": (pd.Series(pd.to_datetime(current_months)).dt.year - 1).astype(str),
             "Percent": pct_prev.values,
-            "Offset": -0.2,
+            "Offset": -0.15,  # ✅ small negative offset moves ghost bar to the left
             "Label": "Last Year",
         })
     ], ignore_index=True)
-
+    
     # Chart colors
     KPI_COLOURS = {
         "Unique Patients Having Dentals": "#60a5fa",
@@ -1572,41 +1574,44 @@ def run_factoids():
         "Unique Patients Vaccinated": "#84cc16",
     }
     bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
-
-    tooltip = [
-        alt.Tooltip("MonthYear:N", title="Month"),
-        alt.Tooltip("Percent:Q", format=".1f", title="%"),
-    ]
     
-    # Ensure current_months is a clean list of strings for sorting
-    x_labels = pd.to_datetime(current_months).dt.strftime("%b %Y").tolist()
+    # X-axis labels
+    x_labels = pd.to_datetime(current_months).dt.strftime("%b").tolist()
     
+    # ✅ Bars: ghost (last year) same color, lower opacity, left-shifted
     bars = (
         alt.Chart(plot_df)
         .mark_bar(size=18)
         .encode(
-            x=alt.X("MonthYear:N", sort=x_labels,
-                    axis=alt.Axis(labelAngle=30, title=None)),
-            xOffset="Offset:O",
+            x=alt.X("Month:N", sort=x_labels,
+                    axis=alt.Axis(labelAngle=0, title=None)),
+            xOffset="Offset:Q",
             y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
-            color=alt.Color("Label:N", scale=alt.Scale(domain=["This Year", "Last Year"],
-                                                      range=[bar_color, "#d1d5db"]),
-                            legend=alt.Legend(title=None)),
+            color=alt.condition(
+                alt.datum.Label == "This Year",
+                alt.value(bar_color),
+                alt.value(bar_color)
+            ),
+            opacity=alt.condition(
+                alt.datum.Label == "This Year",
+                alt.value(1),
+                alt.value(0.3)  # ✅ ghost bar transparency
+            ),
             tooltip=[
-                alt.Tooltip("Label:N", title="Year"),
-                alt.Tooltip("MonthYear:N", title="Month"),
+                alt.Tooltip("Year:N", title="Year"),
+                alt.Tooltip("Month:N", title="Month"),
                 alt.Tooltip("Percent:Q", format=".1f", title="%"),
             ],
         )
         .properties(
-            width=700, height=400,
+            width=700,
+            height=400,
             title=f"{selected_kpi} – Last 12 Months vs Previous Year"
         )
     )
     
     st.altair_chart(bars, use_container_width=True)
 
-    
     # -------------------------
     # 📊 Revenue Concentration Curve
     # -------------------------
@@ -2026,5 +2031,6 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
