@@ -1378,8 +1378,8 @@ def run_factoids():
         
         st.altair_chart(chart, use_container_width=True)
 
-        # ============================
-    # 📌 At a Glance (fully corrected)
+    # ============================
+    # 📌 At a Glance (simple, fully dynamic)
     # ============================
     st.markdown("---")
     st.markdown("<div id='factoids-ataglance' class='anchor-offset'></div>", unsafe_allow_html=True)
@@ -1387,52 +1387,67 @@ def run_factoids():
 
     transactions = tx
 
-    # --- Canonical helpers (normalize text)
+    # --- Helpers
     _WS_RX = re.compile(r"\s+")
-    BAD_CLIENTS = {"counter","sale counter","walk-in","walk in","cash","-","walkin","test"}
+    BAD_TERMS = ["counter", "walk", "cash", "test", "-"]
 
-    def _canon(series):
+    def _canon(text: pd.Series) -> pd.Series:
         return (
-            series.astype(str)
+            text.astype(str)
             .str.normalize("NFKC")
             .str.strip()
             .str.replace(_WS_RX, " ", regex=True)
             .str.lower()
         )
 
-    def unique_pairs(_df):
-        """Return unique (Client, Animal) pairs after cleanup."""
-        if _df is None or _df.empty:
-            return pd.DataFrame(columns=["ClientKey","AnimalKey"])
-        s = _df[["Client Name","Animal Name"]].dropna().copy()
-        s["ClientKey"] = _canon(s["Client Name"])
-        s["AnimalKey"] = _canon(s["Animal Name"])
-        s = s[
-            (~s["ClientKey"].isin(BAD_CLIENTS))
-            & (s["ClientKey"] != "")
-            & (s["AnimalKey"] != "")
-        ]
-        return s.drop_duplicates(subset=["ClientKey","AnimalKey"], ignore_index=True)
-
     # --- Daily aggregates (for Max/Avg cards)
     daily = transactions.groupby("StartDate").agg(
-        ClientTx=("Block","count"),
-        Patients=("Patients", lambda p: len(set().union(*p)) if len(p) else 0)
+        ClientTx=("Block", "count"),
+        Patients=("Patients", lambda p: len(set().union(*p)) if len(p) else 0),
     )
 
     metrics = {}
     if not daily.empty:
         max_tx_day = daily["ClientTx"].idxmax()
         max_pat_day = daily["Patients"].idxmax()
-        metrics["Max Transactions/Day"] = f"{int(daily.loc[max_tx_day,'ClientTx']):,} ({max_tx_day.strftime('%d %b %Y')})"
+        metrics["Max Transactions/Day"] = f"{int(daily.loc[max_tx_day, 'ClientTx']):,} ({max_tx_day.strftime('%d %b %Y')})"
         metrics["Avg Transactions/Day"] = f"{int(round(daily['ClientTx'].mean())):,}"
-        metrics["Max Patients/Day"] = f"{int(daily.loc[max_pat_day,'Patients']):,} ({max_pat_day.strftime('%d %b %Y')})"
+        metrics["Max Patients/Day"] = f"{int(daily.loc[max_pat_day, 'Patients']):,} ({max_pat_day.strftime('%d %b %Y')})"
         metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
 
     # --- Total Unique Patients (fresh each rerun)
-    pairs_all = unique_pairs(df)
-    total_unique = len(pairs_all)
-    metrics["Total Unique Patients"] = f"{total_unique:,}"
+    df_pairs = (
+        df[["Client Name", "Animal Name"]]
+        .dropna(subset=["Client Name", "Animal Name"])
+        .copy()
+    )
+
+    # remove blanks and junk
+    df_pairs = df_pairs[
+        ~df_pairs["Client Name"].astype(str).str.strip().eq("") &
+        ~df_pairs["Animal Name"].astype(str).str.strip().eq("")
+    ]
+    df_pairs = df_pairs[
+        ~df_pairs["Client Name"].str.contains("|".join(BAD_TERMS), case=False, na=False)
+    ]
+
+    df_pairs["ClientKey"] = (
+        df_pairs["Client Name"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .str.replace(r"\s+", " ", regex=True)
+    )
+    df_pairs["AnimalKey"] = (
+        df_pairs["Animal Name"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .str.replace(r"\s+", " ", regex=True)
+    )
+
+    total_unique_patients = df_pairs.drop_duplicates(subset=["ClientKey", "AnimalKey"]).shape[0]
+    metrics["Total Unique Patients"] = f"{total_unique_patients:,}"
 
     # --- Patient Breakdown (unique pairs per service)
     masks = {
@@ -1449,12 +1464,25 @@ def run_factoids():
 
     for label, pattern in masks.items():
         subset = df[df["Item Name"].astype(str).str.contains(pattern, na=False)]
-        upairs = unique_pairs(subset)
-        count = len(upairs)
-        if total_unique > 0:
-            metrics[f"Unique Patients Having {label}"] = f"{count:,} ({count/total_unique:.1%})"
+        spairs = (
+            subset[["Client Name", "Animal Name"]]
+            .dropna(subset=["Client Name", "Animal Name"])
+            .copy()
+        )
+        spairs = spairs[
+            ~spairs["Client Name"].str.contains("|".join(BAD_TERMS), case=False, na=False)
+        ]
+        spairs["ClientKey"] = (
+            spairs["Client Name"].astype(str).str.strip().str.lower().str.replace(r"\s+", " ", regex=True)
+        )
+        spairs["AnimalKey"] = (
+            spairs["Animal Name"].astype(str).str.strip().str.lower().str.replace(r"\s+", " ", regex=True)
+        )
+        count = spairs.drop_duplicates(subset=["ClientKey", "AnimalKey"]).shape[0]
+        if total_unique_patients > 0:
+            metrics[f"Unique Patients Having {label}"] = f"{count:,} ({count/total_unique_patients:.1%})"
 
-    # --- Client Transaction Histogram (by unique visit days)
+    # --- Client Transaction Histogram
     tx_per_client = df.groupby("Client Name")["ChargeDate"].nunique()
     total_clients = tx_per_client.shape[0]
     if total_clients > 0:
@@ -1467,71 +1495,37 @@ def run_factoids():
         for k, v in hist.items():
             metrics[k] = f"{v:,} ({v/total_clients:.1%})"
 
-    # --- Fun Facts (unique pairs only)
-    if not pairs_all.empty:
-        # Most common pet name
-        pet_counts = pairs_all["AnimalKey"].value_counts()
-        if not pet_counts.empty:
-            top_name = pet_counts.index[0].title()
-            top_count = int(pet_counts.iloc[0])
-            metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
+    # --- Fun Facts
+    pet_counts = (
+        df_pairs["AnimalKey"].value_counts().reset_index().rename(columns={"index": "AnimalKey", "AnimalKey": "Count"})
+    )
+    if not pet_counts.empty:
+        top_name = pet_counts.loc[0, "AnimalKey"].title()
+        top_count = int(pet_counts.loc[0, "Count"])
+        metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
 
-    # Patient with most transactions (unique (ClientKey,AnimalKey))
     tx_exp = tx.explode("Patients").dropna(subset=["Patients"]).copy()
     if not tx_exp.empty:
         tx_exp["ClientKey"] = _canon(tx_exp["Client Name"])
         tx_exp["AnimalKey"] = _canon(tx_exp["Patients"])
-
-        # 🚫 filter out junk / sale-counter clients early
         tx_exp = tx_exp[
-            (~tx_exp["ClientKey"].isin(BAD_CLIENTS))
-            & (~tx_exp["AnimalKey"].isin(BAD_CLIENTS))
-            & (tx_exp["ClientKey"] != "")
-            & (tx_exp["AnimalKey"] != "")
-            & (~tx_exp["ClientKey"].str.contains("counter", case=False, na=False))
+            ~tx_exp["ClientKey"].str.contains("|".join(BAD_TERMS), case=False, na=False)
         ]
-
-        if not tx_exp.empty:
-            visits = (
-                tx_exp.groupby(["ClientKey","AnimalKey"])["StartDate"]
-                .nunique()
-                .reset_index(name="VisitCount")
-                .sort_values(["VisitCount","AnimalKey"], ascending=[False,True])
+        visits = (
+            tx_exp.groupby(["ClientKey", "AnimalKey"])["StartDate"]
+            .nunique()
+            .reset_index(name="VisitCount")
+            .sort_values(["VisitCount", "AnimalKey"], ascending=[False, True])
+        )
+        if not visits.empty:
+            top = visits.iloc[0]
+            client_disp = df_pairs.loc[df_pairs["ClientKey"] == top["ClientKey"], "Client Name"].iloc[0]
+            animal_disp = df_pairs.loc[df_pairs["AnimalKey"] == top["AnimalKey"], "Animal Name"].iloc[0]
+            metrics["Patient with Most Transactions"] = (
+                f"{animal_disp.strip()} ({client_disp.strip()}) – {int(top['VisitCount']):,}"
             )
 
-            if not visits.empty:
-                top = visits.iloc[0]
-
-                # get representative readable names
-                df_clean = df.copy()
-                df_clean["ClientKey"] = _canon(df_clean["Client Name"])
-                df_clean["AnimalKey"] = _canon(df_clean["Animal Name"])
-                df_clean = df_clean[
-                    (~df_clean["ClientKey"].isin(BAD_CLIENTS))
-                    & (df_clean["ClientKey"] != "")
-                    & (df_clean["AnimalKey"] != "")
-                    & (~df_clean["ClientKey"].str.contains("counter", case=False, na=False))
-                ]
-
-                client_disp = (
-                    df_clean.loc[df_clean["ClientKey"] == top["ClientKey"], "Client Name"]
-                    .iloc[0]
-                    if not df_clean.loc[df_clean["ClientKey"] == top["ClientKey"]].empty
-                    else top["ClientKey"].title()
-                )
-                animal_disp = (
-                    df_clean.loc[df_clean["AnimalKey"] == top["AnimalKey"], "Animal Name"]
-                    .iloc[0]
-                    if not df_clean.loc[df_clean["AnimalKey"] == top["AnimalKey"]].empty
-                    else top["AnimalKey"].title()
-                )
-
-                metrics["Patient with Most Transactions"] = (
-                    f"{animal_disp.strip()} ({client_disp.strip()}) – {int(top['VisitCount']):,}"
-                )
-
-
-    # --- Card renderer (same as before)
+    # --- Card Renderer (unchanged)
     CARD_STYLE = """<div style='background-color:{bg};
        border:1px solid #94a3b8;padding:16px;border-radius:10px;text-align:center;
        margin-bottom:12px;min-height:120px;display:flex;flex-direction:column;justify-content:center;'>
@@ -1718,6 +1712,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
