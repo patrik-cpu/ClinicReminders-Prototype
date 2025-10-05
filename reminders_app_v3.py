@@ -1448,7 +1448,8 @@ def run_factoids():
 
     df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
     dentals = df[df["Item Name"].str.contains("dental", case=False, na=False)]
-
+    
+    # Group by month (Period) → count unique animals → sort → take last 12 actual months only
     data = (
         dentals.groupby(dentals["ChargeDate"].dt.to_period("M"))["Animal Name"]
         .nunique()
@@ -1460,39 +1461,49 @@ def run_factoids():
         chart_data = data.reset_index()
         chart_data["ChargeDate"] = chart_data["ChargeDate"].dt.to_timestamp()
     
+        # Compute % of total patients for each month
+        total_patients = df["Animal Name"].nunique()
+        chart_data["Percent"] = (chart_data["Animal Name"] / total_patients * 100).round(1)
+    
+        # Determine actual x-domain (so it doesn’t show months beyond data)
+        domain_min = chart_data["ChargeDate"].min()
+        domain_max = chart_data["ChargeDate"].max()
+    
         chart = (
             alt.Chart(chart_data)
-            .mark_bar(size=30)  # thicker bars
+            .mark_bar(size=35, color="#60a5fa")  # thicker, blue bars
             .encode(
                 x=alt.X(
-                    "yearmonth(ChargeDate):T",
+                    "ChargeDate:T",
                     axis=alt.Axis(
                         title=None,
                         labelAngle=45,
                         labelFontSize=12,
-                        format="%b %Y"  # month and year
-                    )
+                        format="%b %Y"
+                    ),
+                    scale=alt.Scale(domain=[domain_min, domain_max])  # ✅ restrict to actual months only
                 ),
                 y=alt.Y(
-                    "Animal Name:Q",
+                    "Percent:Q",
                     title="% of Total Patients Having Dentals",
-                    axis=alt.Axis(format="%")
+                    axis=alt.Axis(format=".0f%%")
                 ),
                 tooltip=[
-                    alt.Tooltip("ChargeDate:T", title="Month"),
-                    alt.Tooltip("Animal Name:Q", title="% of Patients", format=".1f")
+                    alt.Tooltip("ChargeDate:T", title="Month", format="%b %Y"),
+                    alt.Tooltip("Percent:Q", title="% of Patients", format=".1f")
                 ]
             )
             .properties(
                 title="Percentage of Total Patients Having Dentals - Mouse-over for Details",
                 height=400,
-                width=700,
+                width=700
             )
         )
     
         st.altair_chart(chart, use_container_width=True)
     else:
         st.info("No dental data found for chart.")
+
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -1913,6 +1924,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
