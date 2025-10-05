@@ -668,6 +668,7 @@ def process_file(file_bytes, filename, rules):
     qty_col = mappings.get("qty")
     if qty_col and qty_col in df.columns:
         df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1)
+        df["Qty"] = df["Qty"].astype(int)
     else:
         fallback_qty_cols = ["Qty", "Quantity", "Plan Item Quantity"]
         found = False
@@ -1447,63 +1448,133 @@ def run_factoids():
         return
 
     df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
-    dentals = df[df["Item Name"].str.contains("dental", case=False, na=False)]
+    # ============================
+    # 📈 Charts Section (Interactive)
+    # ============================
     
-    # Group by month (Period) → count unique animals → sort → take last 12 actual months only
-    data = (
-        dentals.groupby(dentals["ChargeDate"].dt.to_period("M"))["Animal Name"]
-        .nunique()
-        .sort_index()
-        .tail(12)
-    )
+    st.markdown("<div id='factoids-charts' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("### 📈 Charts")
+    st.info("Each chart shows the % of total unique patients receiving a given service per month (last 12 months).")
     
-    if not data.empty:
-        chart_data = data.reset_index()
-        chart_data["ChargeDate"] = chart_data["ChargeDate"].dt.to_timestamp()
+    # --- Helper Function ---
+    def monthly_percent_chart(df, rx_pattern, category_label, color, apply_amount_filter=False):
+        """Generate month-by-month % chart aligned with At a Glance logic."""
+        if df.empty or "ChargeDate" not in df.columns:
+            st.warning(f"No data available for {category_label}.")
+            return
     
-        # Compute % of total patients for each month
+        # --- Ensure Qty integers ---
+        if "Qty" in df.columns:
+            df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(0).astype(int)
+    
+        # --- Prepare transactional blocks (same as At a Glance) ---
+        df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
+        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
+        df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
+        df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
+    
+        tx = (
+            df_sorted.groupby(["Client Name", "Block"])
+            .agg(
+                StartDate=("DateOnly", "min"),
+                EndDate=("DateOnly", "max"),
+                Patients=("Animal Name", lambda x: set(x.astype(str))),
+                Amount=("Amount", "sum"),
+            )
+            .reset_index()
+        )
+    
+        # --- Filter qualifying blocks ---
+        qualifying_blocks = df_sorted[df_sorted["Item Name"].str.contains(rx_pattern, na=False, case=False)]
+        if qualifying_blocks.empty:
+            st.warning(f"No qualifying {category_label.lower()} data found.")
+            return
+    
+        qualifying_blocks = qualifying_blocks[["Client Name", "Block", "DateOnly"]].drop_duplicates()
+        qualifying_blocks = pd.merge(qualifying_blocks, tx, on=["Client Name", "Block"], how="left")
+    
+        if apply_amount_filter:
+            qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 700]
+    
+        qualifying_blocks["Month"] = qualifying_blocks["DateOnly"].dt.to_period("M")
+    
+        monthly_data = (
+            qualifying_blocks.groupby("Month")["Patients"]
+            .apply(lambda pats: len(set().union(*pats)))
+            .reset_index(name="UniquePatients")
+        ).sort_values("Month").tail(12)
+    
         total_patients = df["Animal Name"].nunique()
-        chart_data["Percent"] = (chart_data["Animal Name"] / total_patients * 100).round(1)
     
-        # Determine actual x-domain (so it doesn’t show months beyond data)
-        domain_min = chart_data["ChargeDate"].min()
-        domain_max = chart_data["ChargeDate"].max()
+        if total_patients == 0 or monthly_data.empty:
+            st.warning(f"No valid {category_label.lower()} records for chart.")
+            return
     
+        # --- Compute % and labels ---
+        monthly_data["Percent"] = monthly_data["UniquePatients"] / total_patients
+        monthly_data["MonthLabel"] = monthly_data["Month"].dt.strftime("%b %Y")
+    
+        # --- Chart ---
         chart = (
-            alt.Chart(chart_data)
-            .mark_bar(size=35, color="#60a5fa")  # thicker, blue bars
+            alt.Chart(monthly_data)
+            .mark_bar(size=35, color=color)
             .encode(
                 x=alt.X(
-                    "ChargeDate:T",
+                    "MonthLabel:N",
                     axis=alt.Axis(
                         title=None,
                         labelAngle=45,
-                        labelFontSize=12,
-                        format="%b %Y"
-                    ),
-                    scale=alt.Scale(domain=[domain_min, domain_max])  # ✅ restrict to actual months only
+                        labelFontSize=12
+                    )
                 ),
                 y=alt.Y(
                     "Percent:Q",
-                    title="% of Total Patients Having Dentals",
-                    axis=alt.Axis(format=".0f%%")
+                    title=f"% of Total Patients Having {category_label}",
+                    axis=alt.Axis(format=".1%")  # ✅ show one decimal place
                 ),
                 tooltip=[
-                    alt.Tooltip("ChargeDate:T", title="Month", format="%b %Y"),
-                    alt.Tooltip("Percent:Q", title="% of Patients", format=".1f")
+                    alt.Tooltip("MonthLabel:N", title="Month"),
+                    alt.Tooltip("UniquePatients:Q", title=f"{category_label} Patients", format=",.0f"),
+                    alt.Tooltip("Percent:Q", title="% of Patients", format=".1%")  # ✅ one decimal
                 ]
             )
             .properties(
-                title="Percentage of Total Patients Having Dentals - Mouse-over for Details",
+                title=f"Percentage of Total Patients Having {category_label} - Mouse-over for Details",
                 height=400,
                 width=700
             )
         )
     
         st.altair_chart(chart, use_container_width=True)
-    else:
-        st.info("No dental data found for chart.")
-
+    
+    # --- Metric Configurations (Regex + Colors) ---
+    metric_configs = {
+        "Dentals": {"rx": r"dental", "color": "#60a5fa", "filter": True},
+        "X-rays": {"rx": XRAY_RX, "color": "#93c5fd"},
+        "Ultrasounds": {"rx": ULTRASOUND_RX, "color": "#a5b4fc"},
+        "Flea/Worm Treatments": {"rx": FLEA_WORM_RX, "color": "#4ade80"},
+        "Food Purchases": {"rx": FOOD_RX, "color": "#facc15"},
+        "Lab Work": {"rx": LABWORK_RX, "color": "#fbbf24"},
+        "Anaesthetics": {"rx": ANAESTHETIC_RX, "color": "#fb7185"},
+        "Hospitalisations": {"rx": HOSPITALISATION_RX, "color": "#f97316"},
+        "Vaccinations": {"rx": VACCINE_RX, "color": "#22d3ee"},
+    }
+    
+    # --- Dropdown Selection ---
+    metric_choice = st.selectbox(
+        "Select a metric to visualize:",
+        list(metric_configs.keys()),
+        index=0
+    )
+    
+    config = metric_configs[metric_choice]
+    monthly_percent_chart(
+        df,
+        rx_pattern=config["rx"],
+        category_label=metric_choice,
+        color=config["color"],
+        apply_amount_filter=config.get("filter", False)
+    )
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -1924,6 +1995,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
