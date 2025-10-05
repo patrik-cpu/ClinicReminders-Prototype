@@ -1454,19 +1454,14 @@ def run_factoids():
     st.info("Each chart shows the % of total unique patients receiving a given service per month (last 12 months).")
 
     # ----------------------------------------------------------
-    # Cached computation (heavy logic only runs once per metric)
+    # Cached computation (main heavy logic)
     # ----------------------------------------------------------
     @st.cache_data(show_spinner=False)
-    def compute_monthly_data(df, rx_pattern, apply_amount_filter=False):
-        """Compute month-by-month unique patient percentages using At-a-Glance logic."""
+    def compute_base_transactions(df):
+        """Precompute all transaction blocks (used for multiple factoids)."""
         if df.empty or "ChargeDate" not in df.columns:
-            return pd.DataFrame()
+            return pd.DataFrame(), pd.Series(dtype="int64")
 
-        # Ensure Qty is integer
-        if "Qty" in df.columns:
-            df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(0).astype(int)
-
-        # --- Build transaction blocks (same as At-a-Glance) ---
         df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
         df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
         df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
@@ -1483,17 +1478,33 @@ def run_factoids():
             .reset_index()
         )
 
+        # Total patients per month (for chart denominators)
+        df_sorted["Month"] = df_sorted["ChargeDate"].dt.to_period("M")
+        patients_per_month = df_sorted.groupby("Month")["Animal Name"].nunique()
+        return tx, patients_per_month
+
+    tx, patients_per_month = compute_base_transactions(df)
+
+    # ----------------------------------------------------------
+    # Cached per-metric monthly computation
+    # ----------------------------------------------------------
+    @st.cache_data(show_spinner=False)
+    def compute_monthly_data(df, tx, patients_per_month, rx_pattern, apply_amount_filter=False):
+        """Compute month-by-month patient percentages (block-based, correct denominator)."""
+        if df.empty or "ChargeDate" not in df.columns:
+            return pd.DataFrame()
+
         # --- Identify qualifying service blocks ---
         if isinstance(rx_pattern, re.Pattern):
-            mask = df_sorted["Item Name"].astype(str).apply(lambda s: bool(rx_pattern.search(s)))
-            service_rows = df_sorted[mask]
+            mask = df["Item Name"].astype(str).apply(lambda s: bool(rx_pattern.search(s)))
+            service_rows = df[mask]
         else:
-            service_rows = df_sorted[df_sorted["Item Name"].str.contains(rx_pattern, na=False, case=False)]
+            service_rows = df[df["Item Name"].str.contains(rx_pattern, na=False, case=False)]
 
         if service_rows.empty:
             return pd.DataFrame()
 
-        service_blocks = service_rows[["Client Name", "Block", "DateOnly"]].drop_duplicates()
+        service_blocks = service_rows[["Client Name", "Block", "ChargeDate"]].drop_duplicates()
         qualifying_blocks = pd.merge(service_blocks, tx, on=["Client Name", "Block"], how="left")
 
         # --- Apply >700 AED rule only for Dentals ---
@@ -1503,9 +1514,9 @@ def run_factoids():
         if qualifying_blocks.empty:
             return pd.DataFrame()
 
-        qualifying_blocks["Month"] = qualifying_blocks["DateOnly"].dt.to_period("M")
+        qualifying_blocks["Month"] = qualifying_blocks["ChargeDate"].dt.to_period("M")
 
-        # --- Always show 12 calendar months ending with latest month ---
+        # --- Always last 12 calendar months ---
         last_month = qualifying_blocks["Month"].max()
         month_range = pd.period_range(last_month - 11, last_month, freq="M")
 
@@ -1517,11 +1528,13 @@ def run_factoids():
             .rename(columns={"index": "Month", "Patients": "UniquePatients"})
         )
 
-        total_patients = df["Animal Name"].nunique()
-        if total_patients == 0:
-            return pd.DataFrame()
+        # --- Correct denominator: total patients in each month ---
+        monthly["TotalPatientsMonth"] = monthly["Month"].map(patients_per_month).fillna(0).astype(int)
+        monthly["Percent"] = monthly.apply(
+            lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"]) if r["TotalPatientsMonth"] > 0 else 0,
+            axis=1,
+        )
 
-        monthly["Percent"] = monthly["UniquePatients"] / total_patients
         monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
         return monthly.sort_values("Month")
 
@@ -1529,7 +1542,7 @@ def run_factoids():
     # Chart Rendering Function
     # ----------------------------------------------------------
     def monthly_percent_chart(df, rx_pattern, category_label, color, apply_amount_filter=False):
-        monthly_data = compute_monthly_data(df, rx_pattern, apply_amount_filter)
+        monthly_data = compute_monthly_data(df, tx, patients_per_month, rx_pattern, apply_amount_filter)
         if monthly_data.empty:
             st.info(f"No qualifying {category_label.lower()} data found.")
             return
@@ -1540,7 +1553,7 @@ def run_factoids():
             .encode(
                 x=alt.X(
                     "MonthLabel:N",
-                    sort=monthly_data["MonthLabel"].tolist(),  # chronological order
+                    sort=monthly_data["MonthLabel"].tolist(),
                     axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12),
                 ),
                 y=alt.Y(
@@ -1551,20 +1564,20 @@ def run_factoids():
                 tooltip=[
                     alt.Tooltip("MonthLabel:N", title="Month"),
                     alt.Tooltip("UniquePatients:Q", title=f"{category_label} Patients", format=",.0f"),
+                    alt.Tooltip("TotalPatientsMonth:Q", title="Total Patients in Month", format=",.0f"),
                     alt.Tooltip("Percent:Q", title="% of Patients", format=".1%")
                 ],
             )
             .properties(height=400, width=700)
         )
-
         st.altair_chart(chart, use_container_width=True)
 
     # ----------------------------------------------------------
-    # Metric Configurations (Regex + Colors)
+    # Metric Configurations
     # ----------------------------------------------------------
     metric_configs = {
         "Anaesthetics": {"rx": ANAESTHETIC_RX, "color": "#fb7185"},
-        "Dentals": {"rx": r"dental", "color": "#60a5fa", "filter": True},  # ✅ >700 rule ON
+        "Dentals": {"rx": r"dental", "color": "#60a5fa", "filter": True},  # >700 AED rule only for Dentals
         "Flea/Worm Treatments": {"rx": FLEA_WORM_RX, "color": "#4ade80"},
         "Food Purchases": {"rx": FOOD_RX, "color": "#facc15"},
         "Hospitalisations": {"rx": HOSPITALISATION_RX, "color": "#f97316"},
@@ -1575,7 +1588,7 @@ def run_factoids():
     }
 
     # ----------------------------------------------------------
-    # Dropdown (alphabetical + persistent selection)
+    # Dropdown (alphabetical + persistent)
     # ----------------------------------------------------------
     sorted_metrics = sorted(metric_configs.keys())
     default_metric = sorted_metrics[0]
@@ -1598,6 +1611,7 @@ def run_factoids():
         color=config["color"],
         apply_amount_filter=config.get("filter", False)
     )
+
 
 
     # -------------------------
@@ -2019,6 +2033,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
