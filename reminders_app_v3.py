@@ -1571,6 +1571,20 @@ def run_factoids():
     
     x_labels = month_labels.tolist()
     
+    # Chart color palette (define before using bar_color)
+    KPI_COLOURS = {
+        "Unique Patients Having Dentals": "#60a5fa",
+        "Unique Patients Having X-rays": "#f87171",
+        "Unique Patients Having Ultrasounds": "#34d399",
+        "Unique Patients Buying Flea/Worm": "#fbbf24",
+        "Unique Patients Buying Food": "#a78bfa",
+        "Unique Patients Having Lab Work": "#fb923c",
+        "Unique Patients Having Anaesthetics": "#22d3ee",
+        "Unique Patients Hospitalised": "#f472b6",
+        "Unique Patients Vaccinated": "#84cc16",
+    }
+    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
+
     # -------------------------
     # Build Chart (two fixed-offset layers)
     # -------------------------
@@ -2028,6 +2042,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
