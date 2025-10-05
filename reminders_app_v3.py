@@ -1265,18 +1265,17 @@ def run_factoids():
     choice = st.selectbox("Select a metric:", sorted_metrics, index=0, key="factoid_metric")
     conf = metric_configs[choice]
 
-    # Current 12 months
+    # --- compute current 12-month data
     monthly = compute_monthly_data(df_blocked, tx, patients_per_month, conf["rx"], conf.get("filter", False))
     if monthly.empty:
         st.info(f"No qualifying {choice.lower()} data found.")
     else:
         monthly["Year"] = monthly["Month"].dt.year
         monthly["MonthNum"] = monthly["Month"].dt.month
-
         df_blocked["Year"] = df_blocked["ChargeDate"].dt.year
         df_blocked["MonthNum"] = df_blocked["ChargeDate"].dt.month
 
-        # --- build ghost month list (previous-year equivalents)
+        # --- find ghost values (same month previous year)
         ghost_data = []
         for _, row in monthly.iterrows():
             year_prev = row["Year"] - 1
@@ -1293,51 +1292,19 @@ def run_factoids():
                 if not prev_monthly.empty:
                     ghost_val = prev_monthly["Percent"].iloc[-1]
                     ghost_patients = prev_monthly["UniquePatients"].iloc[-1]
-                    ghost_month = prev_monthly["Month"].iloc[-1]
-                    ghost_total = prev_monthly["TotalPatientsMonth"].iloc[-1]
-                    ghost_data.append((row["MonthLabel"], ghost_val, ghost_patients, ghost_month, ghost_total))
+                    ghost_data.append((row["MonthLabel"], year_prev, ghost_val, ghost_patients))
 
-        # --- merge ghost values into monthly table
+        # --- merge ghost results into monthly dataset
         merged = monthly.copy()
         merged["PrevPercent"] = pd.NA
         merged["PrevUniquePatients"] = pd.NA
-        merged["PrevMonth"] = pd.NaT
-        merged["PrevTotalPatientsMonth"] = pd.NA
-        
-        for label, val, pats, pmonth, ptotal in ghost_data:
+        merged["PrevYear"] = pd.NA
+        for label, yprev, val, pats in ghost_data:
             merged.loc[merged["MonthLabel"] == label, "PrevPercent"] = val
             merged.loc[merged["MonthLabel"] == label, "PrevUniquePatients"] = pats
-            merged.loc[merged["MonthLabel"] == label, "PrevMonth"] = pmonth
-            merged.loc[merged["MonthLabel"] == label, "PrevTotalPatientsMonth"] = ptotal
-        
-        # handle Period or string without assuming .dt exists
-        merged["PrevMonthDate"] = pd.to_datetime(
-            merged["PrevMonth"].apply(lambda v: v.to_timestamp() if isinstance(v, pd.Period) else v),
-            errors="coerce"
-        )
+            merged.loc[merged["MonthLabel"] == label, "PrevYear"] = yprev
 
-        merged["MonthDate"] = merged["Month"].dt.to_timestamp()
-        color = conf["color"]
-
-                # Add datetime columns for proper month/year formatting
-        merged["MonthDate"] = merged["Month"].dt.to_timestamp()
-        df_blocked["MonthPeriod"] = df_blocked["ChargeDate"].dt.to_period("M")
-        monthly_prev_totals = (
-            df_blocked.groupby("MonthPeriod")["Animal Name"]
-            .nunique()
-            .reset_index()
-            .rename(columns={"Animal Name": "PrevTotalPatientsMonth"})
-        )
-        monthly_prev_totals["PrevMonthDate"] = monthly_prev_totals["MonthPeriod"].dt.to_timestamp()
-
-        merged = pd.merge(
-            merged,
-            monthly_prev_totals,
-            left_on="Month",
-            right_on="MonthPeriod",
-            how="left"
-        )
-
+        merged["has_ghost"] = merged["PrevPercent"].notna()
         color = conf["color"]
 
         # --- ghost bars (30% opacity, offset left)
@@ -1357,12 +1324,12 @@ def run_factoids():
                     axis=alt.Axis(format=".1%")
                 ),
                 tooltip=[
-                    alt.Tooltip("PrevMonthDate:T", title="Month & Year", format="%b %Y"),
-                    alt.Tooltip("PrevTotalPatientsMonth:Q", title="Monthly Patients", format=",.0f"),
+                    alt.Tooltip("PrevYear:O", title="Year"),
+                    alt.Tooltip("MonthLabel:N", title="Month"),
+                    alt.Tooltip("TotalPatientsMonth:Q", title="Monthly Patients", format=",.0f"),
                     alt.Tooltip("PrevUniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                     alt.Tooltip("PrevPercent:Q", title="%", format=".1%"),
                 ],
-
             )
         )
 
@@ -1378,12 +1345,12 @@ def run_factoids():
                 ),
                 y=alt.Y("Percent:Q", axis=alt.Axis(format=".1%")),
                 tooltip=[
-                    alt.Tooltip("MonthDate:T", title="Month & Year", format="%b %Y"),
+                    alt.Tooltip("Year:O", title="Year"),
+                    alt.Tooltip("MonthLabel:N", title="Month"),
                     alt.Tooltip("TotalPatientsMonth:Q", title="Monthly Patients", format=",.0f"),
                     alt.Tooltip("UniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                     alt.Tooltip("Percent:Q", title="%", format=".1%"),
                 ],
-
             )
             .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
         )
@@ -1399,6 +1366,7 @@ def run_factoids():
         )
 
         st.altair_chart(chart, use_container_width=True)
+
 
 
     # ============================
@@ -1690,6 +1658,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
