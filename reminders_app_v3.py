@@ -1462,6 +1462,7 @@ def run_factoids():
         if col not in df.columns:
             df[col] = default
 
+    # Parse dates if needed
     if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
         df["ChargeDate"] = parse_dates(df["ChargeDate"])
 
@@ -1470,183 +1471,61 @@ def run_factoids():
         st.warning("⚠ No valid dates found in dataset.")
         return
 
-    # --- Precompute YearMonth ---
+    # --------------------------------
+    # Simple 12-month chart: Unique Patients Having Dentals
+    # --------------------------------
+    st.markdown("### 📈 Unique Patients Having Dentals (Last 12 Months)")
+
+    # Build a 12-month range ending at the most recent month in the data
+    month_index = pd.period_range(
+        end=latest_date.to_period("M"), periods=12, freq="M"
+    ).to_timestamp()  # month starts
+
+    # Make sure we have a month column to group by
     df["YearMonth"] = df["ChargeDate"].dt.to_period("M").dt.to_timestamp()
 
-    # Sidebar anchor for Charts section
-    st.markdown("<div id='factoids-charts' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("### 📈 Charts")
-
-    # -------------------------
-    # 📊 KPI CHART
-    # -------------------------
-    KPI_GROUPS = {
-        "Unique Patients Having Dentals": re.compile("dental", re.I),
-        "Unique Patients Having X-rays": XRAY_RX,
-        "Unique Patients Having Ultrasounds": ULTRASOUND_RX,
-        "Unique Patients Buying Flea/Worm": FLEA_WORM_RX,
-        "Unique Patients Buying Food": FOOD_RX,
-        "Unique Patients Having Lab Work": LABWORK_RX,
-        "Unique Patients Having Anaesthetics": ANAESTHETIC_RX,
-        "Unique Patients Hospitalised": HOSPITALISATION_RX,
-        "Unique Patients Vaccinated": VACCINE_RX,
-    }
-
-    st.markdown(
-        "<div style='font-size:18px; font-weight:bold; color:blue;'>Select Metric:</div>",
-        unsafe_allow_html=True,
+    # Filter to "dental" rows and count unique patients per month
+    dental = df[df["Item Name"].str.contains("dental", case=False, na=False)]
+    counts = (
+        dental.groupby("YearMonth")["Animal Name"]
+        .nunique()
+        .reindex(month_index, fill_value=0)
     )
-    selected_kpi = st.selectbox(
-        "", list(KPI_GROUPS.keys()), key="factoid_metric", label_visibility="collapsed"
-    )
-    pattern_rx = KPI_GROUPS[selected_kpi]
 
-    # --- Compute KPI monthly percentages efficiently ---
-    current_months = pd.period_range(end=latest_date.to_period("M"), periods=12, freq="M").to_timestamp()
-
-    month_total = df.groupby("YearMonth")["Animal Name"].nunique()
-    mask = df["Item Name"].str.contains(pattern_rx, na=False)
-    month_match = df[mask].groupby("YearMonth")["Animal Name"].nunique()
-
-    month_total = month_total.reindex(current_months, fill_value=0)
-    month_match = month_match.reindex(current_months, fill_value=0)
-    pct = (month_match / month_total.replace(0, pd.NA) * 100).fillna(0).round(1)
-    current_df = pd.DataFrame({
-        "MonthYear": pd.Series(pd.to_datetime(current_months)).dt.strftime("%b %Y"),
-        "Percent": pct.values,
+    chart_df = pd.DataFrame({
+        "Month": month_index,                 # datetime month start
+        "UniquePatients": counts.values.astype(int)
     })
 
-    # -------------------------
-    # Ghost bars (previous-year YoY comparison)
-    # -------------------------
-    all_months = df["ChargeDate"].dt.to_period("M").dt.to_timestamp().unique()
-    all_months = pd.Series(sorted(all_months))
-    target_months = all_months[all_months >= (latest_date - pd.DateOffset(months=23))]
-
-    month_total_all = df.groupby("YearMonth")["Animal Name"].nunique()
-    mask_all = df["Item Name"].str.contains(pattern_rx, na=False)
-    month_match_all = df[mask_all].groupby("YearMonth")["Animal Name"].nunique()
-
-    current_months = target_months[-12:]
-    prev_months = current_months - pd.DateOffset(years=1)
-
-    pct_current = (
-        (month_match_all.reindex(current_months, fill_value=0)
-         / month_total_all.reindex(current_months, fill_value=0).replace(0, pd.NA)) * 100
-    ).fillna(0).round(1)
-
-    pct_prev = (
-        (month_match_all.reindex(prev_months, fill_value=0)
-         / month_total_all.reindex(prev_months, fill_value=0).replace(0, pd.NA)) * 100
-    ).fillna(0).round(1)
-
-    # -------------------------
-    # Build plotting data
-    # -------------------------
-    month_series = pd.Series(pd.to_datetime(current_months))
-    month_labels = month_series.dt.strftime("%b %Y")
-    month_names = month_series.dt.strftime("%b")
-    years_this = month_series.dt.year.astype(str)
-    years_last = (month_series.dt.year - 1).astype(str)
-
-    current_df = pd.DataFrame({
-        "MonthYear": month_labels,
-        "Month": month_names,
-        "Year": years_this,
-        "Percent": pct_current.values,
-    })
-
-    ghost_df = pd.DataFrame({
-        "MonthYear": month_labels,
-        "Month": month_names,
-        "Year": years_last,
-        "Percent": pct_prev.values,
-    })
-
-    x_labels = month_labels.tolist()
-
-    # -------------------------
-    # Colors
-    # -------------------------
-    KPI_COLOURS = {
-        "Unique Patients Having Dentals": "#60a5fa",
-        "Unique Patients Having X-rays": "#f87171",
-        "Unique Patients Having Ultrasounds": "#34d399",
-        "Unique Patients Buying Flea/Worm": "#fbbf24",
-        "Unique Patients Buying Food": "#a78bfa",
-        "Unique Patients Having Lab Work": "#fb923c",
-        "Unique Patients Having Anaesthetics": "#22d3ee",
-        "Unique Patients Hospitalised": "#f472b6",
-        "Unique Patients Vaccinated": "#84cc16",
-    }
-    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
-
-    # -------------------------
-    # Build correctly spaced, centered, non-clipping side-by-side bars
-    # -------------------------
-    bar_width = 18
-    bar_shift = 9
-    x_correction = 4  # small right shift for perfect label alignment
-
-    base_encoding = {
-        "x": alt.X(
-            "MonthYear:N",
-            sort=x_labels,
-            axis=alt.Axis(
-                labelAngle=45,
-                title=None,
-                labelPadding=10,
-                labelFontSize=12
+    # Minimal, robust Altair chart
+    chart = (
+        alt.Chart(chart_df)
+        .mark_bar(size=24)
+        .encode(
+            x=alt.X(
+                "Month:T",
+                axis=alt.Axis(
+                    format="%b %Y",      # e.g., "Sep 2025"
+                    labelAngle=45,
+                    labelPadding=10,
+                    title=None
+                )
             ),
-        ),
-        "y": alt.Y("Percent:Q", title=f"{selected_kpi} (%)", axis=alt.Axis(labelFontSize=12)),
-        "tooltip": [
-            alt.Tooltip("Month:N", title="Month"),
-            alt.Tooltip("Year:N", title="Year"),
-            alt.Tooltip("Percent:Q", format=".1f", title="%"),
-        ],
-    }
-
-    # Ghost layer (Previous Year) — faded, to the left
-    ghost_layer = (
-        alt.Chart(ghost_df)
-        .mark_bar(size=bar_width, color=bar_color, opacity=0.3)
-        .encode(**base_encoding)
-        .encode(xOffset=alt.value(-bar_shift + x_correction))
-    )
-
-    # Current layer (This Year) — solid, to the right
-    main_layer = (
-        alt.Chart(current_df)
-        .mark_bar(size=bar_width, color=bar_color, opacity=1.0)
-        .encode(**base_encoding)
-        .encode(xOffset=alt.value(bar_shift + x_correction))
-    )
-
-    # Combine both layers and fix frame scaling
-    bars = (
-        (ghost_layer + main_layer)
-        .properties(
-            width=700,
-            height=400,
-            title=f"{selected_kpi} – Last 12 Months vs Previous Year",
+            y=alt.Y(
+                "UniquePatients:Q",
+                title="Unique Patients Having Dentals"
+            ),
+            tooltip=[
+                alt.Tooltip("Month:T", title="Month", format="%b %Y"),
+                alt.Tooltip("UniquePatients:Q", title="Unique Patients")
+            ],
         )
+        .properties(width=700, height=400, title="Last 12 Months")
         .configure_axis(grid=False)
-        .configure_view(
-            strokeWidth=0,
-            continuousHeight=400,
-            continuousWidth=700
-        )
-        .configure_axisX(
-            labelAngle=45,
-            labelPadding=10,
-            labelFontSize=12
-        )
-
+        .configure_view(strokeWidth=0, continuousHeight=400, continuousWidth=700)
     )
 
-    st.altair_chart(bars, use_container_width=True)
-
+    st.altair_chart(chart, use_container_width=True)
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -2067,6 +1946,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
