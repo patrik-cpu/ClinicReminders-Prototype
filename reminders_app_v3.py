@@ -1417,7 +1417,7 @@ def run_factoids():
     st.markdown("<div id='factoids-ataglance' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📌 At a Glance")
 
-    # Daily aggregates for max/avg
+    # --- Daily aggregates for max/avg
     daily = tx.groupby("StartDate").agg(
         ClientTx=("Block", "count"),
         Patients=("Patients", lambda p: len(set().union(*p)) if len(p) else 0),
@@ -1467,25 +1467,35 @@ def run_factoids():
         for k, v in hist.items():
             metrics[k] = f"{v:,} ({v/total_clients:.1%})"
 
-    # Fun facts
-    common_pet = df["Animal Name"].value_counts().head(1)
+    # --- Fun facts
+    # count unique (Client, Animal) combinations instead of raw lines
+    unique_pairs = df[["Client Name", "Animal Name"]].dropna().drop_duplicates()
+
+    # Most common pet name (count unique pairs, not lines)
+    common_pet = unique_pairs["Animal Name"].value_counts().head(1)
     if not common_pet.empty:
         metrics["Most Common Pet Name"] = f"{common_pet.index[0]} ({common_pet.iloc[0]:,})"
 
-    # Patient with most transactions (show client too)
+    # Patient with most transactions (unique client-animal pair)
+    # Count unique StartDate per (Client, Animal)
     tx_expanded = tx.explode("Patients").dropna(subset=["Patients"]).copy()
     tx_expanded["Patients"] = tx_expanded["Patients"].astype(str).str.strip()
     tx_expanded = tx_expanded[tx_expanded["Patients"] != ""]
-    if not tx_expanded.empty:
-        pat_client_counts = (
-            tx_expanded.groupby(["Patients", "Client Name"])["Block"]
-            .count()
-            .reset_index(name="VisitCount")
-            .sort_values(["VisitCount", "Patients"], ascending=[False, True])
-        )
-        top_row = pat_client_counts.iloc[0]
+    # Build patient-client pairs
+    tx_pairs = (
+        tx_expanded
+        .assign(Client=tx_expanded["Client Name"].astype(str).str.strip())
+        .dropna(subset=["Client"])
+        .groupby(["Client", "Patients"])["StartDate"]
+        .nunique()
+        .reset_index(name="VisitCount")
+        .sort_values(["VisitCount", "Patients"], ascending=[False, True])
+    )
+
+    if not tx_pairs.empty:
+        top_row = tx_pairs.iloc[0]
         metrics["Patient with Most Transactions"] = (
-            f"{top_row['Patients']} ({top_row['Client Name']}) – {int(top_row['VisitCount']):,}"
+            f"{top_row['Patients']} ({top_row['Client']}) – {int(top_row['VisitCount']):,}"
         )
 
     # Cards rendering
@@ -1667,6 +1677,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
