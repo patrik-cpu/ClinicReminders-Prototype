@@ -1547,9 +1547,9 @@ def run_factoids():
     # Build plotting frame with Month/Year for tooltips
     # -------------------------
     month_series = pd.Series(pd.to_datetime(current_months))
-    month_labels = month_series.dt.strftime("%b %Y")   # keep original axis labels (e.g., Sep 2024)
-    month_names  = month_series.dt.strftime("%b")      # tooltip month
-    years_this   = month_series.dt.year.astype(str)    # tooltip year
+    month_labels = month_series.dt.strftime("%b %Y")   # e.g. "Sep 2024"
+    month_names  = month_series.dt.strftime("%b")      # e.g. "Sep"
+    years_this   = month_series.dt.year.astype(str)
     years_last   = (month_series.dt.year - 1).astype(str)
     
     current_df = pd.DataFrame({
@@ -1566,12 +1566,22 @@ def run_factoids():
         "Percent": pct_prev.values,
     })
     
-    # Only show ghost layer if there’s meaningful prior-year data
-    has_prior = (ghost_df["Percent"].sum() > 0)
-    
     x_labels = month_labels.tolist()
     
-    # Chart color palette (define before using bar_color)
+    # -------------------------
+    # Merge both into a single tidy DataFrame
+    # -------------------------
+    plot_df = pd.concat([
+        current_df.assign(Period="Current Year"),
+        ghost_df.assign(Period="Previous Year")
+    ])
+    
+    # Ensure MonthYear stays in correct order
+    plot_df["MonthYear"] = pd.Categorical(plot_df["MonthYear"], categories=x_labels, ordered=True)
+    
+    # -------------------------
+    # Colors
+    # -------------------------
     KPI_COLOURS = {
         "Unique Patients Having Dentals": "#60a5fa",
         "Unique Patients Having X-rays": "#f87171",
@@ -1583,62 +1593,46 @@ def run_factoids():
         "Unique Patients Hospitalised": "#f472b6",
         "Unique Patients Vaccinated": "#84cc16",
     }
-    bar_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
-
+    main_color = KPI_COLOURS.get(selected_kpi, "#60a5fa")
+    
+    color_scale = alt.Scale(
+        domain=["Current Year", "Previous Year"],
+        range=[main_color, "#d1d5db"]  # grey for previous year
+    )
+    
     # -------------------------
-    # Build Chart (two fixed-offset layers)
+    # Build grouped bar chart (no manual offsets)
     # -------------------------
-    encoding = {
-        "x": alt.X(
-            "MonthYear:N",
-            sort=x_labels,
-            axis=alt.Axis(
-                labelAngle=30,
-                title=None,
-                labelPadding=10,      # normal spacing between labels and axis
-                labelAlign="center",
+    bars = (
+        alt.Chart(plot_df)
+        .mark_bar(size=20)
+        .encode(
+            x=alt.X(
+                "MonthYear:N",
+                sort=x_labels,
+                axis=alt.Axis(
+                    labelAngle=0,
+                    title=None,
+                    labelPadding=12,   # keeps labels below chart
+                    labelFontSize=12
+                )
             ),
-        ),
-        "y": alt.Y("Percent:Q", title=f"{selected_kpi} (%)"),
-        "tooltip": [
-            alt.Tooltip("Year:N", title="Year"),
-            alt.Tooltip("Month:N", title="Month"),
-            alt.Tooltip("Percent:Q", format=".1f", title="%"),
-        ],
-    }
-    
-    # ✅ Keep bars same width, ghost just to the left (no overlap)
-    bar_width = 18
-    ghost_shift = -bar_width * 0.3   # about one-third bar width left offset
-    
-    # Ghost bars — same color, 30% opacity, slightly left
-    ghost_layer = (
-        alt.Chart(ghost_df)
-        .mark_bar(size=bar_width, color=bar_color, opacity=0.3)
-        .encode(**encoding)
-        .transform_filter(alt.datum.Percent > 0)
-        .encode(xOffset=alt.value(ghost_shift))
-    )
-    
-    # Main bars — solid, no offset
-    main_layer = (
-        alt.Chart(current_df)
-        .mark_bar(size=bar_width, color=bar_color, opacity=1.0)
-        .encode(**encoding)
-        .encode(xOffset=alt.value(0))
-    )
-    
-    # Combine both layers (only if ghost data exists)
-    bars = (ghost_layer + main_layer) if (ghost_df["Percent"].sum() > 0) else main_layer
-    
-    # Final layout — consistent width, centered labels
-    bars = bars.properties(
-        width=700,
-        height=400,
-        title=f"{selected_kpi} – Last 12 Months vs Previous Year",
-    ).configure_axis(
-        labelFontSize=12,
-        titleFontSize=13,
+            y=alt.Y("Percent:Q", title=f"{selected_kpi} (%)", axis=alt.Axis(labelFontSize=12)),
+            color=alt.Color("Period:N", scale=color_scale, legend=alt.Legend(title=None, orient="top")),
+            tooltip=[
+                alt.Tooltip("Month:N", title="Month"),
+                alt.Tooltip("Year:N", title="Year"),
+                alt.Tooltip("Period:N", title="Period"),
+                alt.Tooltip("Percent:Q", format=".1f", title="%"),
+            ],
+        )
+        .properties(
+            width=700,
+            height=400,
+            title=f"{selected_kpi} – Last 12 Months vs Previous Year"
+        )
+        .configure_axis(grid=False)
+        .configure_view(strokeWidth=0)
     )
     
     st.altair_chart(bars, use_container_width=True)
@@ -2063,6 +2057,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
