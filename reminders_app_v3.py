@@ -1456,18 +1456,17 @@ def run_factoids():
     st.markdown("### 📈 Charts")
     st.info("Each chart shows the % of total unique patients receiving a given service per month (last 12 months).")
     
-    # --- Helper Function ---
     def monthly_percent_chart(df, rx_pattern, category_label, color, apply_amount_filter=False):
-        """Generate month-by-month % chart aligned with At a Glance logic."""
+        """Generate month-by-month % chart aligned with At-a-Glance logic."""
         if df.empty or "ChargeDate" not in df.columns:
             st.warning(f"No data available for {category_label}.")
             return
     
-        # --- Ensure Qty integers ---
+        # ensure Qty is integer
         if "Qty" in df.columns:
             df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(0).astype(int)
     
-        # --- Prepare transactional blocks (same as At a Glance) ---
+        # build transactional blocks
         df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
         df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
         df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
@@ -1484,31 +1483,30 @@ def run_factoids():
             .reset_index()
         )
     
-        # --- Handle regex patterns correctly (compiled or string) ---
+        # regex handling (compiled vs string)
         if isinstance(rx_pattern, re.Pattern):
             mask = df_sorted["Item Name"].astype(str).apply(lambda s: bool(rx_pattern.search(s)))
-            qualifying_blocks = df_sorted[mask]
+            qualifying = df_sorted[mask]
         else:
-            qualifying_blocks = df_sorted[df_sorted["Item Name"].str.contains(rx_pattern, na=False, case=False)]
+            qualifying = df_sorted[df_sorted["Item Name"].str.contains(rx_pattern, na=False, case=False)]
     
-        if qualifying_blocks.empty:
+        if qualifying.empty:
             st.warning(f"No qualifying {category_label.lower()} data found.")
             return
     
-        qualifying_blocks = qualifying_blocks[["Client Name", "Block", "DateOnly"]].drop_duplicates()
-        qualifying_blocks = pd.merge(qualifying_blocks, tx, on=["Client Name", "Block"], how="left")
+        qualifying = qualifying[["Client Name", "Block", "DateOnly"]].drop_duplicates()
+        qualifying = pd.merge(qualifying, tx, on=["Client Name", "Block"], how="left")
     
         if apply_amount_filter:
-            qualifying_blocks = qualifying_blocks[qualifying_blocks["Amount"] > 700]
+            qualifying = qualifying[qualifying["Amount"] > 700]
     
-        qualifying_blocks["Month"] = qualifying_blocks["DateOnly"].dt.to_period("M")
+        qualifying["Month"] = qualifying["DateOnly"].dt.to_period("M")
     
-        # --- Ensure exactly 12 calendar months ending with most recent month ---
-        if qualifying_blocks["Month"].notna().any():
-            last_month = qualifying_blocks["Month"].max()
+        if qualifying["Month"].notna().any():
+            last_month = qualifying["Month"].max()
             month_range = pd.period_range(last_month - 11, last_month, freq="M")
-            monthly_data = (
-                qualifying_blocks.groupby("Month")["Patients"]
+            monthly = (
+                qualifying.groupby("Month")["Patients"]
                 .apply(lambda pats: len(set().union(*pats)))
                 .reindex(month_range, fill_value=0)
                 .reset_index()
@@ -1523,21 +1521,16 @@ def run_factoids():
             st.warning(f"No valid {category_label.lower()} records for chart.")
             return
     
-        monthly_data["Percent"] = monthly_data["UniquePatients"] / total_patients
-        monthly_data["MonthLabel"] = monthly_data["Month"].dt.strftime("%b %Y")
+        monthly["Percent"] = monthly["UniquePatients"] / total_patients
+        monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
     
-        # --- Chart (no title) ---
         chart = (
-            alt.Chart(monthly_data)
+            alt.Chart(monthly)
             .mark_bar(size=35, color=color)
             .encode(
                 x=alt.X(
                     "MonthLabel:N",
-                    axis=alt.Axis(
-                        title=None,
-                        labelAngle=45,
-                        labelFontSize=12
-                    )
+                    axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12)
                 ),
                 y=alt.Y(
                     "Percent:Q",
@@ -1550,15 +1543,16 @@ def run_factoids():
                     alt.Tooltip("Percent:Q", title="% of Patients", format=".1%")
                 ]
             )
-            .properties(
-                height=400,
-                width=700
-            )
+            .properties(height=400, width=700)
         )
-
-    st.altair_chart(chart, use_container_width=True)
-        
-    # --- Metric Configurations (Regex + Colors) ---
+    
+        # render safely
+        try:
+            st.altair_chart(chart, use_container_width=True)
+        except Exception as e:
+            st.error(f"Chart rendering error: {e}")
+    
+    # metric definitions
     metric_configs = {
         "Dentals": {"rx": r"dental", "color": "#60a5fa", "filter": True},
         "X-rays": {"rx": XRAY_RX, "color": "#93c5fd"},
@@ -1571,21 +1565,21 @@ def run_factoids():
         "Vaccinations": {"rx": VACCINE_RX, "color": "#22d3ee"},
     }
     
-    # --- Dropdown Selection ---
     metric_choice = st.selectbox(
         "Select a metric to visualize:",
         list(metric_configs.keys()),
         index=0
     )
     
-    config = metric_configs[metric_choice]
+    cfg = metric_configs[metric_choice]
     monthly_percent_chart(
         df,
-        rx_pattern=config["rx"],
+        rx_pattern=cfg["rx"],
         category_label=metric_choice,
-        color=config["color"],
-        apply_amount_filter=config.get("filter", False)
+        color=cfg["color"],
+        apply_amount_filter=cfg.get("filter", False)
     )
+
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -2006,6 +2000,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
