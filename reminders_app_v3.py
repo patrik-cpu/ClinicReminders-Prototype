@@ -1374,7 +1374,7 @@ def run_factoids():
             alt.layer(ghost, current)
             .resolve_scale(y="shared")
             .properties(
-                height=400,
+                height=360,
                 width=700,
                 title=f"% of Monthly Patients Having {choice} (with previous-year ghost bars)"
             )
@@ -1671,6 +1671,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
