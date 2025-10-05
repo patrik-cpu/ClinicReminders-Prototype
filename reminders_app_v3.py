@@ -1329,7 +1329,7 @@ def run_factoids():
                 ),
                 tooltip=[
                     alt.Tooltip("PrevYear:O", title="Year"),
-                    alt.Tooltip("MonthLabel:N", title="Month"),
+                    alt.Tooltip("MonthLabel:N", title="Month", format="%b"),
                     alt.Tooltip("PrevTotalPatients:Q", title="Monthly Patients", format=",.0f"),
                     alt.Tooltip("PrevUniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                     alt.Tooltip("PrevPercent:Q", title="%", format=".1%"),
@@ -1350,7 +1350,7 @@ def run_factoids():
                 y=alt.Y("Percent:Q", axis=alt.Axis(format=".1%")),
                 tooltip=[
                     alt.Tooltip("Year:O", title="Year"),
-                    alt.Tooltip("MonthLabel:N", title="Month"),
+                    alt.Tooltip("MonthLabel:N", title="Month", format="%b"),
                     alt.Tooltip("TotalPatientsMonth:Q", title="Monthly Patients", format=",.0f"),
                     alt.Tooltip("UniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                     alt.Tooltip("Percent:Q", title="%", format=".1%"),
@@ -1663,6 +1663,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
