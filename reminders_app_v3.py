@@ -1632,8 +1632,17 @@ def run_factoids():
             title=f"{selected_kpi} – Last 12 Months vs Previous Year",
         )
         .configure_axis(grid=False)
-        .configure_view(strokeWidth=0)
-        .autosize("fit")  # keeps chart height fixed; bars scale properly
+        .configure_view(
+            strokeWidth=0,
+            continuousHeight=400,
+            continuousWidth=700
+        )
+        .configure_axisX(
+            labelAngle=45,
+            labelPadding=10,
+            labelFontSize=12
+        )
+
     )
 
     st.altair_chart(bars, use_container_width=True)
@@ -2058,6 +2067,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
