@@ -1437,95 +1437,60 @@ VACCINE_RX          = _rx(VACCINE_KEYWORDS)
 
 def run_factoids():
     st.markdown("<h2 id='factoids'>📊 Factoids</h2>", unsafe_allow_html=True)
-    st.info("📈 Quick insights into your clinic's activity, performance, and trends.")
+    st.info("📈 Quick insight: last 12 months of dentals.")
 
-    # --- Early exit if no data ---
-    if (
-        "working_df" not in st.session_state
-        or st.session_state["working_df"] is None
-        or st.session_state["working_df"].empty
-    ):
-        st.warning("⚠ Please upload data first in the '📂 Upload Data' section (Reminders).")
+    # --- stop if no data ---
+    if "working_df" not in st.session_state or st.session_state["working_df"] is None or st.session_state["working_df"].empty:
+        st.warning("⚠ Upload data first in the '📂 Upload Data' section.")
         return
 
     df = st.session_state["working_df"].copy()
-
-    # --- Canonical safety ---
-    for col, default in [
-        ("ChargeDate", pd.NaT),
-        ("Client Name", ""),
-        ("Animal Name", ""),
-        ("Item Name", ""),
-        ("Qty", 1),
-        ("Amount", 0),
-    ]:
-        if col not in df.columns:
-            df[col] = default
-
-    # Parse dates if needed
     if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
         df["ChargeDate"] = parse_dates(df["ChargeDate"])
 
-    latest_date = df["ChargeDate"].max()
-    if pd.isna(latest_date):
-        st.warning("⚠ No valid dates found in dataset.")
+    latest = df["ChargeDate"].max()
+    if pd.isna(latest):
+        st.warning("⚠ No valid dates found.")
         return
 
-    # --------------------------------
-    # Simple 12-month chart: Unique Patients Having Dentals
-    # --------------------------------
-    st.markdown("### 📈 Unique Patients Having Dentals (Last 12 Months)")
-
-    # Build a 12-month range ending at the most recent month in the data
-    month_index = pd.period_range(
-        end=latest_date.to_period("M"), periods=12, freq="M"
-    ).to_timestamp()  # month starts
-
-    # Make sure we have a month column to group by
+    # --- build 12-month window ending at most recent month ---
+    months = pd.period_range(end=latest.to_period("M"), periods=12, freq="M").to_timestamp()
     df["YearMonth"] = df["ChargeDate"].dt.to_period("M").dt.to_timestamp()
 
-    # Filter to "dental" rows and count unique patients per month
-    dental = df[df["Item Name"].str.contains("dental", case=False, na=False)]
+    # --- count unique patients with any “dental” item ---
+    dentals = df[df["Item Name"].str.contains("dental", case=False, na=False)]
     counts = (
-        dental.groupby("YearMonth")["Animal Name"]
+        dentals.groupby("YearMonth")["Animal Name"]
         .nunique()
-        .reindex(month_index, fill_value=0)
+        .reindex(months, fill_value=0)
     )
 
-    chart_df = pd.DataFrame({
-        "Month": month_index,                 # datetime month start
-        "UniquePatients": counts.values.astype(int)
-    })
+    chart_df = pd.DataFrame({"Month": months, "Patients": counts.values})
 
-    # Minimal, robust Altair chart
+    # --- simple, fixed-height bar chart ---
     chart = (
         alt.Chart(chart_df)
-        .mark_bar(size=24)
+        .mark_bar(color="#60a5fa", size=25)
         .encode(
             x=alt.X(
                 "Month:T",
-                axis=alt.Axis(
-                    format="%b %Y",      # e.g., "Sep 2025"
-                    labelAngle=45,
-                    labelPadding=10,
-                    title=None
-                )
+                axis=alt.Axis(format="%b %Y", labelAngle=45, title=None)
             ),
-            y=alt.Y(
-                "UniquePatients:Q",
-                title="Unique Patients Having Dentals"
-            ),
+            y=alt.Y("Patients:Q", title="Unique Patients Having Dentals"),
             tooltip=[
-                alt.Tooltip("Month:T", title="Month", format="%b %Y"),
-                alt.Tooltip("UniquePatients:Q", title="Unique Patients")
-            ],
+                alt.Tooltip("Month:T", format="%b %Y"),
+                alt.Tooltip("Patients:Q", title="Unique Patients")
+            ]
         )
-        .properties(width=700, height=400, title="Last 12 Months")
+        .properties(width=700, height=400, title="Unique Patients Having Dentals – Last 12 Months")
+        .configure_view(strokeWidth=0)
         .configure_axis(grid=False)
-        .configure_view(strokeWidth=0, continuousHeight=400, continuousWidth=700)
+        # key point: fixed frame, bars scale within it
+        .configure_view(continuousHeight=400, continuousWidth=700)
     )
 
     st.altair_chart(chart, use_container_width=True)
+
 
     # -------------------------
     # 📊 Revenue Concentration Curve
@@ -1946,6 +1911,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message. {e}")
+
 
 
 
