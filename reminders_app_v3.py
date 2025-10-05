@@ -1476,35 +1476,60 @@ def run_factoids():
             top_count = int(pet_counts.iloc[0])
             metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
 
-    # Patient with most transactions (unique (ClientKey, AnimalKey))
+    # Patient with most transactions (unique (ClientKey,AnimalKey))
     tx_exp = tx.explode("Patients").dropna(subset=["Patients"]).copy()
     if not tx_exp.empty:
         tx_exp["ClientKey"] = _canon(tx_exp["Client Name"])
         tx_exp["AnimalKey"] = _canon(tx_exp["Patients"])
+
+        # 🚫 filter out junk / sale-counter clients early
         tx_exp = tx_exp[
             (~tx_exp["ClientKey"].isin(BAD_CLIENTS))
+            & (~tx_exp["AnimalKey"].isin(BAD_CLIENTS))
             & (tx_exp["ClientKey"] != "")
             & (tx_exp["AnimalKey"] != "")
+            & (~tx_exp["ClientKey"].str.contains("counter", case=False, na=False))
         ]
-        visits = (
-            tx_exp.groupby(["ClientKey","AnimalKey"])["StartDate"]
-            .nunique()
-            .reset_index(name="VisitCount")
-            .sort_values(["VisitCount","AnimalKey"], ascending=[False,True])
-        )
-        if not visits.empty:
-            top = visits.iloc[0]
 
-            # Try to recover readable names; fallback to canonical if missing
-            client_rows = df.loc[_canon(df["Client Name"]) == top["ClientKey"], "Client Name"]
-            animal_rows = df.loc[_canon(df["Animal Name"]) == top["AnimalKey"], "Animal Name"]
-
-            client_disp = str(client_rows.iloc[0]) if not client_rows.empty else top["ClientKey"].title()
-            animal_disp = str(animal_rows.iloc[0]) if not animal_rows.empty else top["AnimalKey"].title()
-
-            metrics["Patient with Most Transactions"] = (
-                f"{animal_disp.strip()} ({client_disp.strip()}) – {int(top['VisitCount']):,}"
+        if not tx_exp.empty:
+            visits = (
+                tx_exp.groupby(["ClientKey","AnimalKey"])["StartDate"]
+                .nunique()
+                .reset_index(name="VisitCount")
+                .sort_values(["VisitCount","AnimalKey"], ascending=[False,True])
             )
+
+            if not visits.empty:
+                top = visits.iloc[0]
+
+                # get representative readable names
+                df_clean = df.copy()
+                df_clean["ClientKey"] = _canon(df_clean["Client Name"])
+                df_clean["AnimalKey"] = _canon(df_clean["Animal Name"])
+                df_clean = df_clean[
+                    (~df_clean["ClientKey"].isin(BAD_CLIENTS))
+                    & (df_clean["ClientKey"] != "")
+                    & (df_clean["AnimalKey"] != "")
+                    & (~df_clean["ClientKey"].str.contains("counter", case=False, na=False))
+                ]
+
+                client_disp = (
+                    df_clean.loc[df_clean["ClientKey"] == top["ClientKey"], "Client Name"]
+                    .iloc[0]
+                    if not df_clean.loc[df_clean["ClientKey"] == top["ClientKey"]].empty
+                    else top["ClientKey"].title()
+                )
+                animal_disp = (
+                    df_clean.loc[df_clean["AnimalKey"] == top["AnimalKey"], "Animal Name"]
+                    .iloc[0]
+                    if not df_clean.loc[df_clean["AnimalKey"] == top["AnimalKey"]].empty
+                    else top["AnimalKey"].title()
+                )
+
+                metrics["Patient with Most Transactions"] = (
+                    f"{animal_disp.strip()} ({client_disp.strip()}) – {int(top['VisitCount']):,}"
+                )
+
 
     # --- Card renderer (same as before)
     CARD_STYLE = """<div style='background-color:{bg};
@@ -1693,6 +1718,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
