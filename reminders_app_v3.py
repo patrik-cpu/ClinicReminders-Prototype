@@ -1389,7 +1389,7 @@ def run_factoids():
 
     # --- Helpers
     _WS_RX = re.compile(r"\s+")
-    BAD_TERMS = ["counter", "walk", "cash", "test", "-"]
+    BAD_TERMS = ["counter", "walk", "cash", "test", "in-house", "in house"]
 
     def _canon(text: pd.Series) -> pd.Series:
         return (
@@ -1721,3 +1721,4 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
