@@ -1222,7 +1222,9 @@ def compute_monthly_data(df_blocked: pd.DataFrame,
         return pd.DataFrame()
 
     qualifying["Month"] = qualifying["ChargeDate"].dt.to_period("M")
-    last_month = qualifying["Month"].max()
+    # always align to the latest month in the full dataset, not just the metric subset
+    global_last_month = df_blocked["ChargeDate"].dt.to_period("M").max()
+    last_month = global_last_month if pd.notna(global_last_month) else qualifying["Month"].max()
     month_range = pd.period_range(last_month - 11, last_month, freq="M")
 
     monthly = (
@@ -1799,6 +1801,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
