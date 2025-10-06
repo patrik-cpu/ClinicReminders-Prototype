@@ -1900,16 +1900,19 @@ def run_factoids():
                 (global_df["Animal Name"].astype(str).str.strip() != "")
             ]
             .assign(
-                ClientKey=lambda d: d["Client Name"]
-                    .astype(str).str.normalize("NFKC").str.lower()
-                    .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                    .str.strip().str.replace(r"\s+", " ", regex=True),
-                AnimalKey=lambda d: d["Animal Name"]
-                    .astype(str).str.normalize("NFKC").str.lower()
-                    .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                    .str.strip().str.replace(r"\s+", " ", regex=True),
-                ChargeDate=pd.to_datetime(d["ChargeDate"], errors="coerce"),
-            )
+            ClientKey=lambda d: d["Client Name"]
+                .astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True)
+                .str.strip().str.replace(r"\s+", " ", regex=True),
+            AnimalKey=lambda d: d["Animal Name"]
+                .astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True)
+                .str.strip().str.replace(r"\s+", " ", regex=True)
+        )
+        )
+        # Convert ChargeDate after assign
+        global_df["ChargeDate"] = pd.to_datetime(global_df["ChargeDate"], errors="coerce")
+
         )
         
         # Exclude BAD_TERMS globally
