@@ -1894,26 +1894,25 @@ def run_factoids():
         global_df = st.session_state.get("working_df", pd.DataFrame()).copy()
         global_df = (
             global_df
-            .dropna(subset=["Client Name","Animal Name"])
+            .dropna(subset=["Client Name", "Animal Name"])
             .loc[
                 (global_df["Client Name"].astype(str).str.strip() != "") &
                 (global_df["Animal Name"].astype(str).str.strip() != "")
             ]
             .assign(
-            ClientKey=lambda d: d["Client Name"]
-                .astype(str).str.normalize("NFKC").str.lower()
-                .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                .str.strip().str.replace(r"\s+", " ", regex=True),
-            AnimalKey=lambda d: d["Animal Name"]
-                .astype(str).str.normalize("NFKC").str.lower()
-                .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                .str.strip().str.replace(r"\s+", " ", regex=True)
+                ClientKey=lambda d: d["Client Name"]
+                    .astype(str).str.normalize("NFKC").str.lower()
+                    .str.replace(r"[\u00A0\u200B]", "", regex=True)
+                    .str.strip().str.replace(r"\s+", " ", regex=True),
+                AnimalKey=lambda d: d["Animal Name"]
+                    .astype(str).str.normalize("NFKC").str.lower()
+                    .str.replace(r"[\u00A0\u200B]", "", regex=True)
+                    .str.strip().str.replace(r"\s+", " ", regex=True)
+            )
         )
-        )
-        # Convert ChargeDate after assign
+        
+        # Convert ChargeDate AFTER assign
         global_df["ChargeDate"] = pd.to_datetime(global_df["ChargeDate"], errors="coerce")
-
-        )
         
         # Exclude BAD_TERMS globally
         if BAD_TERMS:
@@ -1936,6 +1935,7 @@ def run_factoids():
         if selected_period == "All Data":
             new_clients = unique_clients
             new_patients = unique_patients
+
 
 
 
@@ -2186,6 +2186,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
