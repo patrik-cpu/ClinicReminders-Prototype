@@ -1253,195 +1253,147 @@ def compute_monthly_data(df_blocked: pd.DataFrame,
     )
     monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
     return monthly.sort_values("Month")
-                             
-# --- Ensure working_df is loaded
-df = st.session_state.get("working_df")
-if df is None or df.empty:
-    st.warning("Upload data first.")
-    st.stop()  # prevent the rest of Factoids from running
 
-# ============================
-# 💰 Core Metrics (Absolute Values)
-# ============================
-st.markdown("<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💰 Core Metrics (Absolute Values)</h4>", unsafe_allow_html=True)
+def run_factoids():
+    df = st.session_state.get("working_df")
+    if df is None or df.empty:
+        st.warning("Upload data first.")
+        return
 
-@st.cache_data(show_spinner=False)
-def compute_core_metrics_monthly(df: pd.DataFrame):
-    """Compute absolute monthly metrics for the new chart (isolated from patient breakdown)."""
-    if df.empty:
-        return pd.DataFrame()
+    # Precompute blocked DF and monthly denominators once
+    df_blocked, tx, patients_per_month = prepare_factoids_data(df)
 
-    df = df.copy()
-    df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
-    df["Month"] = df["ChargeDate"].dt.to_period("M")
+    # ============================
+    # 📈 Monthly Charts (with Previous-Year Ghost Bars)
+    # ============================
+    st.markdown("<div id='factoids-monthlycharts' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("### 📈 Monthly Charts")
+    st.markdown(
+        "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
+        unsafe_allow_html=True
+    )
 
-    # --- Aggregate base stats
-    g = df.groupby("Month")
-    core = pd.DataFrame({
-        "Revenue": g["Amount"].sum(),
-        "Clients Seen": g["Client Name"].nunique(),
-        "Patients Seen": g["Animal Name"].nunique(),
-    }).reset_index()
+    metric_configs = {
+        "Anaesthetics": {"rx": _rx(ANAESTHETIC_KEYWORDS), "color": "#fb7185"},
+        "Dentals": {"rx": re.compile("dental", re.I), "color": "#60a5fa", "filter": True},
+        "Buying Flea/Worm Control": {"rx": _rx(FLEA_WORM_KEYWORDS), "color": "#4ade80"},
+        "Buying Food": {"rx": _rx(FOOD_KEYWORDS), "color": "#facc15"},
+        "Hospitalisations": {"rx": _rx(HOSPITALISATION_KEYWORDS), "color": "#f97316"},
+        "Lab Work": {"rx": _rx(LABWORK_KEYWORDS), "color": "#fbbf24"},
+        "Ultrasounds": {"rx": _rx(ULTRASOUND_KEYWORDS), "color": "#a5b4fc"},
+        "Vaccinations": {"rx": _rx(VACCINE_KEYWORDS), "color": "#22d3ee"},
+        "X-rays": {"rx": _rx(XRAY_KEYWORDS), "color": "#93c5fd"},
+    }
 
-    # --- Client transactions (visit blocks)
-    _, tx, _ = prepare_factoids_data(df)
-    if not tx.empty and "StartDate" in tx.columns:
-        tx["Month"] = tx["StartDate"].dt.to_period("M")
-        tx_month = tx.groupby("Month")["Client Name"].nunique().rename("Client Transactions")
-        core = core.merge(tx_month, on="Month", how="left")
+    sorted_metrics = sorted(metric_configs.keys())
+    choice = st.selectbox("Select a metric:", sorted_metrics, index=0, key="factoid_metric")
+    conf = metric_configs[choice]
+
+    # --- compute current 12-month data
+    monthly = compute_monthly_data(df_blocked, tx, patients_per_month, conf["rx"], conf.get("filter", False))
+    if monthly.empty:
+        st.info(f"No qualifying {choice.lower()} data found.")
     else:
-        core["Client Transactions"] = 0
+        monthly["Year"] = monthly["Month"].dt.year
+        monthly["MonthNum"] = monthly["Month"].dt.month
+        df_blocked["Year"] = df_blocked["ChargeDate"].dt.year
+        df_blocked["MonthNum"] = df_blocked["ChargeDate"].dt.month
 
-    # --- Derived ratios
-    core["Revenue per Client"] = core.apply(lambda r: r["Revenue"]/r["Clients Seen"] if r["Clients Seen"] else 0, axis=1)
-    core["Revenue per Patient"] = core.apply(lambda r: r["Revenue"]/r["Patients Seen"] if r["Patients Seen"] else 0, axis=1)
-    core["Revenue per Client Transaction"] = core.apply(lambda r: r["Revenue"]/r["Client Transactions"] if r["Client Transactions"] else 0, axis=1)
+        # --- find ghost values (same month previous year)
+        ghost_data = []
+        for _, row in monthly.iterrows():
+            year_prev = row["Year"] - 1
+            month_num = row["MonthNum"]
+            subset_prev = df_blocked[
+                (df_blocked["Year"] == year_prev) &
+                (df_blocked["MonthNum"] == month_num)
+            ]
+            if not subset_prev.empty:
+                prev_monthly = compute_monthly_data(
+                    subset_prev, tx, patients_per_month,
+                    conf["rx"], conf.get("filter", False)
+                )
+                if not prev_monthly.empty:
+                    ghost_val = prev_monthly["Percent"].iloc[-1]
+                    ghost_patients = prev_monthly["UniquePatients"].iloc[-1]
+                    ghost_total = prev_monthly["TotalPatientsMonth"].iloc[-1]
+                    ghost_data.append((row["MonthLabel"], year_prev, ghost_val, ghost_patients, ghost_total))
 
-    # --- Max daily activity
-    if not tx.empty and {"StartDate","Client Name","Patients","Block"}.issubset(tx.columns):
-        daily = tx.groupby("StartDate").agg(
-            ClientsSeen=("Client Name","nunique"),
-            PatientsSeen=("Patients", lambda p: len(set().union(*p)) if len(p) else 0),
-            ClientTx=("Block","count")
+        # --- merge ghost results into monthly dataset
+        merged = monthly.copy()
+        merged["PrevPercent"] = pd.NA
+        merged["PrevUniquePatients"] = pd.NA
+        merged["PrevYear"] = pd.NA
+        merged["PrevTotalPatients"] = pd.NA
+
+        for label, yprev, val, pats, tot in ghost_data:
+            merged.loc[merged["MonthLabel"] == label, "PrevPercent"] = val
+            merged.loc[merged["MonthLabel"] == label, "PrevUniquePatients"] = pats
+            merged.loc[merged["MonthLabel"] == label, "PrevYear"] = yprev
+            merged.loc[merged["MonthLabel"] == label, "PrevTotalPatients"] = tot
+
+        merged["has_ghost"] = merged["PrevPercent"].notna()
+
+        # ✅ Month-only string for tooltips (no year)
+        merged["MonthOnly"] = merged["MonthLabel"].str.split().str[0]
+
+        color = conf["color"]
+
+        # --- ghost bars (30% opacity, offset left)
+        ghost = (
+            alt.Chart(merged)
+            .transform_filter("datum.PrevPercent != null")
+            .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
+            .encode(
+                x=alt.X(
+                    "MonthLabel:N",
+                    sort=merged["MonthLabel"].tolist(),
+                    axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)
+                ),
+                y=alt.Y("PrevPercent:Q", title="% Patients", axis=alt.Axis(format=".1%")),
+                tooltip=[
+                    alt.Tooltip("PrevYear:O", title="Year"),
+                    alt.Tooltip("MonthOnly:N", title="Month"),  # ← month name only
+                    alt.Tooltip("PrevTotalPatients:Q", title="Monthly Patients", format=",.0f"),
+                    alt.Tooltip("PrevUniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
+                    alt.Tooltip("PrevPercent:Q", title="%", format=".1%"),
+                ],
+            )
         )
-        daily["Month"] = daily.index.to_period("M")
-        max_month = (
-            daily.groupby("Month")
-            .agg({
-                "ClientsSeen":"max",
-                "PatientsSeen":"max",
-                "ClientTx":"max"
-            })
-            .rename(columns={
-                "ClientsSeen":"Max Clients Seen",
-                "PatientsSeen":"Max Patients Seen",
-                "ClientTx":"Max Client Transactions"
-            })
-            .reset_index()
+
+        # --- current bars (centered unless ghost exists)
+        current = (
+            alt.Chart(merged)
+            .mark_bar(size=20, color=color)
+            .encode(
+                x=alt.X(
+                    "MonthLabel:N",
+                    sort=merged["MonthLabel"].tolist(),
+                    axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)
+                ),
+                y=alt.Y("Percent:Q", title="% Patients", axis=alt.Axis(format=".1%")),
+                tooltip=[
+                    alt.Tooltip("Year:O", title="Year"),
+                    alt.Tooltip("MonthOnly:N", title="Month"),  # ← month name only
+                    alt.Tooltip("TotalPatientsMonth:Q", title="Monthly Patients", format=",.0f"),
+                    alt.Tooltip("UniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
+                    alt.Tooltip("Percent:Q", title="%", format=".1%"),
+                ],
+            )
+            .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
         )
-    else:
-        max_month = core[["Month"]].assign(**{
-            "Max Clients Seen":0,"Max Patients Seen":0,"Max Client Transactions":0
-        })
-    core = core.merge(max_month,on="Month",how="left")
 
-    # --- New Clients / Patients per month
-    df_sorted = df.sort_values("ChargeDate")
-    seen_clients, seen_pairs = set(), set()
-    new_clients, new_patients = [], []
-    for _, row in df_sorted.iterrows():
-        if pd.isna(row["ChargeDate"]): continue
-        m = pd.Period(row["ChargeDate"],freq="M")
-        c = str(row["Client Name"]).strip().lower()
-        p = (c, str(row["Animal Name"]).strip().lower())
-        if c and c not in seen_clients:
-            new_clients.append((m,c))
-            seen_clients.add(c)
-        if p and p not in seen_pairs:
-            new_patients.append((m,p))
-            seen_pairs.add(p)
-    nc = pd.DataFrame(new_clients,columns=["Month","Client"]).groupby("Month").size().rename("New Clients")
-    npat = pd.DataFrame(new_patients,columns=["Month","Pair"]).groupby("Month").size().rename("New Patients")
-    core = core.merge(nc,on="Month",how="left").merge(npat,on="Month",how="left").fillna(0)
-
-    # --- Transactions per Client/Patient
-    core["Transactions per Client"] = core.apply(lambda r: r["Client Transactions"]/r["Clients Seen"] if r["Clients Seen"] else 0, axis=1)
-    core["Transactions per Patient"] = core.apply(lambda r: r["Client Transactions"]/r["Patients Seen"] if r["Patients Seen"] else 0, axis=1)
-
-    core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
-    return core.sort_values("Month")
-
-# --- Compute once
-core_monthly = compute_core_metrics_monthly(df)
-
-if core_monthly.empty:
-    st.info("No data available to compute monthly core metrics.")
-else:
-    metric_options = [
-        "Revenue", "Clients Seen", "Patients Seen", "Client Transactions",
-        "Revenue per Client", "Revenue per Patient", "Revenue per Client Transaction",
-        "Max Clients Seen", "Max Patients Seen", "Max Client Transactions",
-        "New Clients", "New Patients",
-        "Transactions per Client", "Transactions per Patient",
-    ]
-    sel_core_metric = st.selectbox("Select Core Metric:", metric_options, index=0, key="core_metric_select")
-
-    # --- Compute previous-year “ghost” data (same month previous year)
-    core_monthly["Year"] = core_monthly["Month"].dt.year
-    core_monthly["MonthNum"] = core_monthly["Month"].dt.month
-
-    ghost_data = []
-    for _, row in core_monthly.iterrows():
-        prev = core_monthly[
-            (core_monthly["Year"] == row["Year"] - 1)
-            & (core_monthly["MonthNum"] == row["MonthNum"])
-        ]
-        if not prev.empty:
-            ghost_data.append((row["MonthLabel"], prev.iloc[0][sel_core_metric], prev.iloc[0]["Year"]))
-
-    merged_core = core_monthly.copy()
-    merged_core["PrevValue"] = pd.NA
-    merged_core["PrevYear"] = pd.NA
-    for label, val, year in ghost_data:
-        merged_core.loc[merged_core["MonthLabel"] == label, ["PrevValue", "PrevYear"]] = [val, year]
-
-    merged_core["has_ghost"] = merged_core["PrevValue"].notna()
-    merged_core["MonthOnly"] = merged_core["MonthLabel"].str.split().str[0]
-
-    # --- Chart (identical structure to old chart)
-    color = "#60a5fa"
-    safe_name = re.sub(r"[^A-Za-z0-9_]", "_", sel_core_metric)
-    plot_df = merged_core.rename(columns={sel_core_metric: safe_name})
-
-    ghost = (
-        alt.Chart(plot_df)
-        .transform_filter("datum.PrevValue != null")
-        .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
-        .encode(
-            x=alt.X(
-                "MonthLabel:N",
-                sort=plot_df["MonthLabel"].tolist(),
-                axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)
-            ),
-            y=alt.Y("PrevValue:Q", title=sel_core_metric, axis=alt.Axis(format=",.0f")),
-            tooltip=[
-                alt.Tooltip("PrevYear:O", title="Year"),
-                alt.Tooltip("MonthOnly:N", title="Month"),
-                alt.Tooltip("PrevValue:Q", title=sel_core_metric, format=",.0f"),
-            ],
+        chart = (
+            alt.layer(ghost, current)
+            .resolve_scale(y="shared")
+            .properties(
+                height=400,
+                width=700,
+                title=f"% of Monthly Patients Having {choice}"
+            )
         )
-    )
-
-    current = (
-        alt.Chart(plot_df)
-        .mark_bar(size=20, color=color)
-        .encode(
-            x=alt.X(
-                "MonthLabel:N",
-                sort=plot_df["MonthLabel"].tolist(),
-                axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)
-            ),
-            y=alt.Y(f"{safe_name}:Q", title=sel_core_metric, axis=alt.Axis(format=",.0f")),
-            tooltip=[
-                alt.Tooltip("Year:O", title="Year"),
-                alt.Tooltip("MonthOnly:N", title="Month"),
-                alt.Tooltip(f"{safe_name}:Q", title=sel_core_metric, format=",.0f"),
-            ],
-        )
-        .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
-    )
-
-    chart = (
-        alt.layer(ghost, current)
-        .resolve_scale(y="shared")
-        .properties(
-            height=400,
-            width=700,
-            title=f"{sel_core_metric} — Monthly Trend"
-        )
-    )
-    st.altair_chart(chart, use_container_width=True)
-
+        
+        st.altair_chart(chart, use_container_width=True)
 
     # ============================
     # 📌 At a Glance (simple, fully dynamic)
@@ -1936,13 +1888,6 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
-
-
-
-
-
-
-
 
 
 
