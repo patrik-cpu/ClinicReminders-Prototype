@@ -1911,25 +1911,40 @@ def run_factoids():
         metrics["Transactions per Client"] = f"{tx_per_client:,.2f}"
         metrics["Transactions per Patient"] = f"{tx_per_patient:,.2f}"
 
-    cardgroup(f"⭐ Core Metrics - {selected_period}", [
-        "Total Unique Patients",
-        "Max Patients/Day",
-        "Avg Patients/Day",
-        "Max Client Transactions/Day",
-        "Avg Client Transactions/Day",
-        "New Clients",
-        "New Patients",
-        "Unique Clients Seen",
-        "Unique Patients Seen",
+    # ============================
+    # 🧾 Revenue
+    # ============================
+    cardgroup(f"💰 Revenue - {selected_period}", [
         "Total Revenue",
-        "Client Transactions",
-        "Patient Transactions",
         "Revenue per Client",
         "Revenue per Patient",
         "Revenue per Client Transaction",
+    ])
+    
+    # ============================
+    # 🧍‍♂️🧍‍♀️ Clients & Patients
+    # ============================
+    cardgroup(f"👥 Clients & Patients - {selected_period}", [
+        "Unique Clients Seen",
+        "Unique Patients Seen",
+        "Max Patients/Day",
+        "Avg Patients/Day",
+        "New Clients",
+        "New Patients",
+    ])
+    
+    # ============================
+    # 🔁 Transactions
+    # ============================
+    cardgroup(f"🔁 Transactions - {selected_period}", [
+        "Client Transactions",
+        "Patient Transactions",
         "Transactions per Client",
         "Transactions per Patient",
+        "Max Client Transactions/Day",
+        "Avg Client Transactions/Day",
     ])
+
 
     # sort the masks alphabetically before creating the list
     sorted_labels = sorted(masks.keys(), key=str.lower)
@@ -2126,6 +2141,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
