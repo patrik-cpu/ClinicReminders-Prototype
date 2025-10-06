@@ -1650,8 +1650,8 @@ def run_factoids():
     if not daily.empty:
         max_tx_day = daily["ClientTx"].idxmax()
         max_pat_day = daily["Patients"].idxmax()
-        metrics["Max Transactions/Day"] = f"{int(daily.loc[max_tx_day, 'ClientTx']):,} ({max_tx_day.strftime('%d %b %Y')})"
-        metrics["Avg Transactions/Day"] = f"{int(round(daily['ClientTx'].mean())):,}"
+        metrics["Max Client Transactions/Day"] = f"{int(daily.loc[max_tx_day, 'ClientTx']):,} ({max_tx_day.strftime('%d %b %Y')})"
+        metrics["Avg Client Transactions/Day"] = f"{int(round(daily['ClientTx'].mean())):,}"
         metrics["Max Patients/Day"] = f"{int(daily.loc[max_pat_day, 'Patients']):,} ({max_pat_day.strftime('%d %b %Y')})"
         metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
 
@@ -1813,8 +1813,8 @@ def run_factoids():
         "Total Unique Patients",
         "Max Patients/Day",
         "Avg Patients/Day",
-        "Max Transactions/Day",
-        "Avg Transactions/Day",
+        "Max Client Transactions/Day",
+        "Avg Client Transactions/Day",
     ])
     # sort the masks alphabetically before creating the list
     sorted_labels = sorted(masks.keys(), key=str.lower)
@@ -2011,6 +2011,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
