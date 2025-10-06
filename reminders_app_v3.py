@@ -1334,10 +1334,10 @@ def run_factoids():
     
         # --- Transactions per Client / Patient (1 decimal)
         core["Transactions per Client"] = core.apply(
-            lambda r: round(r["Client Transactions"]/r["Unique Clients Seen"], 1) if r["Unique Clients Seen"] else 0, axis=1
+            lambda r: round(r["Client Transactions"]/r["Unique Clients Seen"], 2) if r["Unique Clients Seen"] else 0, axis=1
         )
         core["Transactions per Patient"] = core.apply(
-            lambda r: round(r["Patient Transactions"]/r["Unique Patients Seen"], 1) if r["Unique Patients Seen"] else 0, axis=1
+            lambda r: round(r["Patient Transactions"]/r["Unique Patients Seen"], 2) if r["Unique Patients Seen"] else 0, axis=1
         )
     
         # --- New clients / patients
@@ -2007,6 +2007,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
