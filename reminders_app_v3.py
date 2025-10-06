@@ -1306,11 +1306,12 @@ def run_factoids():
         core["Revenue per Client Transaction"] = core.apply(lambda r: r["Revenue"] / r["Client Transactions"] if r["Client Transactions"] else 0, axis=1)
     
         # --- Max seen (same as “busiest day” stats)
-        daily = df_tx.groupby("StartDate").agg(
+        daily = tx.groupby("StartDate").agg(
             ClientsSeen=("Client Name", "nunique"),
             PatientsSeen=("Animal Name", "nunique"),
             ClientTx=("Block", "count"),
         )
+
         daily["Month"] = daily.index.to_period("M")
         max_month = (
             daily.groupby("Month")
@@ -2065,6 +2066,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
