@@ -1826,27 +1826,38 @@ def run_factoids():
             .nunique()
         )
         
-        # ---- Unique patients seen (exact match to Total Unique Patients logic)
-        def _normalize_name(s: pd.Series) -> pd.Series:
+        # ---- Unique patients seen (EXACT match to Total Unique Patients logic)
+        bad_rx = "|".join(map(re.escape, BAD_TERMS)) if BAD_TERMS else r"^$"
+        
+        pairs = (
+            period_df[["Client Name","Animal Name"]]
+            .dropna(subset=["Client Name","Animal Name"])
+            .rename(columns={"Client Name":"ClientRaw","Animal Name":"AnimalRaw"})
+        )
+        
+        # remove blanks and BAD_TERMS clients (counter, walk, cash, test, in-house, in house)
+        pairs = pairs[
+            pairs["ClientRaw"].astype(str).str.strip().ne("")
+            & pairs["AnimalRaw"].astype(str).str.strip().ne("")
+            & ~pairs["ClientRaw"].str.contains(bad_rx, case=False, na=False)
+        ]
+        
+        # normalise (lowercase, strip non-breaking/zero-width spaces, collapse whitespace)
+        def _norm(s: pd.Series) -> pd.Series:
             return (
                 s.astype(str)
+                 .str.normalize("NFKC")
                  .str.lower()
-                 .str.replace(r"[\u00A0\u200B]", "", regex=True)  # remove non-breaking / zero-width spaces
+                 .str.replace(r"[\u00A0\u200B]", "", regex=True)
                  .str.strip()
-                 .replace({"nan": "", "none": ""})
                  .str.replace(r"\s+", " ", regex=True)
             )
         
-        clean_df = (
-            period_df[["Client Name","Animal Name"]]
-            .dropna(subset=["Client Name","Animal Name"])
-            .assign(
-                ClientKey=lambda d: _normalize_name(d["Client Name"]),
-                AnimalKey=lambda d: _normalize_name(d["Animal Name"])
-            )
-        )
+        pairs["ClientKey"] = _norm(pairs["ClientRaw"])
+        pairs["AnimalKey"] = _norm(pairs["AnimalRaw"])
         
-        unique_patients = clean_df.drop_duplicates(subset=["ClientKey","AnimalKey"]).shape[0]
+        unique_patients = pairs.drop_duplicates(subset=["ClientKey","AnimalKey"]).shape[0]
+
 
 
         
@@ -2115,6 +2126,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
