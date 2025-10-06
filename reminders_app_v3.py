@@ -1888,57 +1888,52 @@ def run_factoids():
         tx_per_patient = round(patient_transactions / unique_patients, 1) if unique_patients else 0
 
     
-        # ---- New Clients / Patients (cleaned, normalized, BAD_TERMS-safe)
-        period_df_sorted = (
-            period_df
-            .dropna(subset=["Client Name", "Animal Name"])
+        # ---- New Clients / Patients (based on first-ever appearance in full dataset)
+
+        # Prepare global, cleaned, normalized dataset (so we can check full-history appearances)
+        global_df = st.session_state.get("working_df", pd.DataFrame()).copy()
+        global_df = (
+            global_df
+            .dropna(subset=["Client Name","Animal Name"])
             .loc[
-                (period_df["Client Name"].astype(str).str.strip() != "") &
-                (period_df["Animal Name"].astype(str).str.strip() != "")
+                (global_df["Client Name"].astype(str).str.strip() != "") &
+                (global_df["Animal Name"].astype(str).str.strip() != "")
             ]
             .assign(
                 ClientKey=lambda d: d["Client Name"]
-                    .astype(str)
-                    .str.normalize("NFKC")
-                    .str.lower()
+                    .astype(str).str.normalize("NFKC").str.lower()
                     .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                    .str.strip()
-                    .str.replace(r"\s+", " ", regex=True),
+                    .str.strip().str.replace(r"\s+", " ", regex=True),
                 AnimalKey=lambda d: d["Animal Name"]
-                    .astype(str)
-                    .str.normalize("NFKC")
-                    .str.lower()
+                    .astype(str).str.normalize("NFKC").str.lower()
                     .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                    .str.strip()
-                    .str.replace(r"\s+", " ", regex=True)
+                    .str.strip().str.replace(r"\s+", " ", regex=True),
+                ChargeDate=pd.to_datetime(d["ChargeDate"], errors="coerce"),
             )
-            .sort_values("ChargeDate")
         )
         
-        # Exclude BAD_TERMS clients (counter, walk-in, etc.)
+        # Exclude BAD_TERMS globally
         if BAD_TERMS:
             bad_rx = "|".join(map(re.escape, BAD_TERMS))
-            period_df_sorted = period_df_sorted[
-                ~period_df_sorted["ClientKey"].str.contains(bad_rx, case=False, na=False)
-            ]
+            global_df = global_df[~global_df["ClientKey"].str.contains(bad_rx, case=False, na=False)]
         
-        # Count new unique clients and patient-client pairs
-        seen_clients, seen_pairs = set(), set()
-        new_clients, new_patients = 0, 0
-        for _, row in period_df_sorted.iterrows():
-            c = row["ClientKey"]
-            p = (row["ClientKey"], row["AnimalKey"])
-            if c and c not in seen_clients:
-                seen_clients.add(c)
-                new_clients += 1
-            if p and p not in seen_pairs:
-                seen_pairs.add(p)
-                new_patients += 1
+        # Build lookup of first-ever seen date per client and per (client,patient)
+        first_seen_client = global_df.groupby("ClientKey")["ChargeDate"].min()
+        first_seen_pair = global_df.groupby(["ClientKey", "AnimalKey"])["ChargeDate"].min()
         
-        # --- Ensure “All Data” alignment (new == unique)
+        # Define current period range
+        period_start = period_df["ChargeDate"].min()
+        period_end = period_df["ChargeDate"].max()
+        
+        # Compute new clients/patients = first seen within this period
+        new_clients = (first_seen_client.between(period_start, period_end)).sum()
+        new_patients = (first_seen_pair.between(period_start, period_end)).sum()
+        
+        # --- Ensure All Data alignment (new == unique)
         if selected_period == "All Data":
             new_clients = unique_clients
             new_patients = unique_patients
+
 
 
     
@@ -2188,6 +2183,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
