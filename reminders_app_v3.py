@@ -1253,6 +1253,12 @@ def compute_monthly_data(df_blocked: pd.DataFrame,
     )
     monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
     return monthly.sort_values("Month")
+                             
+# --- Ensure working_df is loaded
+df = st.session_state.get("working_df")
+if df is None or df.empty:
+    st.warning("Upload data first.")
+    st.stop()  # prevent the rest of Factoids from running
 
 # ============================
 # 💰 Core Metrics (Absolute Values)
@@ -1930,6 +1936,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
