@@ -1808,6 +1808,62 @@ def run_factoids():
                 cols[i % 5].markdown(CARD_STYLE.format(bg=bg,label=k,val=v,fs=fs),unsafe_allow_html=True)
                 i += 1
                 if i % 5 == 0 and i < len(keys): cols = st.columns(5)
+    # --- Add Core Metrics (aggregated over selected period)
+    period_df = df.copy()
+    if not period_df.empty:
+        # ---- Base
+        total_revenue = period_df["Amount"].sum()
+        unique_clients = period_df["Client Name"].nunique()
+        unique_patients = period_df.drop_duplicates(subset=["Client Name","Animal Name"]).shape[0]
+    
+        # ---- Transactions (client + patient)
+        _, tx, _ = prepare_factoids_data(period_df)
+        if not tx.empty and "StartDate" in tx.columns:
+            client_transactions = tx["Block"].nunique()
+            patient_transactions = (
+                tx.explode("Patients")
+                .dropna(subset=["Patients"])
+                .drop_duplicates(subset=["Client Name","Patients","Block"])
+                .shape[0]
+            )
+        else:
+            client_transactions = 0
+            patient_transactions = 0
+    
+        # ---- Derived ratios
+        rev_per_client = total_revenue / unique_clients if unique_clients else 0
+        rev_per_patient = total_revenue / unique_patients if unique_patients else 0
+        rev_per_tx = total_revenue / client_transactions if client_transactions else 0
+        tx_per_client = round(client_transactions / unique_clients, 2) if unique_clients else 0
+        tx_per_patient = round(patient_transactions / unique_patients, 2) if unique_patients else 0
+    
+        # ---- New clients / patients in selected period
+        period_df_sorted = period_df.sort_values("ChargeDate")
+        seen_clients, seen_pairs = set(), set()
+        new_clients, new_patients = 0, 0
+        for _, row in period_df_sorted.iterrows():
+            c = str(row["Client Name"]).strip().lower()
+            p = (c, str(row["Animal Name"]).strip().lower())
+            if c and c not in seen_clients:
+                seen_clients.add(c)
+                new_clients += 1
+            if p and p not in seen_pairs:
+                seen_pairs.add(p)
+                new_patients += 1
+    
+        # ---- Add results to metrics dict (will display in cardgroup)
+        metrics["New Clients"] = f"{new_clients:,}"
+        metrics["New Patients"] = f"{new_patients:,}"
+        metrics["Unique Clients Seen"] = f"{unique_clients:,}"
+        metrics["Unique Patients Seen"] = f"{unique_patients:,}"
+        metrics["Total Revenue"] = f"{int(total_revenue):,}"
+        metrics["Client Transactions"] = f"{client_transactions:,}"
+        metrics["Patient Transactions"] = f"{patient_transactions:,}"
+        metrics["Revenue per Client"] = f"{rev_per_client:,.0f}"
+        metrics["Revenue per Patient"] = f"{rev_per_patient:,.0f}"
+        metrics["Revenue per Client Transaction"] = f"{rev_per_tx:,.0f}"
+        metrics["Transactions per Client"] = f"{tx_per_client:,.2f}"
+        metrics["Transactions per Patient"] = f"{tx_per_patient:,.2f}"
 
     cardgroup(f"⭐ Core Metrics - {selected_period}", [
         "Total Unique Patients",
@@ -2024,6 +2080,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
