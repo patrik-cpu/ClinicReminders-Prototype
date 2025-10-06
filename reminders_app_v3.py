@@ -1810,23 +1810,23 @@ def run_factoids():
                 if i % 5 == 0 and i < len(keys): cols = st.columns(5)
 
     cardgroup(f"⭐ Core Metrics - {selected_period}", [
-        "Total Revenue",
-        "Unique Clients Seen",
-        "Unique Patients Seen",
-        "Client Transactions",
-        "Patient Transactions",
-        "Revenue per Client",
-        "Revenue per Patient",
-        "Revenue per Client Transaction",
-        "New Clients",
-        "New Patients",
-        "Transactions per Client",
-        "Transactions per Patient",
         "Total Unique Patients",
         "Max Patients/Day",
         "Avg Patients/Day",
         "Max Client Transactions/Day",
         "Avg Client Transactions/Day",
+        "New Clients",
+        "New Patients",
+        "Unique Clients Seen",
+        "Unique Patients Seen",
+        "Total Revenue",
+        "Client Transactions",
+        "Patient Transactions",
+        "Revenue per Client",
+        "Revenue per Patient",
+        "Revenue per Client Transaction",
+        "Transactions per Client",
+        "Transactions per Patient",
     ])
 
     # sort the masks alphabetically before creating the list
@@ -2024,6 +2024,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
