@@ -1290,79 +1290,79 @@ def run_factoids():
     )
     
     @st.cache_data(show_spinner=False)
-def compute_core_metrics(df: pd.DataFrame):
-    """Compute monthly absolute-value clinic metrics (12-month window + ghost-year support)."""
-    if df.empty:
-        return pd.DataFrame()
-
-    df = df.copy()
-    df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
-    df["Month"] = df["ChargeDate"].dt.to_period("M")
-
-    # --- Base monthly metrics
-    g = df.groupby("Month")
-    core = pd.DataFrame({
-        "Total Revenue": g["Amount"].sum(),
-        "Unique Clients Seen": g["Client Name"].nunique(),
-        "Unique Patients Seen": g.apply(
-            lambda x: x.drop_duplicates(subset=["Client Name","Animal Name"]).shape[0]
-        ),
-    }).reset_index()
-
-    # --- Transactions (now separate client vs patient)
-    _, tx_client, tx_patient, _ = prepare_factoids_data(df)
-
-    if not tx_client.empty:
-        tx_client["Month"] = tx_client["StartDate"].dt.to_period("M")
-        tx_month_client = tx_client.groupby("Month").size().rename("Client Transactions")
-        core = core.merge(tx_month_client, on="Month", how="left")
-    else:
-        core["Client Transactions"] = 0
-
-    if not tx_patient.empty:
-        tx_patient["Month"] = tx_patient["StartDate"].dt.to_period("M")
-        tx_month_patient = tx_patient.groupby("Month").size().rename("Patient Transactions")
-        core = core.merge(tx_month_patient, on="Month", how="left")
-    else:
-        core["Patient Transactions"] = 0
-
-    # --- Derived ratios
-    core["Revenue per Client"] = core.apply(
-        lambda r: r["Total Revenue"]/r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1)
-    core["Revenue per Patient"] = core.apply(
-        lambda r: r["Total Revenue"]/r["Unique Patients Seen"] if r["Unique Patients Seen"] else 0, axis=1)
-    core["Revenue per Client Transaction"] = core.apply(
-        lambda r: r["Total Revenue"]/r["Client Transactions"] if r["Client Transactions"] else 0, axis=1)
-    core["Revenue per Patient Transaction"] = core.apply(
-        lambda r: r["Total Revenue"]/r["Patient Transactions"] if r["Patient Transactions"] else 0, axis=1)
-
-    # --- Transactions per Client / Patient
-    core["Transactions per Client"] = core.apply(
-        lambda r: round(r["Client Transactions"]/r["Unique Clients Seen"], 2) if r["Unique Clients Seen"] else 0, axis=1)
-    core["Transactions per Patient"] = core.apply(
-        lambda r: round(r["Patient Transactions"]/r["Unique Patients Seen"], 2) if r["Unique Patients Seen"] else 0, axis=1)
-
-    # --- New Clients / Patients
-    df_sorted = df.sort_values("ChargeDate")
-    seen_clients, seen_pairs = set(), set()
-    new_clients, new_patients = [], []
-    for _, row in df_sorted.iterrows():
-        if pd.isna(row["ChargeDate"]): 
-            continue
-        m = pd.Period(row["ChargeDate"], freq="M")
-        c = str(row["Client Name"]).strip().lower()
-        p = (c, str(row["Animal Name"]).strip().lower())
-        if c and c not in seen_clients:
-            new_clients.append((m, c)); seen_clients.add(c)
-        if p and p not in seen_pairs:
-            new_patients.append((m, p)); seen_pairs.add(p)
-    nc = pd.DataFrame(new_clients, columns=["Month","Client"]).groupby("Month").size().rename("New Clients")
-    npat = pd.DataFrame(new_patients, columns=["Month","Pair"]).groupby("Month").size().rename("New Patients")
-    core = core.merge(nc, on="Month", how="left").merge(npat, on="Month", how="left").fillna(0)
-
-    core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
-    core["Year"] = core["Month"].dt.year
-    return core.sort_values("Month")
+    def compute_core_metrics(df: pd.DataFrame):
+        """Compute monthly absolute-value clinic metrics (12-month window + ghost-year support)."""
+        if df.empty:
+            return pd.DataFrame()
+    
+        df = df.copy()
+        df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+        df["Month"] = df["ChargeDate"].dt.to_period("M")
+    
+        # --- Base monthly metrics
+        g = df.groupby("Month")
+        core = pd.DataFrame({
+            "Total Revenue": g["Amount"].sum(),
+            "Unique Clients Seen": g["Client Name"].nunique(),
+            "Unique Patients Seen": g.apply(
+                lambda x: x.drop_duplicates(subset=["Client Name","Animal Name"]).shape[0]
+            ),
+        }).reset_index()
+    
+        # --- Transactions (now separate client vs patient)
+        _, tx_client, tx_patient, _ = prepare_factoids_data(df)
+    
+        if not tx_client.empty:
+            tx_client["Month"] = tx_client["StartDate"].dt.to_period("M")
+            tx_month_client = tx_client.groupby("Month").size().rename("Client Transactions")
+            core = core.merge(tx_month_client, on="Month", how="left")
+        else:
+            core["Client Transactions"] = 0
+    
+        if not tx_patient.empty:
+            tx_patient["Month"] = tx_patient["StartDate"].dt.to_period("M")
+            tx_month_patient = tx_patient.groupby("Month").size().rename("Patient Transactions")
+            core = core.merge(tx_month_patient, on="Month", how="left")
+        else:
+            core["Patient Transactions"] = 0
+    
+        # --- Derived ratios
+        core["Revenue per Client"] = core.apply(
+            lambda r: r["Total Revenue"]/r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1)
+        core["Revenue per Patient"] = core.apply(
+            lambda r: r["Total Revenue"]/r["Unique Patients Seen"] if r["Unique Patients Seen"] else 0, axis=1)
+        core["Revenue per Client Transaction"] = core.apply(
+            lambda r: r["Total Revenue"]/r["Client Transactions"] if r["Client Transactions"] else 0, axis=1)
+        core["Revenue per Patient Transaction"] = core.apply(
+            lambda r: r["Total Revenue"]/r["Patient Transactions"] if r["Patient Transactions"] else 0, axis=1)
+    
+        # --- Transactions per Client / Patient
+        core["Transactions per Client"] = core.apply(
+            lambda r: round(r["Client Transactions"]/r["Unique Clients Seen"], 2) if r["Unique Clients Seen"] else 0, axis=1)
+        core["Transactions per Patient"] = core.apply(
+            lambda r: round(r["Patient Transactions"]/r["Unique Patients Seen"], 2) if r["Unique Patients Seen"] else 0, axis=1)
+    
+        # --- New Clients / Patients
+        df_sorted = df.sort_values("ChargeDate")
+        seen_clients, seen_pairs = set(), set()
+        new_clients, new_patients = [], []
+        for _, row in df_sorted.iterrows():
+            if pd.isna(row["ChargeDate"]): 
+                continue
+            m = pd.Period(row["ChargeDate"], freq="M")
+            c = str(row["Client Name"]).strip().lower()
+            p = (c, str(row["Animal Name"]).strip().lower())
+            if c and c not in seen_clients:
+                new_clients.append((m, c)); seen_clients.add(c)
+            if p and p not in seen_pairs:
+                new_patients.append((m, p)); seen_pairs.add(p)
+        nc = pd.DataFrame(new_clients, columns=["Month","Client"]).groupby("Month").size().rename("New Clients")
+        npat = pd.DataFrame(new_patients, columns=["Month","Pair"]).groupby("Month").size().rename("New Patients")
+        core = core.merge(nc, on="Month", how="left").merge(npat, on="Month", how="left").fillna(0)
+    
+        core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
+        core["Year"] = core["Month"].dt.year
+        return core.sort_values("Month")
 
     
     # ---- Render Core Metrics (strict 12 months + ghost-year overlay)
@@ -2175,6 +2175,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
