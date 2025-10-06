@@ -1153,12 +1153,12 @@ st.markdown("## 📊 Factoids")
 # -----------------------
 FLEA_WORM_KEYWORDS = [
     "bravecto","revolution","deworm","frontline","milbe","milpro",
-    "nexgard","simparica","advocate","worm","praz","fenbend"
+    "nexgard","simparica","advocate","worming","prazi","fenbend"
 ]
 FOOD_KEYWORDS = [
     "hill's","hills","royal canin","purina","proplan","iams","eukanuba",
     "orijen","acana","farmina","vetlife","wellness","taste of the wild",
-    "nutro","pouch","tin","can","canned","wet","dry","kibble",
+    "nutro","pouch","canned","wet","dry","kibble",
     "tuna","chicken","beef","salmon","lamb","duck","senior","diet","food","grain","rc"
 ]
 XRAY_KEYWORDS = ["xray","x-ray","radiograph","radiology"]
@@ -1166,11 +1166,11 @@ ULTRASOUND_KEYWORDS = ["ultrasound","echo","afast","tfast","a-fast","t-fast"]
 LABWORK_KEYWORDS = [
     "cbc","blood test","lab","biochemistry","haematology","urinalysis","labwork","idexx","ghp",
     "chem","felv","fiv","urine","cytology","smear","faecal","fecal","microscopic","slide","bun",
-    "crea","phos","cpl","cpli","lipase","amylase","pancreatic","cortisol"
+    "crea","phos","cpl","cpli","lipase","amylase","pancreatic","cortisol","snap","bnp"
 ]
 ANAESTHETIC_KEYWORDS = [
     "anaesthesia","anesthesia","spay","neuter","castrate","surgery",
-    "isoflurane","propofol","alfaxan","alfaxalone"
+    "isoflurane","propofol","alfaxan","alfaxalone", "dental", "enucleation","laparotomy","entropion"
 ]
 HOSPITALISATION_KEYWORDS = ["hospitalisation","hospitalization"]
 VACCINE_KEYWORDS = ["vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","kennel cough"]
@@ -1217,8 +1217,13 @@ def compute_monthly_data(df_blocked: pd.DataFrame,
         return pd.DataFrame()
 
     qualifying = pd.merge(service_rows, tx, on=["Client Name","Block"], how="left")
+    # For anaesthetics, only apply the >700 AED filter when the item name contains "dental"
     if apply_amount_filter:
-        qualifying = qualifying[qualifying["Amount"] > 700]
+        qualifying = qualifying[
+            ~qualifying["Item Name"].astype(str).str.contains("dental", case=False, na=False)
+            | (qualifying["Amount"] > 700)
+        ]
+
     if qualifying.empty:
         return pd.DataFrame()
 
@@ -1872,6 +1877,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
