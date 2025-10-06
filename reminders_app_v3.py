@@ -1412,7 +1412,7 @@ def run_factoids():
         df = df[df["ChargeDate"] >= start_date]
 
     # Recompute everything below (cards, breakdown, tables) using filtered df
-
+    df_blocked, tx, patients_per_month = prepare_factoids_data(df)
     transactions = tx
 
     # --- Helpers
@@ -1797,6 +1797,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
