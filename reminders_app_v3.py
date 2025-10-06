@@ -1265,7 +1265,7 @@ def run_factoids():
         return
 
     # Precompute blocked DF and monthly denominators once
-    df_blocked, tx, patients_per_month = prepare_factoids_data(df)
+    df_blocked, tx_client, tx_patient, patients_per_month = prepare_factoids_data(df)
 
     # ============================
     # 📈 Monthly Charts (with Previous-Year Ghost Bars)
@@ -1624,7 +1624,7 @@ def run_factoids():
         df = df[df["ChargeDate"] >= start_date]
 
     # Recompute everything below (cards, breakdown, tables) using filtered df
-    df_blocked, tx, patients_per_month = prepare_factoids_data(df)
+    df_blocked, tx_client, tx_patient, patients_per_month = prepare_factoids_data(df)
     transactions = tx
 
     # --- Helpers
@@ -2175,6 +2175,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
