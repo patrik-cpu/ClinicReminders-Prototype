@@ -1334,6 +1334,10 @@ def run_factoids():
         core["Revenue per Client Transaction"] = core.apply(
             lambda r: r["Total Revenue"]/r["Client Transactions"] if r["Client Transactions"] else 0, axis=1
         )
+        core["Revenue per Patient Transaction"] = core.apply(
+            lambda r: r["Total Revenue"]/r["Patient Transactions"] if r["Patient Transactions"] else 0, axis=1
+        )
+
     
         # --- Transactions per Client / Patient (1 decimal)
         core["Transactions per Client"] = core.apply(
@@ -1373,7 +1377,7 @@ def run_factoids():
             metric_list = [
                 "Total Revenue","Unique Clients Seen","Unique Patients Seen",
                 "Client Transactions","Patient Transactions",
-                "Revenue per Client","Revenue per Patient","Revenue per Client Transaction",
+                "Revenue per Client","Revenue per Patient","Revenue per Client Transaction","Revenue per Patient Transaction",
                 "New Clients","New Patients",
                 "Transactions per Client","Transactions per Patient"
             ]
@@ -1919,6 +1923,7 @@ def run_factoids():
         "Revenue per Client",
         "Revenue per Patient",
         "Revenue per Client Transaction",
+        "Revenue per Patient Transaction",
     ])
     
     # ============================
@@ -2140,6 +2145,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
