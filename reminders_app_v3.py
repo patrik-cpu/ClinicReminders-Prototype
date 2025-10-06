@@ -1166,7 +1166,7 @@ ULTRASOUND_KEYWORDS = ["ultrasound","echo","afast","tfast","a-fast","t-fast"]
 LABWORK_KEYWORDS = [
     "cbc","blood test","lab","biochemistry","haematology","urinalysis","labwork","idexx","ghp",
     "chem","felv","fiv","urine","cytology","smear","faecal","fecal","microscopic","slide","bun",
-    "crea","phos","cpl","cpli","lipase","amylase","pancreatic","cortisol","snap","bnp"
+    "phos","cpl","cpli","lipase","amylase","pancreatic","cortisol","snap","bnp"
 ]
 ANAESTHETIC_KEYWORDS = [
     "anaesthesia","anesthesia","spay","neuter","castrate","surgery",
@@ -1877,6 +1877,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
