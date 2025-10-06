@@ -1348,17 +1348,19 @@ def run_factoids():
     
         core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
       
-        # --- Limit to latest 12 months, keep ghost-year alignment
+        # --- Limit to latest 12 months and add ghost-year equivalents only
         last_month = core["Month"].max()
         if pd.notna(last_month):
-            # Current year range (12 most recent months)
+            # Define the 12-month window we actually display
             month_range = pd.period_range(last_month - 11, last_month, freq="M")
-        
-            # Add previous-year equivalents so ghost bars align (24 months total possible)
+            # Define previous-year equivalents (for ghost bars only)
             prev_year_range = month_range - 12
-            keep_range = month_range.union(prev_year_range)
         
-            core = core[core["Month"].isin(keep_range)]
+            # Keep both current and previous-year months (up to 24 total)
+            core = core[core["Month"].isin(month_range.union(prev_year_range))]
+        
+            # Drop any *extra* earlier months if something older slipped through
+            core = core[core["Month"].isin(prev_year_range.union(month_range))]
 
         return core.sort_values("Month")
     
@@ -1997,5 +1999,6 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
