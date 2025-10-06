@@ -1377,9 +1377,6 @@ def run_factoids():
         )
         
         st.altair_chart(chart, use_container_width=True)
-        
-    else:
-        st.info("No client revenue data available to plot.")
 
     # ============================
     # 📌 At a Glance (simple, fully dynamic)
@@ -1786,6 +1783,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
