@@ -13,7 +13,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
 import hashlib
 import numpy as np
-import os
 
 # ------------------------------------------------------------
 # Small wrapper to keep compatibility with earlier code that
@@ -1153,28 +1152,27 @@ st.markdown("## 📊 Factoids")
 # -----------------------
 FLEA_WORM_KEYWORDS = [
     "bravecto","revolution","deworm","frontline","milbe","milpro",
-    "nexgard","simparica","advocate","worming","prazi","fenbend"
+    "nexgard","simparica","advocate","worm","praz","fenbend"
 ]
 FOOD_KEYWORDS = [
-    "hill's","hills","royal canin","purina","proplan","iams","eukanuba","proplan","BEAPHAR","FHN","FCN","RC-WF","RC - WF","VD-WF","VD - WF","RC-VD","RC - VD"   ,
-    "orijen","acana","farmina","vetlife","wellness","taste of the wild","canine gastrointestinal","feline gastrointestinal","canine gastro-intestinal","feline gastro-intestinal","canine gastro intestinal","feline gastro intestinal",
-    "nutro","pouch","canned","dry","kibble","satiety","recipe","Prescription Diet","FELINE DIABETIC","canine diabetic","feline sensitivity","canine sensitivity","mini puppy","intense beauty",
-    "tuna","chicken","beef","salmon","lamb","duck","senior","food","grain","vhn","wet food","instinctive","feline renal","canine renal","MOTHER & BABYCAT","SHN","mini adult","low fat","feline calm"
+    "hill's","hills","royal canin","purina","proplan","iams","eukanuba",
+    "orijen","acana","farmina","vetlife","wellness","taste of the wild",
+    "nutro","pouch","tin","can","canned","wet","dry","kibble",
+    "tuna","chicken","beef","salmon","lamb","duck","senior","diet","food","grain","rc"
 ]
 XRAY_KEYWORDS = ["xray","x-ray","radiograph","radiology"]
 ULTRASOUND_KEYWORDS = ["ultrasound","echo","afast","tfast","a-fast","t-fast"]
 LABWORK_KEYWORDS = [
-    "cbc","blood test","lab","biochemistry","haematology","hematology","urinalysis","labwork","idexx","ghp",
+    "cbc","blood test","lab","biochemistry","haematology","urinalysis","labwork","idexx","ghp",
     "chem","felv","fiv","urine","cytology","smear","faecal","fecal","microscopic","slide","bun",
-    "phosphate","cpl","cpli","lipase","amylase","pancreatic","cortisol","snap","bnp"
+    "crea","phos","cpl","cpli","lipase","amylase","pancreatic","cortisol"
 ]
 ANAESTHETIC_KEYWORDS = [
-    "anaesthesia","anesthesia","spay","castrate","castration","surgery","isoflo","lump removal","TNR",
-    "isoflurane","propofol","alfaxan","alfaxalone", "dental", "enucleation","laparotomy","entropion","BLOCKED CAT"
+    "anaesthesia","anesthesia","spay","neuter","castrate","surgery",
+    "isoflurane","propofol","alfaxan","alfaxalone"
 ]
 HOSPITALISATION_KEYWORDS = ["hospitalisation","hospitalization"]
-VACCINE_KEYWORDS = ["vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","leukaemia","kennel cough"]
-
+VACCINE_KEYWORDS = ["vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","kennel cough"]
 
 def _rx(words):
     return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
@@ -1218,17 +1216,8 @@ def compute_monthly_data(df_blocked: pd.DataFrame,
         return pd.DataFrame()
 
     qualifying = pd.merge(service_rows, tx, on=["Client Name","Block"], how="left")
-    # For anaesthetics, only apply the >700 AED filter when the item name contains "dental"
     if apply_amount_filter:
-        if "Item Name" in qualifying.columns:
-            qualifying = qualifying[
-                ~qualifying["Item Name"].astype(str).str.contains("dental", case=False, na=False)
-                | (qualifying["Amount"] > 700)
-            ]
-        else:
-            # Column missing, skip this special-case filter
-            pass
-
+        qualifying = qualifying[qualifying["Amount"] > 700]
     if qualifying.empty:
         return pd.DataFrame()
 
@@ -1268,6 +1257,189 @@ def run_factoids():
     # ============================
     st.markdown("<div id='factoids-monthlycharts' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📈 Monthly Charts")
+    # ============================
+    # 💰 Core Metrics (Absolute Values)
+    # ============================
+    st.markdown(
+        "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💰 Core Metrics (Absolute Values)</h4>",
+        unsafe_allow_html=True
+    )
+    
+    @st.cache_data(show_spinner=False)
+    def compute_core_metrics(df: pd.DataFrame):
+        if df.empty:
+            return pd.DataFrame()
+    
+        df = df.copy()
+        df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+        df["Month"] = df["ChargeDate"].dt.to_period("M")
+    
+        g = df.groupby("Month")
+        core = pd.DataFrame({
+            "Revenue": g["Amount"].sum(),
+            "Clients Seen": g["Client Name"].nunique(),
+            "Patients Seen": g["Animal Name"].nunique(),
+        }).reset_index()
+    
+        # --- Client Transactions via prepare_factoids_data
+        _, tx, _ = prepare_factoids_data(df)
+        if not tx.empty and "StartDate" in tx.columns:
+            tx["Month"] = tx["StartDate"].dt.to_period("M")
+            tx_month = tx.groupby("Month")["Client Name"].nunique().rename("Client Transactions")
+            core = core.merge(tx_month, on="Month", how="left")
+        else:
+            core["Client Transactions"] = 0
+    
+        # --- Derived ratios
+        core["Revenue per Client"] = core.apply(lambda r: r["Revenue"]/r["Clients Seen"] if r["Clients Seen"] else 0, axis=1)
+        core["Revenue per Patient"] = core.apply(lambda r: r["Revenue"]/r["Patients Seen"] if r["Patients Seen"] else 0, axis=1)
+        core["Revenue per Client Transaction"] = core.apply(lambda r: r["Revenue"]/r["Client Transactions"] if r["Client Transactions"] else 0, axis=1)
+    
+        # --- Max daily stats
+        if not tx.empty and {"StartDate","Client Name","Patients","Block"}.issubset(tx.columns):
+            daily = tx.groupby("StartDate").agg(
+                ClientsSeen=("Client Name", "nunique"),
+                PatientsSeen=("Patients", lambda p: len(set().union(*p)) if len(p) else 0),
+                ClientTx=("Block", "count"),
+            )
+            daily["Month"] = daily.index.to_period("M")
+            max_month = (
+                daily.groupby("Month")
+                .agg({
+                    "ClientsSeen":"max",
+                    "PatientsSeen":"max",
+                    "ClientTx":"max"
+                })
+                .rename(columns={
+                    "ClientsSeen":"Max Clients Seen",
+                    "PatientsSeen":"Max Patients Seen",
+                    "ClientTx":"Max Client Transactions"
+                })
+                .reset_index()
+            )
+        else:
+            max_month = core[["Month"]].assign(**{
+                "Max Clients Seen":0, "Max Patients Seen":0, "Max Client Transactions":0
+            })
+        core = core.merge(max_month, on="Month", how="left")
+    
+        # --- New clients & patients
+        df_sorted = df.sort_values("ChargeDate")
+        seen_clients, seen_pairs = set(), set()
+        new_clients, new_patients = [], []
+        for _, row in df_sorted.iterrows():
+            if pd.isna(row["ChargeDate"]): continue
+            m = pd.Period(row["ChargeDate"], freq="M")
+            c = str(row["Client Name"]).strip().lower()
+            p = (c, str(row["Animal Name"]).strip().lower())
+            if c and c not in seen_clients:
+                new_clients.append((m, c))
+                seen_clients.add(c)
+            if p and p not in seen_pairs:
+                new_patients.append((m, p))
+                seen_pairs.add(p)
+        nc = pd.DataFrame(new_clients, columns=["Month","Client"]).groupby("Month").size().rename("New Clients")
+        npat = pd.DataFrame(new_patients, columns=["Month","Pair"]).groupby("Month").size().rename("New Patients")
+        core = core.merge(nc, on="Month", how="left").merge(npat, on="Month", how="left").fillna(0)
+    
+        # --- Transactions per client/patient
+        core["Transactions per Client"] = core.apply(lambda r: r["Client Transactions"]/r["Clients Seen"] if r["Clients Seen"] else 0, axis=1)
+        core["Transactions per Patient"] = core.apply(lambda r: r["Client Transactions"]/r["Patients Seen"] if r["Patients Seen"] else 0, axis=1)
+    
+        core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
+        return core.sort_values("Month")
+    
+    # --- Compute metrics once
+    core_df = st.session_state.get("working_df")
+    if core_df is not None and not core_df.empty:
+        core_monthly = compute_core_metrics(core_df)
+        if not core_monthly.empty:
+            metric_list = [
+                "Revenue","Clients Seen","Patients Seen","Client Transactions",
+                "Revenue per Client","Revenue per Patient","Revenue per Client Transaction",
+                "Max Clients Seen","Max Patients Seen","Max Client Transactions",
+                "New Clients","New Patients",
+                "Transactions per Client","Transactions per Patient"
+            ]
+            sel_core = st.selectbox("Select Core Metric:", metric_list, index=0, key="core_metric_abs")
+    
+            # --- Ghost bar calculation (same structure as original chart)
+            core_monthly["Year"] = core_monthly["Month"].dt.year
+            core_monthly["MonthNum"] = core_monthly["Month"].dt.month
+            ghost_vals = []
+            for _, r in core_monthly.iterrows():
+                prev = core_monthly[
+                    (core_monthly["Year"] == r["Year"] - 1)
+                    & (core_monthly["MonthNum"] == r["MonthNum"])
+                ]
+                if not prev.empty:
+                    ghost_vals.append((r["MonthLabel"], prev.iloc[0][sel_core], prev.iloc[0]["Year"]))
+    
+            merged_core = core_monthly.copy()
+            merged_core["PrevValue"] = pd.NA
+            merged_core["PrevYear"] = pd.NA
+            for label, val, year in ghost_vals:
+                merged_core.loc[merged_core["MonthLabel"] == label, ["PrevValue","PrevYear"]] = [val, year]
+    
+            merged_core["has_ghost"] = merged_core["PrevValue"].notna()
+            merged_core["MonthOnly"] = merged_core["MonthLabel"].str.split().str[0]
+    
+            # --- Chart identical to old one
+            color = "#60a5fa"
+            safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core)
+            df_plot = merged_core.rename(columns={sel_core: safe_col})
+    
+            ghost = (
+                alt.Chart(df_plot)
+                .transform_filter("datum.PrevValue != null")
+                .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
+                .encode(
+                    x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
+                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                    y=alt.Y("PrevValue:Q", title=sel_core, axis=alt.Axis(format=",.0f")),
+                    tooltip=[
+                        alt.Tooltip("PrevYear:O", title="Year"),
+                        alt.Tooltip("MonthOnly:N", title="Month"),
+                        alt.Tooltip("PrevValue:Q", title=sel_core, format=",.0f"),
+                    ],
+                )
+            )
+    
+            current = (
+                alt.Chart(df_plot)
+                .mark_bar(size=20, color=color)
+                .encode(
+                    x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
+                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                    y=alt.Y(f"{safe_col}:Q", title=sel_core, axis=alt.Axis(format=",.0f")),
+                    tooltip=[
+                        alt.Tooltip("Year:O", title="Year"),
+                        alt.Tooltip("MonthOnly:N", title="Month"),
+                        alt.Tooltip(f"{safe_col}:Q", title=sel_core, format=",.0f"),
+                    ],
+                )
+                .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
+            )
+    
+            chart_core = (
+                alt.layer(ghost, current)
+                .resolve_scale(y="shared")
+                .properties(
+                    height=400,
+                    width=700,
+                    title=f"{sel_core} — Monthly Trend"
+                )
+            )
+            st.altair_chart(chart_core, use_container_width=True)
+        else:
+            st.info("No data available for core metrics.")
+    else:
+        st.info("Upload data to display Core Metrics.")
+
+    
+    
+    
+    
     st.markdown(
         "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
         unsafe_allow_html=True
@@ -1276,8 +1448,8 @@ def run_factoids():
     metric_configs = {
         "Anaesthetics": {"rx": _rx(ANAESTHETIC_KEYWORDS), "color": "#fb7185"},
         "Dentals": {"rx": re.compile("dental", re.I), "color": "#60a5fa", "filter": True},
-        "Buying Flea/Worm Control": {"rx": _rx(FLEA_WORM_KEYWORDS), "color": "#4ade80"},
-        "Buying Food": {"rx": _rx(FOOD_KEYWORDS), "color": "#facc15"},
+        "Flea/Worm Treatments": {"rx": _rx(FLEA_WORM_KEYWORDS), "color": "#4ade80"},
+        "Food Purchases": {"rx": _rx(FOOD_KEYWORDS), "color": "#facc15"},
         "Hospitalisations": {"rx": _rx(HOSPITALISATION_KEYWORDS), "color": "#f97316"},
         "Lab Work": {"rx": _rx(LABWORK_KEYWORDS), "color": "#fbbf24"},
         "Ultrasounds": {"rx": _rx(ULTRASOUND_KEYWORDS), "color": "#a5b4fc"},
@@ -1389,7 +1561,7 @@ def run_factoids():
             .properties(
                 height=400,
                 width=700,
-                title=f"% of Monthly Patients Having {choice}"
+                title=f"% of Monthly Patients Having {choice} (with previous-year ghost bars)"
             )
         )
         
@@ -1451,8 +1623,8 @@ def run_factoids():
     if not daily.empty:
         max_tx_day = daily["ClientTx"].idxmax()
         max_pat_day = daily["Patients"].idxmax()
-        metrics["Max Client Transactions/Day"] = f"{int(daily.loc[max_tx_day, 'ClientTx']):,} ({max_tx_day.strftime('%d %b %Y')})"
-        metrics["Avg Client Transactions/Day"] = f"{int(round(daily['ClientTx'].mean())):,}"
+        metrics["Max Transactions/Day"] = f"{int(daily.loc[max_tx_day, 'ClientTx']):,} ({max_tx_day.strftime('%d %b %Y')})"
+        metrics["Avg Transactions/Day"] = f"{int(round(daily['ClientTx'].mean())):,}"
         metrics["Max Patients/Day"] = f"{int(daily.loc[max_pat_day, 'Patients']):,} ({max_pat_day.strftime('%d %b %Y')})"
         metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
 
@@ -1521,13 +1693,7 @@ def run_factoids():
         )
         count = spairs.drop_duplicates(subset=["ClientKey", "AnimalKey"]).shape[0]
         if total_unique_patients > 0:
-            display_label = label
-            if label == "Flea/Worm":
-                display_label = "Buying Flea/Worm Control"
-            elif label == "Food":
-                display_label = "Buying Food"
-            
-            metrics[f"Unique Patients {display_label}"] = f"{count:,} ({count/total_unique_patients:.1%})"
+            metrics[f"Unique Patients Having {label}"] = f"{count:,} ({count/total_unique_patients:.1%})"
 
     # --- Client Transaction Histogram
     tx_per_client = df.groupby("Client Name")["ChargeDate"].nunique()
@@ -1620,8 +1786,8 @@ def run_factoids():
         "Total Unique Patients",
         "Max Patients/Day",
         "Avg Patients/Day",
-        "Max Client Transactions/Day",
-        "Avg Client Transactions/Day",
+        "Max Transactions/Day",
+        "Avg Transactions/Day",
     ])
     # sort the masks alphabetically before creating the list
     sorted_labels = sorted(masks.keys(), key=str.lower)
@@ -1742,76 +1908,6 @@ def run_factoids():
         st.altair_chart(chart_rev, use_container_width=True)
         
 run_factoids()
-def export_keyword_debug(df):
-    """Write a CSV per metric to check which lines are being caught by keyword lists."""
-    output_path = r"C:\Users\User\Downloads\keyword_debug.csv"
-
-    # Define your keyword groups (same as in app)
-    keyword_sets = {
-        "Vaccinations": VACCINE_KEYWORDS,
-        "Flea/Worm Treatments": FLEA_WORM_KEYWORDS,
-        "Food Purchases": FOOD_KEYWORDS,
-        "Dentals": ["dental"],
-        "X-rays": XRAY_KEYWORDS,
-        "Ultrasounds": ULTRASOUND_KEYWORDS,
-        "Lab Work": LABWORK_KEYWORDS,
-        "Anaesthetics": ANAESTHETIC_KEYWORDS,
-        "Hospitalisations": HOSPITALISATION_KEYWORDS,
-    }
-
-    all_tables = []  # collect all summaries
-
-    for metric, words in keyword_sets.items():
-        rx = re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
-        subset = df[df["Item Name"].astype(str).str.contains(rx, na=False)].copy()
-        if subset.empty:
-            continue
-
-        # By revenue
-        by_revenue = (
-            subset.groupby("Item Name")["Amount"]
-            .sum()
-            .sort_values(ascending=False)
-            .head(20)
-            .reset_index()
-        )
-        by_revenue.insert(0, "Metric", metric)
-        by_revenue.insert(1, "Type", "Top 20 by Revenue")
-        by_revenue.rename(columns={"Amount": "Total Revenue"}, inplace=True)
-
-        # By count
-        by_count = (
-            subset["Item Name"]
-            .value_counts()
-            .head(20)
-            .reset_index()
-            .rename(columns={"index": "Item Name", "Item Name": "Count"})
-        )
-        by_count.insert(0, "Metric", metric)
-        by_count.insert(1, "Type", "Top 20 by Count")
-
-        all_tables.append(by_revenue)
-        all_tables.append(by_count)
-
-    if not all_tables:
-        st.warning("No matching data for any metric keyword group.")
-        return
-
-    combined = pd.concat(all_tables, ignore_index=True)
-    combined.to_csv(output_path, index=False, encoding="utf-8-sig")
-    st.success(f"✅ Debug CSV written to: {output_path}")
-    
-if st.button("🔍 Export Keyword Debug CSV"):
-    export_keyword_debug(st.session_state["working_df"])
-
-    # Let the user download the file directly
-    with open(r"C:\Users\User\Downloads\keyword_debug.csv", "rb") as f:
-        st.download_button(
-            label="⬇️ Download Keyword Debug CSV",
-            data=f,
-            file_name="keyword_debug.csv",
-            mime="text/csv"
-        )
 
 # --------------------------------
 # 💬 Feedback (Lazy Sheets; isolated from reruns)
@@ -1888,22 +1984,3 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
