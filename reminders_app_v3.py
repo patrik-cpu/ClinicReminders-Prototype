@@ -1377,6 +1377,45 @@ def run_factoids():
         )
         
         st.altair_chart(chart, use_container_width=True)
+        
+    # ============================
+    # 📊 Revenue Concentration Curve
+    # ============================
+    st.markdown("---")
+    st.subheader("📊 Revenue Concentration Curve")
+
+    rev = df.groupby("Client Name", dropna=False)["Amount"].sum().sort_values(ascending=False).reset_index()
+    if not rev.empty and rev["Amount"].sum() > 0:
+        total_revenue = float(rev["Amount"].sum())
+        n_clients = len(rev)
+        rev["Rank"] = rev.index + 1
+        rev["TopPct"] = rev["Rank"] / n_clients * 100
+        rev["CumRevenue"] = rev["Amount"].cumsum()
+        rev["CumPct"] = rev["CumRevenue"] / total_revenue * 100
+
+        chart_rev = (
+            alt.Chart(rev)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("TopPct:Q", title="Top X% of Clients"),
+                y=alt.Y("CumPct:Q", title="% of Total Revenue"),
+                tooltip=[
+                    alt.Tooltip("Client Name:N", title="Client"),
+                    alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
+                    alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
+                    alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
+                ],
+            )
+            .properties(
+                height=400,
+                width=700,
+                title="Revenue Concentration Curve — what % of revenue comes from your top clients"
+            )
+        )
+
+        st.altair_chart(chart_rev, use_container_width=True)
+    else:
+        st.info("No client revenue data available to plot.")
 
     # ============================
     # 📌 At a Glance (simple, fully dynamic)
@@ -1721,4 +1760,5 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
