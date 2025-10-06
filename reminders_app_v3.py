@@ -1888,19 +1888,57 @@ def run_factoids():
         tx_per_patient = round(patient_transactions / unique_patients, 1) if unique_patients else 0
 
     
-        # ---- New clients / patients in selected period
-        period_df_sorted = period_df.sort_values("ChargeDate")
+        # ---- New clients / patients (cleaned & normalized)
+        period_df_sorted = (
+            period_df
+            .dropna(subset=["Client Name", "Animal Name"])
+            .loc[
+                (period_df["Client Name"].astype(str).str.strip() != "") &
+                (period_df["Animal Name"].astype(str).str.strip() != "")
+            ]
+            .assign(
+                ClientKey=lambda d: d["Client Name"]
+                    .astype(str)
+                    .str.normalize("NFKC")
+                    .str.lower()
+                    .str.replace(r"[\u00A0\u200B]", "", regex=True)
+                    .str.strip()
+                    .str.replace(r"\s+", " ", regex=True),
+                AnimalKey=lambda d: d["Animal Name"]
+                    .astype(str)
+                    .str.normalize("NFKC")
+                    .str.lower()
+                    .str.replace(r"[\u00A0\u200B]", "", regex=True)
+                    .str.strip()
+                    .str.replace(r"\s+", " ", regex=True)
+            )
+            .sort_values("ChargeDate")
+        )
+        
+        # Apply BAD_TERMS exclusion (counter, walk-in, etc.)
+        if BAD_TERMS:
+            bad_rx = "|".join(map(re.escape, BAD_TERMS))
+            period_df_sorted = period_df_sorted[
+                ~period_df_sorted["ClientKey"].str.contains(bad_rx, case=False, na=False)
+            ]
+        
         seen_clients, seen_pairs = set(), set()
         new_clients, new_patients = 0, 0
         for _, row in period_df_sorted.iterrows():
-            c = str(row["Client Name"]).strip().lower()
-            p = (c, str(row["Animal Name"]).strip().lower())
+            c = row["ClientKey"]
+            p = (row["ClientKey"], row["AnimalKey"])
             if c and c not in seen_clients:
                 seen_clients.add(c)
                 new_clients += 1
             if p and p not in seen_pairs:
                 seen_pairs.add(p)
                 new_patients += 1
+        
+        # --- Ensure All Data alignment (new == unique)
+        if selected_period == "All Data":
+            new_clients = unique_clients
+            new_patients = unique_patients
+
     
         # ---- Add results to metrics dict (will display in cardgroup)
         metrics["New Clients"] = f"{new_clients:,}"
@@ -2148,6 +2186,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
