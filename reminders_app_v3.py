@@ -1908,8 +1908,8 @@ def run_factoids():
         metrics["Unique Clients Seen"] = f"{unique_clients:,}"
         metrics["Unique Patients Seen"] = f"{unique_patients:,}"
         metrics["Total Revenue"] = f"{int(total_revenue):,}"
-        metrics["Client Transactions"] = f"{client_transactions:,}"
-        metrics["Patient Transactions"] = f"{patient_transactions:,}"
+        metrics["Number of Client Transactions"] = f"{client_transactions:,}"
+        metrics["Number of Patient Transactions"] = f"{patient_transactions:,}"
         metrics["Revenue per Client"] = f"{rev_per_client:,.0f}"
         metrics["Revenue per Patient"] = f"{rev_per_patient:,.0f}"
         metrics["Revenue per Client Transaction"] = f"{rev_per_tx:,.0f}"
@@ -1945,8 +1945,8 @@ def run_factoids():
     # 🔁 Transactions
     # ============================
     cardgroup(f"🔁 Transactions - {selected_period}", [
-        "Client Transactions",
-        "Patient Transactions",
+        "Number of Client Transactions",
+        "Number of Patient Transactions",
         "Transactions per Client",
         "Transactions per Patient",
         "Max Client Transactions/Day",
@@ -2148,6 +2148,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
