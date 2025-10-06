@@ -1255,6 +1255,10 @@ def run_factoids():
     # ============================
     st.markdown("<div id='factoids-monthlycharts' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📈 Monthly Charts")
+    st.markdown(
+        "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
+        unsafe_allow_html=True
+    )
 
     metric_configs = {
         "Anaesthetics": {"rx": _rx(ANAESTHETIC_KEYWORDS), "color": "#fb7185"},
@@ -1384,7 +1388,6 @@ def run_factoids():
     st.markdown("---")
     st.markdown("<div id='factoids-ataglance' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📌 At a Glance")
-    st.markdown("#### ⭐ Patient Breakdown %'s")
 
     # --- Select Period Dropdown ---
     st.markdown("#### 🕒 Select Period")
@@ -1783,6 +1786,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
