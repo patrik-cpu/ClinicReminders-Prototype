@@ -1306,28 +1306,45 @@ def run_factoids():
         core["Revenue per Client Transaction"] = core.apply(lambda r: r["Revenue"] / r["Client Transactions"] if r["Client Transactions"] else 0, axis=1)
     
         # --- Max seen (same as “busiest day” stats)
-        daily = tx.groupby("StartDate").agg(
-            ClientsSeen=("Client Name", "nunique"),
-            PatientsSeen=("Animal Name", "nunique"),
-            ClientTx=("Block", "count"),
-        )
-
-        daily["Month"] = daily.index.to_period("M")
-        max_month = (
-            daily.groupby("Month")
-            .agg({
-                "ClientsSeen": "max",
-                "PatientsSeen": "max",
-                "ClientTx": "max",
+        required_cols = {"StartDate", "Client Name", "Patients", "Block"}
+        missing_cols = required_cols - set(tx.columns)
+        if missing_cols:
+            # Fall back gracefully if structure not as expected
+            st.warning(
+                f"⚠️ Missing columns in transactions data: {', '.join(missing_cols)} — skipping max metrics."
+            )
+            # Generate placeholder months to maintain alignment
+            month_list = pd.to_datetime(df["ChargeDate"], errors="coerce").dt.to_period("M").dropna().unique()
+            max_month = pd.DataFrame({
+                "Month": month_list,
+                "Max Clients Seen": 0,
+                "Max Patients Seen": 0,
+                "Max Client Transactions": 0,
             })
-            .rename(columns={
-                "ClientsSeen": "Max Clients Seen",
-                "PatientsSeen": "Max Patients Seen",
-                "ClientTx": "Max Client Transactions",
-            })
-            .reset_index()
-        )
+        else:
+            daily = tx.groupby("StartDate").agg(
+                ClientsSeen=("Client Name", "nunique"),
+                PatientsSeen=("Patients", lambda p: len(set().union(*p)) if len(p) else 0),
+                ClientTx=("Block", "count"),
+            )
+            daily["Month"] = daily.index.to_period("M")
+            max_month = (
+                daily.groupby("Month")
+                .agg({
+                    "ClientsSeen": "max",
+                    "PatientsSeen": "max",
+                    "ClientTx": "max",
+                })
+                .rename(columns={
+                    "ClientsSeen": "Max Clients Seen",
+                    "PatientsSeen": "Max Patients Seen",
+                    "ClientTx": "Max Client Transactions",
+                })
+                .reset_index()
+            )
+        
         core = core.merge(max_month, on="Month", how="left").fillna(0)
+
     
         # --- New Clients / Patients per month
         df_sorted = df.sort_values("ChargeDate")
@@ -2066,6 +2083,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
