@@ -1385,7 +1385,7 @@ def run_factoids():
             .properties(
                 height=400,
                 width=700,
-                title=f"% of Monthly Patients Having {choice} (with previous-year ghost bars)"
+                title=f"% of Monthly Patients Having {choice}"
             )
         )
         
@@ -1884,6 +1884,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
