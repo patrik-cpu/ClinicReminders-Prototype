@@ -1156,20 +1156,20 @@ FLEA_WORM_KEYWORDS = [
     "nexgard","simparica","advocate","worming","prazi","fenbend"
 ]
 FOOD_KEYWORDS = [
-    "hill's","hills","royal canin","purina","proplan","iams","eukanuba",
+    "hill's","hills","royal canin","purina","proplan","iams","eukanuba","proplan"
     "orijen","acana","farmina","vetlife","wellness","taste of the wild",
-    "nutro","pouch","canned","wet","dry","kibble",
-    "tuna","chicken","beef","salmon","lamb","duck","senior","diet","food","grain","rc"
+    "nutro","pouch","canned","dry","kibble","satiety","recipe","Prescription Diet",
+    "tuna","chicken","beef","salmon","lamb","duck","senior","food","grain","vhn","wet food","instinctive"
 ]
 XRAY_KEYWORDS = ["xray","x-ray","radiograph","radiology"]
 ULTRASOUND_KEYWORDS = ["ultrasound","echo","afast","tfast","a-fast","t-fast"]
 LABWORK_KEYWORDS = [
     "cbc","blood test","lab","biochemistry","haematology","urinalysis","labwork","idexx","ghp",
     "chem","felv","fiv","urine","cytology","smear","faecal","fecal","microscopic","slide","bun",
-    "phos","cpl","cpli","lipase","amylase","pancreatic","cortisol","snap","bnp"
+    "phosphate","cpl","cpli","lipase","amylase","pancreatic","cortisol","snap","bnp"
 ]
 ANAESTHETIC_KEYWORDS = [
-    "anaesthesia","anesthesia","spay","neuter","castrate","surgery",
+    "anaesthesia","anesthesia","spay","castrate","castration","surgery",
     "isoflurane","propofol","alfaxan","alfaxalone", "dental", "enucleation","laparotomy","entropion"
 ]
 HOSPITALISATION_KEYWORDS = ["hospitalisation","hospitalization"]
@@ -1877,6 +1877,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
