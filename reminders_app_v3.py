@@ -13,6 +13,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
 import hashlib
 import numpy as np
+import os
 
 # ------------------------------------------------------------
 # Small wrapper to keep compatibility with earlier code that
@@ -41,7 +42,7 @@ st.sidebar.markdown(
         </ul>
       <li><a href="#factoids" style="text-decoration:none;">📊 Factoids</a></li>
         <ul style="list-style-type:none; padding-left:1.2em; line-height:1.6;">
-          <li><a href="#factoids-charts" style="text-decoration:none;">🔹 Charts</a></li>
+          <li><a href="#factoids-monthlycharts" style="text-decoration:none;">🔹 Monthly Charts</a></li>
           <li><a href="#factoids-ataglance" style="text-decoration:none;">🔹 At a Glance</a></li>
           <li><a href="#factoids-tables" style="text-decoration:none;">🔹 Tables</a></li>
         </ul>
@@ -56,7 +57,7 @@ st.sidebar.markdown(
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders Prototype v4.1 (with Factoids!)")
+    st.title("ClinicReminders Prototype v4.2 (with Factoids!)")
 st.markdown("---")
 
 # --------------------------------
@@ -1222,7 +1223,9 @@ def compute_monthly_data(df_blocked: pd.DataFrame,
         return pd.DataFrame()
 
     qualifying["Month"] = qualifying["ChargeDate"].dt.to_period("M")
-    last_month = qualifying["Month"].max()
+    # always align to the latest month in the full dataset, not just the metric subset
+    global_last_month = df_blocked["ChargeDate"].dt.to_period("M").max()
+    last_month = global_last_month if pd.notna(global_last_month) else qualifying["Month"].max()
     month_range = pd.period_range(last_month - 11, last_month, freq="M")
 
     monthly = (
@@ -1251,10 +1254,14 @@ def run_factoids():
     df_blocked, tx, patients_per_month = prepare_factoids_data(df)
 
     # ============================
-    # 📈 Charts (with Previous-Year Ghost Bars)
+    # 📈 Monthly Charts (with Previous-Year Ghost Bars)
     # ============================
-    st.markdown("<div id='factoids-charts' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("### 📈 Charts (with Previous-Year Ghost Bars)")
+    st.markdown("<div id='factoids-monthlycharts' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("### 📈 Monthly Charts")
+    st.markdown(
+        "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
+        unsafe_allow_html=True
+    )
 
     metric_configs = {
         "Anaesthetics": {"rx": _rx(ANAESTHETIC_KEYWORDS), "color": "#fb7185"},
@@ -1385,11 +1392,35 @@ def run_factoids():
     st.markdown("<div id='factoids-ataglance' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📌 At a Glance")
 
+    # --- Select Period Dropdown ---
+    st.markdown("#### 🕒 Select Period")
+    period_options = ["All Data", "Prev 30 Days", "Prev 3 Months", "Prev 12 Months", "YTD"]
+    selected_period = st.selectbox("Select Period:", period_options, index=0, label_visibility="collapsed")
+
+    latest_date = pd.to_datetime(df["ChargeDate"], errors="coerce").max()
+    if pd.isna(latest_date):
+        latest_date = pd.Timestamp.today()
+
+    if selected_period == "Prev 30 Days":
+        start_date = latest_date - pd.Timedelta(days=30)
+        df = df[df["ChargeDate"] >= start_date]
+    elif selected_period == "Prev 3 Months":
+        start_date = latest_date - pd.DateOffset(months=3)
+        df = df[df["ChargeDate"] >= start_date]
+    elif selected_period == "Prev 12 Months":
+        start_date = latest_date - pd.DateOffset(months=12)
+        df = df[df["ChargeDate"] >= start_date]
+    elif selected_period == "YTD":
+        start_date = pd.Timestamp(year=latest_date.year, month=1, day=1)
+        df = df[df["ChargeDate"] >= start_date]
+
+    # Recompute everything below (cards, breakdown, tables) using filtered df
+    df_blocked, tx, patients_per_month = prepare_factoids_data(df)
     transactions = tx
 
     # --- Helpers
     _WS_RX = re.compile(r"\s+")
-    BAD_TERMS = ["counter", "walk", "cash", "test", "-"]
+    BAD_TERMS = ["counter", "walk", "cash", "test", "in-house", "in house"]
 
     def _canon(text: pd.Series) -> pd.Series:
         return (
@@ -1528,10 +1559,21 @@ def run_factoids():
         )
         if not visits.empty:
             top = visits.iloc[0]
-            client_disp = df_pairs.loc[df_pairs["ClientKey"] == top["ClientKey"], "Client Name"].iloc[0]
-            animal_disp = df_pairs.loc[df_pairs["AnimalKey"] == top["AnimalKey"], "Animal Name"].iloc[0]
+            client_rows = df_pairs.loc[df_pairs["ClientKey"] == top["ClientKey"], "Client Name"]
+            animal_rows = df_pairs.loc[df_pairs["AnimalKey"] == top["AnimalKey"], "Animal Name"]
+            
+            if not client_rows.empty:
+                client_disp = str(client_rows.iloc[0]).strip()
+            else:
+                client_disp = str(top["ClientKey"]).title()
+            
+            if not animal_rows.empty:
+                animal_disp = str(animal_rows.iloc[0]).strip()
+            else:
+                animal_disp = str(top["AnimalKey"]).title()
+            
             metrics["Patient with Most Transactions"] = (
-                f"{animal_disp.strip()} ({client_disp.strip()}) – {int(top['VisitCount']):,}"
+                f"{animal_disp} ({client_disp}) – {int(top['VisitCount']):,}"
             )
 
     # --- Card Renderer (unchanged)
@@ -1558,22 +1600,24 @@ def run_factoids():
                 i += 1
                 if i % 5 == 0 and i < len(keys): cols = st.columns(5)
 
-    cardgroup("⭐ Core", [
+    cardgroup(f"⭐ Core Metrics - {selected_period}", [
         "Total Unique Patients",
         "Max Patients/Day",
         "Avg Patients/Day",
         "Max Transactions/Day",
         "Avg Transactions/Day",
     ])
-    cardgroup("🐾 Patient Breakdown", [f"Unique Patients Having {k}" for k in masks.keys()])
+    # sort the masks alphabetically before creating the list
+    sorted_labels = sorted(masks.keys(), key=str.lower)
+    cardgroup(f"🐾 Patient Breakdown – {selected_period}",
+              [f"Unique Patients Having {k}" for k in sorted_labels])
+
     if total_clients > 0:
-        cardgroup("💼 Client Transaction Histogram", list(hist.keys()))
-    cardgroup("🎉 Fun Facts", [
+        cardgroup(f"💼 Client Transaction Histogram - {selected_period}", list(hist.keys()))
+    cardgroup(f"🎉 Fun Facts - {selected_period}", [
         "Most Common Pet Name",
         "Patient with Most Transactions",
     ])
-
-
 
     # ============================
     # 📋 Tables
@@ -1583,7 +1627,7 @@ def run_factoids():
     st.markdown("### 📋 Tables")
 
     # Top 20 Items by Revenue
-    st.markdown("#### 💰 Top 20 Items by Revenue")
+    st.markdown(f"#### 💰 Top 20 Items by Revenue - {selected_period}")
     top = (
         df.groupby("Item Name")
         .agg(TotalRevenue=("Amount","sum"), TotalCount=("Qty","sum"))
@@ -1601,7 +1645,7 @@ def run_factoids():
         st.info("No items found.")
 
     # Top 5 Spending Clients
-    st.markdown("#### 💎 Top 5 Spending Clients")
+    st.markdown(f"#### 💎 Top 5 Spending Clients - {selected_period}")
     clients = (
         df.assign(Client_Clean=df["Client Name"].astype(str).str.strip())
           .query("Client_Clean != ''", engine="python")
@@ -1622,7 +1666,7 @@ def run_factoids():
         st.info("No client data.")
 
     # Top 5 Largest Client Transactions
-    st.markdown("#### 📈 Top 5 Largest Client Transactions")
+    st.markdown(f"#### 📈 Top 5 Largest Client Transactions - {selected_period}")
     txg = tx.copy()
     txg["Patients"] = txg["Patients"].apply(
         lambda s: ", ".join(sorted([p for p in s if isinstance(p, str) and p.strip() != '' and 'counter' not in p.lower()]))
@@ -1643,8 +1687,106 @@ def run_factoids():
         st.dataframe(largest[["Client Name","DateRange","Patients","Amount"]], use_container_width=True)
     else:
         st.info("No transactions found.")
+        
+    # ============================
+    # 📊 Revenue Concentration Curve
+    # ============================
+    st.markdown("---")
+    st.subheader(f"📊 Revenue Concentration Curve - {selected_period}")
 
+    rev = df.groupby("Client Name", dropna=False)["Amount"].sum().sort_values(ascending=False).reset_index()
+    if not rev.empty and rev["Amount"].sum() > 0:
+        total_revenue = float(rev["Amount"].sum())
+        n_clients = len(rev)
+        rev["Rank"] = rev.index + 1
+        rev["TopPct"] = rev["Rank"] / n_clients * 100
+        rev["CumRevenue"] = rev["Amount"].cumsum()
+        rev["CumPct"] = rev["CumRevenue"] / total_revenue * 100
+
+        chart_rev = (
+            alt.Chart(rev)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("TopPct:Q", title="Top X% of Clients"),
+                y=alt.Y("CumPct:Q", title="% of Total Revenue"),
+                tooltip=[
+                    alt.Tooltip("Client Name:N", title="Client"),
+                    alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
+                    alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
+                    alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
+                ],
+            )
+            .properties(
+                height=400,
+                width=700,
+                title="Revenue Concentration Curve — what % of revenue comes from your top clients"
+            )
+        )
+
+        st.altair_chart(chart_rev, use_container_width=True)
+        
 run_factoids()
+if st.button("🔍 Export Keyword Debug CSV"):
+    export_keyword_debug(st.session_state["working_df"])
+
+def export_keyword_debug(df):
+    """Write a CSV per metric to check which lines are being caught by keyword lists."""
+    output_path = r"C:\Users\User\Downloads\keyword_debug.csv"
+
+    # Define your keyword groups (same as in app)
+    keyword_sets = {
+        "Vaccinations": VACCINE_KEYWORDS,
+        "Flea/Worm Treatments": FLEA_WORM_KEYWORDS,
+        "Food Purchases": FOOD_KEYWORDS,
+        "Dentals": ["dental"],
+        "X-rays": XRAY_KEYWORDS,
+        "Ultrasounds": ULTRASOUND_KEYWORDS,
+        "Lab Work": LABWORK_KEYWORDS,
+        "Anaesthetics": ANAESTHETIC_KEYWORDS,
+        "Hospitalisations": HOSPITALISATION_KEYWORDS,
+    }
+
+    all_tables = []  # collect all summaries
+
+    for metric, words in keyword_sets.items():
+        rx = re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
+        subset = df[df["Item Name"].astype(str).str.contains(rx, na=False)].copy()
+        if subset.empty:
+            continue
+
+        # By revenue
+        by_revenue = (
+            subset.groupby("Item Name")["Amount"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(20)
+            .reset_index()
+        )
+        by_revenue.insert(0, "Metric", metric)
+        by_revenue.insert(1, "Type", "Top 20 by Revenue")
+        by_revenue.rename(columns={"Amount": "Total Revenue"}, inplace=True)
+
+        # By count
+        by_count = (
+            subset["Item Name"]
+            .value_counts()
+            .head(20)
+            .reset_index()
+            .rename(columns={"index": "Item Name", "Item Name": "Count"})
+        )
+        by_count.insert(0, "Metric", metric)
+        by_count.insert(1, "Type", "Top 20 by Count")
+
+        all_tables.append(by_revenue)
+        all_tables.append(by_count)
+
+    if not all_tables:
+        st.warning("No matching data for any metric keyword group.")
+        return
+
+    combined = pd.concat(all_tables, ignore_index=True)
+    combined.to_csv(output_path, index=False, encoding="utf-8-sig")
+    st.success(f"✅ Debug CSV written to: {output_path}")
 
 # --------------------------------
 # 💬 Feedback (Lazy Sheets; isolated from reruns)
@@ -1721,39 +1863,6 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
