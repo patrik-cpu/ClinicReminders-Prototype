@@ -1655,9 +1655,9 @@ def run_factoids():
         max_tx_day = daily["ClientTx"].idxmax()
         max_pat_day = daily["Patients"].idxmax()
         metrics["Max Client Transactions/Day"] = f"{int(daily.loc[max_tx_day, 'ClientTx']):,} ({max_tx_day.strftime('%d %b %Y')})"
-        metrics["Avg Client Transactions/Day"] = f"{int(round(daily['ClientTx'].mean())):,}"
+        metrics["Avg Client Transactions/Day"] = f"{daily['ClientTx'].mean():.1f}"
         metrics["Max Patients/Day"] = f"{int(daily.loc[max_pat_day, 'Patients']):,} ({max_pat_day.strftime('%d %b %Y')})"
-        metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
+        metrics["Avg Patients/Day"] = f"{daily['Patients'].mean():.1f}"
 
     # --- Total Unique Patients (fresh each rerun)
     df_pairs = (
@@ -1884,8 +1884,9 @@ def run_factoids():
         rev_per_client = total_revenue / unique_clients if unique_clients else 0
         rev_per_patient = total_revenue / unique_patients if unique_patients else 0
         rev_per_tx = total_revenue / client_transactions if client_transactions else 0
-        tx_per_client = round(client_transactions / unique_clients, 2) if unique_clients else 0
-        tx_per_patient = round(patient_transactions / unique_patients, 2) if unique_patients else 0
+        tx_per_client = round(client_transactions / unique_clients, 1) if unique_clients else 0
+        tx_per_patient = round(patient_transactions / unique_patients, 1) if unique_patients else 0
+
     
         # ---- New clients / patients in selected period
         period_df_sorted = period_df.sort_values("ChargeDate")
@@ -2146,6 +2147,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
