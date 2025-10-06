@@ -1872,9 +1872,9 @@ def run_factoids():
             patient_transactions = (
                 tx.explode("Patients")
                 .dropna(subset=["Patients"])
-                .drop_duplicates(subset=["Client Name","Patients","Block"])
                 .shape[0]
             )
+
         else:
             client_transactions = 0
             patient_transactions = 0
@@ -2186,6 +2186,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
