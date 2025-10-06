@@ -1264,15 +1264,7 @@ def run_factoids():
     # ============================
     st.markdown("<div id='factoids-monthlycharts' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📈 Monthly Charts")
-
-
-
-
-
-
-
-
-    
+ 
     # ============================
     # 💰 Core Metrics (Absolute Values)
     # ============================
@@ -1356,7 +1348,6 @@ def run_factoids():
         core["Year"] = core["Month"].dt.year
         return core.sort_values("Month")
 
-    
     # ---- Render Core Metrics (strict 12 months + ghost-year overlay)
     core_df = st.session_state.get("working_df")
     if core_df is not None and not core_df.empty:
@@ -1452,13 +1443,6 @@ def run_factoids():
     else:
         st.info("Upload data to display Core Metrics.")
 
-
-
-
-    
-    
-    
-    
     st.markdown(
         "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
         unsafe_allow_html=True
@@ -1745,7 +1729,6 @@ def run_factoids():
             top_count = int(pet_counts.iloc[0]["Count"])
             metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
 
-
     tx_exp = tx_client.explode("Patients").dropna(subset=["Patients"]).copy()
     if not tx_exp.empty:
         tx_exp["ClientKey"] = _canon(tx_exp["Client Name"])
@@ -1801,6 +1784,7 @@ def run_factoids():
                 cols[i % 5].markdown(CARD_STYLE.format(bg=bg,label=k,val=v,fs=fs),unsafe_allow_html=True)
                 i += 1
                 if i % 5 == 0 and i < len(keys): cols = st.columns(5)
+                    
     # --- Add Core Metrics (aggregated over selected period)
     period_df = df.copy()
     if not period_df.empty:
@@ -1850,9 +1834,6 @@ def run_factoids():
         pairs["AnimalKey"] = _norm(pairs["AnimalRaw"])
         
         unique_patients = pairs.drop_duplicates(subset=["ClientKey","AnimalKey"]).shape[0]
-
-
-
         
         # ---- Transactions (client + patient)
         _, tx_client, tx_patient, _ = prepare_factoids_data(period_df)
@@ -1862,8 +1843,7 @@ def run_factoids():
         else:
             client_transactions = 0
             patient_transactions = 0
-
-    
+            
         # ---- Derived ratios
         rev_per_client = total_revenue / unique_clients if unique_clients else 0
         rev_per_patient = total_revenue / unique_patients if unique_patients else 0
@@ -1872,7 +1852,6 @@ def run_factoids():
         tx_per_patient = round(patient_transactions / unique_patients, 1) if unique_patients else 0
     
         # ---- New Clients / Patients (based on first-ever appearance in full dataset)
-
         # Prepare global, cleaned, normalized dataset (so we can check full-history appearances)
         global_df = st.session_state.get("working_df", pd.DataFrame()).copy()
         global_df = (
@@ -1919,10 +1898,6 @@ def run_factoids():
             new_clients = unique_clients
             new_patients = unique_patients
 
-
-
-
-    
         # ---- Add results to metrics dict (will display in cardgroup)
         metrics["New Clients"] = f"{new_clients:,}"
         metrics["New Patients"] = f"{new_patients:,}"
@@ -1937,10 +1912,7 @@ def run_factoids():
         metrics["Revenue per Patient Transaction"] = f"{rev_per_tx:,.0f}"
         metrics["Transactions per Client"] = f"{tx_per_client:.1f}".rstrip("0").rstrip(".")
         metrics["Transactions per Patient"] = f"{tx_per_patient:.1f}".rstrip("0").rstrip(".")
-        patients_per_client = round(unique_patients / unique_clients, 1) if unique_clients else 0
-        metrics["Patients per Client"] = f"{patients_per_client:.1f}".rstrip("0").rstrip(".")
-
-
+        metrics["Patients per Client"] = f"{round(unique_patients / unique_clients, 1) if unique_clients else 0:.1f}".rstrip("0").rstrip(".")
 
     # ============================
     # 💰 Revenue
@@ -2173,3 +2145,4 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
