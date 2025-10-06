@@ -1,4 +1,3 @@
-
 # === ClinicReminders Prototype v4.1 — Optimized Replacement ===
 # Drop-in replacement file (preserves UI & outputs, improves performance)
 
@@ -1305,7 +1304,12 @@ def run_factoids():
             tx_client = tx.groupby("Month").size().rename("Client Transactions")
     
             # ✅ Patient transactions: one per (Client Name, Animal Name, Block)
-
+            tx_patient = (
+                tx.explode("Patients")
+                .dropna(subset=["Patients"])
+                .groupby(["Month", "Client Name", "Patients"])
+                .ngroup()  # get unique IDs per (Month, Client, Patient)
+            )
             tx_patient = (
                 tx.explode("Patients")
                 .dropna(subset=["Patients"])
@@ -1339,44 +1343,20 @@ def run_factoids():
             lambda r: round(r["Patient Transactions"]/r["Unique Patients Seen"], 2) if r["Unique Patients Seen"] else 0, axis=1
         )
     
-        # ---- New clients / patients (cleaned & normalized)
-        period_df_sorted = (
-            period_df
-            .dropna(subset=["Client Name","Animal Name"])
-            .loc[
-                (period_df["Client Name"].astype(str).str.strip() != "") &
-                (period_df["Animal Name"].astype(str).str.strip() != "")
-            ]
-            .sort_values("ChargeDate")
-            .assign(
-                ClientKey=lambda d: d["Client Name"]
-                    .astype(str).str.normalize("NFKC").str.lower()
-                    .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                    .str.strip().str.replace(r"\s+", " ", regex=True),
-                AnimalKey=lambda d: d["Animal Name"]
-                    .astype(str).str.normalize("NFKC").str.lower()
-                    .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                    .str.strip().str.replace(r"\s+", " ", regex=True)
-            )
-        )
-        
+        # --- New clients / patients
+        df_sorted = df.sort_values("ChargeDate")
         seen_clients, seen_pairs = set(), set()
-        new_clients, new_patients = 0, 0
-        for _, row in period_df_sorted.iterrows():
-            c = row["ClientKey"]
-            p = (row["ClientKey"], row["AnimalKey"])
+        new_clients, new_patients = [], []
+        for _, row in df_sorted.iterrows():
+            if pd.isna(row["ChargeDate"]): 
+                continue
+            m = pd.Period(row["ChargeDate"], freq="M")
+            c = str(row["Client Name"]).strip().lower()
+            p = (c, str(row["Animal Name"]).strip().lower())
             if c and c not in seen_clients:
-                seen_clients.add(c)
-                new_clients += 1
+                new_clients.append((m, c)); seen_clients.add(c)
             if p and p not in seen_pairs:
-                seen_pairs.add(p)
-                new_patients += 1
-        
-        # --- Ensure “All Data” alignment (new == unique)
-        if selected_period == "All Data":
-            new_clients = unique_clients
-            new_patients = unique_patients
-
+                new_patients.append((m, p)); seen_pairs.add(p)
         nc = pd.DataFrame(new_clients, columns=["Month","Client"]).groupby("Month").size().rename("New Clients")
         npat = pd.DataFrame(new_patients, columns=["Month","Pair"]).groupby("Month").size().rename("New Patients")
         core = core.merge(nc, on="Month", how="left").merge(npat, on="Month", how="left").fillna(0)
@@ -1666,28 +1646,23 @@ def run_factoids():
         Patients=("Patients", lambda p: len(set().union(*p)) if len(p) else 0),
     )
 
-
-
-
-
-    
     metrics = {}
     if not daily.empty:
-        # --- Daily aggregates
         max_tx_day = daily["ClientTx"].idxmax()
         max_pat_day = daily["Patients"].idxmax()
         metrics["Max Client Transactions/Day"] = f"{int(daily.loc[max_tx_day, 'ClientTx']):,} ({max_tx_day.strftime('%d %b %Y')})"
-        metrics["Avg Client Transactions/Day"] = f"{daily['ClientTx'].mean():.1f}"
+        metrics["Avg Client Transactions/Day"] = f"{int(round(daily['ClientTx'].mean())):,}"
         metrics["Max Patients/Day"] = f"{int(daily.loc[max_pat_day, 'Patients']):,} ({max_pat_day.strftime('%d %b %Y')})"
-        metrics["Avg Patients/Day"] = f"{daily['Patients'].mean():.1f}"
-    
+        metrics["Avg Patients/Day"] = f"{int(round(daily['Patients'].mean())):,}"
+
     # --- Total Unique Patients (fresh each rerun)
     df_pairs = (
         df[["Client Name", "Animal Name"]]
         .dropna(subset=["Client Name", "Animal Name"])
         .copy()
     )
-    
+
+    # remove blanks and junk
     df_pairs = df_pairs[
         ~df_pairs["Client Name"].astype(str).str.strip().eq("") &
         ~df_pairs["Animal Name"].astype(str).str.strip().eq("")
@@ -1695,7 +1670,7 @@ def run_factoids():
     df_pairs = df_pairs[
         ~df_pairs["Client Name"].str.contains("|".join(BAD_TERMS), case=False, na=False)
     ]
-    
+
     df_pairs["ClientKey"] = (
         df_pairs["Client Name"]
         .astype(str)
@@ -1710,16 +1685,138 @@ def run_factoids():
         .str.lower()
         .str.replace(r"\s+", " ", regex=True)
     )
-    
+
     total_unique_patients = df_pairs.drop_duplicates(subset=["ClientKey", "AnimalKey"]).shape[0]
     metrics["Total Unique Patients"] = f"{total_unique_patients:,}"
+
+    # --- Patient Breakdown (unique pairs per service)
+    masks = {
+        "Dentals": re.compile("dental", re.I),
+        "X-rays": _rx(XRAY_KEYWORDS),
+        "Ultrasounds": _rx(ULTRASOUND_KEYWORDS),
+        "Flea/Worm": _rx(FLEA_WORM_KEYWORDS),
+        "Food": _rx(FOOD_KEYWORDS),
+        "Lab Work": _rx(LABWORK_KEYWORDS),
+        "Anaesthetics": _rx(ANAESTHETIC_KEYWORDS),
+        "Hospitalisations": _rx(HOSPITALISATION_KEYWORDS),
+        "Vaccinations": _rx(VACCINE_KEYWORDS),
+    }
+
+    for label, pattern in masks.items():
+        subset = df[df["Item Name"].astype(str).str.contains(pattern, na=False)]
+        spairs = (
+            subset[["Client Name", "Animal Name"]]
+            .dropna(subset=["Client Name", "Animal Name"])
+            .copy()
+        )
+        spairs = spairs[
+            ~spairs["Client Name"].str.contains("|".join(BAD_TERMS), case=False, na=False)
+        ]
+        spairs["ClientKey"] = (
+            spairs["Client Name"].astype(str).str.strip().str.lower().str.replace(r"\s+", " ", regex=True)
+        )
+        spairs["AnimalKey"] = (
+            spairs["Animal Name"].astype(str).str.strip().str.lower().str.replace(r"\s+", " ", regex=True)
+        )
+        count = spairs.drop_duplicates(subset=["ClientKey", "AnimalKey"]).shape[0]
+        if total_unique_patients > 0:
+            metrics[f"Unique Patients Having {label}"] = f"{count:,} ({count/total_unique_patients:.1%})"
+
+    # --- Client Transaction Histogram
+    tx_per_client = df.groupby("Client Name")["ChargeDate"].nunique()
+    total_clients = tx_per_client.shape[0]
+    if total_clients > 0:
+        hist = {
+            "Clients with 1 Transaction": (tx_per_client == 1).sum(),
+            "Clients with 2 Transactions": (tx_per_client == 2).sum(),
+            "Clients with 3–5 Transactions": ((tx_per_client >= 3) & (tx_per_client <= 5)).sum(),
+            "Clients with 6+ Transactions": (tx_per_client >= 6).sum(),
+        }
+        for k, v in hist.items():
+            metrics[k] = f"{v:,} ({v/total_clients:.1%})"
+
+    # --- Fun Facts (unique pairs only)
+    if not df_pairs.empty:
+        # ✅ Only count each unique client–animal combo once
+        pet_counts = (
+            df_pairs.drop_duplicates(subset=["ClientKey", "AnimalKey"])
+            .groupby("AnimalKey")
+            .size()
+            .reset_index(name="Count")
+            .sort_values("Count", ascending=False)
+            .reset_index(drop=True)
+        )
     
+        if not pet_counts.empty:
+            top_name = str(pet_counts.iloc[0]["AnimalKey"]).title()
+            top_count = int(pet_counts.iloc[0]["Count"])
+            metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
+
+
+    tx_exp = tx.explode("Patients").dropna(subset=["Patients"]).copy()
+    if not tx_exp.empty:
+        tx_exp["ClientKey"] = _canon(tx_exp["Client Name"])
+        tx_exp["AnimalKey"] = _canon(tx_exp["Patients"])
+        tx_exp = tx_exp[
+            ~tx_exp["ClientKey"].str.contains("|".join(BAD_TERMS), case=False, na=False)
+        ]
+        visits = (
+            tx_exp.groupby(["ClientKey", "AnimalKey"])["StartDate"]
+            .nunique()
+            .reset_index(name="VisitCount")
+            .sort_values(["VisitCount", "AnimalKey"], ascending=[False, True])
+        )
+        if not visits.empty:
+            top = visits.iloc[0]
+            client_rows = df_pairs.loc[df_pairs["ClientKey"] == top["ClientKey"], "Client Name"]
+            animal_rows = df_pairs.loc[df_pairs["AnimalKey"] == top["AnimalKey"], "Animal Name"]
+            
+            if not client_rows.empty:
+                client_disp = str(client_rows.iloc[0]).strip()
+            else:
+                client_disp = str(top["ClientKey"]).title()
+            
+            if not animal_rows.empty:
+                animal_disp = str(animal_rows.iloc[0]).strip()
+            else:
+                animal_disp = str(top["AnimalKey"]).title()
+            
+            metrics["Patient with Most Transactions"] = (
+                f"{animal_disp} ({client_disp}) – {int(top['VisitCount']):,}"
+            )
+
+    # --- Card Renderer (unchanged)
+    CARD_STYLE = """<div style='background-color:{bg};
+       border:1px solid #94a3b8;padding:16px;border-radius:10px;text-align:center;
+       margin-bottom:12px;min-height:120px;display:flex;flex-direction:column;justify-content:center;'>
+       <div style='font-size:13px;color:#334155;font-weight:600;'>{label}</div>
+       <div style='font-size:{fs}px;font-weight:700;color:#0f172a;margin-top:6px;'>{val}</div></div>"""
+
+    def _fs(v): return 16 if len(v) > 25 else (20 if len(v) > 18 else 22)
+
+    def cardgroup(title, keys):
+        if not any(k in metrics for k in keys): return
+        st.markdown(
+            f"<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>{title}</h4>",
+            unsafe_allow_html=True
+        )
+        cols = st.columns(5)
+        i = 0
+        for k in keys:
+            if k in metrics:
+                v = metrics[k]; fs = _fs(v); bg = "#f1f5f9" if "Total" not in k else "#dbeafe"
+                cols[i % 5].markdown(CARD_STYLE.format(bg=bg,label=k,val=v,fs=fs),unsafe_allow_html=True)
+                i += 1
+                if i % 5 == 0 and i < len(keys): cols = st.columns(5)
     # --- Add Core Metrics (aggregated over selected period)
     period_df = df.copy()
     if not period_df.empty:
+        # ---- Base
         total_revenue = period_df["Amount"].sum()
+        unique_clients = period_df["Client Name"].nunique()
+        unique_patients = period_df.drop_duplicates(subset=["Client Name","Animal Name"]).shape[0]
     
-        # --- Clean unique counts
+        # ---- Clean unique counts
         unique_clients = (
             period_df["Client Name"]
             .astype(str)
@@ -1728,8 +1825,25 @@ def run_factoids():
             .dropna()
             .nunique()
         )
-    
-        def _normalize_name(s: pd.Series) -> pd.Series:
+        
+        # ---- Unique patients seen (EXACT match to Total Unique Patients logic)
+        bad_rx = "|".join(map(re.escape, BAD_TERMS)) if BAD_TERMS else r"^$"
+        
+        pairs = (
+            period_df[["Client Name","Animal Name"]]
+            .dropna(subset=["Client Name","Animal Name"])
+            .rename(columns={"Client Name":"ClientRaw","Animal Name":"AnimalRaw"})
+        )
+        
+        # remove blanks and BAD_TERMS clients (counter, walk, cash, test, in-house, in house)
+        pairs = pairs[
+            pairs["ClientRaw"].astype(str).str.strip().ne("")
+            & pairs["AnimalRaw"].astype(str).str.strip().ne("")
+            & ~pairs["ClientRaw"].str.contains(bad_rx, case=False, na=False)
+        ]
+        
+        # normalise (lowercase, strip non-breaking/zero-width spaces, collapse whitespace)
+        def _norm(s: pd.Series) -> pd.Series:
             return (
                 s.astype(str)
                  .str.normalize("NFKC")
@@ -1738,21 +1852,19 @@ def run_factoids():
                  .str.strip()
                  .str.replace(r"\s+", " ", regex=True)
             )
-    
-        pairs = (
-            period_df[["Client Name","Animal Name"]]
-            .dropna(subset=["Client Name","Animal Name"])
-            .assign(
-                ClientKey=lambda d: _normalize_name(d["Client Name"]),
-                AnimalKey=lambda d: _normalize_name(d["Animal Name"])
-            )
-        )
+        
+        pairs["ClientKey"] = _norm(pairs["ClientRaw"])
+        pairs["AnimalKey"] = _norm(pairs["AnimalRaw"])
+        
         unique_patients = pairs.drop_duplicates(subset=["ClientKey","AnimalKey"]).shape[0]
-    
-        # --- Transactions
+
+
+
+        
+        # ---- Transactions (client + patient)
         _, tx, _ = prepare_factoids_data(period_df)
         if not tx.empty and "StartDate" in tx.columns:
-            client_transactions = tx.shape[0]  # each row = 1 client transaction
+            client_transactions = tx.shape[0]  # ✅ one tx row = one client transaction
             patient_transactions = (
                 tx.explode("Patients")
                 .dropna(subset=["Patients"])
@@ -1762,36 +1874,22 @@ def run_factoids():
         else:
             client_transactions = 0
             patient_transactions = 0
+
     
-        # --- Revenue & ratios
+        # ---- Derived ratios
         rev_per_client = total_revenue / unique_clients if unique_clients else 0
         rev_per_patient = total_revenue / unique_patients if unique_patients else 0
-        rev_per_client_tx = total_revenue / client_transactions if client_transactions else 0
-        rev_per_patient_tx = total_revenue / patient_transactions if patient_transactions else 0
-        tx_per_client = round(client_transactions / unique_clients, 1) if unique_clients else 0
-        tx_per_patient = round(patient_transactions / unique_patients, 1) if unique_patients else 0
-        patients_per_client = round(unique_patients / unique_clients, 1) if unique_clients else 0
+        rev_per_tx = total_revenue / client_transactions if client_transactions else 0
+        tx_per_client = round(client_transactions / unique_clients, 2) if unique_clients else 0
+        tx_per_patient = round(patient_transactions / unique_patients, 2) if unique_patients else 0
     
-        # --- New clients / patients (cleaned & normalized)
-        period_df_sorted = (
-            period_df
-            .dropna(subset=["Client Name","Animal Name"])
-            .loc[
-                (period_df["Client Name"].astype(str).str.strip() != "") &
-                (period_df["Animal Name"].astype(str).str.strip() != "")
-            ]
-            .sort_values("ChargeDate")
-            .assign(
-                ClientKey=lambda d: _normalize_name(d["Client Name"]),
-                AnimalKey=lambda d: _normalize_name(d["Animal Name"])
-            )
-        )
-    
+        # ---- New clients / patients in selected period
+        period_df_sorted = period_df.sort_values("ChargeDate")
         seen_clients, seen_pairs = set(), set()
         new_clients, new_patients = 0, 0
         for _, row in period_df_sorted.iterrows():
-            c = row["ClientKey"]
-            p = (row["ClientKey"], row["AnimalKey"])
+            c = str(row["Client Name"]).strip().lower()
+            p = (c, str(row["Animal Name"]).strip().lower())
             if c and c not in seen_clients:
                 seen_clients.add(c)
                 new_clients += 1
@@ -1799,67 +1897,39 @@ def run_factoids():
                 seen_pairs.add(p)
                 new_patients += 1
     
-        # --- Ensure “All Data” alignment
-        if selected_period == "All Data":
-            new_clients = unique_clients
-            new_patients = unique_patients
-    
-        # --- Add results to metrics dict
-        metrics["Total Revenue"] = f"{int(total_revenue):,}"
-        metrics["Revenue per Client"] = f"{rev_per_client:,.0f}"
-        metrics["Revenue per Patient"] = f"{rev_per_patient:,.0f}"
-        metrics["Revenue per Client Transaction"] = f"{rev_per_client_tx:,.0f}"
-        metrics["Revenue per Patient Transaction"] = f"{rev_per_patient_tx:,.0f}"
-        metrics["Unique Clients Seen"] = f"{unique_clients:,}"
-        metrics["Unique Patients Seen"] = f"{unique_patients:,}"
+        # ---- Add results to metrics dict (will display in cardgroup)
         metrics["New Clients"] = f"{new_clients:,}"
         metrics["New Patients"] = f"{new_patients:,}"
-        metrics["Patients per Client"] = f"{patients_per_client:,.1f}"
-        metrics["Number of Client Transactions"] = f"{client_transactions:,}"
-        metrics["Number of Patient Transactions"] = f"{patient_transactions:,}"
-        metrics["Transactions per Client"] = f"{tx_per_client:,.1f}"
-        metrics["Transactions per Patient"] = f"{tx_per_patient:,.1f}"
-    
-    # ============================
-    # 💰 Revenue
-    # ============================
-    cardgroup(f"💰 Revenue - {selected_period}", [
+        metrics["Unique Clients Seen"] = f"{unique_clients:,}"
+        metrics["Unique Patients Seen"] = f"{unique_patients:,}"
+        metrics["Total Revenue"] = f"{int(total_revenue):,}"
+        metrics["Client Transactions"] = f"{client_transactions:,}"
+        metrics["Patient Transactions"] = f"{patient_transactions:,}"
+        metrics["Revenue per Client"] = f"{rev_per_client:,.0f}"
+        metrics["Revenue per Patient"] = f"{rev_per_patient:,.0f}"
+        metrics["Revenue per Client Transaction"] = f"{rev_per_tx:,.0f}"
+        metrics["Transactions per Client"] = f"{tx_per_client:,.2f}"
+        metrics["Transactions per Patient"] = f"{tx_per_patient:,.2f}"
+
+    cardgroup(f"⭐ Core Metrics - {selected_period}", [
+        "Total Unique Patients",
+        "Max Patients/Day",
+        "Avg Patients/Day",
+        "Max Client Transactions/Day",
+        "Avg Client Transactions/Day",
+        "New Clients",
+        "New Patients",
+        "Unique Clients Seen",
+        "Unique Patients Seen",
         "Total Revenue",
+        "Client Transactions",
+        "Patient Transactions",
         "Revenue per Client",
         "Revenue per Patient",
         "Revenue per Client Transaction",
-        "Revenue per Patient Transaction",
-    ])
-    
-    # ============================
-    # 👥 Clients & Patients
-    # ============================
-    cardgroup(f"👥 Clients & Patients - {selected_period}", [
-        "Unique Clients Seen",
-        "Unique Patients Seen",
-        "Max Patients/Day",
-        "Avg Patients/Day",
-        "New Clients",
-        "New Patients",
-        "Patients per Client",
-    ])
-    
-    # ============================
-    # 🔁 Transactions
-    # ============================
-    cardgroup(f"🔁 Transactions - {selected_period}", [
-        "Number of Client Transactions",
-        "Number of Patient Transactions",
         "Transactions per Client",
         "Transactions per Patient",
-        "Max Client Transactions/Day",
-        "Avg Client Transactions/Day",
     ])
-
-
-
-
-
 
     # sort the masks alphabetically before creating the list
     sorted_labels = sorted(masks.keys(), key=str.lower)
@@ -2056,9 +2126,6 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
-
-
-
 
 
 
