@@ -1399,9 +1399,10 @@ def run_factoids():
             ]
             color = palette[metric_list.index(sel_core) % len(palette)]
     
-            # --- Formatting: decimals only for per-client/patient transactions
-            one_decimal_metrics = {"Transactions per Client", "Transactions per Patient"}
-            y_fmt = ",.1f" if sel_core in one_decimal_metrics else ",.0f"
+            # --- Formatting: 2 decimals only for per-client/patient transactions
+            two_decimal_metrics = {"Transactions per Client", "Transactions per Patient"}
+            y_fmt = ",.2f" if sel_core in two_decimal_metrics else ",.0f"
+
     
             # --- Chart (identical structure to Patient Breakdown, with Year in tooltips)
             safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core)
@@ -2007,6 +2008,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
