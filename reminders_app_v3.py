@@ -1445,6 +1445,49 @@ def run_factoids():
             .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
         )
     
+        # --- sanitize column names for Altair compatibility
+        safe_name = re.sub(r"[^A-Za-z0-9_]", "_", sel_core_metric)
+        plot_df = merged.rename(columns={sel_core_metric: safe_name})
+        
+        # define axis format: currency for revenue metrics, integer otherwise
+        is_currency = "revenue" in sel_core_metric.lower()
+        y_format = ",.0f" if not is_currency else ",.0f"  # you can change to "AED ,." if desired
+        y_title = sel_core_metric + (" (AED)" if is_currency else "")
+        
+        ghost = (
+            alt.Chart(plot_df)
+            .transform_filter("datum.PrevValue != null")
+            .mark_bar(size=20, color=chart_color, opacity=0.3, xOffset=-25)
+            .encode(
+                x=alt.X("MonthLabel:N",
+                        sort=plot_df["MonthLabel"].tolist(),
+                        axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                y=alt.Y("PrevValue:Q", title=y_title, axis=alt.Axis(format=y_format)),
+                tooltip=[
+                    alt.Tooltip("PrevYear:O", title="Year"),
+                    alt.Tooltip("MonthOnly:N", title="Month"),
+                    alt.Tooltip("PrevValue:Q", title=sel_core_metric, format=y_format),
+                ],
+            )
+        )
+        
+        current = (
+            alt.Chart(plot_df)
+            .mark_bar(size=20, color=chart_color)
+            .encode(
+                x=alt.X("MonthLabel:N",
+                        sort=plot_df["MonthLabel"].tolist(),
+                        axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                y=alt.Y(f"{safe_name}:Q", title=y_title, axis=alt.Axis(format=y_format)),
+                tooltip=[
+                    alt.Tooltip("Year:O", title="Year"),
+                    alt.Tooltip("MonthOnly:N", title="Month"),
+                    alt.Tooltip(f"{safe_name}:Q", title=sel_core_metric, format=y_format),
+                ],
+            )
+            .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
+        )
+        
         chart = (
             alt.layer(ghost, current)
             .resolve_scale(y="shared")
@@ -1454,8 +1497,8 @@ def run_factoids():
                 title=f"{sel_core_metric} — Monthly Trend"
             )
         )
-    
         st.altair_chart(chart, use_container_width=True)
+
 
 
 
@@ -2083,6 +2126,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
