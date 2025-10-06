@@ -1825,19 +1825,29 @@ def run_factoids():
             .dropna()
             .nunique()
         )
-        # ---- Unique patients seen (matches Total Unique Patients logic)
-        unique_patients = (
+        
+        # ---- Unique patients seen (exact match to Total Unique Patients logic)
+        def _normalize_name(s: pd.Series) -> pd.Series:
+            return (
+                s.astype(str)
+                 .str.lower()
+                 .str.replace(r"[\u00A0\u200B]", "", regex=True)  # remove non-breaking / zero-width spaces
+                 .str.strip()
+                 .replace({"nan": "", "none": ""})
+                 .str.replace(r"\s+", " ", regex=True)
+            )
+        
+        clean_df = (
             period_df[["Client Name","Animal Name"]]
             .dropna(subset=["Client Name","Animal Name"])
             .assign(
-                ClientNameNorm=lambda d: d["Client Name"]
-                    .astype(str).str.strip().str.lower().replace(r"\s+"," ",regex=True),
-                AnimalNameNorm=lambda d: d["Animal Name"]
-                    .astype(str).str.strip().str.lower().replace(r"\s+"," ",regex=True)
+                ClientKey=lambda d: _normalize_name(d["Client Name"]),
+                AnimalKey=lambda d: _normalize_name(d["Animal Name"])
             )
-            .drop_duplicates(subset=["ClientNameNorm","AnimalNameNorm"])
-            .shape[0]
         )
+        
+        unique_patients = clean_df.drop_duplicates(subset=["ClientKey","AnimalKey"]).shape[0]
+
 
         
         # ---- Transactions (client + patient)
@@ -2105,6 +2115,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
