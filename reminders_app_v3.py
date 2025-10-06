@@ -1597,22 +1597,20 @@ def run_factoids():
                 i += 1
                 if i % 5 == 0 and i < len(keys): cols = st.columns(5)
 
-    cardgroup("⭐ Core Metrics", [
+    cardgroup(f"⭐ Core Metrics - {selected_period}", [
         "Total Unique Patients",
         "Max Patients/Day",
         "Avg Patients/Day",
         "Max Transactions/Day",
         "Avg Transactions/Day",
     ])
-    cardgroup("🐾 Patient Breakdown", [f"Unique Patients Having {k}" for k in masks.keys()])
+    cardgroup(f"🐾 Patient Breakdown - {selected_period}", [f"Unique Patients Having {k}" for k in masks.keys()])
     if total_clients > 0:
-        cardgroup("💼 Client Transaction Histogram", list(hist.keys()))
-    cardgroup("🎉 Fun Facts", [
+        cardgroup(f"💼 Client Transaction Histogram - {selected_period}", list(hist.keys()))
+    cardgroup(f"🎉 Fun Facts - {selected_period}", [
         "Most Common Pet Name",
         "Patient with Most Transactions",
     ])
-
-
 
     # ============================
     # 📋 Tables
@@ -1622,7 +1620,7 @@ def run_factoids():
     st.markdown("### 📋 Tables")
 
     # Top 20 Items by Revenue
-    st.markdown("#### 💰 Top 20 Items by Revenue")
+    st.markdown(f"#### 💰 Top 20 Items by Revenue - {selected_period}")
     top = (
         df.groupby("Item Name")
         .agg(TotalRevenue=("Amount","sum"), TotalCount=("Qty","sum"))
@@ -1640,7 +1638,7 @@ def run_factoids():
         st.info("No items found.")
 
     # Top 5 Spending Clients
-    st.markdown("#### 💎 Top 5 Spending Clients")
+    st.markdown(f"#### 💎 Top 5 Spending Clients - {selected_period}")
     clients = (
         df.assign(Client_Clean=df["Client Name"].astype(str).str.strip())
           .query("Client_Clean != ''", engine="python")
@@ -1661,7 +1659,7 @@ def run_factoids():
         st.info("No client data.")
 
     # Top 5 Largest Client Transactions
-    st.markdown("#### 📈 Top 5 Largest Client Transactions")
+    st.markdown(f"#### 📈 Top 5 Largest Client Transactions - {selected_period}")
     txg = tx.copy()
     txg["Patients"] = txg["Patients"].apply(
         lambda s: ", ".join(sorted([p for p in s if isinstance(p, str) and p.strip() != '' and 'counter' not in p.lower()]))
@@ -1797,6 +1795,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
