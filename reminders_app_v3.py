@@ -1344,6 +1344,12 @@ def run_factoids():
         npat = pd.DataFrame(new_patients, columns=["Month","Pair"]).groupby("Month").size().rename("New Patients")
         core = core.merge(nc, on="Month", how="left").merge(npat, on="Month", how="left").fillna(0)
     
+        # Transactions per Client / Patient (1 decimal place)
+        core["Transactions per Client"] = core.apply(
+            lambda r: round(r["Client Transactions"]/r["Clients Seen"], 1) if r["Clients Seen"] else 0, axis=1)
+        core["Transactions per Patient"] = core.apply(
+            lambda r: round(r["Client Transactions"]/r["Patients Seen"], 1) if r["Patients Seen"] else 0, axis=1)
+    
         core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
         return core.sort_values("Month")
     
@@ -1367,7 +1373,6 @@ def run_factoids():
             core_current = core_monthly[core_monthly["Month"].isin(current_12)].copy()
     
             # ---- GHOST VALUES mapped ONTO those 12 rows (no extra x-categories)
-            # Lookup table for the selected metric indexed by Month
             metric_by_month = core_monthly.set_index("Month")[sel_core]
             core_current["PrevValue"] = core_current["Month"].apply(
                 lambda m: metric_by_month.get(m - 12, pd.NA)
@@ -1381,8 +1386,21 @@ def run_factoids():
             core_current["MonthOnly"] = core_current["MonthLabel"].str.split().str[0]
             core_current["has_ghost"] = core_current["PrevValue"].notna()
     
+            # ---- Color rotation (uses same palette as Patient Breakdown)
+            palette = [
+                "#fb7185",  # Anaesthetics
+                "#60a5fa",  # Dentals
+                "#4ade80",  # Flea/Worm
+                "#facc15",  # Food
+                "#f97316",  # Hospitalisations
+                "#fbbf24",  # Lab Work
+                "#a5b4fc",  # Ultrasounds
+                "#22d3ee",  # Vaccinations
+                "#93c5fd",  # X-rays
+            ]
+            color = palette[metric_list.index(sel_core) % len(palette)]
+    
             # ---- Chart (identical structure to patient breakdown)
-            color = "#60a5fa"
             safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core)
             df_plot = core_current.rename(columns={sel_core: safe_col}).copy()
     
@@ -1394,11 +1412,11 @@ def run_factoids():
                     x=alt.X("MonthLabel:N",
                             sort=df_plot["MonthLabel"].tolist(),
                             axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
-                    y=alt.Y("PrevValue:Q", title=sel_core, axis=alt.Axis(format=",.0f")),
+                    y=alt.Y("PrevValue:Q", title=sel_core, axis=alt.Axis(format=",.1f")),
                     tooltip=[
                         alt.Tooltip("PrevYear:O", title="Year"),
                         alt.Tooltip("MonthOnly:N", title="Month"),
-                        alt.Tooltip("PrevValue:Q", title=sel_core, format=",.0f"),
+                        alt.Tooltip("PrevValue:Q", title=sel_core, format=",.1f"),
                     ],
                 )
             )
@@ -1410,10 +1428,10 @@ def run_factoids():
                     x=alt.X("MonthLabel:N",
                             sort=df_plot["MonthLabel"].tolist(),
                             axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
-                    y=alt.Y(f"{safe_col}:Q", title=sel_core, axis=alt.Axis(format=",.0f")),
+                    y=alt.Y(f"{safe_col}:Q", title=sel_core, axis=alt.Axis(format=",.1f")),
                     tooltip=[
                         alt.Tooltip("MonthOnly:N", title="Month"),
-                        alt.Tooltip(f"{safe_col}:Q", title=sel_core, format=",.0f"),
+                        alt.Tooltip(f"{safe_col}:Q", title=sel_core, format=",.1f"),
                     ],
                 )
                 .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
@@ -1984,6 +2002,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
