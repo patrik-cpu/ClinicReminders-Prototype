@@ -1784,8 +1784,19 @@ def export_keyword_debug(df):
     combined = pd.concat(all_tables, ignore_index=True)
     combined.to_csv(output_path, index=False, encoding="utf-8-sig")
     st.success(f"✅ Debug CSV written to: {output_path}")
+    
 if st.button("🔍 Export Keyword Debug CSV"):
     export_keyword_debug(st.session_state["working_df"])
+
+    # Let the user download the file directly
+    with open(r"C:\Users\User\Downloads\keyword_debug.csv", "rb") as f:
+        st.download_button(
+            label="⬇️ Download Keyword Debug CSV",
+            data=f,
+            file_name="keyword_debug.csv",
+            mime="text/csv"
+        )
+
 # --------------------------------
 # 💬 Feedback (Lazy Sheets; isolated from reruns)
 # --------------------------------
@@ -1861,6 +1872,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
