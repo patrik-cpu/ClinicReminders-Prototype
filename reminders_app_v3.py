@@ -41,7 +41,7 @@ st.sidebar.markdown(
         </ul>
       <li><a href="#factoids" style="text-decoration:none;">📊 Factoids</a></li>
         <ul style="list-style-type:none; padding-left:1.2em; line-height:1.6;">
-          <li><a href="#factoids-charts" style="text-decoration:none;">🔹 Charts</a></li>
+          <li><a href="#factoids-monthlycharts" style="text-decoration:none;">🔹 Monthly Charts</a></li>
           <li><a href="#factoids-ataglance" style="text-decoration:none;">🔹 At a Glance</a></li>
           <li><a href="#factoids-tables" style="text-decoration:none;">🔹 Tables</a></li>
         </ul>
@@ -1251,10 +1251,10 @@ def run_factoids():
     df_blocked, tx, patients_per_month = prepare_factoids_data(df)
 
     # ============================
-    # 📈 Charts (with Previous-Year Ghost Bars)
+    # 📈 Monthly Charts (with Previous-Year Ghost Bars)
     # ============================
-    st.markdown("<div id='factoids-charts' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("### 📈 Charts (with Previous-Year Ghost Bars)")
+    st.markdown("<div id='factoids-monthlycharts' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("### 📈 Monthly Charts")
 
     metric_configs = {
         "Anaesthetics": {"rx": _rx(ANAESTHETIC_KEYWORDS), "color": "#fb7185"},
@@ -1378,42 +1378,6 @@ def run_factoids():
         
         st.altair_chart(chart, use_container_width=True)
         
-    # ============================
-    # 📊 Revenue Concentration Curve
-    # ============================
-    st.markdown("---")
-    st.subheader("📊 Revenue Concentration Curve")
-
-    rev = df.groupby("Client Name", dropna=False)["Amount"].sum().sort_values(ascending=False).reset_index()
-    if not rev.empty and rev["Amount"].sum() > 0:
-        total_revenue = float(rev["Amount"].sum())
-        n_clients = len(rev)
-        rev["Rank"] = rev.index + 1
-        rev["TopPct"] = rev["Rank"] / n_clients * 100
-        rev["CumRevenue"] = rev["Amount"].cumsum()
-        rev["CumPct"] = rev["CumRevenue"] / total_revenue * 100
-
-        chart_rev = (
-            alt.Chart(rev)
-            .mark_line(point=True)
-            .encode(
-                x=alt.X("TopPct:Q", title="Top X% of Clients"),
-                y=alt.Y("CumPct:Q", title="% of Total Revenue"),
-                tooltip=[
-                    alt.Tooltip("Client Name:N", title="Client"),
-                    alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
-                    alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
-                    alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
-                ],
-            )
-            .properties(
-                height=400,
-                width=700,
-                title="Revenue Concentration Curve — what % of revenue comes from your top clients"
-            )
-        )
-
-        st.altair_chart(chart_rev, use_container_width=True)
     else:
         st.info("No client revenue data available to plot.")
 
@@ -1423,6 +1387,31 @@ def run_factoids():
     st.markdown("---")
     st.markdown("<div id='factoids-ataglance' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📌 At a Glance")
+    st.markdown("#### ⭐ Patient Breakdown %'s")
+
+    # --- Select Period Dropdown ---
+    st.markdown("#### 🕒 Select Period")
+    period_options = ["All Data", "Prev 30 Days", "Prev 3 Months", "Prev 12 Months", "YTD"]
+    selected_period = st.selectbox("Select Period:", period_options, index=0, label_visibility="collapsed")
+
+    latest_date = pd.to_datetime(df["ChargeDate"], errors="coerce").max()
+    if pd.isna(latest_date):
+        latest_date = pd.Timestamp.today()
+
+    if selected_period == "Prev 30 Days":
+        start_date = latest_date - pd.Timedelta(days=30)
+        df = df[df["ChargeDate"] >= start_date]
+    elif selected_period == "Prev 3 Months":
+        start_date = latest_date - pd.DateOffset(months=3)
+        df = df[df["ChargeDate"] >= start_date]
+    elif selected_period == "Prev 12 Months":
+        start_date = latest_date - pd.DateOffset(months=12)
+        df = df[df["ChargeDate"] >= start_date]
+    elif selected_period == "YTD":
+        start_date = pd.Timestamp(year=latest_date.year, month=1, day=1)
+        df = df[df["ChargeDate"] >= start_date]
+
+    # Recompute everything below (cards, breakdown, tables) using filtered df
 
     transactions = tx
 
@@ -1682,7 +1671,44 @@ def run_factoids():
         st.dataframe(largest[["Client Name","DateRange","Patients","Amount"]], use_container_width=True)
     else:
         st.info("No transactions found.")
+        
+    # ============================
+    # 📊 Revenue Concentration Curve
+    # ============================
+    st.markdown("---")
+    st.subheader("📊 Revenue Concentration Curve")
 
+    rev = df.groupby("Client Name", dropna=False)["Amount"].sum().sort_values(ascending=False).reset_index()
+    if not rev.empty and rev["Amount"].sum() > 0:
+        total_revenue = float(rev["Amount"].sum())
+        n_clients = len(rev)
+        rev["Rank"] = rev.index + 1
+        rev["TopPct"] = rev["Rank"] / n_clients * 100
+        rev["CumRevenue"] = rev["Amount"].cumsum()
+        rev["CumPct"] = rev["CumRevenue"] / total_revenue * 100
+
+        chart_rev = (
+            alt.Chart(rev)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("TopPct:Q", title="Top X% of Clients"),
+                y=alt.Y("CumPct:Q", title="% of Total Revenue"),
+                tooltip=[
+                    alt.Tooltip("Client Name:N", title="Client"),
+                    alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
+                    alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
+                    alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
+                ],
+            )
+            .properties(
+                height=400,
+                width=700,
+                title="Revenue Concentration Curve — what % of revenue comes from your top clients"
+            )
+        )
+
+        st.altair_chart(chart_rev, use_container_width=True)
+        
 run_factoids()
 
 # --------------------------------
@@ -1760,5 +1786,6 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
