@@ -1175,6 +1175,7 @@ ANAESTHETIC_KEYWORDS = [
 HOSPITALISATION_KEYWORDS = ["hospitalisation","hospitalization"]
 VACCINE_KEYWORDS = ["vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","leukaemia","kennel cough"]
 
+
 def _rx(words):
     return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
 
@@ -1271,8 +1272,8 @@ def run_factoids():
     metric_configs = {
         "Anaesthetics": {"rx": _rx(ANAESTHETIC_KEYWORDS), "color": "#fb7185"},
         "Dentals": {"rx": re.compile("dental", re.I), "color": "#60a5fa", "filter": True},
-        "Flea/Worm Treatments": {"rx": _rx(FLEA_WORM_KEYWORDS), "color": "#4ade80"},
-        "Food Purchases": {"rx": _rx(FOOD_KEYWORDS), "color": "#facc15"},
+        "Buying Flea/Worm Control": {"rx": _rx(FLEA_WORM_KEYWORDS), "color": "#4ade80"},
+        "Buying Food": {"rx": _rx(FOOD_KEYWORDS), "color": "#facc15"},
         "Hospitalisations": {"rx": _rx(HOSPITALISATION_KEYWORDS), "color": "#f97316"},
         "Lab Work": {"rx": _rx(LABWORK_KEYWORDS), "color": "#fbbf24"},
         "Ultrasounds": {"rx": _rx(ULTRASOUND_KEYWORDS), "color": "#a5b4fc"},
@@ -1516,7 +1517,13 @@ def run_factoids():
         )
         count = spairs.drop_duplicates(subset=["ClientKey", "AnimalKey"]).shape[0]
         if total_unique_patients > 0:
-            metrics[f"Unique Patients Having {label}"] = f"{count:,} ({count/total_unique_patients:.1%})"
+            display_label = label
+            if label == "Flea/Worm":
+                display_label = "Buying Flea/Worm Control"
+            elif label == "Food":
+                display_label = "Buying Food"
+            
+            metrics[f"Unique Patients {display_label}"] = f"{count:,} ({count/total_unique_patients:.1%})"
 
     # --- Client Transaction Histogram
     tx_per_client = df.groupby("Client Name")["ChargeDate"].nunique()
@@ -1877,6 +1884,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
