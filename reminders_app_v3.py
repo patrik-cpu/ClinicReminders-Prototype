@@ -1289,7 +1289,10 @@ def run_factoids():
         core = pd.DataFrame({
             "Revenue": g["Amount"].sum(),
             "Unique Clients Seen": g["Client Name"].nunique(),
-            "Unique Patients Seen": g["Animal Name"].nunique(),
+            "Unique Patients Seen": g.apply(
+            lambda x: x.drop_duplicates(subset=["Client Name","Animal Name"]).shape[0]
+        ),
+
         }).reset_index()
     
         # --- Transactions via visit blocks
@@ -2008,6 +2011,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
