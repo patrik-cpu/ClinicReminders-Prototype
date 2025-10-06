@@ -1825,16 +1825,20 @@ def run_factoids():
             .dropna()
             .nunique()
         )
+        # ---- Unique patients seen (matches Total Unique Patients logic)
         unique_patients = (
             period_df[["Client Name","Animal Name"]]
             .dropna(subset=["Client Name","Animal Name"])
-            .loc[
-                (period_df["Client Name"].astype(str).str.strip() != "") &
-                (period_df["Animal Name"].astype(str).str.strip() != "")
-            ]
-            .drop_duplicates()
+            .assign(
+                ClientNameNorm=lambda d: d["Client Name"]
+                    .astype(str).str.strip().str.lower().replace(r"\s+"," ",regex=True),
+                AnimalNameNorm=lambda d: d["Animal Name"]
+                    .astype(str).str.strip().str.lower().replace(r"\s+"," ",regex=True)
+            )
+            .drop_duplicates(subset=["ClientNameNorm","AnimalNameNorm"])
             .shape[0]
         )
+
         
         # ---- Transactions (client + patient)
         _, tx, _ = prepare_factoids_data(period_df)
@@ -2101,6 +2105,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
