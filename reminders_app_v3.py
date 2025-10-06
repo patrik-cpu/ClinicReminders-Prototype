@@ -1888,7 +1888,7 @@ def run_factoids():
         tx_per_patient = round(patient_transactions / unique_patients, 1) if unique_patients else 0
 
     
-        # ---- New clients / patients (cleaned & normalized)
+        # ---- New Clients / Patients (cleaned, normalized, BAD_TERMS-safe)
         period_df_sorted = (
             period_df
             .dropna(subset=["Client Name", "Animal Name"])
@@ -1915,13 +1915,14 @@ def run_factoids():
             .sort_values("ChargeDate")
         )
         
-        # Apply BAD_TERMS exclusion (counter, walk-in, etc.)
+        # Exclude BAD_TERMS clients (counter, walk-in, etc.)
         if BAD_TERMS:
             bad_rx = "|".join(map(re.escape, BAD_TERMS))
             period_df_sorted = period_df_sorted[
                 ~period_df_sorted["ClientKey"].str.contains(bad_rx, case=False, na=False)
             ]
         
+        # Count new unique clients and patient-client pairs
         seen_clients, seen_pairs = set(), set()
         new_clients, new_patients = 0, 0
         for _, row in period_df_sorted.iterrows():
@@ -1934,10 +1935,11 @@ def run_factoids():
                 seen_pairs.add(p)
                 new_patients += 1
         
-        # --- Ensure All Data alignment (new == unique)
+        # --- Ensure “All Data” alignment (new == unique)
         if selected_period == "All Data":
             new_clients = unique_clients
             new_patients = unique_patients
+
 
     
         # ---- Add results to metrics dict (will display in cardgroup)
@@ -2186,6 +2188,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
