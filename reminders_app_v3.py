@@ -1912,6 +1912,7 @@ def run_factoids():
         metrics["Revenue per Client"] = f"{rev_per_client:,.0f}"
         metrics["Revenue per Patient"] = f"{rev_per_patient:,.0f}"
         metrics["Revenue per Client Transaction"] = f"{rev_per_tx:,.0f}"
+        metrics["Revenue per Patient Transaction"] = f"{rev_per_tx:,.0f}"
         metrics["Transactions per Client"] = f"{tx_per_client:,.2f}"
         metrics["Transactions per Patient"] = f"{tx_per_patient:,.2f}"
 
@@ -2145,6 +2146,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
