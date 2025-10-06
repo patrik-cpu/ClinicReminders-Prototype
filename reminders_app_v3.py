@@ -1287,7 +1287,7 @@ def run_factoids():
         # --- Base monthly metrics
         g = df.groupby("Month")
         core = pd.DataFrame({
-            "Revenue": g["Amount"].sum(),
+            "Total Revenue": g["Amount"].sum(),
             "Unique Clients Seen": g["Client Name"].nunique(),
             "Unique Patients Seen": g.apply(
             lambda x: x.drop_duplicates(subset=["Client Name","Animal Name"]).shape[0]
@@ -1326,13 +1326,13 @@ def run_factoids():
     
         # --- Derived ratios
         core["Revenue per Client"] = core.apply(
-            lambda r: r["Revenue"]/r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1
+            lambda r: r["Total Revenue"]/r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1
         )
         core["Revenue per Patient"] = core.apply(
-            lambda r: r["Revenue"]/r["Unique Patients Seen"] if r["Unique Patients Seen"] else 0, axis=1
+            lambda r: r["Total Revenue"]/r["Unique Patients Seen"] if r["Unique Patients Seen"] else 0, axis=1
         )
         core["Revenue per Client Transaction"] = core.apply(
-            lambda r: r["Revenue"]/r["Client Transactions"] if r["Client Transactions"] else 0, axis=1
+            lambda r: r["Total Revenue"]/r["Client Transactions"] if r["Client Transactions"] else 0, axis=1
         )
     
         # --- Transactions per Client / Patient (1 decimal)
@@ -1371,7 +1371,7 @@ def run_factoids():
         core_monthly = compute_core_metrics(core_df)
         if not core_monthly.empty:
             metric_list = [
-                "Revenue","Unique Clients Seen","Unique Patients Seen",
+                "Total Revenue","Unique Clients Seen","Unique Patients Seen",
                 "Client Transactions","Patient Transactions",
                 "Revenue per Client","Revenue per Patient","Revenue per Client Transaction",
                 "New Clients","New Patients",
@@ -1451,7 +1451,7 @@ def run_factoids():
                 .properties(
                     height=400,
                     width=700,
-                    title=f"{sel_core} — Monthly Trend"
+                    title=f"{sel_core} per Month (with previous-year ghost bars)"
                 )
             )
             st.altair_chart(chart_core, use_container_width=True)
@@ -2011,6 +2011,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
