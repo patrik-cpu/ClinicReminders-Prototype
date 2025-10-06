@@ -1626,7 +1626,7 @@ def run_factoids():
 
     # Recompute everything below (cards, breakdown, tables) using filtered df
     df_blocked, tx_client, tx_patient, patients_per_month = prepare_factoids_data(df)
-    transactions = tx
+    transactions = tx_client
 
     # --- Helpers
     _WS_RX = re.compile(r"\s+")
@@ -1864,12 +1864,13 @@ def run_factoids():
         
         # ---- Transactions (client + patient)
         _, tx_client, tx_patient, _ = prepare_factoids_data(period_df)
-        if not tx.empty and "StartDate" in tx.columns:
+        if not tx_client.empty and "StartDate" in tx_client.columns:
             client_transactions = tx_client.shape[0]
             patient_transactions = tx_patient.shape[0]
         else:
             client_transactions = 0
             patient_transactions = 0
+
     
         # ---- Derived ratios
         rev_per_client = total_revenue / unique_clients if unique_clients else 0
@@ -2176,6 +2177,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
