@@ -1816,10 +1816,30 @@ def run_factoids():
         unique_clients = period_df["Client Name"].nunique()
         unique_patients = period_df.drop_duplicates(subset=["Client Name","Animal Name"]).shape[0]
     
+        # ---- Clean unique counts
+        unique_clients = (
+            period_df["Client Name"]
+            .astype(str)
+            .str.strip()
+            .replace("", pd.NA)
+            .dropna()
+            .nunique()
+        )
+        unique_patients = (
+            period_df[["Client Name","Animal Name"]]
+            .dropna(subset=["Client Name","Animal Name"])
+            .loc[
+                (period_df["Client Name"].astype(str).str.strip() != "") &
+                (period_df["Animal Name"].astype(str).str.strip() != "")
+            ]
+            .drop_duplicates()
+            .shape[0]
+        )
+        
         # ---- Transactions (client + patient)
         _, tx, _ = prepare_factoids_data(period_df)
         if not tx.empty and "StartDate" in tx.columns:
-            client_transactions = tx["Block"].nunique()
+            client_transactions = tx.shape[0]  # ✅ one tx row = one client transaction
             patient_transactions = (
                 tx.explode("Patients")
                 .dropna(subset=["Patients"])
@@ -1829,6 +1849,7 @@ def run_factoids():
         else:
             client_transactions = 0
             patient_transactions = 0
+
     
         # ---- Derived ratios
         rev_per_client = total_revenue / unique_clients if unique_clients else 0
@@ -2080,6 +2101,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
