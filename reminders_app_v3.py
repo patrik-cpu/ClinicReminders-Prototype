@@ -1726,9 +1726,6 @@ def run_factoids():
         st.altair_chart(chart_rev, use_container_width=True)
         
 run_factoids()
-if st.button("🔍 Export Keyword Debug CSV"):
-    export_keyword_debug(st.session_state["working_df"])
-
 def export_keyword_debug(df):
     """Write a CSV per metric to check which lines are being caught by keyword lists."""
     output_path = r"C:\Users\User\Downloads\keyword_debug.csv"
@@ -1787,7 +1784,8 @@ def export_keyword_debug(df):
     combined = pd.concat(all_tables, ignore_index=True)
     combined.to_csv(output_path, index=False, encoding="utf-8-sig")
     st.success(f"✅ Debug CSV written to: {output_path}")
-
+if st.button("🔍 Export Keyword Debug CSV"):
+    export_keyword_debug(st.session_state["working_df"])
 # --------------------------------
 # 💬 Feedback (Lazy Sheets; isolated from reruns)
 # --------------------------------
@@ -1863,6 +1861,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
