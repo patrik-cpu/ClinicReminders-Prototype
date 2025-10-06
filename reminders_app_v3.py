@@ -1754,7 +1754,7 @@ def run_factoids():
             metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
 
 
-    tx_exp = tx.explode("Patients").dropna(subset=["Patients"]).copy()
+    tx_exp = tx_client.explode("Patients").dropna(subset=["Patients"]).copy()
     if not tx_exp.empty:
         tx_exp["ClientKey"] = _canon(tx_exp["Client Name"])
         tx_exp["AnimalKey"] = _canon(tx_exp["Patients"])
@@ -2177,6 +2177,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
