@@ -1,6 +1,3 @@
-# === ClinicReminders Prototype v4.1 — Optimized Replacement ===
-# Drop-in replacement file (preserves UI & outputs, improves performance)
-
 import pandas as pd
 import altair as alt
 import unicodedata
@@ -14,11 +11,6 @@ from datetime import date, datetime, timedelta
 import hashlib
 import numpy as np
 
-# ------------------------------------------------------------
-# Small wrapper to keep compatibility with earlier code that
-# referenced fetch_feedback_cached near the top of the file.
-# The real implementation of fetch_feedback is defined later.
-# ------------------------------------------------------------
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
@@ -56,7 +48,7 @@ st.sidebar.markdown(
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders Prototype v4.2 (with Factoids!)")
+    st.title("ClinicReminders Prototype v4.3 (with Factoids!)")
 st.markdown("---")
 
 # --------------------------------
@@ -1945,6 +1937,9 @@ def run_factoids():
         metrics["Revenue per Patient Transaction"] = f"{rev_per_tx:,.0f}"
         metrics["Transactions per Client"] = f"{tx_per_client:.1f}".rstrip("0").rstrip(".")
         metrics["Transactions per Patient"] = f"{tx_per_patient:.1f}".rstrip("0").rstrip(".")
+        patients_per_client = round(unique_patients / unique_clients, 1) if unique_clients else 0
+        metrics["Patients per Client"] = f"{patients_per_client:.1f}".rstrip("0").rstrip(".")
+
 
 
     # ============================
@@ -1964,6 +1959,7 @@ def run_factoids():
     cardgroup(f"👥 Clients & Patients - {selected_period}", [
         "Unique Clients Seen",
         "Unique Patients Seen",
+        "Patients per Client",
         "Max Patients/Day",
         "Avg Patients/Day",
         "New Clients",
@@ -2177,38 +2173,3 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
