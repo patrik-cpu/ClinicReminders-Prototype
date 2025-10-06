@@ -1604,7 +1604,11 @@ def run_factoids():
         "Max Transactions/Day",
         "Avg Transactions/Day",
     ])
-    cardgroup(f"🐾 Patient Breakdown - {selected_period}", [f"Unique Patients Having {k}" for k in masks.keys()])
+    # sort the masks alphabetically before creating the list
+    sorted_labels = sorted(masks.keys(), key=str.lower)
+    cardgroup(f"🐾 Patient Breakdown – {selected_period}",
+              [f"Unique Patients Having {k}" for k in sorted_labels])
+
     if total_clients > 0:
         cardgroup(f"💼 Client Transaction Histogram - {selected_period}", list(hist.keys()))
     cardgroup(f"🎉 Fun Facts - {selected_period}", [
@@ -1795,6 +1799,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
