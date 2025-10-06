@@ -1556,10 +1556,21 @@ def run_factoids():
         )
         if not visits.empty:
             top = visits.iloc[0]
-            client_disp = df_pairs.loc[df_pairs["ClientKey"] == top["ClientKey"], "Client Name"].iloc[0]
-            animal_disp = df_pairs.loc[df_pairs["AnimalKey"] == top["AnimalKey"], "Animal Name"].iloc[0]
+            client_rows = df_pairs.loc[df_pairs["ClientKey"] == top["ClientKey"], "Client Name"]
+            animal_rows = df_pairs.loc[df_pairs["AnimalKey"] == top["AnimalKey"], "Animal Name"]
+            
+            if not client_rows.empty:
+                client_disp = str(client_rows.iloc[0]).strip()
+            else:
+                client_disp = str(top["ClientKey"]).title()
+            
+            if not animal_rows.empty:
+                animal_disp = str(animal_rows.iloc[0]).strip()
+            else:
+                animal_disp = str(top["AnimalKey"]).title()
+            
             metrics["Patient with Most Transactions"] = (
-                f"{animal_disp.strip()} ({client_disp.strip()}) – {int(top['VisitCount']):,}"
+                f"{animal_disp} ({client_disp}) – {int(top['VisitCount']):,}"
             )
 
     # --- Card Renderer (unchanged)
@@ -1786,6 +1797,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
