@@ -1156,24 +1156,24 @@ FLEA_WORM_KEYWORDS = [
     "nexgard","simparica","advocate","worming","prazi","fenbend"
 ]
 FOOD_KEYWORDS = [
-    "hill's","hills","royal canin","purina","proplan","iams","eukanuba","proplan"
-    "orijen","acana","farmina","vetlife","wellness","taste of the wild",
-    "nutro","pouch","canned","dry","kibble","satiety","recipe","Prescription Diet",
-    "tuna","chicken","beef","salmon","lamb","duck","senior","food","grain","vhn","wet food","instinctive"
+    "hill's","hills","royal canin","purina","proplan","iams","eukanuba","proplan","BEAPHAR","FHN","FCN","RC-WF","RC - WF","VD-WF","VD - WF","RC-VD","RC - VD"   ,
+    "orijen","acana","farmina","vetlife","wellness","taste of the wild","canine gastrointestinal","feline gastrointestinal","canine gastro-intestinal","feline gastro-intestinal","canine gastro intestinal","feline gastro intestinal",
+    "nutro","pouch","canned","dry","kibble","satiety","recipe","Prescription Diet","FELINE DIABETIC","canine diabetic","feline sensitivity","canine sensitivity","mini puppy","intense beauty",
+    "tuna","chicken","beef","salmon","lamb","duck","senior","food","grain","vhn","wet food","instinctive","feline renal","canine renal","MOTHER & BABYCAT","SHN","mini adult","low fat","feline calm"
 ]
 XRAY_KEYWORDS = ["xray","x-ray","radiograph","radiology"]
 ULTRASOUND_KEYWORDS = ["ultrasound","echo","afast","tfast","a-fast","t-fast"]
 LABWORK_KEYWORDS = [
-    "cbc","blood test","lab","biochemistry","haematology","urinalysis","labwork","idexx","ghp",
+    "cbc","blood test","lab","biochemistry","haematology","hematology","urinalysis","labwork","idexx","ghp",
     "chem","felv","fiv","urine","cytology","smear","faecal","fecal","microscopic","slide","bun",
     "phosphate","cpl","cpli","lipase","amylase","pancreatic","cortisol","snap","bnp"
 ]
 ANAESTHETIC_KEYWORDS = [
-    "anaesthesia","anesthesia","spay","castrate","castration","surgery",
-    "isoflurane","propofol","alfaxan","alfaxalone", "dental", "enucleation","laparotomy","entropion"
+    "anaesthesia","anesthesia","spay","castrate","castration","surgery","isoflo","lump removal","TNR",
+    "isoflurane","propofol","alfaxan","alfaxalone", "dental", "enucleation","laparotomy","entropion","BLOCKED CAT"
 ]
 HOSPITALISATION_KEYWORDS = ["hospitalisation","hospitalization"]
-VACCINE_KEYWORDS = ["vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","kennel cough"]
+VACCINE_KEYWORDS = ["vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","leukaemia","kennel cough"]
 
 def _rx(words):
     return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
@@ -1877,6 +1877,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
