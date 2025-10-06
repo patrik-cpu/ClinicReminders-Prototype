@@ -1489,7 +1489,7 @@ def run_factoids():
     conf = metric_configs[choice]
 
     # --- compute current 12-month data
-    monthly = compute_monthly_data(df_blocked, tx, patients_per_month, conf["rx"], conf.get("filter", False))
+    monthly = compute_monthly_data(df_blocked, tx_client, patients_per_month, conf["rx"], conf.get("filter", False))
     if monthly.empty:
         st.info(f"No qualifying {choice.lower()} data found.")
     else:
@@ -1509,9 +1509,10 @@ def run_factoids():
             ]
             if not subset_prev.empty:
                 prev_monthly = compute_monthly_data(
-                    subset_prev, tx, patients_per_month,
+                    subset_prev, tx_client, patients_per_month,
                     conf["rx"], conf.get("filter", False)
                 )
+
                 if not prev_monthly.empty:
                     ghost_val = prev_monthly["Percent"].iloc[-1]
                     ghost_patients = prev_monthly["UniquePatients"].iloc[-1]
@@ -2040,7 +2041,7 @@ def run_factoids():
 
     # Top 5 Largest Client Transactions
     st.markdown(f"#### 📈 Top 5 Largest Client Transactions - {selected_period}")
-    txg = tx.copy()
+    txg = tx_client.copy()
     txg["Patients"] = txg["Patients"].apply(
         lambda s: ", ".join(sorted([p for p in s if isinstance(p, str) and p.strip() != '' and 'counter' not in p.lower()]))
     )
@@ -2175,6 +2176,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
