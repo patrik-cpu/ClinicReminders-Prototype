@@ -1257,6 +1257,7 @@ def run_factoids():
     # ============================
     st.markdown("<div id='factoids-monthlycharts' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📈 Monthly Charts")
+    
     # ============================
     # 💰 Core Metrics (Absolute Values)
     # ============================
@@ -1267,6 +1268,7 @@ def run_factoids():
     
     @st.cache_data(show_spinner=False)
     def compute_core_metrics(df: pd.DataFrame):
+        """Compute monthly absolute-value clinic metrics."""
         if df.empty:
             return pd.DataFrame()
     
@@ -1274,6 +1276,7 @@ def run_factoids():
         df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
         df["Month"] = df["ChargeDate"].dt.to_period("M")
     
+        # --- Base monthly metrics
         g = df.groupby("Month")
         core = pd.DataFrame({
             "Revenue": g["Amount"].sum(),
@@ -1323,12 +1326,13 @@ def run_factoids():
             })
         core = core.merge(max_month, on="Month", how="left")
     
-        # --- New clients & patients
+        # --- New clients / patients
         df_sorted = df.sort_values("ChargeDate")
         seen_clients, seen_pairs = set(), set()
         new_clients, new_patients = [], []
         for _, row in df_sorted.iterrows():
-            if pd.isna(row["ChargeDate"]): continue
+            if pd.isna(row["ChargeDate"]): 
+                continue
             m = pd.Period(row["ChargeDate"], freq="M")
             c = str(row["Client Name"]).strip().lower()
             p = (c, str(row["Animal Name"]).strip().lower())
@@ -1342,33 +1346,27 @@ def run_factoids():
         npat = pd.DataFrame(new_patients, columns=["Month","Pair"]).groupby("Month").size().rename("New Patients")
         core = core.merge(nc, on="Month", how="left").merge(npat, on="Month", how="left").fillna(0)
     
-        # --- Transactions per client/patient
+        # --- Transactions per Client / Patient
         core["Transactions per Client"] = core.apply(lambda r: r["Client Transactions"]/r["Clients Seen"] if r["Clients Seen"] else 0, axis=1)
         core["Transactions per Patient"] = core.apply(lambda r: r["Client Transactions"]/r["Patients Seen"] if r["Patients Seen"] else 0, axis=1)
     
         core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
-      
-        # --- Limit to latest 12 months and add ghost-year equivalents only
-        last_month = core["Month"].max()
-        if pd.notna(last_month):
-            # Define the 12-month window we actually display
-            month_range = pd.period_range(last_month - 11, last_month, freq="M")
-            # Define previous-year equivalents (for ghost bars only)
-            prev_year_range = month_range - 12
-        
-            # Keep both current and previous-year months (up to 24 total)
-            core = core[core["Month"].isin(month_range.union(prev_year_range))]
-        
-            # Drop any *extra* earlier months if something older slipped through
-            core = core[core["Month"].isin(prev_year_range.union(month_range))]
-
         return core.sort_values("Month")
     
-    # --- Compute metrics once
+    # --- Compute and trim for chart
     core_df = st.session_state.get("working_df")
     if core_df is not None and not core_df.empty:
         core_monthly = compute_core_metrics(core_df)
         if not core_monthly.empty:
+            # --- Limit to latest 12 months but keep ghost bars for those
+            last_month = core_monthly["Month"].max()
+            if pd.notna(last_month):
+                current_months = pd.period_range(last_month - 11, last_month, freq="M")
+                ghost_months = current_months - 12
+                keep_months = current_months.union(ghost_months)
+                core_monthly = core_monthly[core_monthly["Month"].isin(keep_months)]
+    
+            # --- Chart selection
             metric_list = [
                 "Revenue","Clients Seen","Patients Seen","Client Transactions",
                 "Revenue per Client","Revenue per Patient","Revenue per Client Transaction",
@@ -1378,28 +1376,28 @@ def run_factoids():
             ]
             sel_core = st.selectbox("Select Core Metric:", metric_list, index=0, key="core_metric_abs")
     
-            # --- Ghost bar calculation (same structure as original chart)
+            # --- Ghost bar mapping (same as patient breakdown)
             core_monthly["Year"] = core_monthly["Month"].dt.year
             core_monthly["MonthNum"] = core_monthly["Month"].dt.month
-            ghost_vals = []
+            ghost_data = []
             for _, r in core_monthly.iterrows():
                 prev = core_monthly[
-                    (core_monthly["Year"] == r["Year"] - 1)
-                    & (core_monthly["MonthNum"] == r["MonthNum"])
+                    (core_monthly["Year"] == r["Year"] - 1) &
+                    (core_monthly["MonthNum"] == r["MonthNum"])
                 ]
                 if not prev.empty:
-                    ghost_vals.append((r["MonthLabel"], prev.iloc[0][sel_core], prev.iloc[0]["Year"]))
+                    ghost_data.append((r["MonthLabel"], prev.iloc[0][sel_core], prev.iloc[0]["Year"]))
     
             merged_core = core_monthly.copy()
             merged_core["PrevValue"] = pd.NA
             merged_core["PrevYear"] = pd.NA
-            for label, val, year in ghost_vals:
-                merged_core.loc[merged_core["MonthLabel"] == label, ["PrevValue","PrevYear"]] = [val, year]
+            for label, val, year in ghost_data:
+                merged_core.loc[merged_core["MonthLabel"] == label, ["PrevValue", "PrevYear"]] = [val, year]
     
             merged_core["has_ghost"] = merged_core["PrevValue"].notna()
             merged_core["MonthOnly"] = merged_core["MonthLabel"].str.split().str[0]
     
-            # --- Chart identical to old one
+            # --- Chart (identical structure to patient chart)
             color = "#60a5fa"
             safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core)
             df_plot = merged_core.rename(columns={sel_core: safe_col})
@@ -1409,7 +1407,8 @@ def run_factoids():
                 .transform_filter("datum.PrevValue != null")
                 .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
                 .encode(
-                    x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
+                    x=alt.X("MonthLabel:N",
+                            sort=df_plot["MonthLabel"].tolist(),
                             axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                     y=alt.Y("PrevValue:Q", title=sel_core, axis=alt.Axis(format=",.0f")),
                     tooltip=[
@@ -1424,7 +1423,8 @@ def run_factoids():
                 alt.Chart(df_plot)
                 .mark_bar(size=20, color=color)
                 .encode(
-                    x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
+                    x=alt.X("MonthLabel:N",
+                            sort=df_plot["MonthLabel"].tolist(),
                             axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                     y=alt.Y(f"{safe_col}:Q", title=sel_core, axis=alt.Axis(format=",.0f")),
                     tooltip=[
@@ -1450,6 +1450,7 @@ def run_factoids():
             st.info("No data available for core metrics.")
     else:
         st.info("Upload data to display Core Metrics.")
+
 
     
     
@@ -1999,6 +2000,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
