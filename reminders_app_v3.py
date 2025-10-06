@@ -1347,6 +1347,12 @@ def run_factoids():
         core["Transactions per Patient"] = core.apply(lambda r: r["Client Transactions"]/r["Patients Seen"] if r["Patients Seen"] else 0, axis=1)
     
         core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
+        # --- Limit to latest 12 months
+        last_month = core["Month"].max()
+        if pd.notna(last_month):
+            month_range = pd.period_range(last_month - 11, last_month, freq="M")
+            core = core[core["Month"].isin(month_range)]
+
         return core.sort_values("Month")
     
     # --- Compute metrics once
@@ -1984,3 +1990,4 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
