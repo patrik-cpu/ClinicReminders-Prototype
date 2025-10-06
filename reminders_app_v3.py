@@ -1597,7 +1597,7 @@ def run_factoids():
                 i += 1
                 if i % 5 == 0 and i < len(keys): cols = st.columns(5)
 
-    cardgroup("⭐ Core", [
+    cardgroup("⭐ Core Metrics", [
         "Total Unique Patients",
         "Max Patients/Day",
         "Avg Patients/Day",
@@ -1687,7 +1687,7 @@ def run_factoids():
     # 📊 Revenue Concentration Curve
     # ============================
     st.markdown("---")
-    st.subheader("📊 Revenue Concentration Curve")
+    st.subheader("📊 Revenue Concentration Curve - {selected_period}")
 
     rev = df.groupby("Client Name", dropna=False)["Amount"].sum().sort_values(ascending=False).reset_index()
     if not rev.empty and rev["Amount"].sum() > 0:
@@ -1797,6 +1797,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
