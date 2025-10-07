@@ -18,11 +18,19 @@ def fetch_feedback_cached(limit=500):
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
 
+# --------------------------------
+# Title
+# --------------------------------
+title_col, tut_col = st.columns([4,1])
+with title_col:
+    st.title("ClinicReminders & Factoids Prototype v5.1 - with password")
+st.markdown("---")
+
 # -----------------------
 # Keyword Definitions
 # -----------------------
 FLEA_WORM_KEYWORDS = [
-    "bravecto", "revolution", "deworm", "de-worm","frontline", "milbe", "milpro","advantix","advocate",
+    "bravecto", "revolution", "deworm","de-worm","frontline", "milbe", "milpro","advantix","advocate",
     "interceptor","stronghold","drontal","frontpro","credelio",
     "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend","popantel","panacur",
     "broadline","profender","comfortis","endecto"
@@ -32,7 +40,7 @@ FLEA_WORM_EXCLUSIONS = ["felv","fiv","antigen","antibody","wild catz","ringworm"
 FOOD_KEYWORDS = [
     "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
     "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
-    "nutro", "pouch", "canned", "wet", "dry", "kibble",
+    "nutro", "pouch", "canned", "wet", "dry", "kibble","fcn","hair & skin","hair&skin"
     "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", 
     "grain", "rc","bhn","vet diet","prescription diet","trovet"
 ]
@@ -76,13 +84,6 @@ DEATH_EXCLUSIONS = []
 NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex","cryptorch","ovariohyst","TNR"]
 NEUTER_EXCLUSIONS = ["adult", "food", "diet", "canin", "purina", "proplan"]
 
-# --------------------------------
-# Patient Visit Keywords (composite)
-# --------------------------------
-# This composite automatically includes all categories that indicate
-# a physical presence in the clinic (procedures, imaging, vaccines, etc.)
-# so it stays in sync even if you later update individual keyword sets.
-
 PATIENT_VISIT_KEYWORDS = (
     XRAY_KEYWORDS
     + ULTRASOUND_KEYWORDS
@@ -106,7 +107,7 @@ PATIENT_VISIT_EXCLUSIONS = (
 # Optionally, add your own custom visit-only indicators here
 PATIENT_VISIT_KEYWORDS += [
     "consult", "exam", "checkup", "check-up","recheck", "re-check","follow-up","follow up",
-    "dentistry", "dental", "scale", "wound", "bandage", "biopsy",
+    "dentistry", "dental", "scale", "wound clean", "bandage", "biopsy","sedation",
     "admit", "discharge", "inpatient", "in patient","in-patient"
 ]
 
@@ -153,14 +154,6 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-# --------------------------------
-# Title
-# --------------------------------
-title_col, tut_col = st.columns([4,1])
-with title_col:
-    st.title("ClinicReminders & Factoids Prototype v5.0 - with password")
-st.markdown("---")
 
 # --------------------------------
 # CSS Styling
@@ -2985,5 +2978,6 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
