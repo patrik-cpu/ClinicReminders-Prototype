@@ -1169,7 +1169,7 @@ if st.session_state["factoids_unlocked"]:
     # -----------------------
     FLEA_WORM_KEYWORDS = [
         "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
-        "nexgard", "simparica", "advocate", "worm", "praz", "fenbend"
+        "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend"
     ]
     FLEA_WORM_EXCLUSIONS = []
 
@@ -1177,9 +1177,9 @@ if st.session_state["factoids_unlocked"]:
         "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
         "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
         "nutro", "pouch", "tin", "can", "canned", "wet", "dry", "kibble",
-        "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", "grain", "rc"
+        "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", "grain", "rc","bhn"
     ]
-    FOOD_EXCLUSIONS = ["caniverm","deworm"]
+    FOOD_EXCLUSIONS = ["caniverm","deworm","caninsulin"]
 
     XRAY_KEYWORDS = ["xray", "x-ray", "radiograph", "radiology"]
     XRAY_EXCLUSIONS = []
@@ -1192,7 +1192,7 @@ if st.session_state["factoids_unlocked"]:
         "chem", "felv", "fiv", "urine", "cytology", "smear", "faecal", "fecal", "microscopic", "slide", "bun",
         "crea", "phos", "cpl", "cpli", "lipase", "amylase", "pancreatic", "cortisol"
     ]
-    LABWORK_EXCLUSIONS = ["cream"]
+    LABWORK_EXCLUSIONS = ["cream","labrador","cremation","enema"]
 
     ANAESTHETIC_KEYWORDS = [
         "anaesthesia", "anesthesia", "spay", "neuter", "castrate", "surgery",
@@ -2681,6 +2681,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
