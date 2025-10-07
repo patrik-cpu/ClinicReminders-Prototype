@@ -1443,17 +1443,8 @@ def run_factoids():
     else:
         st.info("Upload data to display Core Metrics.")
 
-
-
-
-
-
-
-
-    
-
     # ============================
-    # 💵 Revenue Breakdown by Month
+    # 💵 Revenue Breakdown by Month Chart
     # ============================
     st.markdown(
         "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💵 Revenue Breakdown by Month</h4>",
@@ -1599,27 +1590,8 @@ def run_factoids():
     else:
         st.info("Upload data to display Revenue Breakdown by Month.")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
     # ============================
-    # Patirn Breakdown % Chart
+    # Patient Breakdown % Chart
     # ============================
     st.markdown(
         "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
@@ -2096,7 +2068,7 @@ def run_factoids():
         metrics["Patients per Client"] = f"{patients_per_client:.1f}".rstrip("0").rstrip(".")
 
     # ============================
-    # 💰 Revenue
+    # 💰 Revenue Cards
     # ============================
     cardgroup(f"💰 Revenue - {selected_period}", [
         "Total Revenue",
@@ -2105,9 +2077,58 @@ def run_factoids():
         "Revenue per Client Transaction",
         "Revenue per Patient Transaction",
     ])
+
+
+
+
+
+
+
+    
+
+    # ============================
+    # 💵 Revenue Breakdown Cards
+    # ============================
+    if not df.empty:
+        # --- Compute revenue breakdowns for the currently selected period ---
+        FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
+        FOOD_RX = _rx(FOOD_KEYWORDS)
+        LAB_RX = _rx(LABWORK_KEYWORDS)
+        ULTRA_RX = _rx(ULTRASOUND_KEYWORDS)
+        XRAY_RX = _rx(XRAY_KEYWORDS)
+    
+        def _sum_revenue(rx):
+            mask = df["Item Name"].astype(str).str.contains(rx, na=False)
+            return df.loc[mask, "Amount"].sum()
+    
+        total_revenue = df["Amount"].sum()
+    
+        breakdown = {
+            "Revenue from Flea/Worm (Total & %)": _sum_revenue(FLEA_RX),
+            "Revenue from Food (Total & %)": _sum_revenue(FOOD_RX),
+            "Revenue from Lab Work (Total & %)": _sum_revenue(LAB_RX),
+            "Revenue from Ultrasounds (Total & %)": _sum_revenue(ULTRA_RX),
+            "Revenue from X-rays (Total & %)": _sum_revenue(XRAY_RX),
+        }
+    
+        # --- Format and store in metrics dict ---
+        for k, v in breakdown.items():
+            pct = (v / total_revenue * 100) if total_revenue > 0 else 0
+            metrics[k] = f"{int(v):,} ({pct:.1f}%)"
+    
+        # --- Sort alphabetically and display as card group ---
+        ordered_keys = sorted(breakdown.keys(), key=str.lower)
+        cardgroup(f"💵 Revenue Breakdown - {selected_period}", ordered_keys)
+
+
+
+
+
+
+
     
     # ============================
-    # 👥 Clients & Patients
+    # 👥 Clients & Patients Cards
     # ============================
     cardgroup(f"👥 Clients & Patients - {selected_period}", [
         "Unique Clients Seen",
@@ -2120,7 +2141,7 @@ def run_factoids():
     ])
     
     # ============================
-    # 🔁 Transactions
+    # 🔁 Transactions Cards
     # ============================
     cardgroup(f"🔁 Transactions - {selected_period}", [
         "Number of Client Transactions",
@@ -2326,6 +2347,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
