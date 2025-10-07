@@ -1660,19 +1660,14 @@ if st.session_state["factoids_unlocked"]:
                     .rename(columns={sel_core_rev: "PrevValue"})
                 )
                 
-                # --- Ghost Moving Average Line (3-mo trailing; now actually uses the pre-seeded data)
+                # --- Ghost Moving Average Line (3-mo trailing; extended math window if >24 months exist)
+                extra_months = 2 if len(core_monthly["Month"].unique()) > 24 else 0
+                
                 ma_line_ghost = (
-                    alt.Chart(ghost_ma_src)
+                    alt.Chart(df_plot)
                     .transform_window(
                         ghost_rolling_mean="mean(PrevValue)",
-                        frame=[-2, 0]  # same 3-month trailing average
-                    )
-                    # only draw points for the 12 visible ghost months
-                    .transform_filter(
-                        alt.FieldOneOfPredicate(
-                            field="MonthLabel",
-                            oneOf=[m.strftime("%b %Y") for m in [m - 12 for m in current_12]],
-                        )
+                        frame=[-2 - extra_months, 0]  # widen look-back window by 2 months if history exists
                     )
                     .mark_line(color=color, size=2.0, opacity=0.3)
                     .encode(
@@ -1684,6 +1679,7 @@ if st.session_state["factoids_unlocked"]:
                         ],
                     )
                 )
+
 
 
 
@@ -3023,6 +3019,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
