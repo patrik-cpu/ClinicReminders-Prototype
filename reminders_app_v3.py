@@ -2228,9 +2228,17 @@ if st.session_state["factoids_unlocked"]:
             # ---- Derived ratios
             rev_per_client = total_revenue / unique_clients if unique_clients else 0
             rev_per_patient = total_revenue / unique_patients if unique_patients else 0
-            rev_per_tx = total_revenue / client_transactions if client_transactions else 0
+            rev_per_client_tx = total_revenue / client_transactions if client_transactions else 0
+            
+            # --- Calculate patient visits (physical presence)
+            df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
+            patient_visits = int(df["VisitFlag"].sum())
+            
+            rev_per_patient_visit = total_revenue / patient_visits if patient_visits else 0
+            
             tx_per_client = round(client_transactions / unique_clients, 1) if unique_clients else 0
-            tx_per_patient = round(patient_transactions / unique_patients, 1) if unique_patients else 0
+            visits_per_patient = round(patient_visits / unique_patients, 1) if unique_patients else 0
+
         
             # ---- New Clients / Patients (based on first-ever appearance in full dataset)
             # Prepare global, cleaned, normalized dataset (so we can check full-history appearances)
@@ -2293,7 +2301,7 @@ if st.session_state["factoids_unlocked"]:
             metrics["Revenue per Client"] = f"{rev_per_client:,.0f}"
             metrics["Revenue per Patient"] = f"{rev_per_patient:,.0f}"
             metrics["Revenue per Client Transaction"] = f"{rev_per_tx:,.0f}"
-            metrics["Revenue per Patient Transaction"] = f"{rev_per_tx:,.0f}"
+            metrics["Revenue per Patient Visit"] = f"{rev_per_tx:,.0f}"
             metrics["Transactions per Client"] = f"{tx_per_client:.1f}".rstrip("0").rstrip(".")
             metrics["Transactions per Patient"] = f"{tx_per_patient:.1f}".rstrip("0").rstrip(".")
             metrics["Patients per Client"] = f"{patients_per_client:.1f}".rstrip("0").rstrip(".")
@@ -2306,7 +2314,7 @@ if st.session_state["factoids_unlocked"]:
             "Revenue per Client",
             "Revenue per Patient",
             "Revenue per Client Transaction",
-            "Revenue per Patient Transaction",
+            "Revenue per Patient Visit",
         ])
     
         # ============================
@@ -2738,6 +2746,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
