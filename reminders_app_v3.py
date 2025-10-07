@@ -1749,6 +1749,11 @@ def run_factoids():
     elif selected_period == "YTD":
         start_date = pd.Timestamp(year=latest_date.year, month=1, day=1)
         df = df[df["ChargeDate"] >= start_date]
+    # --- Dynamic YTD titling
+    if selected_period == "YTD":
+        start_str = start_date.strftime("%d %b %Y")
+        end_str = latest_date.strftime("%d %b %Y")
+        selected_period = f"YTD: {start_str} → {end_str}"
 
     # Recompute everything below (cards, breakdown, tables) using filtered df
     df_blocked, tx_client, tx_patient, patients_per_month = prepare_factoids_data(df)
@@ -2078,14 +2083,6 @@ def run_factoids():
         "Revenue per Patient Transaction",
     ])
 
-
-
-
-
-
-
-    
-
     # ============================
     # 💵 Revenue Breakdown Cards
     # ============================
@@ -2120,13 +2117,6 @@ def run_factoids():
         ordered_keys = sorted(breakdown.keys(), key=str.lower)
         cardgroup(f"💵 Revenue Breakdown - {selected_period}", ordered_keys)
 
-
-
-
-
-
-
-    
     # ============================
     # 👥 Clients & Patients Cards
     # ============================
@@ -2347,6 +2337,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
