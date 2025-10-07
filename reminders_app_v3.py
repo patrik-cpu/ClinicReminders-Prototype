@@ -1475,7 +1475,7 @@ if st.session_state["factoids_unlocked"]:
             core["Revenue per Client"] = core.apply(
                 lambda r: r["Total Revenue"] / r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1
             )
-            core["Revenue per Patient"] = core.apply(
+            core["Revenue per Visiting Patient"] = core.apply(
                 lambda r: r["Total Revenue"] / r["Unique Patient Visits"] if r["Unique Patient Visits"] else 0, axis=1
             )
             core["Revenue per Client Transaction"] = core.apply(
@@ -1542,7 +1542,7 @@ if st.session_state["factoids_unlocked"]:
                 )
         
                 metric_list_rev_tx = [
-                    "Total Revenue", "Revenue per Client", "Revenue per Patient",
+                    "Total Revenue", "Revenue per Client", "Revenue per Visiting Patient",
                     "Revenue per Client Transaction", "Revenue per Patient Visit",
                     "Transactions per Client"
                 ]
@@ -2381,7 +2381,7 @@ if st.session_state["factoids_unlocked"]:
                 
             # ---- Derived ratios
             rev_per_client = total_revenue / unique_clients if unique_clients else 0
-            rev_per_patient = total_revenue / unique_patients if unique_patients else 0
+            rev_per_visiting_patient = total_revenue / unique_patient_visits if unique_patient_visits else 0
             rev_per_client_tx = total_revenue / client_transactions if client_transactions else 0
             
             # --- Calculate patient visits (physical presence)
@@ -2487,7 +2487,7 @@ if st.session_state["factoids_unlocked"]:
             metrics["Number of Client Transactions"] = f"{client_transactions:,}"
             metrics["Number of Patient Visits"] = f"{patient_visits:,}"
             metrics["Revenue per Client"] = f"{rev_per_client:,.0f}"
-            metrics["Revenue per Patient"] = f"{rev_per_patient:,.0f}"
+            metrics["Revenue per Visiting Patient"] = f"{rev_per_patient:,.0f}"
             metrics["Revenue per Client Transaction"] = f"{rev_per_client_tx:,.0f}"
             metrics["Revenue per Patient Visit"] = f"{rev_per_patient_visit:,.0f}"
             metrics["Transactions per Client"] = f"{tx_per_client:.1f}".rstrip("0").rstrip(".")
@@ -2500,7 +2500,7 @@ if st.session_state["factoids_unlocked"]:
         cardgroup(f"💰 Revenue - {selected_period}", [
             "Total Revenue",
             "Revenue per Client",
-            "Revenue per Patient",
+            "Revenue per Visiting Patient",
             "Revenue per Client Transaction",
             "Revenue per Patient Visit",
         ])
@@ -2934,6 +2934,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
