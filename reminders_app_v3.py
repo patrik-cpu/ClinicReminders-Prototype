@@ -1502,9 +1502,9 @@ if st.session_state["factoids_unlocked"]:
             if not core_monthly.empty:
                 metric_list = [
                     "Total Revenue", "Unique Clients Seen", "Unique Patients Seen",
-                    "Client Transactions", "Patient Transactions",
+                    "Client Transactions", "Patient Visits",
                     "Revenue per Client", "Revenue per Patient",
-                    "Revenue per Client Transaction", "Revenue per Patient Transaction",
+                    "Revenue per Client Transaction", "Revenue per Patient Visit",
                     "New Clients", "New Patients",
                     "Transactions per Client", "Transactions per Patient", "Deaths", "Neuters"
                 ]
@@ -2738,6 +2738,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
