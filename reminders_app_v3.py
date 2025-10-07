@@ -1605,13 +1605,33 @@ if st.session_state["factoids_unlocked"]:
                     )
                     .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
-        
-                chart_rev_tx = (
-                    alt.layer(ghost, current)
-                    .resolve_scale(y="shared")
-                    .properties(height=400, width=700,
-                                title=f"{sel_core_rev} per Month (with previous-year ghost bars)")
+                # --- Moving Average Line (3-month rolling mean)
+                ma_line = (
+                    alt.Chart(df_plot)
+                    .transform_window(
+                        rolling_mean=f"mean({safe_col})",
+                        frame=[-2, 0]  # 3-month trailing moving average (including current)
+                    )
+                    .mark_line(color=color, size=2.5)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist()),
+                        y=alt.Y("rolling_mean:Q"),
+                        tooltip=[
+                            alt.Tooltip("MonthOnly:N", title="Month"),
+                            alt.Tooltip("rolling_mean:Q", title="3-mo Moving Avg", format=y_fmt),
+                        ],
+                    )
                 )
+
+                chart_rev_tx = (
+                    alt.layer(ghost, current, ma_line)
+                    .resolve_scale(y="shared")
+                    .properties(
+                        height=400, width=700,
+                        title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
+                    )
+                )
+
                 st.altair_chart(chart_rev_tx, use_container_width=True)
         
                 # ---------------------------
@@ -2933,6 +2953,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
