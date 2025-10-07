@@ -2365,7 +2365,7 @@ if st.session_state["factoids_unlocked"]:
                 new_patients = unique_patients
                 
             # --- Compute patients per client
-            patients_per_client = round(unique_patients / unique_clients, 1) if unique_clients else 0
+            patient_visits_per_client = round(patient_visits / unique_clients, 1) if unique_clients else 0
     
             # ---- Add results to metrics dict (will display in cardgroup)
             metrics["New Clients"] = f"{new_clients:,}"
@@ -2388,7 +2388,7 @@ if st.session_state["factoids_unlocked"]:
             metrics["Revenue per Patient Visit"] = f"{rev_per_patient_visit:,.0f}"
             metrics["Transactions per Client"] = f"{tx_per_client:.1f}".rstrip("0").rstrip(".")
             metrics["Visits per Patient"] = f"{visits_per_patient:.1f}".rstrip("0").rstrip(".")
-            metrics["Patients per Client"] = f"{patients_per_client:.1f}".rstrip("0").rstrip(".")
+            metrics["Patient Visits per Client"] = f"{patient_visits_per_client:.1f}".rstrip("0").rstrip(".")
     
         # ============================
         # 💰 Revenue Cards
@@ -2436,7 +2436,7 @@ if st.session_state["factoids_unlocked"]:
         cardgroup(f"👥 Clients & Patients - {selected_period}", [
             "Unique Clients Seen",
             "Unique Patient Visits",
-            "Patients per Client",
+            "Patient Visits per Client",
             "Max Patient Visits",
             "Avg Patient Visits/Day",
             "New Clients",
@@ -2830,6 +2830,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
