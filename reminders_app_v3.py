@@ -1707,8 +1707,13 @@ if st.session_state["factoids_unlocked"]:
                     lambda m: (m - 12).year if (m - 12) in metric_by_month.index else pd.NA)
                 core_current["MonthOnly"] = core_current["MonthLabel"].str.split().str[0]
                 core_current["has_ghost"] = core_current["PrevValue"].notna()
-                
+
+                palette = [
+                    "#fb7185", "#93c5fd", "#22d3ee", "#fbbf24", "#a5b4fc",
+                    "#f97316", "#60a5fa", "#4ade80", "#facc15",
+                ]
                 color = palette[metric_list_cp.index(sel_core_cp) % len(palette)]
+                
                 y_fmt = ",.0f"
                 safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core_cp)
                 df_plot = core_current.rename(columns={sel_core_cp: safe_col}).copy()
@@ -1852,7 +1857,7 @@ if st.session_state["factoids_unlocked"]:
                 last_m = rev_all["Month"].max()
                 current_12 = pd.period_range(last_m - 11, last_m, freq="M")
                 rev_current = rev_all[rev_all["Month"].isin(current_12)].copy()
-    
+        
                 metrics = [
                     "Revenue from Flea/Worm",
                     "Revenue from Flea/Worm (% of total)",
@@ -1867,31 +1872,24 @@ if st.session_state["factoids_unlocked"]:
                     "Revenue from X-rays",
                     "Revenue from X-rays (% of total)",
                 ]
-    
+        
                 sel = st.selectbox("Select Revenue Metric:", metrics, index=0, key="rev_breakdown_metric")
-    
-                # --- Add ghost-year overlay
+        
                 metric_series = rev_all.set_index("Month")[sel]
                 rev_current["PrevValue"] = rev_current["Month"].apply(lambda m: metric_series.get(m - 12, pd.NA))
                 rev_current["PrevYear"] = rev_current["Month"].apply(
                     lambda m: (m - 12).year if (m - 12) in metric_series.index else pd.NA)
                 rev_current["MonthOnly"] = rev_current["MonthLabel"].str.split().str[0]
                 rev_current["has_ghost"] = rev_current["PrevValue"].notna()
-    
-                # --- chart appearance
-                palette = [
-                    "#4ade80", "#facc15", "#fbbf24", "#a5b4fc", "#93c5fd",
-                    "#fb7185", "#60a5fa", "#f97316", "#fbbf24", "#a5b4fc"
-                ]
+        
                 color = palette[metrics.index(sel) % len(palette)]
-    
                 is_pct = "(% of total)" in sel
                 y_fmt = ".1%" if is_pct else ",.0f"
                 y_title = "% of Total" if is_pct else "Revenue (AED)"
                 safe = re.sub(r"[^A-Za-z0-9_]", "_", sel)
                 df_plot = rev_current.rename(columns={sel: safe}).copy()
-    
-                # --- ghost & current bars
+        
+                # --- Ghost bars
                 ghost = (
                     alt.Chart(df_plot)
                     .transform_filter("datum.PrevValue != null")
@@ -1907,7 +1905,8 @@ if st.session_state["factoids_unlocked"]:
                         ],
                     )
                 )
-    
+        
+                # --- Current bars
                 current = (
                     alt.Chart(df_plot)
                     .mark_bar(size=20, color=color)
@@ -1923,21 +1922,54 @@ if st.session_state["factoids_unlocked"]:
                     )
                     .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
-    
+        
+                # --- Add 3-mo MA & Ghost MA (exact same as chart 1)
+                first_current = current_12[0]
+                seed_months = pd.period_range(first_current - 2, first_current - 1, freq="M")
+                df_ma_seed_src = rev_all[rev_all["Month"].isin(list(seed_months) + list(current_12))].copy()
+                df_ma_seed_src = df_ma_seed_src[["Month", "MonthLabel", sel]].rename(columns={sel: "Value"})
+                allowed_labels = df_plot["MonthLabel"].tolist()
+        
+                ma_line = (
+                    alt.Chart(df_ma_seed_src)
+                    .transform_window(rolling_mean="mean(Value)", frame=[-2, 0])
+                    .transform_filter(alt.FieldOneOfPredicate(field="MonthLabel", oneOf=allowed_labels))
+                    .mark_line(color=color, size=2.5)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=allowed_labels),
+                        y=alt.Y("rolling_mean:Q"),
+                        tooltip=[
+                            alt.Tooltip("MonthLabel:N", title="Month"),
+                            alt.Tooltip("rolling_mean:Q", title="3-mo Moving Avg", format=y_fmt),
+                        ],
+                    )
+                )
+        
+                ma_line_ghost = (
+                    alt.Chart(df_plot)
+                    .transform_window(ghost_rolling_mean="mean(PrevValue)", frame=[-2, 0])
+                    .mark_line(color=color, size=2.0, opacity=0.3)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist()),
+                        y=alt.Y("ghost_rolling_mean:Q"),
+                        tooltip=[
+                            alt.Tooltip("MonthOnly:N", title="Month"),
+                            alt.Tooltip("ghost_rolling_mean:Q", title="Ghost 3-mo Moving Avg", format=y_fmt),
+                        ],
+                    )
+                )
+        
                 chart = (
-                    alt.layer(ghost, current)
+                    alt.layer(ghost, current, ma_line, ma_line_ghost)
                     .resolve_scale(y="shared")
                     .properties(
                         height=400,
                         width=700,
-                        title=f"{sel} by Month (with previous-year ghost bars)"
+                        title=f"{sel} by Month (with previous-year ghost bars + 3-mo moving average)"
                     )
                 )
                 st.altair_chart(chart, use_container_width=True)
-            else:
-                st.info("No data available for revenue breakdown.")
-        else:
-            st.info("Upload data to display Revenue Breakdown by Month.")
+
 
     
         # ============================
@@ -3037,6 +3069,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
