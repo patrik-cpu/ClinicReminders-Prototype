@@ -2161,7 +2161,7 @@ if st.session_state["factoids_unlocked"]:
             i = 0
             for k in keys:
                 if k in metrics:
-                    v = metrics[k]; fs = _fs(v); bg = "#f1f5f9" if "Total" not in k else "#dbeafe"
+                    v = metrics[k]; fs = _fs(v); bg = "#f1f5f9"
                     cols[i % 5].markdown(CARD_STYLE.format(bg=bg,label=k,val=v,fs=fs),unsafe_allow_html=True)
                     i += 1
                     if i % 5 == 0 and i < len(keys): cols = st.columns(5)
@@ -2750,6 +2750,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
