@@ -1402,16 +1402,38 @@ if st.session_state["factoids_unlocked"]:
             df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
             df["Month"] = df["ChargeDate"].dt.to_period("M")
         
-            # --- Base monthly metrics
+            # --- Base monthly metrics (now using physical visits)
             g = df.groupby("Month")
             core = pd.DataFrame({
                 "Total Revenue": g["Amount"].sum(),
                 "Unique Clients Seen": g["Client Name"].nunique(),
-                "Unique Patients Seen": g.apply(
-                    lambda x: x.drop_duplicates(subset=["Client Name", "Animal Name"]).shape[0]
-                ),
             }).reset_index()
-        
+            
+            # --- Add Unique Patient Visits (distinct patient-visit pairs)
+            df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
+            vis = df[df["VisitFlag"]].copy()
+            vis["ClientKey"] = (
+                vis["Client Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True)
+                .str.strip().str.replace(r"\s+", " ", regex=True)
+            )
+            vis["AnimalKey"] = (
+                vis["Animal Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True)
+                .str.strip().str.replace(r"\s+", " ", regex=True)
+            )
+            
+            vis["Month"] = vis["ChargeDate"].dt.to_period("M")
+            
+            unique_patient_visits = (
+                vis.dropna(subset=["ClientKey", "AnimalKey"])
+                   .drop_duplicates(subset=["ClientKey", "AnimalKey"])
+                   .groupby("Month").size().rename("Unique Patient Visits")
+            )
+            
+            core = core.merge(unique_patient_visits, on="Month", how="left").fillna({"Unique Patient Visits": 0})
+            core["Unique Patient Visits"] = core["Unique Patient Visits"].astype(int)
+
             # --- Transactions (client-level only)
             _, tx_client, tx_patient, _ = prepare_factoids_data(df)
         
@@ -1521,7 +1543,7 @@ if st.session_state["factoids_unlocked"]:
             core_monthly = compute_core_metrics(core_df)
             if not core_monthly.empty:
                 metric_list = [
-                    "Total Revenue", "Unique Clients Seen", "Unique Patients Seen",
+                    "Total Revenue", "Unique Clients Seen", "Unique Patient Visits",
                     "Client Transactions", "Patient Visits",
                     "Revenue per Client", "Revenue per Patient",
                     "Revenue per Client Transaction", "Revenue per Patient Visit",
@@ -2847,6 +2869,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
