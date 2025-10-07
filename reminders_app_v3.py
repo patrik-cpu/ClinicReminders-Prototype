@@ -1669,6 +1669,11 @@ if st.session_state["factoids_unlocked"]:
                         title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
                     )
                 )
+
+                # Prevent accidental double render in Streamlit reruns
+                if "rev_chart_rendered" in st.session_state:
+                    st.session_state.pop("rev_chart_rendered")
+                st.session_state["rev_chart_rendered"] = True
                 
                 st.altair_chart(chart_rev_tx, use_container_width=True)
 
@@ -3012,6 +3017,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
