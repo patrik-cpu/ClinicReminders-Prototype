@@ -48,7 +48,7 @@ st.sidebar.markdown(
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders Prototype v4.3 (with Factoids!)")
+    st.title("ClinicReminders Prototype v5.0 with Password Factoids
 st.markdown("---")
 
 # --------------------------------
@@ -2460,3 +2460,4 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
