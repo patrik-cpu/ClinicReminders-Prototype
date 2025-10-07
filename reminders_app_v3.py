@@ -23,9 +23,9 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 # -----------------------
 FLEA_WORM_KEYWORDS = [
     "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
-    "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend"
+    "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend","popantel","panacur"
 ]
-FLEA_WORM_EXCLUSIONS = ["felv","fiv","antigen","antibody","wild catz"]
+FLEA_WORM_EXCLUSIONS = ["felv","fiv","antigen","antibody","wild catz","ringworm"]
 
 FOOD_KEYWORDS = [
     "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
@@ -49,7 +49,7 @@ LABWORK_KEYWORDS = [
     "chem", "felv", "fiv", "urine", "cytology", "smear", "faecal", "fecal", "microscopic", "slide", "bun",
     "crea", "phosphate", "cpl", "cpli", "lipase", "amylase", "pancreatic", "cortisol"
 ]
-LABWORK_EXCLUSIONS = ["cream","labrador","cremation","enema"]
+LABWORK_EXCLUSIONS = ["cream","labrador","cremation","enema","prednisolone"]
 
 ANAESTHETIC_KEYWORDS = [
     "anaesthesia", "anesthesia", "spay", "neuter", "castrate", "surgery",
@@ -64,7 +64,7 @@ VACCINE_KEYWORDS = [
     "vaccine", "vaccination", "booster", "rabies", "dhpp", "dhppil", "tricat",
     "pch", "pcl", "leukemia", "kennel cough"
 ]
-VACCINE_EXCLUSIONS = ["test", "titre", "antibody","bites"]
+VACCINE_EXCLUSIONS = ["test", "titre", "antibody","bites","book"]
 
 DEATH_KEYWORDS = ["euthanasia", "pentobarb", "cremation", "burial", "disposal"]
 DEATH_EXCLUSIONS = []
@@ -2683,6 +2683,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
