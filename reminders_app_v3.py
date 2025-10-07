@@ -1138,7 +1138,7 @@ def fetch_feedback(limit=500):
 st.markdown("<div id='factoids' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 📊 Factoids")
 
-# Simple password gate — hides all content until unlocked
+# --- Simple password gate — hides all content until unlocked
 if "factoids_unlocked" not in st.session_state:
     st.session_state["factoids_unlocked"] = False
 
@@ -1161,7 +1161,8 @@ if not st.session_state["factoids_unlocked"]:
             st.rerun()
         else:
             st.error("❌ Incorrect password. Please try again.")
-else:
+
+if st.session_state["factoids_unlocked"]:
     # -----------------------
     # Keyword Definitions
     # -----------------------
@@ -2463,3 +2464,4 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
