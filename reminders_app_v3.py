@@ -2378,11 +2378,6 @@ if st.session_state["factoids_unlocked"]:
             else:
                 client_transactions = 0
                 patient_transactions = 0
-                
-            # ---- Derived ratios
-            rev_per_client = total_revenue / unique_clients if unique_clients else 0
-            rev_per_visiting_patient = total_revenue / unique_patient_visits if unique_patient_visits else 0
-            rev_per_client_tx = total_revenue / client_transactions if client_transactions else 0
             
             # --- Calculate patient visits (physical presence)
             df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
@@ -2403,18 +2398,22 @@ if st.session_state["factoids_unlocked"]:
             
             # Distinct counts
             patient_visits = (
-                visits_df.dropna(subset=["ClientKey","AnimalKey","VisitDate"])
-                         .drop_duplicates(subset=["ClientKey","AnimalKey","VisitDate"])
+                visits_df.dropna(subset=["ClientKey", "AnimalKey", "VisitDate"])
+                         .drop_duplicates(subset=["ClientKey", "AnimalKey", "VisitDate"])
                          .shape[0]
             )
             unique_patient_visits = (
-                visits_df.dropna(subset=["ClientKey","AnimalKey"])
-                         .drop_duplicates(subset=["ClientKey","AnimalKey"])
+                visits_df.dropna(subset=["ClientKey", "AnimalKey"])
+                         .drop_duplicates(subset=["ClientKey", "AnimalKey"])
                          .shape[0]
             )
             
-            # Derived
+            # ---- Derived ratios
+            rev_per_client = total_revenue / unique_clients if unique_clients else 0
+            rev_per_visiting_patient = total_revenue / unique_patient_visits if unique_patient_visits else 0
+            rev_per_client_tx = total_revenue / client_transactions if client_transactions else 0
             rev_per_patient_visit = total_revenue / patient_visits if patient_visits else 0
+            
             tx_per_client = round(client_transactions / unique_clients, 1) if unique_clients else 0
             visits_per_patient = round(patient_visits / unique_patient_visits, 1) if unique_patient_visits else 0
 
@@ -2934,6 +2933,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
