@@ -1443,6 +1443,182 @@ def run_factoids():
     else:
         st.info("Upload data to display Core Metrics.")
 
+
+
+
+
+
+
+
+    
+
+    # ============================
+    # 💵 Revenue Breakdown by Month
+    # ============================
+    st.markdown(
+        "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💵 Revenue Breakdown by Month</h4>",
+        unsafe_allow_html=True
+    )
+    
+    @st.cache_data(show_spinner=False)
+    def compute_revenue_breakdown(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return pd.DataFrame()
+    
+        df = df.copy()
+        df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+        df["Month"] = df["ChargeDate"].dt.to_period("M")
+    
+        # Keyword regexes (reuse same patterns)
+        FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
+        FOOD_RX = _rx(FOOD_KEYWORDS)
+        LAB_RX = _rx(LABWORK_KEYWORDS)
+        ULTRA_RX = _rx(ULTRASOUND_KEYWORDS)
+        XRAY_RX = _rx(XRAY_KEYWORDS)
+    
+        # Compute revenue per month for each category
+        def _sum_revenue(rx):
+            mask = df["Item Name"].astype(str).str.contains(rx, na=False)
+            return df.loc[mask].groupby("Month")["Amount"].sum()
+    
+        flea = _sum_revenue(FLEA_RX)
+        food = _sum_revenue(FOOD_RX)
+        lab = _sum_revenue(LAB_RX)
+        ultra = _sum_revenue(ULTRA_RX)
+        xray = _sum_revenue(XRAY_RX)
+    
+        total = df.groupby("Month")["Amount"].sum()
+        merged = pd.DataFrame({
+            "Total": total,
+            "Flea/Worm": flea,
+            "Food": food,
+            "Lab Work": lab,
+            "Ultrasounds": ultra,
+            "X-rays": xray
+        }).fillna(0)
+    
+        # Add percent columns
+        for col in ["Flea/Worm", "Food", "Lab Work", "Ultrasounds", "X-rays"]:
+            merged[f"{col} (%)"] = merged[col] / merged["Total"]
+    
+        merged["MonthLabel"] = merged.index.strftime("%b %Y")
+        merged["Year"] = merged.index.year
+        return merged.reset_index()
+    
+    # ---- Compute for working data
+    rev_df = st.session_state.get("working_df")
+    if rev_df is not None and not rev_df.empty:
+        rev_monthly = compute_revenue_breakdown(rev_df)
+        if not rev_monthly.empty:
+            last_m = rev_monthly["Month"].max()
+            current_12 = pd.period_range(last_m - 11, last_m, freq="M")
+            rev_current = rev_monthly[rev_monthly["Month"].isin(current_12)].copy()
+    
+            # Build long-form table for Altair
+            melted = rev_current.melt(
+                id_vars=["Month","MonthLabel","Year"],
+                value_vars=["Flea/Worm","Food","Lab Work","Ultrasounds","X-rays"],
+                var_name="Category", value_name="Revenue"
+            )
+    
+            # Add ghost values (previous year)
+            total_by_month = rev_monthly.set_index("Month")["Total"]
+            ghost_lookup = rev_monthly.set_index("Month")[["Flea/Worm","Food","Lab Work","Ultrasounds","X-rays"]]
+    
+            melted["PrevValue"] = melted.apply(
+                lambda r: ghost_lookup.loc[r["Month"] - 12, r["Category"]]
+                if (r["Month"] - 12) in ghost_lookup.index else pd.NA,
+                axis=1
+            )
+            melted["PrevYear"] = melted.apply(
+                lambda r: (r["Month"] - 12).year if (r["Month"] - 12) in ghost_lookup.index else pd.NA,
+                axis=1
+            )
+            melted["MonthOnly"] = melted["MonthLabel"].str.split().str[0]
+            melted["has_ghost"] = melted["PrevValue"].notna()
+    
+            # Color palette (consistent with your earlier charts)
+            palette = {
+                "Flea/Worm": "#4ade80",
+                "Food": "#facc15",
+                "Lab Work": "#fbbf24",
+                "Ultrasounds": "#a5b4fc",
+                "X-rays": "#93c5fd",
+            }
+    
+            chart_layers = []
+            for cat, color in palette.items():
+                sub = melted[melted["Category"] == cat]
+                ghost = (
+                    alt.Chart(sub)
+                    .transform_filter("datum.PrevValue != null")
+                    .mark_bar(size=18, color=color, opacity=0.3, xOffset=-15)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=sub["MonthLabel"].tolist(),
+                                axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                        y=alt.Y("PrevValue:Q", title="Revenue (AED)", axis=alt.Axis(format=",.0f")),
+                        tooltip=[
+                            alt.Tooltip("Category:N", title="Category"),
+                            alt.Tooltip("PrevYear:O", title="Year"),
+                            alt.Tooltip("MonthOnly:N", title="Month"),
+                            alt.Tooltip("PrevValue:Q", title="Revenue (AED)", format=",.0f"),
+                        ]
+                    )
+                )
+                current = (
+                    alt.Chart(sub)
+                    .mark_bar(size=18, color=color)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=sub["MonthLabel"].tolist(),
+                                axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                        y=alt.Y("Revenue:Q", title="Revenue (AED)", axis=alt.Axis(format=",.0f")),
+                        tooltip=[
+                            alt.Tooltip("Category:N", title="Category"),
+                            alt.Tooltip("Year:O", title="Year"),
+                            alt.Tooltip("MonthOnly:N", title="Month"),
+                            alt.Tooltip("Revenue:Q", title="Revenue (AED)", format=",.0f"),
+                        ]
+                    )
+                    .transform_calculate(xOffset="datum.has_ghost ? 15 : 0")
+                )
+                chart_layers.append(ghost)
+                chart_layers.append(current)
+    
+            chart_rev = (
+                alt.layer(*chart_layers)
+                .resolve_scale(y="shared")
+                .properties(
+                    height=400,
+                    width=700,
+                    title="Revenue Breakdown by Month (with previous-year ghost bars)"
+                )
+            )
+    
+            st.altair_chart(chart_rev, use_container_width=True)
+        else:
+            st.info("No data available for revenue breakdown.")
+    else:
+        st.info("Upload data to display Revenue Breakdown by Month.")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+    # ============================
+    # Patirn Breakdown % Chart
+    # ============================
     st.markdown(
         "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
         unsafe_allow_html=True
@@ -2148,5 +2324,6 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
