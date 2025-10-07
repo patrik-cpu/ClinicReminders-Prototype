@@ -1642,10 +1642,26 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
 
+                # --- Extend ghost MA with pre-seed months if >24 months exist
+                if len(core_monthly["Month"].unique()) > 24:
+                    # take 2 months before the first ghost month (so ghost line starts smoothly)
+                    first_ghost_month = current_12[0] - 12  # 12 months back from first current month
+                    pre_seed_months = pd.period_range(first_ghost_month - 2, first_ghost_month - 1, freq="M")
+                
+                    # build a df including those 2 extra seed months + the visible ghost months
+                    ghost_seed_src = core_monthly[
+                        core_monthly["Month"].isin(list(pre_seed_months) + [m - 12 for m in current_12])
+                    ].copy()
+                else:
+                    # just use visible months if we don't have enough history
+                    ghost_seed_src = core_monthly.copy()
+                
+                # narrow to necessary columns and rename for clarity
+                ghost_seed_src = ghost_seed_src[["Month", "MonthLabel", sel_core_rev]].rename(columns={sel_core_rev: "PrevValue"})
 
-                # --- Ghost Moving Average Line (simple + safe)
+                # --- Ghost Moving Average Line (pre-seeded if >24 months)
                 ma_line_ghost = (
-                    alt.Chart(df_plot)
+                    alt.Chart(ghost_seed_src)
                     .transform_window(
                         ghost_rolling_mean="mean(PrevValue)",
                         frame=[-2, 0]  # same 3-month trailing window
@@ -2994,6 +3010,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
