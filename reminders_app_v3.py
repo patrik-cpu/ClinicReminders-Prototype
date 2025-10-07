@@ -1990,7 +1990,7 @@ if st.session_state["factoids_unlocked"]:
             choice_key: str,
             conf: dict
         ) -> pd.DataFrame:
-            """Returns a monthly time series with UniquePatients, TotalPatientsMonth, Percent, and shifted prev-year columns."""
+            """Original working logic."""
             if df_blocked.empty:
                 return pd.DataFrame()
         
@@ -1999,7 +1999,6 @@ if st.session_state["factoids_unlocked"]:
             d["Month"] = d["ChargeDate"].dt.to_period("M")
             all_months = pd.period_range(d["Month"].min(), d["Month"].max(), freq="M")
         
-            # Mask rows for selected category
             if "custom" in conf:
                 mask = d["Item Name"].astype(str).str.contains(conf["custom"], na=False)
             else:
@@ -2031,7 +2030,6 @@ if st.session_state["factoids_unlocked"]:
                 )
                 out = cat_monthly.reset_index().rename(columns={"index": "Month"})
         
-            # Prev-year values via vectorized 12-step shift
             out["PrevUniquePatients"] = out["UniquePatients"].shift(12, fill_value=pd.NA)
             out["PrevTotalPatients"]  = out["TotalPatientsMonth"].shift(12, fill_value=pd.NA)
             out["PrevPercent"]        = out["Percent"].shift(12, fill_value=pd.NA)
@@ -2089,7 +2087,7 @@ if st.session_state["factoids_unlocked"]:
                 .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
             )
         
-            # --- MA + Ghost MA
+            # --- Moving averages
             df_ma_seed_src = merged[["MonthLabel","Percent"]].rename(columns={"Percent":"Value"}).copy()
             allowed_labels = merged["MonthLabel"].tolist()
         
@@ -2122,7 +2120,7 @@ if st.session_state["factoids_unlocked"]:
                 )
             )
         
-            # --- Combine + Title + Stable Dimensions
+            # --- Combine + stable sizing
             chart = (
                 alt.layer(ghost, current, ma_line, ma_line_ghost)
                 .resolve_scale(y="shared")
@@ -3040,6 +3038,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
