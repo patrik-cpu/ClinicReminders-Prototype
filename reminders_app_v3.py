@@ -1986,11 +1986,31 @@ if st.session_state["factoids_unlocked"]:
                 .str.lower()
             )
     
-        # --- Daily aggregates (for Max/Avg cards, now using Visits)
+        # --- Daily aggregates (for Max/Avg cards)
+        metrics = {}
+        
+        # --- 1️⃣ Client transaction metrics (from transaction blocks)
+        if not tx_client.empty:
+            daily_tx = (
+                tx_client.groupby("StartDate")
+                .agg(
+                    ClientTx=("Block", "count"),
+                    Patients=("Patients", lambda p: len(set().union(*p)) if len(p) else 0),
+                )
+                .reset_index()
+            )
+            if not daily_tx.empty:
+                max_tx_day = daily_tx.loc[daily_tx["ClientTx"].idxmax()]
+                max_pat_tx_day = daily_tx.loc[daily_tx["Patients"].idxmax()]
+                metrics["Max Client Transactions"] = f"{int(max_tx_day['ClientTx']):,} ({max_tx_day['StartDate'].strftime('%d %b %Y')})"
+                metrics["Avg Client Transactions/Day"] = f"{daily_tx['ClientTx'].mean():.1f}"
+        else:
+            daily_tx = pd.DataFrame()
+        
+        # --- 2️⃣ Patient visit metrics (physical presence)
         df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
         df["VisitDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce").dt.date
         
-        # Count patient visits per day
         daily_visits = (
             df[df["VisitFlag"] == True]
             .groupby("VisitDate")["Animal Name"]
@@ -1998,12 +2018,12 @@ if st.session_state["factoids_unlocked"]:
             .reset_index(name="PatientVisits")
         )
         
-        metrics = {}
         if not daily_visits.empty:
-            max_day_row = daily_visits.loc[daily_visits["PatientVisits"].idxmax()]
-            max_day = pd.to_datetime(max_day_row["VisitDate"])
-            metrics["Max Patient Visits"] = f"{int(max_day_row['PatientVisits']):,} ({max_day.strftime('%d %b %Y')})"
+            max_visit_row = daily_visits.loc[daily_visits["PatientVisits"].idxmax()]
+            max_visit_date = pd.to_datetime(max_visit_row["VisitDate"])
+            metrics["Max Patient Visits"] = f"{int(max_visit_row['PatientVisits']):,} ({max_visit_date.strftime('%d %b %Y')})"
             metrics["Avg Patient Visits/Day"] = f"{daily_visits['PatientVisits'].mean():.1f}"
+
 
     
         # --- Total Unique Patients (fresh each rerun)
@@ -2247,8 +2267,6 @@ if st.session_state["factoids_unlocked"]:
             metrics["Revenue per Client Transaction"] = f"{rev_per_client_tx:,.0f}"
             metrics["Revenue per Patient Visit"] = f"{rev_per_patient_visit:,.0f}"
 
-
-        
             # ---- New Clients / Patients (based on first-ever appearance in full dataset)
             # Prepare global, cleaned, normalized dataset (so we can check full-history appearances)
             global_df = st.session_state.get("working_df", pd.DataFrame()).copy()
@@ -2370,7 +2388,7 @@ if st.session_state["factoids_unlocked"]:
             "Unique Patient Visits",
             "Patients per Client",
             "Max Patient Visits",
-            "Avg Patients/Day",
+            "Avg Patient Visits/Day",
             "New Clients",
             "New Patients",
         ])
@@ -2762,6 +2780,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
