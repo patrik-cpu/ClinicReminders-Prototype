@@ -2293,23 +2293,21 @@ def run_factoids():
             rev_items["CumRevenue"] = rev_items["TotalRevenue"].cumsum()
             rev_items["CumPct"] = rev_items["CumRevenue"] / total_revenue_items * 100
     
-            base_items = alt.Chart(rev_items).encode(
-                x=alt.X("TopPct:Q", title="Top X% of Items"),
-                y=alt.Y("CumPct:Q", title="% of Total Revenue"),
-                tooltip=[
-                    alt.Tooltip("Rank:Q", title="Rank"),
-                    alt.Tooltip("Item Name:N", title="Item"),
-                    alt.Tooltip("TotalRevenue:Q", title="Item Revenue", format=",.0f"),
-                    alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
-                    alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
-                ],
-            )
-    
             color_items = "#60a5fa"  # blue
+    
             chart_items = (
-                alt.layer(
-                    base_items.mark_line(color=color_items, strokeWidth=2, opacity=0.7),
-                    base_items.mark_point(color=color_items, size=50, filled=True)
+                alt.Chart(rev_items)
+                .mark_point(color=color_items, size=55, filled=True, opacity=1)
+                .encode(
+                    x=alt.X("TopPct:Q", title="Top X% of Items"),
+                    y=alt.Y("CumPct:Q", title="% of Total Revenue"),
+                    tooltip=[
+                        alt.Tooltip("Rank:Q", title="Rank"),
+                        alt.Tooltip("Item Name:N", title="Item"),
+                        alt.Tooltip("TotalRevenue:Q", title="Item Revenue", format=",.0f"),
+                        alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
+                        alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
+                    ],
                 )
                 .properties(
                     height=chart_height,
@@ -2340,23 +2338,21 @@ def run_factoids():
             rev_clients["CumRevenue"] = rev_clients["Amount"].cumsum()
             rev_clients["CumPct"] = rev_clients["CumRevenue"] / total_revenue * 100
     
-            base_clients = alt.Chart(rev_clients).encode(
-                x=alt.X("TopPct:Q", title="Top X% of Clients"),
-                y=alt.Y("CumPct:Q", title="% of Total Revenue"),
-                tooltip=[
-                    alt.Tooltip("Rank:Q", title="Rank"),
-                    alt.Tooltip("Client Name:N", title="Client"),
-                    alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
-                    alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
-                    alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
-                ],
-            )
-    
             color_clients = "#f97316"  # orange
+    
             chart_clients = (
-                alt.layer(
-                    base_clients.mark_line(color=color_clients, strokeWidth=2, opacity=0.7),
-                    base_clients.mark_point(color=color_clients, size=50, filled=True)
+                alt.Chart(rev_clients)
+                .mark_point(color=color_clients, size=55, filled=True, opacity=1)
+                .encode(
+                    x=alt.X("TopPct:Q", title="Top X% of Clients"),
+                    y=alt.Y("CumPct:Q", title="% of Total Revenue"),
+                    tooltip=[
+                        alt.Tooltip("Rank:Q", title="Rank"),
+                        alt.Tooltip("Client Name:N", title="Client"),
+                        alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
+                        alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
+                        alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
+                    ],
                 )
                 .properties(
                     height=chart_height,
@@ -2367,6 +2363,7 @@ def run_factoids():
             st.altair_chart(chart_clients, use_container_width=True)
         else:
             st.info("No client data found for this period.")
+
 
 
 
@@ -2455,6 +2452,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
