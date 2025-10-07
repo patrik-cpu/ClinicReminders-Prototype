@@ -2274,6 +2274,29 @@ def run_factoids():
     chart_height = 400
     chart_width = 700
     
+    # helper for consistent point styling
+    def make_conc_chart(df, color, title, x_title, y_title, tooltip_fields):
+        return (
+            alt.Chart(df)
+            .mark_point(
+                color=color,
+                size=60,
+                filled=True,
+                opacity=1,
+                strokeWidth=0  # ⛔ absolutely no outline/line
+            )
+            .encode(
+                x=alt.X("TopPct:Q", title=x_title),
+                y=alt.Y("CumPct:Q", title=y_title),
+                tooltip=tooltip_fields,
+            )
+            .properties(
+                height=chart_height,
+                width=chart_width,
+                title=title
+            )
+        )
+    
     # ============================
     # 📊 ITEMS CURVE
     # ============================
@@ -2293,27 +2316,19 @@ def run_factoids():
             rev_items["CumRevenue"] = rev_items["TotalRevenue"].cumsum()
             rev_items["CumPct"] = rev_items["CumRevenue"] / total_revenue_items * 100
     
-            color_items = "#60a5fa"  # blue
-    
-            chart_items = (
-                alt.Chart(rev_items)
-                .mark_point(color=color_items, size=55, filled=True, opacity=1)
-                .encode(
-                    x=alt.X("TopPct:Q", title="Top X% of Items"),
-                    y=alt.Y("CumPct:Q", title="% of Total Revenue"),
-                    tooltip=[
-                        alt.Tooltip("Rank:Q", title="Rank"),
-                        alt.Tooltip("Item Name:N", title="Item"),
-                        alt.Tooltip("TotalRevenue:Q", title="Item Revenue", format=",.0f"),
-                        alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
-                        alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
-                    ],
-                )
-                .properties(
-                    height=chart_height,
-                    width=chart_width,
-                    title=f"Revenue Concentration Curve: Items – {selected_period}"
-                )
+            chart_items = make_conc_chart(
+                rev_items,
+                "#60a5fa",  # blue
+                f"Revenue Concentration Curve: Items – {selected_period}",
+                "Top X% of Items",
+                "% of Total Revenue",
+                [
+                    alt.Tooltip("Rank:Q", title="Rank"),
+                    alt.Tooltip("Item Name:N", title="Item"),
+                    alt.Tooltip("TotalRevenue:Q", title="Item Revenue", format=",.0f"),
+                    alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
+                    alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
+                ],
             )
             st.altair_chart(chart_items, use_container_width=True)
         else:
@@ -2338,31 +2353,24 @@ def run_factoids():
             rev_clients["CumRevenue"] = rev_clients["Amount"].cumsum()
             rev_clients["CumPct"] = rev_clients["CumRevenue"] / total_revenue * 100
     
-            color_clients = "#f97316"  # orange
-    
-            chart_clients = (
-                alt.Chart(rev_clients)
-                .mark_point(color=color_clients, size=55, filled=True, opacity=1)
-                .encode(
-                    x=alt.X("TopPct:Q", title="Top X% of Clients"),
-                    y=alt.Y("CumPct:Q", title="% of Total Revenue"),
-                    tooltip=[
-                        alt.Tooltip("Rank:Q", title="Rank"),
-                        alt.Tooltip("Client Name:N", title="Client"),
-                        alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
-                        alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
-                        alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
-                    ],
-                )
-                .properties(
-                    height=chart_height,
-                    width=chart_width,
-                    title=f"Revenue Concentration Curve: Clients – {selected_period}"
-                )
+            chart_clients = make_conc_chart(
+                rev_clients,
+                "#f97316",  # orange
+                f"Revenue Concentration Curve: Clients – {selected_period}",
+                "Top X% of Clients",
+                "% of Total Revenue",
+                [
+                    alt.Tooltip("Rank:Q", title="Rank"),
+                    alt.Tooltip("Client Name:N", title="Client"),
+                    alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
+                    alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
+                    alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
+                ],
             )
             st.altair_chart(chart_clients, use_container_width=True)
         else:
             st.info("No client data found for this period.")
+
 
 
 
@@ -2452,6 +2460,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
