@@ -2610,10 +2610,10 @@ if st.button("Send", key="fb_send"):
             st.error(f"Could not save your message: {e}")
 
 # --------------------------------
-# 🧪 Keyword Debugging Export (at the very bottom)
+# 🧪 Keyword Debugging Export (silent version)
 # --------------------------------
 st.markdown("---")
-st.markdown("### 🧪 Keyword Debugging Export")
+st.markdown("### 🧪 Keyword Debugging Export - Nova Vet Family Admin Use Only")
 
 if st.session_state.get("working_df") is not None:
     df_debug = st.session_state["working_df"].copy()
@@ -2635,6 +2635,8 @@ if st.session_state.get("working_df") is not None:
     debug_frames = []
     for label, (includes, excludes) in keyword_groups.items():
         mask = make_mask(df_debug, includes, excludes)
+        if not mask.any():
+            continue
         sub = (
             df_debug.loc[mask]
             .groupby("Item Name", as_index=False)["Amount"]
@@ -2649,23 +2651,15 @@ if st.session_state.get("working_df") is not None:
         debug_out = pd.concat(debug_frames, ignore_index=True)
         debug_out = debug_out[["Category", "Item Name", "Amount"]]
         debug_out["Amount"] = debug_out["Amount"].astype(int)
-
         csv_bytes = debug_out.to_csv(index=False).encode("utf-8")
+
         st.download_button(
             label="⬇️ Download Keyword Debug CSV",
             data=csv_bytes,
             file_name="keyword_debug_top25.csv",
             mime="text/csv",
         )
-
-        st.success("Click to download the top 25 items per keyword group (after exclusions).")
-        st.dataframe(debug_out, use_container_width=True, height=400)
     else:
-        st.info("No keyword matches found.")
+        st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
-
-
-
-
-
