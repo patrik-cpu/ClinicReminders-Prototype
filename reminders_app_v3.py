@@ -1625,16 +1625,35 @@ if st.session_state["factoids_unlocked"]:
                         ],
                     )
                 )
-                
-                # --- Combine bars + MA line
+
+                # --- Ghost Moving Average Line (simple + safe)
+                ma_line_ghost = (
+                    alt.Chart(df_plot)
+                    .transform_window(
+                        ghost_rolling_mean="mean(PrevValue)",
+                        frame=[-2, 0]  # same 3-month trailing window
+                    )
+                    .mark_line(color=color, size=2.0, opacity=0.3)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist()),
+                        y=alt.Y("ghost_rolling_mean:Q"),
+                        tooltip=[
+                            alt.Tooltip("MonthOnly:N", title="Month"),
+                            alt.Tooltip("ghost_rolling_mean:Q", title="Ghost 3-mo Moving Avg", format=y_fmt),
+                        ],
+                    )
+                )
+
+                # --- Combine bars + MA line + ghost line
                 chart_rev_tx = (
-                    alt.layer(ghost, current, ma_line)
+                    alt.layer(ghost, current, ma_line_ghost, ma_line)
                     .resolve_scale(y="shared")
                     .properties(
                         height=400, width=700,
-                        title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
+                        title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving averages)"
                     )
                 )
+
                 
                 st.altair_chart(chart_rev_tx, use_container_width=True)
 
@@ -2959,6 +2978,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
