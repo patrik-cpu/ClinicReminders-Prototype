@@ -1657,18 +1657,22 @@ if st.session_state["factoids_unlocked"]:
                 
                 # Keep only needed columns for MA calculation
                 ghost_ma_src = ghost_ma_src[["Month", "MonthLabel", sel_core_rev]].rename(columns={sel_core_rev: "PrevValue"})
-
-
-                # --- Ghost Moving Average Line (3-mo trailing mean; pre-seeded for smoother start)
+                
+                # Use the SAME 12 MonthLabels as the bars (so x stays identical)
+                allowed_labels = df_plot["MonthLabel"].tolist()  # the 12 current labels, in order
+                
+                # --- Ghost Moving Average Line (3-mo trailing; pre-seeded, but plotting ONLY visible labels)
                 ma_line_ghost = (
                     alt.Chart(ghost_ma_src)
                     .transform_window(
                         ghost_rolling_mean="mean(PrevValue)",
                         frame=[-2, 0]  # same 3-month trailing window
                     )
+                    # <- this filter is the key: draw only the 12 visible current labels
+                    .transform_filter(alt.FieldOneOfPredicate(field="MonthLabel", oneOf=allowed_labels))
                     .mark_line(color=color, size=2.0, opacity=0.3)
                     .encode(
-                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist()),
+                        x=alt.X("MonthLabel:N", sort=allowed_labels),
                         y=alt.Y("ghost_rolling_mean:Q"),
                         tooltip=[
                             alt.Tooltip("MonthOnly:N", title="Month"),
@@ -1676,6 +1680,7 @@ if st.session_state["factoids_unlocked"]:
                         ],
                     )
                 )
+
 
 
 
@@ -3012,6 +3017,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
