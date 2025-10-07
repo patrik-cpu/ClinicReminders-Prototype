@@ -1540,7 +1540,7 @@ if st.session_state["factoids_unlocked"]:
                     "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💰 Revenue & Transactions</h4>",
                     unsafe_allow_html=True
                 )
-        
+                
                 metric_list_rev_tx = [
                     "Total Revenue", "Revenue per Client", "Revenue per Visiting Patient",
                     "Revenue per Client Transaction", "Revenue per Patient Visit",
@@ -1552,28 +1552,30 @@ if st.session_state["factoids_unlocked"]:
                     index=0,
                     key="core_metric_revtx"
                 )
-        
-                # --- Render chart for Revenue & Transactions
+                
+                # --- Prepare data
                 last_m = core_monthly["Month"].max()
                 current_12 = pd.period_range(last_m - 11, last_m, freq="M")
                 core_current = core_monthly[core_monthly["Month"].isin(current_12)].copy()
+                
                 metric_by_month = core_monthly.set_index("Month")[sel_core_rev]
                 core_current["PrevValue"] = core_current["Month"].apply(lambda m: metric_by_month.get(m - 12, pd.NA))
                 core_current["PrevYear"] = core_current["Month"].apply(
                     lambda m: (m - 12).year if (m - 12) in metric_by_month.index else pd.NA)
                 core_current["MonthOnly"] = core_current["MonthLabel"].str.split().str[0]
                 core_current["has_ghost"] = core_current["PrevValue"].notna()
-        
+                
                 palette = [
                     "#fb7185", "#60a5fa", "#4ade80", "#facc15",
                     "#f97316", "#fbbf24", "#a5b4fc", "#22d3ee", "#93c5fd",
                 ]
                 color = palette[metric_list_rev_tx.index(sel_core_rev) % len(palette)]
                 y_fmt = ",.2f" if "Transactions per" in sel_core_rev else ",.0f"
-        
+                
                 safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core_rev)
                 df_plot = core_current.rename(columns={sel_core_rev: safe_col}).copy()
-        
+                
+                # --- Bars: Ghost + Current
                 ghost = (
                     alt.Chart(df_plot)
                     .transform_filter("datum.PrevValue != null")
@@ -1589,7 +1591,7 @@ if st.session_state["factoids_unlocked"]:
                         ],
                     )
                 )
-        
+                
                 current = (
                     alt.Chart(df_plot)
                     .mark_bar(size=20, color=color)
@@ -1605,34 +1607,69 @@ if st.session_state["factoids_unlocked"]:
                     )
                     .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
-                # --- Moving Average Line (3-month rolling mean)
-                ma_line = (
-                    alt.Chart(df_plot)
-                    .transform_window(
-                        rolling_mean=f"mean({safe_col})",
-                        frame=[-2, 0]  # 3-month trailing moving average (including current)
-                    )
-                    .mark_line(color=color, size=2.5)
+                
+                # --- Moving Average Data Preparation (includes ghost months)
+                df_all_ma = core_monthly.copy().sort_values("Month")
+                df_all_ma["MonthLabel"] = df_all_ma["MonthLabel"].astype(str)
+                df_all_ma["MonthOnly"] = df_all_ma["MonthLabel"].str.split().str[0]
+                
+                # Compute 3-month rolling mean for all months
+                df_all_ma["rolling_mean"] = (
+                    df_all_ma[sel_core_rev]
+                    .rolling(window=3, min_periods=1)
+                    .mean()
+                )
+                
+                # Identify ghost vs current range
+                df_all_ma["is_current"] = df_all_ma["Month"].isin(current_12)
+                ghost_ma_df = df_all_ma[df_all_ma["is_current"] == False].tail(14)  # includes overlap for smooth join
+                current_ma_df = df_all_ma[df_all_ma["is_current"] == True].copy()
+                
+                # --- Ghost MA line (faded, continues into current)
+                ma_line_ghost = (
+                    alt.Chart(ghost_ma_df)
+                    .mark_line(color=color, size=2.5, opacity=0.3, interpolate="monotone")
                     .encode(
-                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist()),
+                        x=alt.X("MonthLabel:N", sort=df_all_ma["MonthLabel"].tolist()),
                         y=alt.Y("rolling_mean:Q"),
                         tooltip=[
-                            alt.Tooltip("MonthOnly:N", title="Month"),
-                            alt.Tooltip("rolling_mean:Q", title="3-mo Moving Avg", format=y_fmt),
+                            alt.Tooltip("MonthLabel:N", title="Month"),
+                            alt.Tooltip("rolling_mean:Q", title="Ghost 3-mo MA", format=y_fmt),
                         ],
                     )
                 )
-
+                
+                # --- Current MA line (solid, continuation)
+                ma_line_current = (
+                    alt.Chart(current_ma_df)
+                    .mark_line(color=color, size=2.5, interpolate="monotone")
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=df_all_ma["MonthLabel"].tolist()),
+                        y=alt.Y("rolling_mean:Q"),
+                        tooltip=[
+                            alt.Tooltip("MonthLabel:N", title="Month"),
+                            alt.Tooltip("rolling_mean:Q", title="3-mo MA", format=y_fmt),
+                        ],
+                    )
+                )
+                
+                # --- Combine all layers
                 chart_rev_tx = (
-                    alt.layer(ghost, current, ma_line)
+                    alt.layer(
+                        ghost,              # ghost bars
+                        current,            # current bars
+                        ma_line_ghost,      # faded ghost MA
+                        ma_line_current     # solid current MA
+                    )
                     .resolve_scale(y="shared")
                     .properties(
                         height=400, width=700,
                         title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
                     )
                 )
-
+                
                 st.altair_chart(chart_rev_tx, use_container_width=True)
+
         
                 # ---------------------------
                 # Chart 2: Clients & Patients
@@ -2953,6 +2990,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
