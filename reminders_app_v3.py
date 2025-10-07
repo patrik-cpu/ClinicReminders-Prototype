@@ -1730,30 +1730,38 @@ def run_factoids():
 
     # --- Select Period Dropdown ---
     st.markdown("#### 🕒 Select Period")
+    # --- Select Period Dropdown ---
     period_options = ["All Data", "Prev 30 Days", "Prev 3 Months", "Prev 12 Months", "YTD"]
     selected_period = st.selectbox("Select Period:", period_options, index=0, label_visibility="collapsed")
-
+    
+    # --- Determine latest and earliest available dates ---
     latest_date = pd.to_datetime(df["ChargeDate"], errors="coerce").max()
+    earliest_date = pd.to_datetime(df["ChargeDate"], errors="coerce").min()
     if pd.isna(latest_date):
         latest_date = pd.Timestamp.today()
-
+    if pd.isna(earliest_date):
+        earliest_date = latest_date - pd.DateOffset(years=1)
+    
+    # --- Apply filters and prepare descriptive labels ---
     if selected_period == "Prev 30 Days":
         start_date = latest_date - pd.Timedelta(days=30)
         df = df[df["ChargeDate"] >= start_date]
+        selected_period = f"Prev 30 Days from {latest_date.strftime('%d %b %Y')}"
     elif selected_period == "Prev 3 Months":
         start_date = latest_date - pd.DateOffset(months=3)
         df = df[df["ChargeDate"] >= start_date]
+        selected_period = f"Prev 3 Months from {latest_date.strftime('%d %b %Y')}"
     elif selected_period == "Prev 12 Months":
         start_date = latest_date - pd.DateOffset(months=12)
         df = df[df["ChargeDate"] >= start_date]
+        selected_period = f"Prev 12 Months from {latest_date.strftime('%d %b %Y')}"
     elif selected_period == "YTD":
         start_date = pd.Timestamp(year=latest_date.year, month=1, day=1)
         df = df[df["ChargeDate"] >= start_date]
-    # --- Dynamic YTD titling
-    if selected_period == "YTD":
-        start_str = start_date.strftime("%d %b %Y")
-        end_str = latest_date.strftime("%d %b %Y")
-        selected_period = f"YTD: {start_str} → {end_str}"
+        selected_period = f"YTD: {start_date.strftime('%d %b %Y')} → {latest_date.strftime('%d %b %Y')}"
+    elif selected_period == "All Data":
+        start_date = earliest_date
+        selected_period = f"All Data: {earliest_date.strftime('%d %b %Y')} → {latest_date.strftime('%d %b %Y')}"
 
     # Recompute everything below (cards, breakdown, tables) using filtered df
     df_blocked, tx_client, tx_patient, patients_per_month = prepare_factoids_data(df)
@@ -2337,6 +2345,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
