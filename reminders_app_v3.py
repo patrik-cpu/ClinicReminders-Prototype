@@ -2267,7 +2267,7 @@ def run_factoids():
     
     curve_choice = st.selectbox(
         "Select curve to display:",
-        ["Revenue Concentration Curve: Items", "Revenue Concentration Curve: Clients"],
+        ["Items", "Clients"],
         index=0,
     )
     
@@ -2278,7 +2278,7 @@ def run_factoids():
     # ============================
     # 📊 ITEMS CURVE
     # ============================
-    if "Items" in curve_choice:
+    if curve_choice == "Items":
         rev_items = (
             df.groupby("Item Name", dropna=False)
             .agg(
@@ -2299,7 +2299,7 @@ def run_factoids():
     
             chart_items = (
                 alt.Chart(rev_items)
-                .mark_line(point=True, color="#60a5fa")
+                .mark_line(point=True, color="#60a5fa")  # blue
                 .encode(
                     x=alt.X("TopPct:Q", title="Top X% of Items"),
                     y=alt.Y("CumPct:Q", title="% of Total Revenue"),
@@ -2324,7 +2324,7 @@ def run_factoids():
     # ============================
     # 📊 CLIENTS CURVE
     # ============================
-    elif "Clients" in curve_choice:
+    elif curve_choice == "Clients":
         rev_clients = (
             df.groupby("Client Name", dropna=False)["Amount"]
             .sum()
@@ -2342,7 +2342,7 @@ def run_factoids():
     
             chart_clients = (
                 alt.Chart(rev_clients)
-                .mark_line(point=True, color="#fb7185")
+                .mark_line(point=True, color="#f97316")  # orange for clients
                 .encode(
                     x=alt.X("TopPct:Q", title="Top X% of Clients"),
                     y=alt.Y("CumPct:Q", title="% of Total Revenue"),
@@ -2450,6 +2450,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
