@@ -1189,6 +1189,8 @@ if st.session_state["factoids_unlocked"]:
     ]
     HOSPITALISATION_KEYWORDS = ["hospitalisation","hospitalization"]
     VACCINE_KEYWORDS = ["vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","kennel cough"]
+    DEATH_KEYWORDS = ["euthanasia", "pentobarb", "cremation", "burial", "disposal"]
+    NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex"]
     
     def _rx(words):
         return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
@@ -1333,7 +1335,21 @@ if st.session_state["factoids_unlocked"]:
                 core = core.merge(tx_month_patient, on="Month", how="left")
             else:
                 core["Patient Transactions"] = 0
-        
+            # --- Deaths and Neuters keyword-based counts ---
+            DEATH_RX = _rx(DEATH_KEYWORDS)
+            NEUTER_RX = _rx(NEUTER_KEYWORDS)
+            
+            df["DeathFlag"] = df["Item Name"].astype(str).str.contains(DEATH_RX, na=False)
+            df["NeuterFlag"] = df["Item Name"].astype(str).str.contains(NEUTER_RX, na=False)
+            
+            death_monthly = df.groupby("Month")["DeathFlag"].sum().rename("Deaths")
+            neuter_monthly = df.groupby("Month")["NeuterFlag"].sum().rename("Neuters")
+            
+            core = core.merge(death_monthly, on="Month", how="left")
+            core = core.merge(neuter_monthly, on="Month", how="left")
+            
+            core[["Deaths", "Neuters"]] = core[["Deaths", "Neuters"]].fillna(0).astype(int)
+
             # --- Derived ratios
             core["Revenue per Client"] = core.apply(
                 lambda r: r["Total Revenue"]/r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1)
@@ -1382,7 +1398,7 @@ if st.session_state["factoids_unlocked"]:
                     "Client Transactions","Patient Transactions",
                     "Revenue per Client","Revenue per Patient","Revenue per Client Transaction","Revenue per Patient Transaction",
                     "New Clients","New Patients",
-                    "Transactions per Client","Transactions per Patient"
+                    "Transactions per Client","Transactions per Patient","Deaths","Neuters"
                 ]
                 sel_core = st.selectbox("Select Core Metric:", metric_list, index=0, key="core_metric_abs")
         
@@ -2464,6 +2480,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
