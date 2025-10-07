@@ -1651,6 +1651,7 @@ if st.session_state["factoids_unlocked"]:
             "Food Purchases": {"rx": _rx(FOOD_KEYWORDS), "color": "#facc15"},
             "Hospitalisations": {"rx": _rx(HOSPITALISATION_KEYWORDS), "color": "#f97316"},
             "Lab Work": {"rx": _rx(LABWORK_KEYWORDS), "color": "#fbbf24"},
+            "Neuters": {"rx": _rx(NEUTER_KEYWORDS), "color": "#14b8a6"},
             "Ultrasounds": {"rx": _rx(ULTRASOUND_KEYWORDS), "color": "#a5b4fc"},
             "Vaccinations": {"rx": _rx(VACCINE_KEYWORDS), "color": "#22d3ee"},
             "X-rays": {"rx": _rx(XRAY_KEYWORDS), "color": "#93c5fd"},
@@ -2486,6 +2487,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
