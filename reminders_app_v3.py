@@ -22,8 +22,10 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 # Keyword Definitions
 # -----------------------
 FLEA_WORM_KEYWORDS = [
-    "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
-    "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend","popantel","panacur"
+    "bravecto", "revolution", "deworm", "de-worm","frontline", "milbe", "milpro","advantix","advocate",
+    "interceptor","stronghold","drontal","frontpro","credelio"
+    "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend","popantel","panacur",
+    "broadline","profender","comfortis","endecto"
 ]
 FLEA_WORM_EXCLUSIONS = ["felv","fiv","antigen","antibody","wild catz","ringworm"]
 
@@ -31,7 +33,8 @@ FOOD_KEYWORDS = [
     "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
     "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
     "nutro", "pouch", "canned", "wet", "dry", "kibble",
-    "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", "grain", "rc","bhn"
+    "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", 
+    "grain", "rc","bhn","vet diet","prescription diet","trovet"
 ]
 FOOD_EXCLUSIONS = [
     "caniverm","deworm","caninsulin","referral","endoscopy","colonoscopy","In-patient","Cat Sitting",
@@ -47,13 +50,14 @@ ULTRASOUND_EXCLUSIONS = []
 LABWORK_KEYWORDS = [
     "cbc", "blood test", "lab", "biochemistry", "haematology", "urinalysis", "labwork", "idexx", "ghp",
     "chem", "felv", "fiv", "urine", "cytology", "smear", "faecal", "fecal", "microscopic", "slide", "bun",
-    "crea", "phosphate", "cpl", "cpli", "lipase", "amylase", "pancreatic", "cortisol"
+    "crea", "phosphate", "cpl", "cpli", "lipase", "amylase", "pancreatic", "cortisol","sdma","t4","tsh",
+    "electrolyte","thyroid","snap","bilirubin"
 ]
 LABWORK_EXCLUSIONS = ["cream","labrador","cremation","enema","prednisolone"]
 
 ANAESTHETIC_KEYWORDS = [
     "anaesthesia", "anesthesia", "spay", "neuter", "castrate", "surgery",
-    "isoflurane", "propofol", "alfaxan", "alfaxalone"
+    "isoflurane", "propofol", "alfaxan", "alfaxalone","pyometra","cryptorch"
 ]
 ANAESTHETIC_EXCLUSIONS = ["satiety","balance","vhn","royal canin","food"]
 
@@ -61,15 +65,15 @@ HOSPITALISATION_KEYWORDS = ["hospitalisation", "hospitalization"]
 HOSPITALISATION_EXCLUSIONS = []
 
 VACCINE_KEYWORDS = [
-    "vaccine", "vaccination", "booster", "rabies", "dhpp", "dhppil", "tricat",
-    "pch", "pcl", "leukemia", "kennel cough"
+    "vaccine", "vaccination", "booster", "rabies", "dhpp", "tricat",
+    "pch", "pcl", "leukemia", "kennel cough","lepto","leukaemia","felv","bordatella"
 ]
 VACCINE_EXCLUSIONS = ["test", "titre", "antibody","bites","book"]
 
 DEATH_KEYWORDS = ["euthanasia", "pentobarb", "cremation", "burial", "disposal"]
 DEATH_EXCLUSIONS = []
 
-NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex"]
+NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex","cryptorch","ovariohyst","TNR"]
 NEUTER_EXCLUSIONS = ["adult", "food", "diet", "canin", "purina", "proplan"]
 
 # --------------------------------
@@ -2683,6 +2687,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
