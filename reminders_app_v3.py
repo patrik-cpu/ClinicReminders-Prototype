@@ -666,35 +666,25 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 val = normalize_display_case(val)
             cols[j].markdown(val)
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
-            # Apply normalization to all text inputs
-            first_name  = normalize_display_case(vals['Client Name'].split()[0].strip()) if vals['Client Name'] else "there"
-            animal_name = normalize_display_case(vals['Animal Name'].strip()) if vals['Animal Name'] else "your pet"
-            plan_for_msg = normalize_display_case(vals["Plan Item"].strip())
-            user = normalize_display_case(st.session_state.get("user_name", "").strip())
+            first_name  = vals['Client Name'].split()[0].strip() if vals['Client Name'] else "there"
+            animal_name = vals['Animal Name'].strip() if vals['Animal Name'] else "your pet"
+            plan_for_msg = vals["Plan Item"].strip()
+            user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
             closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
             verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
-        
-            # Construct message
             if user:
-                msg_text = (
+                st.session_state[msg_key] = (
                     f"Hi {first_name}, this is {user} reminding you that "
                     f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
             else:
-                msg_text = (
+                st.session_state[msg_key] = (
                     f"Hi {first_name}, this is a reminder letting you know that "
                     f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
-        
-            # Normalize the entire composed message one more time (for safety)
-            msg_text = normalize_display_case(msg_text)
-        
-            # Save and preview
-            st.session_state[msg_key] = msg_text
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
-            st.markdown(f"**Preview:** {msg_text}")
-
+            st.markdown(f"**Preview:** {st.session_state[msg_key]}")
     comp_main, comp_tip = st.columns([4,1])
     with comp_main:
         st.write("### WhatsApp Composer")
@@ -1153,7 +1143,6 @@ if "factoids_unlocked" not in st.session_state:
     st.session_state["factoids_unlocked"] = False
 
 if not st.session_state["factoids_unlocked"]:
-    # Show only header and password prompt
     st.info("🔒 Enter password to view Factoids (admin/manager access only).")
 
     with st.form("unlock_factoids_form"):
@@ -1172,202 +1161,186 @@ if not st.session_state["factoids_unlocked"]:
         else:
             st.error("❌ Incorrect password. Please try again.")
 
+# --- Only show Factoids after unlock ---
 if st.session_state["factoids_unlocked"]:
     # -----------------------
     # Keyword Definitions
     # -----------------------
-    # --- Keyword include + exclude sets for all categories ---
-    KEYWORD_SETS = {
-        "FLEA_WORM": {
-            "include": [
-                "bravecto","revolution","deworm","frontline","milbe","milpro",
-                "nexgard","simparica","advocate","worm","praz","fenbend"
-            ],
-            "exclude": []
-        },
-        "FOOD": {
-            "include": [
-                "hill's","hills","royal canin","purina","proplan","iams","eukanuba",
-                "orijen","acana","farmina","vetlife","wellness","taste of the wild",
-                "nutro","pouch","tin","can","canned","wet","dry","kibble",
-                "tuna","chicken","beef","salmon","lamb","duck","senior","diet","food","grain","rc"
-            ],
-            "exclude": []
-        },
-        "XRAY": {
-            "include": ["xray","x-ray","radiograph","radiology"],
-            "exclude": []
-        },
-        "ULTRASOUND": {
-            "include": ["ultrasound","echo","afast","tfast","a-fast","t-fast"],
-            "exclude": []
-        },
-        "LABWORK": {
-            "include": [
-                "cbc","blood test","lab","biochemistry","haematology","urinalysis","labwork","idexx","ghp",
-                "chem","felv","fiv","urine","cytology","smear","faecal","fecal","microscopic","slide","bun",
-                "crea","phos","cpl","cpli","lipase","amylase","pancreatic","cortisol"
-            ],
-            "exclude": ["cream"]
-        },
-        "ANAESTHETIC": {
-            "include": [
-                "anaesthesia","anesthesia","spay","neuter","castrate","surgery",
-                "isoflurane","propofol","alfaxan","alfaxalone"
-            ],
-            "exclude": []
-        },
-        "HOSPITALISATION": {
-            "include": ["hospitalisation","hospitalization"],
-            "exclude": []
-        },
-        "VACCINE": {
-            "include": [
-                "vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","kennel cough"
-            ],
-            "exclude": ["test", "titre", "antibody"]
-        },
-        "DEATH": {
-            "include": ["euthanasia", "pentobarb", "cremation", "burial", "disposal"],
-            "exclude": []
-        },
-        "NEUTER": {
-            "include": ["spay", "castrate", "castration", "desex", "de-sex", "neuter"],
-            "exclude": ["adult", "food", "diet", "canin", "purina", "proplan"]
-        }
-    }
-    # --- Backward-compatible keyword list aliases (used in metric_configs etc.) ---
-    FLEA_WORM_KEYWORDS = KEYWORD_SETS["FLEA_WORM"]["include"]
-    FOOD_KEYWORDS = KEYWORD_SETS["FOOD"]["include"]
-    XRAY_KEYWORDS = KEYWORD_SETS["XRAY"]["include"]
-    ULTRASOUND_KEYWORDS = KEYWORD_SETS["ULTRASOUND"]["include"]
-    LABWORK_KEYWORDS = KEYWORD_SETS["LABWORK"]["include"]
-    ANAESTHETIC_KEYWORDS = KEYWORD_SETS["ANAESTHETIC"]["include"]
-    HOSPITALISATION_KEYWORDS = KEYWORD_SETS["HOSPITALISATION"]["include"]
-    VACCINE_KEYWORDS = KEYWORD_SETS["VACCINE"]["include"]
-    DEATH_KEYWORDS = KEYWORD_SETS["DEATH"]["include"]
-    NEUTER_KEYWORDS = KEYWORD_SETS["NEUTER"]["include"]
+    FLEA_WORM_KEYWORDS = [
+        "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
+        "nexgard", "simparica", "advocate", "worm", "praz", "fenbend"
+    ]
+    FLEA_WORM_EXCLUSIONS = []
+
+    FOOD_KEYWORDS = [
+        "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
+        "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
+        "nutro", "pouch", "tin", "can", "canned", "wet", "dry", "kibble",
+        "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", "grain", "rc"
+    ]
+    FOOD_EXCLUSIONS = []
+
+    XRAY_KEYWORDS = ["xray", "x-ray", "radiograph", "radiology"]
+    XRAY_EXCLUSIONS = []
+
+    ULTRASOUND_KEYWORDS = ["ultrasound", "echo", "afast", "tfast", "a-fast", "t-fast"]
+    ULTRASOUND_EXCLUSIONS = []
+
+    LABWORK_KEYWORDS = [
+        "cbc", "blood test", "lab", "biochemistry", "haematology", "urinalysis", "labwork", "idexx", "ghp",
+        "chem", "felv", "fiv", "urine", "cytology", "smear", "faecal", "fecal", "microscopic", "slide", "bun",
+        "crea", "phos", "cpl", "cpli", "lipase", "amylase", "pancreatic", "cortisol"
+    ]
+    LABWORK_EXCLUSIONS = ["cream"]
+
+    ANAESTHETIC_KEYWORDS = [
+        "anaesthesia", "anesthesia", "spay", "neuter", "castrate", "surgery",
+        "isoflurane", "propofol", "alfaxan", "alfaxalone"
+    ]
+    ANAESTHETIC_EXCLUSIONS = []
+
+    HOSPITALISATION_KEYWORDS = ["hospitalisation", "hospitalization"]
+    HOSPITALISATION_EXCLUSIONS = []
+
+    VACCINE_KEYWORDS = [
+        "vaccine", "vaccination", "booster", "rabies", "dhpp", "dhppil", "tricat",
+        "pch", "pcl", "leukemia", "kennel cough"
+    ]
+    VACCINE_EXCLUSIONS = ["test", "titre", "antibody"]
+
+    DEATH_KEYWORDS = ["euthanasia", "pentobarb", "cremation", "burial", "disposal"]
+    DEATH_EXCLUSIONS = []
+
+    NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex"]
+    NEUTER_EXCLUSIONS = ["adult", "food", "diet", "canin", "purina", "proplan"]
 
     # -----------------------
-    # Keyword Utilities
+    # Masking Utility
     # -----------------------
-    
-    def _rx(words):
-        return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
-    
-    def make_filtered_mask(df, include_words, exclude_words):
+    def make_mask(df, include_words, exclude_words=None):
         """
-        Returns a boolean mask for df['Item Name'] that matches include_words
-        but excludes rows matching exclude_words.
+        Returns a boolean mask matching include_words but excluding exclude_words.
         """
         if df.empty:
             return pd.Series(False, index=df.index)
-    
-        item_series = df["Item Name"].astype(str)
-        include_rx = re.compile("|".join(map(re.escape, include_words)), flags=re.IGNORECASE) if include_words else None
-        exclude_rx = re.compile("|".join(map(re.escape, exclude_words)), flags=re.IGNORECASE) if exclude_words else None
-    
-        mask = item_series.str.contains(include_rx, na=False) if include_rx else pd.Series(False, index=df.index)
-        if exclude_rx:
-            mask = mask & ~item_series.str.contains(exclude_rx, na=False)
+
+        include_rx = re.compile("|".join(map(re.escape, include_words)), re.I)
+        mask = df["Item Name"].astype(str).str.contains(include_rx, na=False)
+
+        if exclude_words:
+            exclude_rx = re.compile("|".join(map(re.escape, exclude_words)), re.I)
+            mask &= ~df["Item Name"].astype(str).str.contains(exclude_rx, na=False)
+
         return mask
-        
+
     # -----------------------
-    # Cached base computation
+    # Cached Base Computation
     # -----------------------
     @st.cache_data(show_spinner=False)
     def prepare_factoids_data(df: pd.DataFrame):
+        """Prepares the core blocked dataset and transaction groupings."""
         df = df.copy()
         df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+
         df_sorted = df.sort_values(["Client Name", "ChargeDate"]).copy()
-        df_sorted["DateOnly"] = pd.to_datetime(df_sorted["ChargeDate"]).dt.normalize()
+        df_sorted["DateOnly"] = df_sorted["ChargeDate"].dt.normalize()
         df_sorted["DayDiff"] = df_sorted.groupby("Client Name")["DateOnly"].diff().dt.days.fillna(1)
         df_sorted["Block"] = df_sorted.groupby("Client Name")["DayDiff"].transform(lambda x: (x > 1).cumsum())
         df_sorted["Month"] = df_sorted["ChargeDate"].dt.to_period("M")
-        # --- Client-level transaction grouping (as before)
+
+        # --- Client-level transactions
         tx_client = (
-            df_sorted.groupby(["Client Name","Block"])
+            df_sorted.groupby(["Client Name", "Block"])
             .agg(
-                StartDate=("DateOnly","min"),
-                EndDate=("DateOnly","max"),
+                StartDate=("DateOnly", "min"),
+                EndDate=("DateOnly", "max"),
                 Patients=("Animal Name", lambda x: set(x.astype(str))),
-                Amount=("Amount","sum")
+                Amount=("Amount", "sum")
             )
             .reset_index()
         )
-        
-        # --- Patient-level transaction grouping (NEW)
+
+        # --- Patient-level transactions
         tx_patient = (
-            df_sorted.groupby(["Client Name","Animal Name","Block"])
+            df_sorted.groupby(["Client Name", "Animal Name", "Block"])
             .agg(
-                StartDate=("DateOnly","min"),
-                EndDate=("DateOnly","max"),
-                Amount=("Amount","sum")
+                StartDate=("DateOnly", "min"),
+                EndDate=("DateOnly", "max"),
+                Amount=("Amount", "sum")
             )
             .reset_index()
         )
-        
+
         patients_per_month = df_sorted.groupby("Month")["Animal Name"].nunique()
         return df_sorted, tx_client, tx_patient, patients_per_month
-    
+
+    # -----------------------
+    # (Legacy Helper — still used for some minor functions)
+    # -----------------------
     @st.cache_data(show_spinner=False)
     def compute_monthly_data(df_blocked: pd.DataFrame,
                              tx: pd.DataFrame,
                              patients_per_month: pd.Series,
                              rx_pattern: re.Pattern,
                              apply_amount_filter: bool = False) -> pd.DataFrame:
-        """Return last-12-month rows with columns: Month (Period[M]), MonthLabel, UniquePatients, TotalPatientsMonth, Percent."""
+        """
+        Legacy: kept for compatibility with older sections that still rely on regex patterns.
+        New sections should use make_mask() directly.
+        """
         if df_blocked.empty:
             return pd.DataFrame()
-    
+
         mask = df_blocked["Item Name"].astype(str).apply(lambda s: bool(rx_pattern.search(s)))
-        service_rows = df_blocked.loc[mask, ["Client Name","Block","ChargeDate"]].drop_duplicates()
+        service_rows = df_blocked.loc[mask, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
         if service_rows.empty:
             return pd.DataFrame()
-    
-        qualifying = pd.merge(service_rows, tx, on=["Client Name","Block"], how="left")
+
+        qualifying = pd.merge(service_rows, tx, on=["Client Name", "Block"], how="left")
         if apply_amount_filter:
             qualifying = qualifying[qualifying["Amount"] > 700]
         if qualifying.empty:
             return pd.DataFrame()
-    
+
         qualifying["Month"] = qualifying["ChargeDate"].dt.to_period("M")
-        # always align to the latest month in the full dataset, not just the metric subset
         global_last_month = df_blocked["ChargeDate"].dt.to_period("M").max()
         last_month = global_last_month if pd.notna(global_last_month) else qualifying["Month"].max()
         month_range = pd.period_range(last_month - 11, last_month, freq="M")
-    
+
         monthly = (
             qualifying.groupby("Month")["Patients"]
             .apply(lambda p: len(set().union(*p)))
             .reindex(month_range, fill_value=0)
             .reset_index()
-            .rename(columns={"index":"Month","Patients":"UniquePatients"})
+            .rename(columns={"index": "Month", "Patients": "UniquePatients"})
         )
-    
+
         monthly["TotalPatientsMonth"] = monthly["Month"].map(patients_per_month).fillna(0).astype(int)
         monthly["Percent"] = monthly.apply(
-            lambda r: (r["UniquePatients"]/r["TotalPatientsMonth"]) if r["TotalPatientsMonth"] > 0 else 0,
+            lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"]) if r["TotalPatientsMonth"] > 0 else 0,
             axis=1
         )
         monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
         return monthly.sort_values("Month")
-    
+
+    # -----------------------
+    # Run Factoids
+    # -----------------------
     def run_factoids():
         df = st.session_state.get("working_df")
         if df is None or df.empty:
             st.warning("Upload data first.")
             return
-    
+
         # Precompute blocked DF and monthly denominators once
         df_blocked, tx_client, tx_patient, patients_per_month = prepare_factoids_data(df)
-    
+
         # ============================
         # 📈 Monthly Charts (with Previous-Year Ghost Bars)
         # ============================
         st.markdown("<div id='factoids-monthlycharts' class='anchor-offset'></div>", unsafe_allow_html=True)
         st.markdown("### 📈 Monthly Charts")
-     
+
+    
         # ============================
         # 💰 Core Metrics (Absolute Values)
         # ============================
@@ -1375,92 +1348,91 @@ if st.session_state["factoids_unlocked"]:
             "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💰 Core Metrics (Absolute Values)</h4>",
             unsafe_allow_html=True
         )
-        
+    
         @st.cache_data(show_spinner=False)
         def compute_core_metrics(df: pd.DataFrame):
             """Compute monthly absolute-value clinic metrics (12-month window + ghost-year support)."""
             if df.empty:
                 return pd.DataFrame()
-        
+    
             df = df.copy()
             df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
             df["Month"] = df["ChargeDate"].dt.to_period("M")
-        
+    
             # --- Base monthly metrics
             g = df.groupby("Month")
             core = pd.DataFrame({
                 "Total Revenue": g["Amount"].sum(),
                 "Unique Clients Seen": g["Client Name"].nunique(),
                 "Unique Patients Seen": g.apply(
-                    lambda x: x.drop_duplicates(subset=["Client Name","Animal Name"]).shape[0]
+                    lambda x: x.drop_duplicates(subset=["Client Name", "Animal Name"]).shape[0]
                 ),
             }).reset_index()
-        
+    
             # --- Transactions (now separate client vs patient)
             _, tx_client, tx_patient, _ = prepare_factoids_data(df)
-        
+    
             if not tx_client.empty:
                 tx_client["Month"] = tx_client["StartDate"].dt.to_period("M")
                 tx_month_client = tx_client.groupby("Month").size().rename("Client Transactions")
                 core = core.merge(tx_month_client, on="Month", how="left")
             else:
                 core["Client Transactions"] = 0
-        
+    
             if not tx_patient.empty:
                 tx_patient["Month"] = tx_patient["StartDate"].dt.to_period("M")
                 tx_month_patient = tx_patient.groupby("Month").size().rename("Patient Transactions")
                 core = core.merge(tx_month_patient, on="Month", how="left")
             else:
                 core["Patient Transactions"] = 0
+    
             # --- Deaths and Neuters keyword-based counts ---
-            DEATH_RX = _rx(DEATH_KEYWORDS)
-            NEUTER_RX = _rx(NEUTER_KEYWORDS)
-            
-            df["DeathFlag"] = df["Item Name"].astype(str).str.contains(DEATH_RX, na=False)
-            df["NeuterFlag"] = df["Item Name"].astype(str).str.contains(NEUTER_RX, na=False)
-            
+            df["DeathFlag"] = make_mask(df, DEATH_KEYWORDS, DEATH_EXCLUSIONS)
+            df["NeuterFlag"] = make_mask(df, NEUTER_KEYWORDS, NEUTER_EXCLUSIONS)
+    
             death_monthly = df.groupby("Month")["DeathFlag"].sum().rename("Deaths")
             neuter_monthly = df.groupby("Month")["NeuterFlag"].sum().rename("Neuters")
-            
+    
             core = core.merge(death_monthly, on="Month", how="left")
             core = core.merge(neuter_monthly, on="Month", how="left")
-            
             core[["Deaths", "Neuters"]] = core[["Deaths", "Neuters"]].fillna(0).astype(int)
-
+    
             # --- Derived ratios
             core["Revenue per Client"] = core.apply(
-                lambda r: r["Total Revenue"]/r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1)
+                lambda r: r["Total Revenue"] / r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1)
             core["Revenue per Patient"] = core.apply(
-                lambda r: r["Total Revenue"]/r["Unique Patients Seen"] if r["Unique Patients Seen"] else 0, axis=1)
+                lambda r: r["Total Revenue"] / r["Unique Patients Seen"] if r["Unique Patients Seen"] else 0, axis=1)
             core["Revenue per Client Transaction"] = core.apply(
-                lambda r: r["Total Revenue"]/r["Client Transactions"] if r["Client Transactions"] else 0, axis=1)
+                lambda r: r["Total Revenue"] / r["Client Transactions"] if r["Client Transactions"] else 0, axis=1)
             core["Revenue per Patient Transaction"] = core.apply(
-                lambda r: r["Total Revenue"]/r["Patient Transactions"] if r["Patient Transactions"] else 0, axis=1)
-        
+                lambda r: r["Total Revenue"] / r["Patient Transactions"] if r["Patient Transactions"] else 0, axis=1)
+    
             # --- Transactions per Client / Patient
             core["Transactions per Client"] = core.apply(
-                lambda r: round(r["Client Transactions"]/r["Unique Clients Seen"], 2) if r["Unique Clients Seen"] else 0, axis=1)
+                lambda r: round(r["Client Transactions"] / r["Unique Clients Seen"], 2) if r["Unique Clients Seen"] else 0, axis=1)
             core["Transactions per Patient"] = core.apply(
-                lambda r: round(r["Patient Transactions"]/r["Unique Patients Seen"], 2) if r["Unique Patients Seen"] else 0, axis=1)
-        
+                lambda r: round(r["Patient Transactions"] / r["Unique Patients Seen"], 2) if r["Unique Patients Seen"] else 0, axis=1)
+    
             # --- New Clients / Patients
             df_sorted = df.sort_values("ChargeDate")
             seen_clients, seen_pairs = set(), set()
             new_clients, new_patients = [], []
             for _, row in df_sorted.iterrows():
-                if pd.isna(row["ChargeDate"]): 
+                if pd.isna(row["ChargeDate"]):
                     continue
                 m = pd.Period(row["ChargeDate"], freq="M")
                 c = str(row["Client Name"]).strip().lower()
                 p = (c, str(row["Animal Name"]).strip().lower())
                 if c and c not in seen_clients:
-                    new_clients.append((m, c)); seen_clients.add(c)
+                    new_clients.append((m, c))
+                    seen_clients.add(c)
                 if p and p not in seen_pairs:
-                    new_patients.append((m, p)); seen_pairs.add(p)
-            nc = pd.DataFrame(new_clients, columns=["Month","Client"]).groupby("Month").size().rename("New Clients")
-            npat = pd.DataFrame(new_patients, columns=["Month","Pair"]).groupby("Month").size().rename("New Patients")
+                    new_patients.append((m, p))
+                    seen_pairs.add(p)
+            nc = pd.DataFrame(new_clients, columns=["Month", "Client"]).groupby("Month").size().rename("New Clients")
+            npat = pd.DataFrame(new_patients, columns=["Month", "Pair"]).groupby("Month").size().rename("New Patients")
             core = core.merge(nc, on="Month", how="left").merge(npat, on="Month", how="left").fillna(0)
-        
+    
             core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
             core["Year"] = core["Month"].dt.year
             return core.sort_values("Month")
@@ -1471,53 +1443,47 @@ if st.session_state["factoids_unlocked"]:
             core_monthly = compute_core_metrics(core_df)
             if not core_monthly.empty:
                 metric_list = [
-                    "Total Revenue","Unique Clients Seen","Unique Patients Seen",
-                    "Client Transactions","Patient Transactions",
-                    "Revenue per Client","Revenue per Patient","Revenue per Client Transaction","Revenue per Patient Transaction",
-                    "New Clients","New Patients",
-                    "Transactions per Client","Transactions per Patient","Deaths","Neuters"
+                    "Total Revenue", "Unique Clients Seen", "Unique Patients Seen",
+                    "Client Transactions", "Patient Transactions",
+                    "Revenue per Client", "Revenue per Patient",
+                    "Revenue per Client Transaction", "Revenue per Patient Transaction",
+                    "New Clients", "New Patients",
+                    "Transactions per Client", "Transactions per Patient", "Deaths", "Neuters"
                 ]
                 sel_core = st.selectbox("Select Core Metric:", metric_list, index=0, key="core_metric_abs")
-        
+    
                 # --- Latest 12 months only (with ghost-year lookups)
                 last_m = core_monthly["Month"].max()
                 current_12 = pd.period_range(last_m - 11, last_m, freq="M")
                 core_current = core_monthly[core_monthly["Month"].isin(current_12)].copy()
-        
+    
                 # --- Attach ghost values (same months, previous year)
                 metric_by_month = core_monthly.set_index("Month")[sel_core]
-                core_current["PrevValue"] = core_current["Month"].apply(
-                    lambda m: metric_by_month.get(m - 12, pd.NA)
-                )
+                core_current["PrevValue"] = core_current["Month"].apply(lambda m: metric_by_month.get(m - 12, pd.NA))
                 core_current["PrevYear"] = core_current["Month"].apply(
-                    lambda m: (m - 12).year if (m - 12) in metric_by_month.index else pd.NA
-                )
+                    lambda m: (m - 12).year if (m - 12) in metric_by_month.index else pd.NA)
                 core_current["MonthOnly"] = core_current["MonthLabel"].str.split().str[0]
                 core_current["has_ghost"] = core_current["PrevValue"].notna()
-        
-                # --- Color rotation (same palette as Patient Breakdown)
+    
+                # --- Color palette & formatting
                 palette = [
                     "#fb7185", "#60a5fa", "#4ade80", "#facc15",
                     "#f97316", "#fbbf24", "#a5b4fc", "#22d3ee", "#93c5fd",
                 ]
                 color = palette[metric_list.index(sel_core) % len(palette)]
-        
-                # --- Formatting: 2 decimals only for per-client/patient transactions
                 two_decimal_metrics = {"Transactions per Client", "Transactions per Patient"}
                 y_fmt = ",.2f" if sel_core in two_decimal_metrics else ",.0f"
     
-        
-                # --- Chart (identical structure to Patient Breakdown, with Year in tooltips)
                 safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core)
                 df_plot = core_current.rename(columns={sel_core: safe_col}).copy()
-        
+    
+                # --- Charts: ghost & current bars
                 ghost = (
                     alt.Chart(df_plot)
                     .transform_filter("datum.PrevValue != null")
                     .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
                     .encode(
-                        x=alt.X("MonthLabel:N",
-                                sort=df_plot["MonthLabel"].tolist(),
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
                                 axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                         y=alt.Y("PrevValue:Q", title=sel_core, axis=alt.Axis(format=y_fmt)),
                         tooltip=[
@@ -1527,13 +1493,12 @@ if st.session_state["factoids_unlocked"]:
                         ],
                     )
                 )
-        
+    
                 current = (
                     alt.Chart(df_plot)
                     .mark_bar(size=20, color=color)
                     .encode(
-                        x=alt.X("MonthLabel:N",
-                                sort=df_plot["MonthLabel"].tolist(),
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
                                 axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                         y=alt.Y(f"{safe_col}:Q", title=sel_core, axis=alt.Axis(format=y_fmt)),
                         tooltip=[
@@ -1544,7 +1509,7 @@ if st.session_state["factoids_unlocked"]:
                     )
                     .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
-        
+    
                 chart_core = (
                     alt.layer(ghost, current)
                     .resolve_scale(y="shared")
@@ -1567,36 +1532,31 @@ if st.session_state["factoids_unlocked"]:
             "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💵 Revenue Breakdown by Month</h4>",
             unsafe_allow_html=True
         )
-        
+    
         @st.cache_data(show_spinner=False)
         def compute_revenue_breakdown(df: pd.DataFrame) -> pd.DataFrame:
-            """Compute monthly revenue totals and % breakdowns for each category,
-            using include/exclude keyword sets (KEYWORD_SETS)."""
-        
+            """Compute monthly revenue totals and category breakdowns using include/exclude filtering."""
             if df.empty:
                 return pd.DataFrame()
-        
+    
             df = df.copy()
             df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
             df["Month"] = df["ChargeDate"].dt.to_period("M")
-        
-            # --- helper using include/exclude filtering ---
-            def _sum_filtered(key: str) -> pd.Series:
-                inc = KEYWORD_SETS[key]["include"]
-                exc = KEYWORD_SETS[key]["exclude"]
-                mask = make_filtered_mask(df, inc, exc)
+    
+            # --- helper to aggregate filtered sums ---
+            def _sum(include, exclude):
+                mask = make_mask(df, include, exclude)
                 return df.loc[mask].groupby("Month")["Amount"].sum()
-        
+    
             # --- compute each category ---
-            total = df.groupby("Month")["Amount"].sum()
-            flea = _sum_filtered("FLEA_WORM")
-            food = _sum_filtered("FOOD")
-            lab  = _sum_filtered("LABWORK")
-            neuter = _sum_filtered("NEUTER")
-            ultra = _sum_filtered("ULTRASOUND")
-            xray = _sum_filtered("XRAY")
-        
-            # --- assemble dataframe ---
+            flea   = _sum(FLEA_WORM_KEYWORDS, FLEA_WORM_EXCLUSIONS)
+            food   = _sum(FOOD_KEYWORDS, FOOD_EXCLUSIONS)
+            lab    = _sum(LABWORK_KEYWORDS, LABWORK_EXCLUSIONS)
+            neuter = _sum(NEUTER_KEYWORDS, NEUTER_EXCLUSIONS)
+            ultra  = _sum(ULTRASOUND_KEYWORDS, ULTRASOUND_EXCLUSIONS)
+            xray   = _sum(XRAY_KEYWORDS, XRAY_EXCLUSIONS)
+            total  = df.groupby("Month")["Amount"].sum()
+    
             out = pd.DataFrame({
                 "Total": total,
                 "Revenue from Flea/Worm": flea,
@@ -1606,18 +1566,16 @@ if st.session_state["factoids_unlocked"]:
                 "Revenue from Ultrasounds": ultra,
                 "Revenue from X-rays": xray
             }).fillna(0)
-        
-            # --- add %-of-total columns ---
+    
+            # --- add %-of-total columns
             for col in ["Flea/Worm", "Food", "Lab Work", "Neuters", "Ultrasounds", "X-rays"]:
-                out[f"Revenue from {col} (% of total)"] = (
-                    out[f"Revenue from {col}"] / out["Total"]
-                )
-        
+                out[f"Revenue from {col} (% of total)"] = out[f"Revenue from {col}"] / out["Total"]
+    
             out["MonthLabel"] = out.index.strftime("%b %Y")
             out["Year"] = out.index.year
             return out.reset_index()
-
-        
+    
+        # --- Render Revenue Breakdown Chart
         rev_df = st.session_state.get("working_df")
         if rev_df is not None and not rev_df.empty:
             rev_all = compute_revenue_breakdown(rev_df)
@@ -1625,7 +1583,7 @@ if st.session_state["factoids_unlocked"]:
                 last_m = rev_all["Month"].max()
                 current_12 = pd.period_range(last_m - 11, last_m, freq="M")
                 rev_current = rev_all[rev_all["Month"].isin(current_12)].copy()
-        
+    
                 metrics = [
                     "Revenue from Flea/Worm",
                     "Revenue from Flea/Worm (% of total)",
@@ -1640,42 +1598,37 @@ if st.session_state["factoids_unlocked"]:
                     "Revenue from X-rays",
                     "Revenue from X-rays (% of total)",
                 ]
-        
+    
                 sel = st.selectbox("Select Revenue Metric:", metrics, index=0, key="rev_breakdown_metric")
-        
-                # 🔧 Core Metrics-style ghost computation
+    
+                # --- Add ghost-year overlay
                 metric_series = rev_all.set_index("Month")[sel]
-                rev_current["PrevValue"] = rev_current["Month"].apply(
-                    lambda m: metric_series.get(m - 12, pd.NA)
-                )
+                rev_current["PrevValue"] = rev_current["Month"].apply(lambda m: metric_series.get(m - 12, pd.NA))
                 rev_current["PrevYear"] = rev_current["Month"].apply(
-                    lambda m: (m - 12).year if (m - 12) in metric_series.index else pd.NA
-                )
+                    lambda m: (m - 12).year if (m - 12) in metric_series.index else pd.NA)
                 rev_current["MonthOnly"] = rev_current["MonthLabel"].str.split().str[0]
                 rev_current["has_ghost"] = rev_current["PrevValue"].notna()
-        
+    
+                # --- chart appearance
                 palette = [
-                    "#4ade80","#facc15","#fbbf24","#a5b4fc","#93c5fd",
-                    "#fb7185","#60a5fa","#f97316","#fbbf24","#a5b4fc"
+                    "#4ade80", "#facc15", "#fbbf24", "#a5b4fc", "#93c5fd",
+                    "#fb7185", "#60a5fa", "#f97316", "#fbbf24", "#a5b4fc"
                 ]
-
                 color = palette[metrics.index(sel) % len(palette)]
-        
+    
                 is_pct = "(% of total)" in sel
                 y_fmt = ".1%" if is_pct else ",.0f"
                 y_title = "% of Total" if is_pct else "Revenue (AED)"
-        
                 safe = re.sub(r"[^A-Za-z0-9_]", "_", sel)
                 df_plot = rev_current.rename(columns={sel: safe}).copy()
-        
-                # ✅ exact ghost rendering as Core Metrics
+    
+                # --- ghost & current bars
                 ghost = (
                     alt.Chart(df_plot)
                     .transform_filter("datum.PrevValue != null")
                     .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
                     .encode(
-                        x=alt.X("MonthLabel:N",
-                                sort=df_plot["MonthLabel"].tolist(),
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
                                 axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                         y=alt.Y("PrevValue:Q", title=y_title, axis=alt.Axis(format=y_fmt)),
                         tooltip=[
@@ -1685,13 +1638,12 @@ if st.session_state["factoids_unlocked"]:
                         ],
                     )
                 )
-        
+    
                 current = (
                     alt.Chart(df_plot)
                     .mark_bar(size=20, color=color)
                     .encode(
-                        x=alt.X("MonthLabel:N",
-                                sort=df_plot["MonthLabel"].tolist(),
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
                                 axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                         y=alt.Y(f"{safe}:Q", title=y_title, axis=alt.Axis(format=y_fmt)),
                         tooltip=[
@@ -1702,7 +1654,7 @@ if st.session_state["factoids_unlocked"]:
                     )
                     .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
-        
+    
                 chart = (
                     alt.layer(ghost, current)
                     .resolve_scale(y="shared")
@@ -1717,6 +1669,7 @@ if st.session_state["factoids_unlocked"]:
                 st.info("No data available for revenue breakdown.")
         else:
             st.info("Upload data to display Revenue Breakdown by Month.")
+
     
         # ============================
         # Patient Breakdown % Chart
@@ -1727,79 +1680,45 @@ if st.session_state["factoids_unlocked"]:
         )
     
         metric_configs = {
-            "Anaesthetics": {
-                "key": "ANAESTHETIC",
-                "color": "#fb7185"
-            },
-            "Dentals": {
-                "custom": re.compile("dental", re.I),
-                "color": "#60a5fa",
-                "filter": True
-            },
-            "Flea/Worm Treatments": {
-                "key": "FLEA_WORM",
-                "color": "#4ade80"
-            },
-            "Food Purchases": {
-                "key": "FOOD",
-                "color": "#facc15"
-            },
-            "Hospitalisations": {
-                "key": "HOSPITALISATION",
-                "color": "#f97316"
-            },
-            "Lab Work": {
-                "key": "LABWORK",
-                "color": "#fbbf24"
-            },
-            "Neuters": {
-                "key": "NEUTER",
-                "color": "#14b8a6"
-            },
-            "Ultrasounds": {
-                "key": "ULTRASOUND",
-                "color": "#a5b4fc"
-            },
-            "Vaccinations": {
-                "key": "VACCINE",
-                "color": "#22d3ee"
-            },
-            "X-rays": {
-                "key": "XRAY",
-                "color": "#93c5fd"
-            },
+            "Anaesthetics": {"include": ANAESTHETIC_KEYWORDS, "exclude": ANAESTHETIC_EXCLUSIONS, "color": "#fb7185"},
+            "Dentals": {"custom": re.compile("dental", re.I), "color": "#60a5fa", "filter": True},
+            "Flea/Worm Treatments": {"include": FLEA_WORM_KEYWORDS, "exclude": FLEA_WORM_EXCLUSIONS, "color": "#4ade80"},
+            "Food Purchases": {"include": FOOD_KEYWORDS, "exclude": FOOD_EXCLUSIONS, "color": "#facc15"},
+            "Hospitalisations": {"include": HOSPITALISATION_KEYWORDS, "exclude": HOSPITALISATION_EXCLUSIONS, "color": "#f97316"},
+            "Lab Work": {"include": LABWORK_KEYWORDS, "exclude": LABWORK_EXCLUSIONS, "color": "#fbbf24"},
+            "Neuters": {"include": NEUTER_KEYWORDS, "exclude": NEUTER_EXCLUSIONS, "color": "#14b8a6"},
+            "Ultrasounds": {"include": ULTRASOUND_KEYWORDS, "exclude": ULTRASOUND_EXCLUSIONS, "color": "#a5b4fc"},
+            "Vaccinations": {"include": VACCINE_KEYWORDS, "exclude": VACCINE_EXCLUSIONS, "color": "#22d3ee"},
+            "X-rays": {"include": XRAY_KEYWORDS, "exclude": XRAY_EXCLUSIONS, "color": "#93c5fd"},
         }
 
-    
         sorted_metrics = sorted(metric_configs.keys())
         choice = st.selectbox("Select a metric:", sorted_metrics, index=0, key="factoid_metric")
         conf = metric_configs[choice]
     
-        # --- determine which filtering to use ---
+        # --- Determine which rows match the selected metric ---
         if "custom" in conf:
-            # special case (e.g., "Dentals") still uses a direct regex
-            custom_rx = conf["custom"]
-            mask = df_blocked["Item Name"].astype(str).str.contains(custom_rx, na=False)
+            # For special cases (e.g., "Dentals")
+            mask = df_blocked["Item Name"].astype(str).str.contains(conf["custom"], na=False)
         else:
-            # use include/exclude filtering from KEYWORD_SETS
-            key = conf["key"]
-            inc = KEYWORD_SETS[key]["include"]
-            exc = KEYWORD_SETS[key]["exclude"]
-            mask = make_filtered_mask(df_blocked, inc, exc)
+            # Use include/exclude keyword logic
+            mask = make_mask(df_blocked, conf["include"], conf["exclude"])
         
-        # --- now compute monthly patient % breakdown using the chosen mask ---
+        # --- Build monthly patient % breakdown using this mask ---
         if mask.any():
+            # All unique client+animal blocks that match
             service_rows = df_blocked.loc[mask, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
             qualifying = pd.merge(service_rows, tx_client, on=["Client Name", "Block"], how="left")
             qualifying["Month"] = qualifying["ChargeDate"].dt.to_period("M")
         
-            # reuse your patient computation logic from before
+            # Count unique patients per month
             monthly = (
                 qualifying.groupby("Month")["Patients"]
                 .apply(lambda p: len(set().union(*p)) if isinstance(p.iloc[0], (list, set)) else 0)
                 .reset_index(name="UniquePatients")
             )
         
+            # Add total monthly patients & percentage
             monthly["TotalPatientsMonth"] = monthly["Month"].map(patients_per_month).fillna(0).astype(int)
             monthly["Percent"] = monthly.apply(
                 lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"])
@@ -1808,8 +1727,7 @@ if st.session_state["factoids_unlocked"]:
             )
             monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
         else:
-            monthly = pd.DataFrame()  # fallback so .empty always works safely
-
+            monthly = pd.DataFrame()  # fallback if no matches
 
         if monthly.empty:
             st.info(f"No qualifying {choice.lower()} data found.")
@@ -1828,18 +1746,39 @@ if st.session_state["factoids_unlocked"]:
                     (df_blocked["Year"] == year_prev) &
                     (df_blocked["MonthNum"] == month_num)
                 ]
+            
                 if not subset_prev.empty:
-                    prev_monthly = compute_monthly_data(
-                        subset_prev, tx_client, patients_per_month,
-                        conf["rx"], conf.get("filter", False)
-                    )
-    
-                    if not prev_monthly.empty:
-                        ghost_val = prev_monthly["Percent"].iloc[-1]
-                        ghost_patients = prev_monthly["UniquePatients"].iloc[-1]
-                        ghost_total = prev_monthly["TotalPatientsMonth"].iloc[-1]
-                        ghost_data.append((row["MonthLabel"], year_prev, ghost_val, ghost_patients, ghost_total))
-    
+                    # Apply the same filtering logic for previous-year subset
+                    if "custom" in conf:
+                        mask_prev = subset_prev["Item Name"].astype(str).str.contains(conf["custom"], na=False)
+                    else:
+                        mask_prev = make_mask(subset_prev, conf["include"], conf["exclude"])
+            
+                    service_prev = subset_prev.loc[mask_prev, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
+                    if not service_prev.empty:
+                        qualifying_prev = pd.merge(service_prev, tx_client, on=["Client Name", "Block"], how="left")
+                        qualifying_prev["Month"] = qualifying_prev["ChargeDate"].dt.to_period("M")
+            
+                        prev_monthly = (
+                            qualifying_prev.groupby("Month")["Patients"]
+                            .apply(lambda p: len(set().union(*p)) if isinstance(p.iloc[0], (list, set)) else 0)
+                            .reset_index(name="UniquePatients")
+                        )
+            
+                        prev_monthly["TotalPatientsMonth"] = prev_monthly["Month"].map(patients_per_month).fillna(0).astype(int)
+                        prev_monthly["Percent"] = prev_monthly.apply(
+                            lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"])
+                            if r["TotalPatientsMonth"] > 0 else 0,
+                            axis=1,
+                        )
+            
+                        # Store the last month’s value for ghost comparison
+                        if not prev_monthly.empty:
+                            ghost_val = prev_monthly["Percent"].iloc[-1]
+                            ghost_patients = prev_monthly["UniquePatients"].iloc[-1]
+                            ghost_total = prev_monthly["TotalPatientsMonth"].iloc[-1]
+                            ghost_data.append((row["MonthLabel"], year_prev, ghost_val, ghost_patients, ghost_total))
+
             # --- merge ghost results into monthly dataset
             merged = monthly.copy()
             merged["PrevPercent"] = pd.NA
@@ -2027,19 +1966,29 @@ if st.session_state["factoids_unlocked"]:
         # --- Patient Breakdown (unique pairs per service)
         masks = {
             "Dentals": re.compile("dental", re.I),
-            "X-rays": _rx(XRAY_KEYWORDS),
-            "Ultrasounds": _rx(ULTRASOUND_KEYWORDS),
-            "Flea/Worm": _rx(FLEA_WORM_KEYWORDS),
-            "Food": _rx(FOOD_KEYWORDS),
-            "Lab Work": _rx(LABWORK_KEYWORDS),
-            "Neuters": _rx(NEUTER_KEYWORDS),
-            "Anaesthetics": _rx(ANAESTHETIC_KEYWORDS),
-            "Hospitalisations": _rx(HOSPITALISATION_KEYWORDS),
-            "Vaccinations": _rx(VACCINE_KEYWORDS),
+            "X-rays": (XRAY_KEYWORDS, XRAY_EXCLUSIONS),
+            "Ultrasounds": (ULTRASOUND_KEYWORDS, ULTRASOUND_EXCLUSIONS),
+            "Flea/Worm": (FLEA_WORM_KEYWORDS, FLEA_WORM_EXCLUSIONS),
+            "Food": (FOOD_KEYWORDS, FOOD_EXCLUSIONS),
+            "Lab Work": (LABWORK_KEYWORDS, LABWORK_EXCLUSIONS),
+            "Neuters": (NEUTER_KEYWORDS, NEUTER_EXCLUSIONS),
+            "Anaesthetics": (ANAESTHETIC_KEYWORDS, ANAESTHETIC_EXCLUSIONS),
+            "Hospitalisations": (HOSPITALISATION_KEYWORDS, HOSPITALISATION_EXCLUSIONS),
+            "Vaccinations": (VACCINE_KEYWORDS, VACCINE_EXCLUSIONS),
         }
+
     
         for label, pattern in masks.items():
-            subset = df[df["Item Name"].astype(str).str.contains(pattern, na=False)]
+            # --- determine whether this category uses include/exclude logic ---
+            if isinstance(pattern, tuple):
+                include_words, exclude_words = pattern
+                mask = make_mask(df, include_words, exclude_words)
+                subset = df[mask]
+            else:
+                # default (uses regex)
+                subset = df[df["Item Name"].astype(str).str.contains(pattern, na=False)]
+            
+            # --- clean and count unique client–animal pairs ---
             spairs = (
                 subset[["Client Name", "Animal Name"]]
                 .dropna(subset=["Client Name", "Animal Name"])
@@ -2054,10 +2003,11 @@ if st.session_state["factoids_unlocked"]:
             spairs["AnimalKey"] = (
                 spairs["Animal Name"].astype(str).str.strip().str.lower().str.replace(r"\s+", " ", regex=True)
             )
+        
             count = spairs.drop_duplicates(subset=["ClientKey", "AnimalKey"]).shape[0]
             if total_unique_patients > 0:
                 metrics[f"Unique Patients Having {label}"] = f"{count:,} ({count/total_unique_patients:.1%})"
-    
+
         # --- Client Transaction Histogram
         tx_per_client = df.groupby("Client Name")["ChargeDate"].nunique()
         total_clients = tx_per_client.shape[0]
@@ -2292,26 +2242,19 @@ if st.session_state["factoids_unlocked"]:
         # ============================
         if not df.empty:
             # --- Compute revenue breakdowns for the currently selected period ---
-            FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
-            FOOD_RX = _rx(FOOD_KEYWORDS)
-            LAB_RX = _rx(LABWORK_KEYWORDS)
-            NEUTER_RX = _rx(NEUTER_KEYWORDS)
-            ULTRA_RX = _rx(ULTRASOUND_KEYWORDS)
-            XRAY_RX = _rx(XRAY_KEYWORDS)
-        
-            def _sum_revenue(rx):
-                mask = df["Item Name"].astype(str).str.contains(rx, na=False)
+            def _sum_revenue(include, exclude):
+                mask = make_mask(df, include, exclude)
                 return df.loc[mask, "Amount"].sum()
         
             total_revenue = df["Amount"].sum()
         
             breakdown = {
-                "Revenue from Flea/Worm (Total & %)": _sum_revenue(FLEA_RX),
-                "Revenue from Food (Total & %)": _sum_revenue(FOOD_RX),
-                "Revenue from Lab Work (Total & %)": _sum_revenue(LAB_RX),
-                "Revenue from Neuters (Total & %)": _sum_revenue(NEUTER_RX),
-                "Revenue from Ultrasounds (Total & %)": _sum_revenue(ULTRA_RX),
-                "Revenue from X-rays (Total & %)": _sum_revenue(XRAY_RX),
+                "Revenue from Flea/Worm (Total & %)": _sum_revenue(FLEA_WORM_KEYWORDS, FLEA_WORM_EXCLUSIONS),
+                "Revenue from Food (Total & %)": _sum_revenue(FOOD_KEYWORDS, FOOD_EXCLUSIONS),
+                "Revenue from Lab Work (Total & %)": _sum_revenue(LABWORK_KEYWORDS, LABWORK_EXCLUSIONS),
+                "Revenue from Neuters (Total & %)": _sum_revenue(NEUTER_KEYWORDS, NEUTER_EXCLUSIONS),
+                "Revenue from Ultrasounds (Total & %)": _sum_revenue(ULTRASOUND_KEYWORDS, ULTRASOUND_EXCLUSIONS),
+                "Revenue from X-rays (Total & %)": _sum_revenue(XRAY_KEYWORDS, XRAY_EXCLUSIONS),
             }
         
             # --- Format and store in metrics dict ---
@@ -2322,7 +2265,7 @@ if st.session_state["factoids_unlocked"]:
             # --- Sort alphabetically and display as card group ---
             ordered_keys = sorted(breakdown.keys(), key=str.lower)
             cardgroup(f"💵 Revenue Breakdown - {selected_period}", ordered_keys)
-    
+        
         # ============================
         # 👥 Clients & Patients Cards
         # ============================
@@ -2347,27 +2290,37 @@ if st.session_state["factoids_unlocked"]:
             "Max Client Transactions/Day",
             "Avg Client Transactions/Day",
         ])
-    
+        
+        # ============================
+        # 🐾 Patient Breakdown Cards
+        # ============================
         # sort the masks alphabetically before creating the list
         sorted_labels = sorted(masks.keys(), key=str.lower)
         cardgroup(f"🐾 Patient Breakdown – {selected_period}",
                   [f"Unique Patients Having {k}" for k in sorted_labels])
-    
+        
+        # ============================
+        # 💼 Client Transaction Histogram
+        # ============================
         if total_clients > 0:
             cardgroup(f"💼 Client Transaction Histogram - {selected_period}", list(hist.keys()))
+        
+        # ============================
+        # 🎉 Fun Facts
+        # ============================
         cardgroup(f"🎉 Fun Facts - {selected_period}", [
             "Most Common Pet Name",
             "Patient with Most Transactions",
         ])
-    
+        
         # ============================
         # 📋 Tables
         # ============================
         st.markdown("---")
         st.markdown("<div id='factoids-tables' class='anchor-offset'></div>", unsafe_allow_html=True)
         st.markdown("### 📋 Tables")
-    
-        # Top 20 Items by Revenue
+        
+        # 💰 Top 20 Items by Revenue
         st.markdown(f"#### 💰 Top 20 Items by Revenue - {selected_period}")
         
         top = (
@@ -2388,7 +2341,6 @@ if st.session_state["factoids_unlocked"]:
             top.insert(0, "Rank", range(1, len(top) + 1))
             display_df = top.reset_index(drop=False)[["Rank", "Item Name", "Revenue", "% of Total Revenue", "How Many"]]
         
-            # --- Render: minimal width + centered Rank column ---
             st.dataframe(
                 display_df.style.set_properties(
                     subset=["Rank"],
@@ -2400,18 +2352,19 @@ if st.session_state["factoids_unlocked"]:
                     }
                 ),
                 use_container_width=True,
-                hide_index=True,  # hides pandas' default index
+                hide_index=True,
             )
         else:
             st.info("No items found.")
-    
-        # Top 5 Spending Clients
+        
+        # 💎 Top 5 Spending Clients
         st.markdown(f"#### 💎 Top 5 Spending Clients - {selected_period}")
         clients = (
             df.assign(Client_Clean=df["Client Name"].astype(str).str.strip())
               .query("Client_Clean != ''", engine="python")
         )
         clients = clients[~clients["Client_Clean"].str.lower().str.contains("counter")]
+        
         if not clients.empty:
             topc = (
                 clients.groupby("Client_Clean")["Amount"]
@@ -2425,8 +2378,8 @@ if st.session_state["factoids_unlocked"]:
             st.dataframe(topc, use_container_width=True)
         else:
             st.info("No client data.")
-    
-        # Top 5 Largest Client Transactions
+        
+        # 📈 Top 5 Largest Client Transactions
         st.markdown(f"#### 📈 Top 5 Largest Client Transactions - {selected_period}")
         txg = tx_client.copy()
         txg["Patients"] = txg["Patients"].apply(
@@ -2437,17 +2390,19 @@ if st.session_state["factoids_unlocked"]:
             ~txg["Client Name"].str.lower().str.contains("counter")
         ]
         largest = txg.sort_values("Amount", ascending=False).head(5)
+        
         if not largest.empty:
-            largest = largest[["Client Name","StartDate","EndDate","Patients","Amount"]].copy()
+            largest = largest[["Client Name", "StartDate", "EndDate", "Patients", "Amount"]].copy()
             largest["Amount"] = largest["Amount"].astype(int).apply(lambda x: f"{x:,}")
             largest["DateRange"] = largest.apply(
                 lambda r: f"{r['StartDate'].strftime('%d %b %Y')} → {r['EndDate'].strftime('%d %b %Y')}"
                 if r["StartDate"] != r["EndDate"] else r["StartDate"].strftime("%d %b %Y"),
                 axis=1
             )
-            st.dataframe(largest[["Client Name","DateRange","Patients","Amount"]], use_container_width=True)
+            st.dataframe(largest[["Client Name", "DateRange", "Patients", "Amount"]], use_container_width=True)
         else:
             st.info("No transactions found.")
+
     
         # ============================
         # 📊 Revenue Concentration Curves (Dropdown)
@@ -2638,12 +2593,6 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
-
-
-
-
-
-
 
 
 
