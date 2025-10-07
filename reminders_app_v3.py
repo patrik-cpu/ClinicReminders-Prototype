@@ -2290,6 +2290,7 @@ def run_factoids():
                 y=alt.Y("CumPct:Q", title="% of Total Revenue"),
                 tooltip=[
                     alt.Tooltip("Client Name:N", title="Client"),
+                    alt.Tooltip("Rank:Q", title="Rank"),
                     alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
                     alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
                     alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
@@ -2333,6 +2334,7 @@ def run_factoids():
                 y=alt.Y("CumPct:Q", title="% of Total Revenue"),
                 tooltip=[
                     alt.Tooltip("Item Name:N", title="Item"),
+                    alt.Tooltip("Rank:Q", title="Rank"),
                     alt.Tooltip("TotalRevenue:Q", title="Item Revenue", format=",.0f"),
                     alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
                     alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
@@ -2434,6 +2436,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
