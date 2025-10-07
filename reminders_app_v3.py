@@ -1176,35 +1176,91 @@ if st.session_state["factoids_unlocked"]:
     # -----------------------
     # Keyword Definitions
     # -----------------------
-    FLEA_WORM_KEYWORDS = [
-        "bravecto","revolution","deworm","frontline","milbe","milpro",
-        "nexgard","simparica","advocate","worm","praz","fenbend"
-    ]
-    FOOD_KEYWORDS = [
-        "hill's","hills","royal canin","purina","proplan","iams","eukanuba",
-        "orijen","acana","farmina","vetlife","wellness","taste of the wild",
-        "nutro","pouch","tin","can","canned","wet","dry","kibble",
-        "tuna","chicken","beef","salmon","lamb","duck","senior","diet","food","grain","rc"
-    ]
-    XRAY_KEYWORDS = ["xray","x-ray","radiograph","radiology"]
-    ULTRASOUND_KEYWORDS = ["ultrasound","echo","afast","tfast","a-fast","t-fast"]
-    LABWORK_KEYWORDS = [
-        "cbc","blood test","lab","biochemistry","haematology","urinalysis","labwork","idexx","ghp",
-        "chem","felv","fiv","urine","cytology","smear","faecal","fecal","microscopic","slide","bun",
-        "crea","phos","cpl","cpli","lipase","amylase","pancreatic","cortisol"
-    ]
-    ANAESTHETIC_KEYWORDS = [
-        "anaesthesia","anesthesia","spay","neuter","castrate","surgery",
-        "isoflurane","propofol","alfaxan","alfaxalone"
-    ]
-    HOSPITALISATION_KEYWORDS = ["hospitalisation","hospitalization"]
-    VACCINE_KEYWORDS = ["vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","kennel cough"]
-    DEATH_KEYWORDS = ["euthanasia", "pentobarb", "cremation", "burial", "disposal"]
-    NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex"]
+    # --- Keyword include + exclude sets for all categories ---
+    KEYWORD_SETS = {
+        "FLEA_WORM": {
+            "include": [
+                "bravecto","revolution","deworm","frontline","milbe","milpro",
+                "nexgard","simparica","advocate","worm","praz","fenbend"
+            ],
+            "exclude": []
+        },
+        "FOOD": {
+            "include": [
+                "hill's","hills","royal canin","purina","proplan","iams","eukanuba",
+                "orijen","acana","farmina","vetlife","wellness","taste of the wild",
+                "nutro","pouch","tin","can","canned","wet","dry","kibble",
+                "tuna","chicken","beef","salmon","lamb","duck","senior","diet","food","grain","rc"
+            ],
+            "exclude": []
+        },
+        "XRAY": {
+            "include": ["xray","x-ray","radiograph","radiology"],
+            "exclude": []
+        },
+        "ULTRASOUND": {
+            "include": ["ultrasound","echo","afast","tfast","a-fast","t-fast"],
+            "exclude": []
+        },
+        "LABWORK": {
+            "include": [
+                "cbc","blood test","lab","biochemistry","haematology","urinalysis","labwork","idexx","ghp",
+                "chem","felv","fiv","urine","cytology","smear","faecal","fecal","microscopic","slide","bun",
+                "crea","phos","cpl","cpli","lipase","amylase","pancreatic","cortisol"
+            ],
+            "exclude": ["cream"]
+        },
+        "ANAESTHETIC": {
+            "include": [
+                "anaesthesia","anesthesia","spay","neuter","castrate","surgery",
+                "isoflurane","propofol","alfaxan","alfaxalone"
+            ],
+            "exclude": []
+        },
+        "HOSPITALISATION": {
+            "include": ["hospitalisation","hospitalization"],
+            "exclude": []
+        },
+        "VACCINE": {
+            "include": [
+                "vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","kennel cough"
+            ],
+            "exclude": ["test", "titre", "antibody"]
+        },
+        "DEATH": {
+            "include": ["euthanasia", "pentobarb", "cremation", "burial", "disposal"],
+            "exclude": []
+        },
+        "NEUTER": {
+            "include": ["spay", "castrate", "castration", "desex", "de-sex", "neuter"],
+            "exclude": ["adult", "food", "diet", "canin", "purina", "proplan"]
+        }
+    }
+
+    # -----------------------
+    # Keyword Utilities
+    # -----------------------
     
     def _rx(words):
         return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
     
+    def make_filtered_mask(df, include_words, exclude_words):
+        """
+        Returns a boolean mask for df['Item Name'] that matches include_words
+        but excludes rows matching exclude_words.
+        """
+        if df.empty:
+            return pd.Series(False, index=df.index)
+    
+        item_series = df["Item Name"].astype(str)
+        include_rx = re.compile("|".join(map(re.escape, include_words)), flags=re.IGNORECASE) if include_words else None
+        exclude_rx = re.compile("|".join(map(re.escape, exclude_words)), flags=re.IGNORECASE) if exclude_words else None
+    
+        mask = item_series.str.contains(include_rx, na=False) if include_rx else pd.Series(False, index=df.index)
+        if exclude_rx:
+            mask = mask & ~item_series.str.contains(exclude_rx, na=False)
+        return mask
+        
     # -----------------------
     # Cached base computation
     # -----------------------
@@ -1503,6 +1559,9 @@ if st.session_state["factoids_unlocked"]:
         
         @st.cache_data(show_spinner=False)
         def compute_revenue_breakdown(df: pd.DataFrame) -> pd.DataFrame:
+            """Compute monthly revenue totals and % breakdowns for each category,
+            using include/exclude keyword sets (KEYWORD_SETS)."""
+        
             if df.empty:
                 return pd.DataFrame()
         
@@ -1510,25 +1569,23 @@ if st.session_state["factoids_unlocked"]:
             df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
             df["Month"] = df["ChargeDate"].dt.to_period("M")
         
-            FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
-            FOOD_RX = _rx(FOOD_KEYWORDS)
-            LAB_RX = _rx(LABWORK_KEYWORDS)
-            NEUTER_RX = _rx(NEUTER_KEYWORDS)
-            ULTRA_RX = _rx(ULTRASOUND_KEYWORDS)
-            XRAY_RX = _rx(XRAY_KEYWORDS)
+            # --- helper using include/exclude filtering ---
+            def _sum_filtered(key: str) -> pd.Series:
+                inc = KEYWORD_SETS[key]["include"]
+                exc = KEYWORD_SETS[key]["exclude"]
+                mask = make_filtered_mask(df, inc, exc)
+                return df.loc[mask].groupby("Month")["Amount"].sum()
         
-            def _sum(rx):
-                m = df["Item Name"].astype(str).str.contains(rx, na=False)
-                return df.loc[m].groupby("Month")["Amount"].sum()
-        
-            flea = _sum(FLEA_RX)
-            food = _sum(FOOD_RX)
-            lab = _sum(LAB_RX)
-            neuter = _sum(NEUTER_RX)
-            ultra = _sum(ULTRA_RX)
-            xray = _sum(XRAY_RX)
+            # --- compute each category ---
             total = df.groupby("Month")["Amount"].sum()
+            flea = _sum_filtered("FLEA_WORM")
+            food = _sum_filtered("FOOD")
+            lab  = _sum_filtered("LABWORK")
+            neuter = _sum_filtered("NEUTER")
+            ultra = _sum_filtered("ULTRASOUND")
+            xray = _sum_filtered("XRAY")
         
+            # --- assemble dataframe ---
             out = pd.DataFrame({
                 "Total": total,
                 "Revenue from Flea/Worm": flea,
@@ -1539,12 +1596,16 @@ if st.session_state["factoids_unlocked"]:
                 "Revenue from X-rays": xray
             }).fillna(0)
         
-            for col in ["Flea/Worm","Food","Lab Work","Neuters","Ultrasounds","X-rays"]:
-                out[f"Revenue from {col} (% of total)"] = out[f"Revenue from {col}"] / out["Total"]
+            # --- add %-of-total columns ---
+            for col in ["Flea/Worm", "Food", "Lab Work", "Neuters", "Ultrasounds", "X-rays"]:
+                out[f"Revenue from {col} (% of total)"] = (
+                    out[f"Revenue from {col}"] / out["Total"]
+                )
         
             out["MonthLabel"] = out.index.strftime("%b %Y")
             out["Year"] = out.index.year
             return out.reset_index()
+
         
         rev_df = st.session_state.get("working_df")
         if rev_df is not None and not rev_df.empty:
@@ -2500,6 +2561,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
