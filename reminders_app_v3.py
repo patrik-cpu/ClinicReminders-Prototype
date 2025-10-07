@@ -37,7 +37,7 @@ st.sidebar.markdown(
           <li><a href="#factoids-ataglance" style="text-decoration:none;">🔹 At a Glance</a></li>
           <li><a href="#factoids-tables" style="text-decoration:none;">🔹 Tables</a></li>
         </ul>
-      <li><a href="#feedback" style="text-decoration:none;">💬 Feedback</a></li>
+      <li><a href="#feedback-section" style="text-decoration:none;">💬 Feedback</a></li>
     </ul>
     """,
     unsafe_allow_html=True,
@@ -562,6 +562,7 @@ def summarize_uploads(file_blobs):
 # --------------------------------
 # Tutorial section
 # --------------------------------
+st.markdown("<div id='tutorial' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("<h2 id='tutorial'>📖 Tutorial - Read me first!</h2>", unsafe_allow_html=True)
 st.info(
     "### 🧭 READ THIS FIRST!\n"
@@ -829,7 +830,7 @@ if st.session_state.get("working_df") is not None:
     # Weekly Reminders
     st.markdown("---")
     st.markdown("<h2 id='reminders'>📅 Reminders</h2>", unsafe_allow_html=True)
-    st.markdown("<div id='weekly-reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("#### 📅 Weekly Reminders")
     st.info("💡 Pick a Start Date to see reminders for the next 7-day window. Click WA to prepare a message.")
 
@@ -1779,6 +1780,12 @@ if st.session_state["factoids_unlocked"]:
                             if r["TotalPatientsMonth"] > 0 else 0,
                             axis=1,
                         )
+                        # --- Restrict previous-year data to its latest 12 months for safety
+                        if not prev_monthly.empty:
+                            last_m_prev = prev_monthly["Month"].max()
+                            prev_range = pd.period_range(last_m_prev - 11, last_m_prev, freq="M")
+                            prev_monthly = prev_monthly[prev_monthly["Month"].isin(prev_range)]
+
             
                         # Store the last month’s value for ghost comparison
                         if not prev_monthly.empty:
@@ -2529,7 +2536,7 @@ if st.session_state["factoids_unlocked"]:
 # --------------------------------
 # 💬 Feedback (Lazy Sheets; isolated from reruns)
 # --------------------------------
-st.markdown("<div id='feedback' class='anchor-offset'></div>", unsafe_allow_html=True)
+st.markdown("<div id='feedback-section' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 💬 Feedback")
 st.markdown("### Found a problem? Let me (Patrik) know here:")
 
@@ -2601,6 +2608,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
