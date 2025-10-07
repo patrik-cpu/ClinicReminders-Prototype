@@ -1171,15 +1171,19 @@ if st.session_state["factoids_unlocked"]:
         "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
         "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend"
     ]
-    FLEA_WORM_EXCLUSIONS = []
+    FLEA_WORM_EXCLUSIONS = ["felv","fiv","antigen","antibody","wild catz"]
 
     FOOD_KEYWORDS = [
         "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
         "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
-        "nutro", "pouch", "tin", "can", "canned", "wet", "dry", "kibble",
+        "nutro", "pouch", "canned", "wet", "dry", "kibble",
         "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", "grain", "rc","bhn"
     ]
-    FOOD_EXCLUSIONS = ["caniverm","deworm","caninsulin"]
+    FOOD_EXCLUSIONS = [
+        "caniverm","deworm","caninsulin","referral","endoscopy","colonoscopy","In-patient","Cat Sitting",
+        "Selamectin","Thromboplastin","Injection Fee"
+    ]
+                      
 
     XRAY_KEYWORDS = ["xray", "x-ray", "radiograph", "radiology"]
     XRAY_EXCLUSIONS = []
@@ -1190,7 +1194,7 @@ if st.session_state["factoids_unlocked"]:
     LABWORK_KEYWORDS = [
         "cbc", "blood test", "lab", "biochemistry", "haematology", "urinalysis", "labwork", "idexx", "ghp",
         "chem", "felv", "fiv", "urine", "cytology", "smear", "faecal", "fecal", "microscopic", "slide", "bun",
-        "crea", "phos", "cpl", "cpli", "lipase", "amylase", "pancreatic", "cortisol"
+        "crea", "phosphate", "cpl", "cpli", "lipase", "amylase", "pancreatic", "cortisol"
     ]
     LABWORK_EXCLUSIONS = ["cream","labrador","cremation","enema"]
 
@@ -1198,7 +1202,7 @@ if st.session_state["factoids_unlocked"]:
         "anaesthesia", "anesthesia", "spay", "neuter", "castrate", "surgery",
         "isoflurane", "propofol", "alfaxan", "alfaxalone"
     ]
-    ANAESTHETIC_EXCLUSIONS = []
+    ANAESTHETIC_EXCLUSIONS = ["satiety","balance","vhn","royal canin","food"]
 
     HOSPITALISATION_KEYWORDS = ["hospitalisation", "hospitalization"]
     HOSPITALISATION_EXCLUSIONS = []
@@ -1207,7 +1211,7 @@ if st.session_state["factoids_unlocked"]:
         "vaccine", "vaccination", "booster", "rabies", "dhpp", "dhppil", "tricat",
         "pch", "pcl", "leukemia", "kennel cough"
     ]
-    VACCINE_EXCLUSIONS = ["test", "titre", "antibody"]
+    VACCINE_EXCLUSIONS = ["test", "titre", "antibody","bites"]
 
     DEATH_KEYWORDS = ["euthanasia", "pentobarb", "cremation", "burial", "disposal"]
     DEATH_EXCLUSIONS = []
@@ -2681,6 +2685,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
