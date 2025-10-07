@@ -11,15 +11,6 @@ from datetime import date, datetime, timedelta
 import hashlib
 import numpy as np
 
-# --------------------------------
-# Title
-# --------------------------------
-title_col, tut_col = st.columns([4,1])
-with title_col:
-    st.title("ClinicReminders & Factoids Prototype v5.0 - with password")
-st.markdown("---")
-
-# --------------------------------
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
@@ -51,6 +42,14 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# --------------------------------
+# Title
+# --------------------------------
+title_col, tut_col = st.columns([4,1])
+with title_col:
+    st.title("ClinicReminders & Factoids Prototype v5.0 - with password")
+st.markdown("---")
 
 # --------------------------------
 # CSS Styling
@@ -667,10 +666,9 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 val = normalize_display_case(val)
             cols[j].markdown(val)
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
-            first_name  = normalize_display_case(vals['Client Name'].split()[0].strip()) if vals['Client Name'] else "there"
-            animal_name = normalize_display_case(vals['Animal Name'].strip()) if vals['Animal Name'] else "your pet"
-            plan_for_msg = normalize_display_case(vals["Plan Item"].strip())
-            
+            first_name  = vals['Client Name'].split()[0].strip() if vals['Client Name'] else "there"
+            animal_name = vals['Animal Name'].strip() if vals['Animal Name'] else "your pet"
+            plan_for_msg = vals["Plan Item"].strip()
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
             closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
@@ -686,8 +684,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
-            st.markdown(f"**Preview:** {normalize_display_case(st.session_state[msg_key])}")
-
+            st.markdown(f"**Preview:** {st.session_state[msg_key]}")
     comp_main, comp_tip = st.columns([4,1])
     with comp_main:
         st.write("### WhatsApp Composer")
@@ -1158,7 +1155,7 @@ if not st.session_state["factoids_unlocked"]:
         submitted = st.form_submit_button("Unlock Factoids")
 
     if submitted:
-        if password_input == "x":
+        if password_input == "clinic123":
             st.session_state["factoids_unlocked"] = True
             st.success("✅ Access granted. Loading Factoids...")
             st.rerun()
@@ -1192,6 +1189,8 @@ if st.session_state["factoids_unlocked"]:
     ]
     HOSPITALISATION_KEYWORDS = ["hospitalisation","hospitalization"]
     VACCINE_KEYWORDS = ["vaccine","vaccination","booster","rabies","dhpp","dhppil","tricat","pch","pcl","leukemia","kennel cough"]
+    DEATH_KEYWORDS = ["euthanasia", "pentobarb", "cremation", "burial", "disposal"]
+    NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex"]
     
     def _rx(words):
         return re.compile("|".join(map(re.escape, words)), flags=re.IGNORECASE)
@@ -1336,7 +1335,21 @@ if st.session_state["factoids_unlocked"]:
                 core = core.merge(tx_month_patient, on="Month", how="left")
             else:
                 core["Patient Transactions"] = 0
-        
+            # --- Deaths and Neuters keyword-based counts ---
+            DEATH_RX = _rx(DEATH_KEYWORDS)
+            NEUTER_RX = _rx(NEUTER_KEYWORDS)
+            
+            df["DeathFlag"] = df["Item Name"].astype(str).str.contains(DEATH_RX, na=False)
+            df["NeuterFlag"] = df["Item Name"].astype(str).str.contains(NEUTER_RX, na=False)
+            
+            death_monthly = df.groupby("Month")["DeathFlag"].sum().rename("Deaths")
+            neuter_monthly = df.groupby("Month")["NeuterFlag"].sum().rename("Neuters")
+            
+            core = core.merge(death_monthly, on="Month", how="left")
+            core = core.merge(neuter_monthly, on="Month", how="left")
+            
+            core[["Deaths", "Neuters"]] = core[["Deaths", "Neuters"]].fillna(0).astype(int)
+
             # --- Derived ratios
             core["Revenue per Client"] = core.apply(
                 lambda r: r["Total Revenue"]/r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1)
@@ -1385,7 +1398,7 @@ if st.session_state["factoids_unlocked"]:
                     "Client Transactions","Patient Transactions",
                     "Revenue per Client","Revenue per Patient","Revenue per Client Transaction","Revenue per Patient Transaction",
                     "New Clients","New Patients",
-                    "Transactions per Client","Transactions per Patient"
+                    "Transactions per Client","Transactions per Patient","Deaths","Neuters"
                 ]
                 sel_core = st.selectbox("Select Core Metric:", metric_list, index=0, key="core_metric_abs")
         
@@ -2467,10 +2480,6 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
-
-
-
-
 
 
 
