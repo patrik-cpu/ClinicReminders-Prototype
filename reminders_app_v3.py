@@ -11,6 +11,15 @@ from datetime import date, datetime, timedelta
 import hashlib
 import numpy as np
 
+# --------------------------------
+# Title
+# --------------------------------
+title_col, tut_col = st.columns([4,1])
+with title_col:
+    st.title("ClinicReminders & Factoids Prototype v5.0 - with password")
+st.markdown("---")
+
+# --------------------------------
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
@@ -42,14 +51,6 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-# --------------------------------
-# Title
-# --------------------------------
-title_col, tut_col = st.columns([4,1])
-with title_col:
-    st.title("ClinicReminders & Factoids Prototype v5.0 - with password")
-st.markdown("---")
 
 # --------------------------------
 # CSS Styling
@@ -2464,6 +2465,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
