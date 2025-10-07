@@ -1663,7 +1663,8 @@ if st.session_state["factoids_unlocked"]:
                     st.session_state.pop("rev_chart_rendered")
                 st.session_state["rev_chart_rendered"] = True
                 
-                st.altair_chart(chart_rev_tx, use_container_width=True)
+                st.altair_chart(chart.configure_view(continuousHeight=400, continuousWidth=700), use_container_width=False)
+
 
                 # ---------------------------
                 # Chart 2: Clients & Patients
@@ -3039,6 +3040,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
