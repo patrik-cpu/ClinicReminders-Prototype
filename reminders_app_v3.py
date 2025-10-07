@@ -1800,7 +1800,7 @@ if st.session_state["factoids_unlocked"]:
 
     
         # ============================
-        # 💵 Revenue Breakdown by Month Chart
+        # Chart 3: Revenue Breakdown by Month Chart
         # ============================
         st.markdown(
             "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💵 Revenue Breakdown by Month</h4>",
@@ -1973,13 +1973,13 @@ if st.session_state["factoids_unlocked"]:
 
     
         # ============================
-        # Patient Breakdown % Chart
+        # Chart 4: Patient Breakdown % Chart (with MA + Ghost MA)
         # ============================
         st.markdown(
             "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
             unsafe_allow_html=True
         )
-    
+        
         metric_configs = {
             "Anaesthetics": {"include": ANAESTHETIC_KEYWORDS, "exclude": ANAESTHETIC_EXCLUSIONS, "color": "#fb7185"},
             "Dentals": {"custom": re.compile("dental", re.I), "color": "#60a5fa", "filter": True},
@@ -1992,52 +1992,44 @@ if st.session_state["factoids_unlocked"]:
             "Vaccinations": {"include": VACCINE_KEYWORDS, "exclude": VACCINE_EXCLUSIONS, "color": "#22d3ee"},
             "X-rays": {"include": XRAY_KEYWORDS, "exclude": XRAY_EXCLUSIONS, "color": "#93c5fd"},
         }
-
+        
         sorted_metrics = sorted(metric_configs.keys())
         choice = st.selectbox("Select a metric:", sorted_metrics, index=0, key="factoid_metric")
         conf = metric_configs[choice]
-    
+        
         # --- Determine which rows match the selected metric ---
         if "custom" in conf:
-            # For special cases (e.g., "Dentals")
             mask = df_blocked["Item Name"].astype(str).str.contains(conf["custom"], na=False)
         else:
-            # Use include/exclude keyword logic
             mask = make_mask(df_blocked, conf["include"], conf["exclude"])
         
         # --- Build monthly patient % breakdown using this mask ---
         if mask.any():
-            # All unique client+animal blocks that match
             service_rows = df_blocked.loc[mask, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
             qualifying = pd.merge(service_rows, tx_client, on=["Client Name", "Block"], how="left")
             qualifying["Month"] = qualifying["ChargeDate"].dt.to_period("M")
         
-            # Count unique patients per month
             monthly = (
                 qualifying.groupby("Month")["Patients"]
                 .apply(lambda p: len(set().union(*p)) if isinstance(p.iloc[0], (list, set)) else 0)
                 .reset_index(name="UniquePatients")
             )
         
-            # Add total monthly patients & percentage
             monthly["TotalPatientsMonth"] = monthly["Month"].map(patients_per_month).fillna(0).astype(int)
             monthly["Percent"] = monthly.apply(
-                lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"])
-                if r["TotalPatientsMonth"] > 0 else 0,
+                lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"]) if r["TotalPatientsMonth"] > 0 else 0,
                 axis=1,
             )
             monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
-
-            # --- Restrict to the latest 12 months (same behavior as before)
+        
+            # Restrict to latest 12 months
             if not monthly.empty:
                 last_m = monthly["Month"].max()
                 month_range = pd.period_range(last_m - 11, last_m, freq="M")
                 monthly = monthly[monthly["Month"].isin(month_range)]
-
-            
         else:
-            monthly = pd.DataFrame()  # fallback if no matches
-
+            monthly = pd.DataFrame()
+        
         if monthly.empty:
             st.info(f"No qualifying {choice.lower()} data found.")
         else:
@@ -2045,111 +2037,91 @@ if st.session_state["factoids_unlocked"]:
             monthly["MonthNum"] = monthly["Month"].dt.month
             df_blocked["Year"] = df_blocked["ChargeDate"].dt.year
             df_blocked["MonthNum"] = df_blocked["ChargeDate"].dt.month
-    
-            # --- find ghost values (same month previous year)
+        
+            # --- Find previous-year ghost data
             ghost_data = []
             for _, row in monthly.iterrows():
                 year_prev = row["Year"] - 1
                 month_num = row["MonthNum"]
                 subset_prev = df_blocked[
-                    (df_blocked["Year"] == year_prev) &
-                    (df_blocked["MonthNum"] == month_num)
+                    (df_blocked["Year"] == year_prev) & (df_blocked["MonthNum"] == month_num)
                 ]
-            
                 if not subset_prev.empty:
-                    # Apply the same filtering logic for previous-year subset
                     if "custom" in conf:
                         mask_prev = subset_prev["Item Name"].astype(str).str.contains(conf["custom"], na=False)
                     else:
                         mask_prev = make_mask(subset_prev, conf["include"], conf["exclude"])
-            
                     service_prev = subset_prev.loc[mask_prev, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
                     if not service_prev.empty:
                         qualifying_prev = pd.merge(service_prev, tx_client, on=["Client Name", "Block"], how="left")
                         qualifying_prev["Month"] = qualifying_prev["ChargeDate"].dt.to_period("M")
-            
                         prev_monthly = (
                             qualifying_prev.groupby("Month")["Patients"]
                             .apply(lambda p: len(set().union(*p)) if isinstance(p.iloc[0], (list, set)) else 0)
                             .reset_index(name="UniquePatients")
                         )
-            
                         prev_monthly["TotalPatientsMonth"] = prev_monthly["Month"].map(patients_per_month).fillna(0).astype(int)
                         prev_monthly["Percent"] = prev_monthly.apply(
                             lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"])
                             if r["TotalPatientsMonth"] > 0 else 0,
                             axis=1,
                         )
-                        # --- Restrict previous-year data to its latest 12 months for safety
                         if not prev_monthly.empty:
                             last_m_prev = prev_monthly["Month"].max()
                             prev_range = pd.period_range(last_m_prev - 11, last_m_prev, freq="M")
                             prev_monthly = prev_monthly[prev_monthly["Month"].isin(prev_range)]
-
-            
-                        # Store the last month’s value for ghost comparison
-                        if not prev_monthly.empty:
-                            ghost_val = prev_monthly["Percent"].iloc[-1]
-                            ghost_patients = prev_monthly["UniquePatients"].iloc[-1]
-                            ghost_total = prev_monthly["TotalPatientsMonth"].iloc[-1]
-                            ghost_data.append((row["MonthLabel"], year_prev, ghost_val, ghost_patients, ghost_total))
-
-            # --- merge ghost results into monthly dataset
+                            if not prev_monthly.empty:
+                                ghost_val = prev_monthly["Percent"].iloc[-1]
+                                ghost_patients = prev_monthly["UniquePatients"].iloc[-1]
+                                ghost_total = prev_monthly["TotalPatientsMonth"].iloc[-1]
+                                ghost_data.append((row["MonthLabel"], year_prev, ghost_val, ghost_patients, ghost_total))
+        
+            # --- Merge ghost results
             merged = monthly.copy()
             merged["PrevPercent"] = pd.NA
             merged["PrevUniquePatients"] = pd.NA
             merged["PrevYear"] = pd.NA
             merged["PrevTotalPatients"] = pd.NA
-    
             for label, yprev, val, pats, tot in ghost_data:
                 merged.loc[merged["MonthLabel"] == label, "PrevPercent"] = val
                 merged.loc[merged["MonthLabel"] == label, "PrevUniquePatients"] = pats
                 merged.loc[merged["MonthLabel"] == label, "PrevYear"] = yprev
                 merged.loc[merged["MonthLabel"] == label, "PrevTotalPatients"] = tot
-    
+        
             merged["has_ghost"] = merged["PrevPercent"].notna()
-    
-            # ✅ Month-only string for tooltips (no year)
             merged["MonthOnly"] = merged["MonthLabel"].str.split().str[0]
-    
             color = conf["color"]
-    
-            # --- ghost bars (30% opacity, offset left)
+        
+            # --- Ghost bars
             ghost = (
                 alt.Chart(merged)
                 .transform_filter("datum.PrevPercent != null")
                 .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
                 .encode(
-                    x=alt.X(
-                        "MonthLabel:N",
-                        sort=merged["MonthLabel"].tolist(),
-                        axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)
-                    ),
+                    x=alt.X("MonthLabel:N", sort=merged["MonthLabel"].tolist(),
+                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                     y=alt.Y("PrevPercent:Q", title="% Patients", axis=alt.Axis(format=".1%")),
                     tooltip=[
                         alt.Tooltip("PrevYear:O", title="Year"),
-                        alt.Tooltip("MonthOnly:N", title="Month"),  # ← month name only
+                        alt.Tooltip("MonthOnly:N", title="Month"),
                         alt.Tooltip("PrevTotalPatients:Q", title="Monthly Patients", format=",.0f"),
                         alt.Tooltip("PrevUniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                         alt.Tooltip("PrevPercent:Q", title="%", format=".1%"),
                     ],
                 )
             )
-    
-            # --- current bars (centered unless ghost exists)
+        
+            # --- Current bars
             current = (
                 alt.Chart(merged)
                 .mark_bar(size=20, color=color)
                 .encode(
-                    x=alt.X(
-                        "MonthLabel:N",
-                        sort=merged["MonthLabel"].tolist(),
-                        axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)
-                    ),
+                    x=alt.X("MonthLabel:N", sort=merged["MonthLabel"].tolist(),
+                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                     y=alt.Y("Percent:Q", title="% Patients", axis=alt.Axis(format=".1%")),
                     tooltip=[
                         alt.Tooltip("Year:O", title="Year"),
-                        alt.Tooltip("MonthOnly:N", title="Month"),  # ← month name only
+                        alt.Tooltip("MonthOnly:N", title="Month"),
                         alt.Tooltip("TotalPatientsMonth:Q", title="Monthly Patients", format=",.0f"),
                         alt.Tooltip("UniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
                         alt.Tooltip("Percent:Q", title="%", format=".1%"),
@@ -2157,18 +2129,56 @@ if st.session_state["factoids_unlocked"]:
                 )
                 .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
             )
-    
+        
+            # --- Add 3-mo MA & Ghost MA
+            first_current = monthly["Month"].min()
+            seed_months = pd.period_range(first_current - 2, first_current - 1, freq="M")
+            df_ma_seed_src = monthly.copy()
+            df_ma_seed_src = df_ma_seed_src[["Month", "MonthLabel", "Percent"]].rename(columns={"Percent": "Value"})
+            allowed_labels = merged["MonthLabel"].tolist()
+        
+            ma_line = (
+                alt.Chart(df_ma_seed_src)
+                .transform_window(rolling_mean="mean(Value)", frame=[-2, 0])
+                .transform_filter(alt.FieldOneOfPredicate(field="MonthLabel", oneOf=allowed_labels))
+                .mark_line(color=color, size=2.5)
+                .encode(
+                    x=alt.X("MonthLabel:N", sort=allowed_labels),
+                    y=alt.Y("rolling_mean:Q"),
+                    tooltip=[
+                        alt.Tooltip("MonthLabel:N", title="Month"),
+                        alt.Tooltip("rolling_mean:Q", title="3-mo Moving Avg", format=".1%"),
+                    ],
+                )
+            )
+        
+            ma_line_ghost = (
+                alt.Chart(merged)
+                .transform_window(ghost_rolling_mean="mean(PrevPercent)", frame=[-2, 0])
+                .mark_line(color=color, size=2.0, opacity=0.3)
+                .encode(
+                    x=alt.X("MonthLabel:N", sort=merged["MonthLabel"].tolist()),
+                    y=alt.Y("ghost_rolling_mean:Q"),
+                    tooltip=[
+                        alt.Tooltip("MonthOnly:N", title="Month"),
+                        alt.Tooltip("ghost_rolling_mean:Q", title="Ghost 3-mo Moving Avg", format=".1%"),
+                    ],
+                )
+            )
+        
+            # --- Combine all layers
             chart = (
-                alt.layer(ghost, current)
+                alt.layer(ghost, current, ma_line, ma_line_ghost)
                 .resolve_scale(y="shared")
                 .properties(
                     height=400,
                     width=700,
-                    title=f"% of Monthly Patients Having {choice} (with previous-year ghost bars)"
+                    title=f"% of Monthly Patients Having {choice} (with previous-year ghost bars + 3-mo moving average)"
                 )
             )
-            
+        
             st.altair_chart(chart, use_container_width=True)
+
     
         # ============================
         # 📌 At a Glance (simple, fully dynamic)
@@ -3069,6 +3079,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
