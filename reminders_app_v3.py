@@ -1264,15 +1264,7 @@ def run_factoids():
     # ============================
     st.markdown("<div id='factoids-monthlycharts' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 📈 Monthly Charts")
-
-
-
-
-
-
-
-
-    
+ 
     # ============================
     # 💰 Core Metrics (Absolute Values)
     # ============================
@@ -1356,7 +1348,6 @@ def run_factoids():
         core["Year"] = core["Month"].dt.year
         return core.sort_values("Month")
 
-    
     # ---- Render Core Metrics (strict 12 months + ghost-year overlay)
     core_df = st.session_state.get("working_df")
     if core_df is not None and not core_df.empty:
@@ -1452,13 +1443,156 @@ def run_factoids():
     else:
         st.info("Upload data to display Core Metrics.")
 
+    # ============================
+    # 💵 Revenue Breakdown by Month Chart
+    # ============================
+    st.markdown(
+        "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💵 Revenue Breakdown by Month</h4>",
+        unsafe_allow_html=True
+    )
+    
+    @st.cache_data(show_spinner=False)
+    def compute_revenue_breakdown(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return pd.DataFrame()
+    
+        df = df.copy()
+        df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+        df["Month"] = df["ChargeDate"].dt.to_period("M")
+    
+        FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
+        FOOD_RX = _rx(FOOD_KEYWORDS)
+        LAB_RX = _rx(LABWORK_KEYWORDS)
+        ULTRA_RX = _rx(ULTRASOUND_KEYWORDS)
+        XRAY_RX = _rx(XRAY_KEYWORDS)
+    
+        def _sum(rx):
+            m = df["Item Name"].astype(str).str.contains(rx, na=False)
+            return df.loc[m].groupby("Month")["Amount"].sum()
+    
+        flea = _sum(FLEA_RX)
+        food = _sum(FOOD_RX)
+        lab = _sum(LAB_RX)
+        ultra = _sum(ULTRA_RX)
+        xray = _sum(XRAY_RX)
+        total = df.groupby("Month")["Amount"].sum()
+    
+        out = pd.DataFrame({
+            "Total": total,
+            "Revenue from Flea/Worm": flea,
+            "Revenue from Food": food,
+            "Revenue from Lab Work": lab,
+            "Revenue from Ultrasounds": ultra,
+            "Revenue from X-rays": xray
+        }).fillna(0)
+    
+        for col in ["Flea/Worm","Food","Lab Work","Ultrasounds","X-rays"]:
+            out[f"Revenue from {col} (% of total)"] = out[f"Revenue from {col}"] / out["Total"]
+    
+        out["MonthLabel"] = out.index.strftime("%b %Y")
+        out["Year"] = out.index.year
+        return out.reset_index()
+    
+    rev_df = st.session_state.get("working_df")
+    if rev_df is not None and not rev_df.empty:
+        rev_all = compute_revenue_breakdown(rev_df)
+        if not rev_all.empty:
+            last_m = rev_all["Month"].max()
+            current_12 = pd.period_range(last_m - 11, last_m, freq="M")
+            rev_current = rev_all[rev_all["Month"].isin(current_12)].copy()
+    
+            metrics = [
+                "Revenue from Flea/Worm",
+                "Revenue from Flea/Worm (% of total)",
+                "Revenue from Food",
+                "Revenue from Food (% of total)",
+                "Revenue from Lab Work",
+                "Revenue from Lab Work (% of total)",
+                "Revenue from Ultrasounds",
+                "Revenue from Ultrasounds (% of total)",
+                "Revenue from X-rays",
+                "Revenue from X-rays (% of total)",
+            ]
+    
+            sel = st.selectbox("Select Revenue Metric:", metrics, index=0, key="rev_breakdown_metric")
+    
+            # 🔧 Core Metrics-style ghost computation
+            metric_series = rev_all.set_index("Month")[sel]
+            rev_current["PrevValue"] = rev_current["Month"].apply(
+                lambda m: metric_series.get(m - 12, pd.NA)
+            )
+            rev_current["PrevYear"] = rev_current["Month"].apply(
+                lambda m: (m - 12).year if (m - 12) in metric_series.index else pd.NA
+            )
+            rev_current["MonthOnly"] = rev_current["MonthLabel"].str.split().str[0]
+            rev_current["has_ghost"] = rev_current["PrevValue"].notna()
+    
+            palette = [
+                "#4ade80","#facc15","#fbbf24","#a5b4fc","#93c5fd",
+                "#fb7185","#60a5fa","#f97316","#fbbf24","#a5b4fc"
+            ]
+            color = palette[metrics.index(sel) % len(palette)]
+    
+            is_pct = "(% of total)" in sel
+            y_fmt = ".1%" if is_pct else ",.0f"
+            y_title = "% of Total" if is_pct else "Revenue (AED)"
+    
+            safe = re.sub(r"[^A-Za-z0-9_]", "_", sel)
+            df_plot = rev_current.rename(columns={sel: safe}).copy()
+    
+            # ✅ exact ghost rendering as Core Metrics
+            ghost = (
+                alt.Chart(df_plot)
+                .transform_filter("datum.PrevValue != null")
+                .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
+                .encode(
+                    x=alt.X("MonthLabel:N",
+                            sort=df_plot["MonthLabel"].tolist(),
+                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                    y=alt.Y("PrevValue:Q", title=y_title, axis=alt.Axis(format=y_fmt)),
+                    tooltip=[
+                        alt.Tooltip("PrevYear:O", title="Year"),
+                        alt.Tooltip("MonthOnly:N", title="Month"),
+                        alt.Tooltip("PrevValue:Q", title=y_title, format=y_fmt),
+                    ],
+                )
+            )
+    
+            current = (
+                alt.Chart(df_plot)
+                .mark_bar(size=20, color=color)
+                .encode(
+                    x=alt.X("MonthLabel:N",
+                            sort=df_plot["MonthLabel"].tolist(),
+                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                    y=alt.Y(f"{safe}:Q", title=y_title, axis=alt.Axis(format=y_fmt)),
+                    tooltip=[
+                        alt.Tooltip("Year:O", title="Year"),
+                        alt.Tooltip("MonthOnly:N", title="Month"),
+                        alt.Tooltip(f"{safe}:Q", title=y_title, format=y_fmt),
+                    ],
+                )
+                .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
+            )
+    
+            chart = (
+                alt.layer(ghost, current)
+                .resolve_scale(y="shared")
+                .properties(
+                    height=400,
+                    width=700,
+                    title=f"{sel} by Month (with previous-year ghost bars)"
+                )
+            )
+            st.altair_chart(chart, use_container_width=True)
+        else:
+            st.info("No data available for revenue breakdown.")
+    else:
+        st.info("Upload data to display Revenue Breakdown by Month.")
 
-
-
-    
-    
-    
-    
+    # ============================
+    # Patient Breakdown % Chart
+    # ============================
     st.markdown(
         "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
         unsafe_allow_html=True
@@ -1596,25 +1730,38 @@ def run_factoids():
 
     # --- Select Period Dropdown ---
     st.markdown("#### 🕒 Select Period")
+    # --- Select Period Dropdown ---
     period_options = ["All Data", "Prev 30 Days", "Prev 3 Months", "Prev 12 Months", "YTD"]
     selected_period = st.selectbox("Select Period:", period_options, index=0, label_visibility="collapsed")
-
+    
+    # --- Determine latest and earliest available dates ---
     latest_date = pd.to_datetime(df["ChargeDate"], errors="coerce").max()
+    earliest_date = pd.to_datetime(df["ChargeDate"], errors="coerce").min()
     if pd.isna(latest_date):
         latest_date = pd.Timestamp.today()
-
+    if pd.isna(earliest_date):
+        earliest_date = latest_date - pd.DateOffset(years=1)
+    
+    # --- Apply filters and prepare descriptive labels ---
     if selected_period == "Prev 30 Days":
         start_date = latest_date - pd.Timedelta(days=30)
         df = df[df["ChargeDate"] >= start_date]
+        selected_period = f"Prev 30 Days from {latest_date.strftime('%d %b %Y')}"
     elif selected_period == "Prev 3 Months":
         start_date = latest_date - pd.DateOffset(months=3)
         df = df[df["ChargeDate"] >= start_date]
+        selected_period = f"Prev 3 Months from {latest_date.strftime('%d %b %Y')}"
     elif selected_period == "Prev 12 Months":
         start_date = latest_date - pd.DateOffset(months=12)
         df = df[df["ChargeDate"] >= start_date]
+        selected_period = f"Prev 12 Months from {latest_date.strftime('%d %b %Y')}"
     elif selected_period == "YTD":
         start_date = pd.Timestamp(year=latest_date.year, month=1, day=1)
         df = df[df["ChargeDate"] >= start_date]
+        selected_period = f"YTD: {start_date.strftime('%d %b %Y')} → {latest_date.strftime('%d %b %Y')}"
+    elif selected_period == "All Data":
+        start_date = earliest_date
+        selected_period = f"All Data: {earliest_date.strftime('%d %b %Y')} → {latest_date.strftime('%d %b %Y')}"
 
     # Recompute everything below (cards, breakdown, tables) using filtered df
     df_blocked, tx_client, tx_patient, patients_per_month = prepare_factoids_data(df)
@@ -1745,7 +1892,6 @@ def run_factoids():
             top_count = int(pet_counts.iloc[0]["Count"])
             metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
 
-
     tx_exp = tx_client.explode("Patients").dropna(subset=["Patients"]).copy()
     if not tx_exp.empty:
         tx_exp["ClientKey"] = _canon(tx_exp["Client Name"])
@@ -1801,6 +1947,7 @@ def run_factoids():
                 cols[i % 5].markdown(CARD_STYLE.format(bg=bg,label=k,val=v,fs=fs),unsafe_allow_html=True)
                 i += 1
                 if i % 5 == 0 and i < len(keys): cols = st.columns(5)
+                    
     # --- Add Core Metrics (aggregated over selected period)
     period_df = df.copy()
     if not period_df.empty:
@@ -1850,9 +1997,6 @@ def run_factoids():
         pairs["AnimalKey"] = _norm(pairs["AnimalRaw"])
         
         unique_patients = pairs.drop_duplicates(subset=["ClientKey","AnimalKey"]).shape[0]
-
-
-
         
         # ---- Transactions (client + patient)
         _, tx_client, tx_patient, _ = prepare_factoids_data(period_df)
@@ -1862,8 +2006,7 @@ def run_factoids():
         else:
             client_transactions = 0
             patient_transactions = 0
-
-    
+            
         # ---- Derived ratios
         rev_per_client = total_revenue / unique_clients if unique_clients else 0
         rev_per_patient = total_revenue / unique_patients if unique_patients else 0
@@ -1872,7 +2015,6 @@ def run_factoids():
         tx_per_patient = round(patient_transactions / unique_patients, 1) if unique_patients else 0
     
         # ---- New Clients / Patients (based on first-ever appearance in full dataset)
-
         # Prepare global, cleaned, normalized dataset (so we can check full-history appearances)
         global_df = st.session_state.get("working_df", pd.DataFrame()).copy()
         global_df = (
@@ -1918,11 +2060,10 @@ def run_factoids():
         if selected_period == "All Data":
             new_clients = unique_clients
             new_patients = unique_patients
+            
+        # --- Compute patients per client
+        patients_per_client = round(unique_patients / unique_clients, 1) if unique_clients else 0
 
-
-
-
-    
         # ---- Add results to metrics dict (will display in cardgroup)
         metrics["New Clients"] = f"{new_clients:,}"
         metrics["New Patients"] = f"{new_patients:,}"
@@ -1937,10 +2078,10 @@ def run_factoids():
         metrics["Revenue per Patient Transaction"] = f"{rev_per_tx:,.0f}"
         metrics["Transactions per Client"] = f"{tx_per_client:.1f}".rstrip("0").rstrip(".")
         metrics["Transactions per Patient"] = f"{tx_per_patient:.1f}".rstrip("0").rstrip(".")
-
+        metrics["Patients per Client"] = f"{patients_per_client:.1f}".rstrip("0").rstrip(".")
 
     # ============================
-    # 💰 Revenue
+    # 💰 Revenue Cards
     # ============================
     cardgroup(f"💰 Revenue - {selected_period}", [
         "Total Revenue",
@@ -1949,13 +2090,48 @@ def run_factoids():
         "Revenue per Client Transaction",
         "Revenue per Patient Transaction",
     ])
-    
+
     # ============================
-    # 👥 Clients & Patients
+    # 💵 Revenue Breakdown Cards
+    # ============================
+    if not df.empty:
+        # --- Compute revenue breakdowns for the currently selected period ---
+        FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
+        FOOD_RX = _rx(FOOD_KEYWORDS)
+        LAB_RX = _rx(LABWORK_KEYWORDS)
+        ULTRA_RX = _rx(ULTRASOUND_KEYWORDS)
+        XRAY_RX = _rx(XRAY_KEYWORDS)
+    
+        def _sum_revenue(rx):
+            mask = df["Item Name"].astype(str).str.contains(rx, na=False)
+            return df.loc[mask, "Amount"].sum()
+    
+        total_revenue = df["Amount"].sum()
+    
+        breakdown = {
+            "Revenue from Flea/Worm (Total & %)": _sum_revenue(FLEA_RX),
+            "Revenue from Food (Total & %)": _sum_revenue(FOOD_RX),
+            "Revenue from Lab Work (Total & %)": _sum_revenue(LAB_RX),
+            "Revenue from Ultrasounds (Total & %)": _sum_revenue(ULTRA_RX),
+            "Revenue from X-rays (Total & %)": _sum_revenue(XRAY_RX),
+        }
+    
+        # --- Format and store in metrics dict ---
+        for k, v in breakdown.items():
+            pct = (v / total_revenue * 100) if total_revenue > 0 else 0
+            metrics[k] = f"{int(v):,} ({pct:.1f}%)"
+    
+        # --- Sort alphabetically and display as card group ---
+        ordered_keys = sorted(breakdown.keys(), key=str.lower)
+        cardgroup(f"💵 Revenue Breakdown - {selected_period}", ordered_keys)
+
+    # ============================
+    # 👥 Clients & Patients Cards
     # ============================
     cardgroup(f"👥 Clients & Patients - {selected_period}", [
         "Unique Clients Seen",
         "Unique Patients Seen",
+        "Patients per Client",
         "Max Patients/Day",
         "Avg Patients/Day",
         "New Clients",
@@ -1963,7 +2139,7 @@ def run_factoids():
     ])
     
     # ============================
-    # 🔁 Transactions
+    # 🔁 Transactions Cards
     # ============================
     cardgroup(f"🔁 Transactions - {selected_period}", [
         "Number of Client Transactions",
@@ -1995,19 +2171,39 @@ def run_factoids():
 
     # Top 20 Items by Revenue
     st.markdown(f"#### 💰 Top 20 Items by Revenue - {selected_period}")
+    
     top = (
         df.groupby("Item Name")
-        .agg(TotalRevenue=("Amount","sum"), TotalCount=("Qty","sum"))
+        .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Qty", "sum"))
         .sort_values("TotalRevenue", ascending=False)
         .head(20)
     )
+    
     if not top.empty:
         total = top["TotalRevenue"].sum()
-        top["% of Total Revenue"] = (top["TotalRevenue"]/total*100).round(1)
+        top["% of Total Revenue"] = (top["TotalRevenue"] / total * 100).round(1)
         top["Revenue"] = top["TotalRevenue"].astype(int).apply(lambda x: f"{x:,}")
         top["How Many"] = top["TotalCount"].astype(int).apply(lambda x: f"{x:,}")
         top["% of Total Revenue"] = top["% of Total Revenue"].astype(str) + "%"
-        st.dataframe(top[["Revenue","% of Total Revenue","How Many"]], use_container_width=True)
+    
+        # --- Add Rank column (1–20) ---
+        top.insert(0, "Rank", range(1, len(top) + 1))
+        display_df = top.reset_index(drop=False)[["Rank", "Item Name", "Revenue", "% of Total Revenue", "How Many"]]
+    
+        # --- Render: minimal width + centered Rank column ---
+        st.dataframe(
+            display_df.style.set_properties(
+                subset=["Rank"],
+                **{
+                    "min-width": "12px",
+                    "width": "12px",
+                    "max-width": "12px",
+                    "text-align": "center"
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,  # hides pandas' default index
+        )
     else:
         st.info("No items found.")
 
@@ -2054,44 +2250,139 @@ def run_factoids():
         st.dataframe(largest[["Client Name","DateRange","Patients","Amount"]], use_container_width=True)
     else:
         st.info("No transactions found.")
-        
+
+
+
+
+
+
+
+
+    
     # ============================
-    # 📊 Revenue Concentration Curve
+    # 📊 Revenue Concentration Curves (Dropdown)
     # ============================
     st.markdown("---")
-    st.subheader(f"📊 Revenue Concentration Curve - {selected_period}")
-
-    rev = df.groupby("Client Name", dropna=False)["Amount"].sum().sort_values(ascending=False).reset_index()
-    if not rev.empty and rev["Amount"].sum() > 0:
-        total_revenue = float(rev["Amount"].sum())
-        n_clients = len(rev)
-        rev["Rank"] = rev.index + 1
-        rev["TopPct"] = rev["Rank"] / n_clients * 100
-        rev["CumRevenue"] = rev["Amount"].cumsum()
-        rev["CumPct"] = rev["CumRevenue"] / total_revenue * 100
-
-        chart_rev = (
-            alt.Chart(rev)
-            .mark_line(point=True)
+    st.subheader(f"📊 Revenue Concentration Curves – {selected_period}")
+    
+    curve_choice = st.selectbox(
+        "Select curve to display:",
+        ["Items", "Clients"],
+        index=0,
+    )
+    
+    chart_height = 400
+    chart_width = 700
+    
+    # helper for consistent point styling
+    def make_conc_chart(df, color, title, x_title, y_title, tooltip_fields):
+        return (
+            alt.Chart(df)
+            .mark_point(
+                color=color,
+                size=60,
+                filled=True,
+                opacity=1,
+                strokeWidth=0  # ⛔ absolutely no outline/line
+            )
             .encode(
-                x=alt.X("TopPct:Q", title="Top X% of Clients"),
-                y=alt.Y("CumPct:Q", title="% of Total Revenue"),
-                tooltip=[
+                x=alt.X("TopPct:Q", title=x_title),
+                y=alt.Y("CumPct:Q", title=y_title),
+                tooltip=tooltip_fields,
+            )
+            .properties(
+                height=chart_height,
+                width=chart_width,
+                title=title
+            )
+        )
+    
+    # ============================
+    # 📊 ITEMS CURVE
+    # ============================
+    if curve_choice == "Items":
+        rev_items = (
+            df.groupby("Item Name", dropna=False)
+            .agg(Frequency=("Qty", "sum"), TotalRevenue=("Amount", "sum"))
+            .sort_values("TotalRevenue", ascending=False)
+            .reset_index()
+        )
+    
+        if not rev_items.empty and rev_items["TotalRevenue"].sum() > 0:
+            total_revenue_items = float(rev_items["TotalRevenue"].sum())
+            n_items = len(rev_items)
+            rev_items["Rank"] = rev_items.index + 1
+            rev_items["TopPct"] = rev_items["Rank"] / n_items * 100
+            rev_items["CumRevenue"] = rev_items["TotalRevenue"].cumsum()
+            rev_items["CumPct"] = rev_items["CumRevenue"] / total_revenue_items * 100
+    
+            chart_items = make_conc_chart(
+                rev_items,
+                "#60a5fa",  # blue
+                f"Revenue Concentration Curve: Items – {selected_period}",
+                "Top X% of Items",
+                "% of Total Revenue",
+                [
+                    alt.Tooltip("Rank:Q", title="Rank"),
+                    alt.Tooltip("Item Name:N", title="Item"),
+                    alt.Tooltip("TotalRevenue:Q", title="Item Revenue", format=",.0f"),
+                    alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
+                    alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
+                ],
+            )
+            st.altair_chart(chart_items, use_container_width=True)
+        else:
+            st.info("No item data found for this period.")
+    
+    # ============================
+    # 📊 CLIENTS CURVE
+    # ============================
+    elif curve_choice == "Clients":
+        rev_clients = (
+            df.groupby("Client Name", dropna=False)["Amount"]
+            .sum()
+            .sort_values(ascending=False)
+            .reset_index()
+        )
+    
+        if not rev_clients.empty and rev_clients["Amount"].sum() > 0:
+            total_revenue = float(rev_clients["Amount"].sum())
+            n_clients = len(rev_clients)
+            rev_clients["Rank"] = rev_clients.index + 1
+            rev_clients["TopPct"] = rev_clients["Rank"] / n_clients * 100
+            rev_clients["CumRevenue"] = rev_clients["Amount"].cumsum()
+            rev_clients["CumPct"] = rev_clients["CumRevenue"] / total_revenue * 100
+    
+            chart_clients = make_conc_chart(
+                rev_clients,
+                "#f97316",  # orange
+                f"Revenue Concentration Curve: Clients – {selected_period}",
+                "Top X% of Clients",
+                "% of Total Revenue",
+                [
+                    alt.Tooltip("Rank:Q", title="Rank"),
                     alt.Tooltip("Client Name:N", title="Client"),
                     alt.Tooltip("Amount:Q", title="Client Spend", format=",.0f"),
                     alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
                     alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
                 ],
             )
-            .properties(
-                height=400,
-                width=700,
-                title="Revenue Concentration Curve — what % of revenue comes from your top clients"
-            )
-        )
+            st.altair_chart(chart_clients, use_container_width=True)
+        else:
+            st.info("No client data found for this period.")
 
-        st.altair_chart(chart_rev, use_container_width=True)
-        
+
+
+
+
+
+
+
+
+
+
+
+
 run_factoids()
 
 # --------------------------------
@@ -2169,4 +2460,3 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
-
