@@ -1662,7 +1662,7 @@ if st.session_state["factoids_unlocked"]:
                 )
 
                 # --- Combine bars + MA line + ghost line
-               chart_rev_tx = (
+                chart_rev_tx = (
                     alt.layer(ghost, current, ma_line)
                     .resolve_scale(y="shared")
                     .properties(
@@ -2995,6 +2995,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
