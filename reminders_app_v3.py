@@ -1382,15 +1382,6 @@ if st.session_state["factoids_unlocked"]:
         # ============================
         st.markdown("<div id='factoids-monthlycharts' class='anchor-offset'></div>", unsafe_allow_html=True)
         st.markdown("### 📈 Monthly Charts")
-
-    
-        # ============================
-        # 💰 Core Metrics (Absolute Values)
-        # ============================
-        st.markdown(
-            "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💰 Core Metrics (Absolute Values)</h4>",
-            unsafe_allow_html=True
-        )
     
         @st.cache_data(show_spinner=False)
         def compute_core_metrics(df: pd.DataFrame):
@@ -1545,7 +1536,10 @@ if st.session_state["factoids_unlocked"]:
                 # ---------------------------
                 # Chart 1: Revenue & Transactions
                 # ---------------------------
-                st.markdown("### 💰 Revenue & Transactions")
+                st.markdown(
+                    "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💰 Revenue & Transactions</h4>",
+                    unsafe_allow_html=True
+                )
         
                 metric_list_rev_tx = [
                     "Total Revenue", "Revenue per Client", "Revenue per Patient",
@@ -1623,7 +1617,10 @@ if st.session_state["factoids_unlocked"]:
                 # ---------------------------
                 # Chart 2: Clients & Patients
                 # ---------------------------
-                st.markdown("### 👥 Clients & Patients")
+                st.markdown(
+                    "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>👥 Clients & Patients</h4>",
+                    unsafe_allow_html=True
+                )
         
                 metric_list_cp = [
                     "Unique Clients Seen", "Unique Patient Visits",
@@ -2936,6 +2933,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
