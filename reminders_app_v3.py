@@ -2186,19 +2186,22 @@ def run_factoids():
         top["How Many"] = top["TotalCount"].astype(int).apply(lambda x: f"{x:,}")
         top["% of Total Revenue"] = top["% of Total Revenue"].astype(str) + "%"
     
-        # --- Add rank column (1–20) ---
+        # --- Add rank column (1–20) and reset index to remove pandas index display ---
         top.insert(0, "#", range(1, len(top) + 1))
+        display_df = top.reset_index(drop=False)[["#", "Item Name", "Revenue", "% of Total Revenue", "How Many"]]
     
-        # --- Reorder columns so # is truly leftmost, followed by Item Name ---
-        display_df = top.reset_index()[["#", "Item Name", "Revenue", "% of Total Revenue", "How Many"]]
-    
-        # --- Compact styling: make # column narrow ---
+        # --- Display with compact # column and without index column ---
         st.dataframe(
-            display_df.style.set_properties(subset=["#"], **{"width": "25px", "text-align": "center"}),
+            display_df.style.set_properties(
+                subset=["#"],
+                **{"width": "20px", "text-align": "center"}
+            ),
             use_container_width=True,
+            hide_index=True,   # ✅ hides the extra index column
         )
     else:
         st.info("No items found.")
+
 
 
     # Top 5 Spending Clients
@@ -2359,6 +2362,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
