@@ -2478,7 +2478,7 @@ if st.session_state["factoids_unlocked"]:
         # ============================
         cardgroup(f"🎉 Fun Facts - {selected_period}", [
             "Most Common Pet Name",
-            "Patient with Most Transactions",
+            "Patient with Most Visits",
         ])
         
         # ============================
@@ -2834,6 +2834,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
