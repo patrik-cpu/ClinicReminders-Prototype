@@ -2171,19 +2171,29 @@ def run_factoids():
 
     # Top 20 Items by Revenue
     st.markdown(f"#### 💰 Top 20 Items by Revenue - {selected_period}")
+    
     top = (
         df.groupby("Item Name")
-        .agg(TotalRevenue=("Amount","sum"), TotalCount=("Qty","sum"))
+        .agg(TotalRevenue=("Amount", "sum"), TotalCount=("Qty", "sum"))
         .sort_values("TotalRevenue", ascending=False)
         .head(20)
     )
+    
     if not top.empty:
         total = top["TotalRevenue"].sum()
-        top["% of Total Revenue"] = (top["TotalRevenue"]/total*100).round(1)
+        top["% of Total Revenue"] = (top["TotalRevenue"] / total * 100).round(1)
         top["Revenue"] = top["TotalRevenue"].astype(int).apply(lambda x: f"{x:,}")
         top["How Many"] = top["TotalCount"].astype(int).apply(lambda x: f"{x:,}")
         top["% of Total Revenue"] = top["% of Total Revenue"].astype(str) + "%"
-        st.dataframe(top[["Revenue","% of Total Revenue","How Many"]], use_container_width=True)
+    
+        # --- Add rank column (1–20) on the left ---
+        top.insert(0, "#", range(1, len(top) + 1))
+    
+        # Display only the relevant columns
+        st.dataframe(
+            top[["#", "Revenue", "% of Total Revenue", "How Many"]],
+            use_container_width=True
+        )
     else:
         st.info("No items found.")
 
@@ -2345,6 +2355,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
