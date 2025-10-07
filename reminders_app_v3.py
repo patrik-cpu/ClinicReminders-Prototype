@@ -2233,11 +2233,15 @@ if st.session_state["factoids_unlocked"]:
             # --- Calculate patient visits (physical presence)
             df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
             patient_visits = int(df["VisitFlag"].sum())
-            
             rev_per_patient_visit = total_revenue / patient_visits if patient_visits else 0
             
             tx_per_client = round(client_transactions / unique_clients, 1) if unique_clients else 0
             visits_per_patient = round(patient_visits / unique_patients, 1) if unique_patients else 0
+            
+            # --- Add results to metrics dict (will display in cardgroup)
+            metrics["Revenue per Client Transaction"] = f"{rev_per_client_tx:,.0f}"
+            metrics["Revenue per Patient Visit"] = f"{rev_per_patient_visit:,.0f}"
+
 
         
             # ---- New Clients / Patients (based on first-ever appearance in full dataset)
@@ -2297,13 +2301,13 @@ if st.session_state["factoids_unlocked"]:
             metrics["Unique Patients Seen"] = f"{unique_patients:,}"
             metrics["Total Revenue"] = f"{int(total_revenue):,}"
             metrics["Number of Client Transactions"] = f"{client_transactions:,}"
-            metrics["Number of Patient Transactions"] = f"{patient_transactions:,}"
+            metrics["Number of Patient Visits"] = f"{patient_visits:,}"
             metrics["Revenue per Client"] = f"{rev_per_client:,.0f}"
             metrics["Revenue per Patient"] = f"{rev_per_patient:,.0f}"
-            metrics["Revenue per Client Transaction"] = f"{rev_per_tx:,.0f}"
-            metrics["Revenue per Patient Visit"] = f"{rev_per_tx:,.0f}"
+            metrics["Revenue per Client Transaction"] = f"{rev_per_client_tx:,.0f}"
+            metrics["Revenue per Patient Visit"] = f"{rev_per_patient_visit:,.0f}"
             metrics["Transactions per Client"] = f"{tx_per_client:.1f}".rstrip("0").rstrip(".")
-            metrics["Transactions per Patient"] = f"{tx_per_patient:.1f}".rstrip("0").rstrip(".")
+            metrics["Visits per Patient"] = f"{visits_per_patient:.1f}".rstrip("0").rstrip(".")
             metrics["Patients per Client"] = f"{patients_per_client:.1f}".rstrip("0").rstrip(".")
     
         # ============================
@@ -2364,9 +2368,9 @@ if st.session_state["factoids_unlocked"]:
         # ============================
         cardgroup(f"🔁 Transactions - {selected_period}", [
             "Number of Client Transactions",
-            "Number of Patient Transactions",
+            "Number of Patient Visits",
             "Transactions per Client",
-            "Transactions per Patient",
+            "Visits per Patient",
             "Max Client Transactions/Day",
             "Avg Client Transactions/Day",
         ])
@@ -2746,6 +2750,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
