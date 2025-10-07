@@ -1573,7 +1573,7 @@ if st.session_state["factoids_unlocked"]:
                 
                 safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core_rev)
                 df_plot = core_current.rename(columns={sel_core_rev: safe_col}).copy()
-                
+
                 # --- Ghost bars
                 ghost = (
                     alt.Chart(df_plot)
@@ -1607,24 +1607,41 @@ if st.session_state["factoids_unlocked"]:
                     )
                     .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
+
+                # --- Seed the MA with the two months before the current window (for smooth start)
+                # figure out the two months before the first current month
+                first_current = current_12[0]
+                seed_months = pd.period_range(first_current - 2, first_current - 1, freq="M")
                 
-                # --- Moving Average Line (3-month trailing mean)
+                # build a tiny df with those seed months from the full monthly series
+                df_ma_seed_src = core_monthly[core_monthly["Month"].isin(list(seed_months) + list(current_12))].copy()
+                
+                # use the selected metric column value (same as bars)
+                df_ma_seed_src = df_ma_seed_src[["Month", "MonthLabel", sel_core_rev]].rename(columns={sel_core_rev: "Value"})
+                
+                # only draw the MA on current months, but let the rolling calc see the 2 seed months
+                allowed_labels = df_plot["MonthLabel"].tolist()  # current 12 labels, in order
+                
+                # --- Moving Average Line (3-month trailing mean) with 2-month seed
                 ma_line = (
-                    alt.Chart(df_plot)
+                    alt.Chart(df_ma_seed_src)
                     .transform_window(
-                        rolling_mean=f"mean({safe_col})",
-                        frame=[-2, 0]  # 3-month trailing moving average (including current)
+                        rolling_mean="mean(Value)",
+                        frame=[-2, 0]  # 3-month trailing MA, using seed months if present
                     )
+                    # only show points that belong to the current 12 months
+                    .transform_filter(alt.FieldOneOfPredicate(field="MonthLabel", oneOf=allowed_labels))
                     .mark_line(color=color, size=2.5)
                     .encode(
-                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist()),
+                        x=alt.X("MonthLabel:N", sort=allowed_labels),
                         y=alt.Y("rolling_mean:Q"),
                         tooltip=[
-                            alt.Tooltip("MonthOnly:N", title="Month"),
+                            alt.Tooltip("MonthLabel:N", title="Month"),
                             alt.Tooltip("rolling_mean:Q", title="3-mo Moving Avg", format=y_fmt),
                         ],
                     )
                 )
+
 
                 # --- Ghost Moving Average Line (simple + safe)
                 ma_line_ghost = (
@@ -1645,12 +1662,12 @@ if st.session_state["factoids_unlocked"]:
                 )
 
                 # --- Combine bars + MA line + ghost line
-                chart_rev_tx = (
-                    alt.layer(ghost, current, ma_line_ghost, ma_line)
+               chart_rev_tx = (
+                    alt.layer(ghost, current, ma_line)
                     .resolve_scale(y="shared")
                     .properties(
                         height=400, width=700,
-                        title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving averages)"
+                        title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
                     )
                 )
 
@@ -2978,6 +2995,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
