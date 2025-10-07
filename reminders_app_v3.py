@@ -1402,16 +1402,37 @@ if st.session_state["factoids_unlocked"]:
             df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
             df["Month"] = df["ChargeDate"].dt.to_period("M")
         
-            # --- Base monthly metrics
+            # --- Base monthly metrics (now using physical visits)
             g = df.groupby("Month")
             core = pd.DataFrame({
                 "Total Revenue": g["Amount"].sum(),
                 "Unique Clients Seen": g["Client Name"].nunique(),
-                "Unique Patients Seen": g.apply(
-                    lambda x: x.drop_duplicates(subset=["Client Name", "Animal Name"]).shape[0]
-                ),
             }).reset_index()
-        
+            
+            # --- Add Unique Patient Visits (distinct patient who visited at least once in that month)
+            df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
+            vis = df[df["VisitFlag"]].copy()
+            vis["ClientKey"] = (
+                vis["Client Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
+            )
+            vis["AnimalKey"] = (
+                vis["Animal Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
+            )
+            vis["Month"] = vis["ChargeDate"].dt.to_period("M")
+            
+            unique_patient_visits = (
+                vis.dropna(subset=["Month","ClientKey","AnimalKey"])
+                   .drop_duplicates(subset=["Month","ClientKey","AnimalKey"])  # <-- monthly de-dupe
+                   .groupby("Month").size().rename("Unique Patient Visits")
+            )
+            
+            core = core.merge(unique_patient_visits, on="Month", how="left").fillna({"Unique Patient Visits": 0})
+            core["Unique Patient Visits"] = core["Unique Patient Visits"].astype(int)
+
             # --- Transactions (client-level only)
             _, tx_client, tx_patient, _ = prepare_factoids_data(df)
         
@@ -1464,7 +1485,7 @@ if st.session_state["factoids_unlocked"]:
                 lambda r: r["Total Revenue"] / r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1
             )
             core["Revenue per Patient"] = core.apply(
-                lambda r: r["Total Revenue"] / r["Unique Patients Seen"] if r["Unique Patients Seen"] else 0, axis=1
+                lambda r: r["Total Revenue"] / r["Unique Patient Visits"] if r["Unique Patient Visits"] else 0, axis=1
             )
             core["Revenue per Client Transaction"] = core.apply(
                 lambda r: r["Total Revenue"] / r["Client Transactions"] if r["Client Transactions"] else 0, axis=1
@@ -1481,12 +1502,12 @@ if st.session_state["factoids_unlocked"]:
                 axis=1,
             )
             core["Visits per Patient"] = core.apply(
-                lambda r: round(r["Patient Visits"] / r["Unique Patients Seen"], 2)
-                if r["Unique Patients Seen"]
+                lambda r: round(r["Patient Visits"] / r["Unique Patient Visits"], 2)
+                if r["Unique Patient Visits"]
                 else 0,
                 axis=1,
             )
-        
+
             # --- New Clients / Patients
             df_sorted = df.sort_values("ChargeDate")
             seen_clients, seen_pairs = set(), set()
@@ -1521,7 +1542,7 @@ if st.session_state["factoids_unlocked"]:
             core_monthly = compute_core_metrics(core_df)
             if not core_monthly.empty:
                 metric_list = [
-                    "Total Revenue", "Unique Clients Seen", "Unique Patients Seen",
+                    "Total Revenue", "Unique Clients Seen", "Unique Patient Visits",
                     "Client Transactions", "Patient Visits",
                     "Revenue per Client", "Revenue per Patient",
                     "Revenue per Client Transaction", "Revenue per Patient Visit",
@@ -2160,38 +2181,55 @@ if st.session_state["factoids_unlocked"]:
                 top_count = int(pet_counts.iloc[0]["Count"])
                 metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
     
-        tx_exp = tx_client.explode("Patients").dropna(subset=["Patients"]).copy()
-        if not tx_exp.empty:
-            tx_exp["ClientKey"] = _canon(tx_exp["Client Name"])
-            tx_exp["AnimalKey"] = _canon(tx_exp["Patients"])
-            tx_exp = tx_exp[
-                ~tx_exp["ClientKey"].str.contains("|".join(BAD_TERMS), case=False, na=False)
-            ]
-            visits = (
-                tx_exp.groupby(["ClientKey", "AnimalKey"])["StartDate"]
-                .nunique()
-                .reset_index(name="VisitCount")
-                .sort_values(["VisitCount", "AnimalKey"], ascending=[False, True])
+        # --- Patient with Most Visits (tolerant definition)
+        if not df.empty:
+            df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
+            visits_df = df[df["VisitFlag"]].copy()
+            visits_df["ClientKey"] = (
+                visits_df["Client Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
             )
-            if not visits.empty:
-                top = visits.iloc[0]
+            visits_df["AnimalKey"] = (
+                visits_df["Animal Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
+            )
+            visits_df["VisitDate"] = pd.to_datetime(visits_df["ChargeDate"], errors="coerce").dt.normalize()
+        
+            # sort for grouping
+            visits_df = visits_df.sort_values(["ClientKey", "AnimalKey", "VisitDate"])
+        
+            # group by animal and collapse dates within 1 day as a single visit
+            def merge_close_visits(dates):
+                dates = dates.sort_values().dropna().reset_index(drop=True)
+                if dates.empty:
+                    return 0
+                visit_count = 1
+                last_date = dates.iloc[0]
+                for current_date in dates.iloc[1:]:
+                    if (current_date - last_date).days > 1:  # gap >1 day ⇒ new visit
+                        visit_count += 1
+                    last_date = current_date
+                return visit_count
+        
+            visits_count = (
+                visits_df.groupby(["ClientKey", "AnimalKey"])["VisitDate"]
+                         .apply(merge_close_visits)
+                         .reset_index(name="VisitCount")
+                         .sort_values("VisitCount", ascending=False)
+            )
+        
+            if not visits_count.empty:
+                top = visits_count.iloc[0]
                 client_rows = df_pairs.loc[df_pairs["ClientKey"] == top["ClientKey"], "Client Name"]
                 animal_rows = df_pairs.loc[df_pairs["AnimalKey"] == top["AnimalKey"], "Animal Name"]
-                
-                if not client_rows.empty:
-                    client_disp = str(client_rows.iloc[0]).strip()
-                else:
-                    client_disp = str(top["ClientKey"]).title()
-                
-                if not animal_rows.empty:
-                    animal_disp = str(animal_rows.iloc[0]).strip()
-                else:
-                    animal_disp = str(top["AnimalKey"]).title()
-                
-                metrics["Patient with Most Transactions"] = (
-                    f"{animal_disp} ({client_disp}) – {int(top['VisitCount']):,}"
-                )
-    
+        
+                client_disp = client_rows.iloc[0].strip() if not client_rows.empty else str(top["ClientKey"]).title()
+                animal_disp = animal_rows.iloc[0].strip() if not animal_rows.empty else str(top["AnimalKey"]).title()
+        
+                metrics["Patient with Most Visits"] = f"{animal_disp} ({client_disp}) – {int(top['VisitCount']):,}"
+
         # --- Card Renderer (unchanged)
         CARD_STYLE = """<div style='background-color:{bg};
            border:1px solid #94a3b8;padding:16px;border-radius:10px;text-align:center;
@@ -2474,7 +2512,7 @@ if st.session_state["factoids_unlocked"]:
         # ============================
         cardgroup(f"🎉 Fun Facts - {selected_period}", [
             "Most Common Pet Name",
-            "Patient with Most Transactions",
+            "Patient with Most Visits",
         ])
         
         # ============================
