@@ -1179,7 +1179,7 @@ if st.session_state["factoids_unlocked"]:
         "nutro", "pouch", "tin", "can", "canned", "wet", "dry", "kibble",
         "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", "grain", "rc"
     ]
-    FOOD_EXCLUSIONS = []
+    FOOD_EXCLUSIONS = ["caniverm","deworm"]
 
     XRAY_KEYWORDS = ["xray", "x-ray", "radiograph", "radiology"]
     XRAY_EXCLUSIONS = []
@@ -2681,5 +2681,6 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
