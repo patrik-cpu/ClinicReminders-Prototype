@@ -1645,13 +1645,34 @@ if st.session_state["factoids_unlocked"]:
                 )
                 
                 chart_rev_tx = (
-                    alt.layer(ghost, current, ma_line_ghost, ma_line_current)
-                    .resolve_scale(y="shared")
+                    alt.layer(
+                        ghost,
+                        current,
+                        ma_line_ghost,
+                        ma_line_current
+                    )
+                    .resolve_scale(
+                        x='shared',  # ensure both lines and bars share the same x-axis
+                        y='shared'   # same y-axis domain
+                    )
+                    .configure_axis(
+                        labelFontSize=12,
+                        titleFontSize=13,
+                        labelColor='#d1d5db',
+                        titleColor='#d1d5db'
+                    )
+                    .configure_view(
+                        strokeWidth=0,  # removes outer border
+                        continuousWidth=700,
+                        continuousHeight=400
+                    )
                     .properties(
-                        height=400, width=700,
+                        height=400,
+                        width=700,
                         title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
                     )
                 )
+
                 
                 st.altair_chart(chart_rev_tx, use_container_width=True)
 
@@ -2975,6 +2996,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
