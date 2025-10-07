@@ -1986,20 +1986,25 @@ if st.session_state["factoids_unlocked"]:
                 .str.lower()
             )
     
-        # --- Daily aggregates (for Max/Avg cards)
-        daily = transactions.groupby("StartDate").agg(
-            ClientTx=("Block", "count"),
-            Patients=("Patients", lambda p: len(set().union(*p)) if len(p) else 0),
+        # --- Daily aggregates (for Max/Avg cards, now using Visits)
+        df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
+        df["VisitDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce").dt.date
+        
+        # Count patient visits per day
+        daily_visits = (
+            df[df["VisitFlag"] == True]
+            .groupby("VisitDate")["Animal Name"]
+            .nunique()
+            .reset_index(name="PatientVisits")
         )
-    
+        
         metrics = {}
-        if not daily.empty:
-            max_tx_day = daily["ClientTx"].idxmax()
-            max_pat_day = daily["Patients"].idxmax()
-            metrics["Max Client Transactions/Day"] = f"{int(daily.loc[max_tx_day, 'ClientTx']):,} ({max_tx_day.strftime('%d %b %Y')})"
-            metrics["Avg Client Transactions/Day"] = f"{daily['ClientTx'].mean():.1f}"
-            metrics["Max Patients/Day"] = f"{int(daily.loc[max_pat_day, 'Patients']):,} ({max_pat_day.strftime('%d %b %Y')})"
-            metrics["Avg Patients/Day"] = f"{daily['Patients'].mean():.1f}"
+        if not daily_visits.empty:
+            max_day_row = daily_visits.loc[daily_visits["PatientVisits"].idxmax()]
+            max_day = pd.to_datetime(max_day_row["VisitDate"])
+            metrics["Max Patient Visits"] = f"{int(max_day_row['PatientVisits']):,} ({max_day.strftime('%d %b %Y')})"
+            metrics["Avg Patient Visits/Day"] = f"{daily_visits['PatientVisits'].mean():.1f}"
+
     
         # --- Total Unique Patients (fresh each rerun)
         df_pairs = (
@@ -2298,7 +2303,14 @@ if st.session_state["factoids_unlocked"]:
             metrics["New Clients"] = f"{new_clients:,}"
             metrics["New Patients"] = f"{new_patients:,}"
             metrics["Unique Clients Seen"] = f"{unique_clients:,}"
-            metrics["Unique Patients Seen"] = f"{unique_patients:,}"
+            # --- Unique Patient Visits (distinct patients that had at least one visit)
+            unique_patient_visits = (
+                df[df["VisitFlag"] == True][["Client Name", "Animal Name"]]
+                .dropna()
+                .drop_duplicates()
+                .shape[0]
+            )
+            metrics["Unique Patient Visits"] = f"{unique_patient_visits:,}"
             metrics["Total Revenue"] = f"{int(total_revenue):,}"
             metrics["Number of Client Transactions"] = f"{client_transactions:,}"
             metrics["Number of Patient Visits"] = f"{patient_visits:,}"
@@ -2355,9 +2367,9 @@ if st.session_state["factoids_unlocked"]:
         # ============================
         cardgroup(f"👥 Clients & Patients - {selected_period}", [
             "Unique Clients Seen",
-            "Unique Patients Seen",
+            "Unique Patient Visits",
             "Patients per Client",
-            "Max Patients/Day",
+            "Max Patient Visits",
             "Avg Patients/Day",
             "New Clients",
             "New Patients",
@@ -2371,7 +2383,7 @@ if st.session_state["factoids_unlocked"]:
             "Number of Patient Visits",
             "Transactions per Client",
             "Visits per Patient",
-            "Max Client Transactions/Day",
+            "Max Client Transactions",
             "Avg Client Transactions/Day",
         ])
         
@@ -2750,6 +2762,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
