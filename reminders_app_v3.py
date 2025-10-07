@@ -2160,38 +2160,42 @@ if st.session_state["factoids_unlocked"]:
                 top_count = int(pet_counts.iloc[0]["Count"])
                 metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
     
-        tx_exp = tx_client.explode("Patients").dropna(subset=["Patients"]).copy()
-        if not tx_exp.empty:
-            tx_exp["ClientKey"] = _canon(tx_exp["Client Name"])
-            tx_exp["AnimalKey"] = _canon(tx_exp["Patients"])
-            tx_exp = tx_exp[
-                ~tx_exp["ClientKey"].str.contains("|".join(BAD_TERMS), case=False, na=False)
-            ]
-            visits = (
-                tx_exp.groupby(["ClientKey", "AnimalKey"])["StartDate"]
-                .nunique()
-                .reset_index(name="VisitCount")
-                .sort_values(["VisitCount", "AnimalKey"], ascending=[False, True])
+        # --- Patient with Most Visits (distinct client+animal+day)
+        if not df.empty:
+            df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
+            visits_df = df[df["VisitFlag"]].copy()
+            visits_df["ClientKey"] = (
+                visits_df["Client Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
             )
-            if not visits.empty:
-                top = visits.iloc[0]
+            visits_df["AnimalKey"] = (
+                visits_df["Animal Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
+            )
+            visits_df["VisitDate"] = pd.to_datetime(visits_df["ChargeDate"], errors="coerce").dt.normalize()
+        
+            # Count unique visit days per patient
+            visits_count = (
+                visits_df.dropna(subset=["ClientKey", "AnimalKey", "VisitDate"])
+                         .drop_duplicates(subset=["ClientKey", "AnimalKey", "VisitDate"])
+                         .groupby(["ClientKey", "AnimalKey"])
+                         .size()
+                         .reset_index(name="VisitCount")
+                         .sort_values("VisitCount", ascending=False)
+            )
+        
+            if not visits_count.empty:
+                top = visits_count.iloc[0]
                 client_rows = df_pairs.loc[df_pairs["ClientKey"] == top["ClientKey"], "Client Name"]
                 animal_rows = df_pairs.loc[df_pairs["AnimalKey"] == top["AnimalKey"], "Animal Name"]
-                
-                if not client_rows.empty:
-                    client_disp = str(client_rows.iloc[0]).strip()
-                else:
-                    client_disp = str(top["ClientKey"]).title()
-                
-                if not animal_rows.empty:
-                    animal_disp = str(animal_rows.iloc[0]).strip()
-                else:
-                    animal_disp = str(top["AnimalKey"]).title()
-                
-                metrics["Patient with Most Transactions"] = (
-                    f"{animal_disp} ({client_disp}) – {int(top['VisitCount']):,}"
-                )
-    
+        
+                client_disp = client_rows.iloc[0].strip() if not client_rows.empty else str(top["ClientKey"]).title()
+                animal_disp = animal_rows.iloc[0].strip() if not animal_rows.empty else str(top["AnimalKey"]).title()
+        
+                metrics["Patient with Most Visits"] = f"{animal_disp} ({client_disp}) – {int(top['VisitCount']):,}"
+
         # --- Card Renderer (unchanged)
         CARD_STYLE = """<div style='background-color:{bg};
            border:1px solid #94a3b8;padding:16px;border-radius:10px;text-align:center;
@@ -2830,6 +2834,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
