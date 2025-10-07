@@ -11,12 +11,27 @@ from datetime import date, datetime, timedelta
 import hashlib
 import numpy as np
 
+# --------------------------------
+# Title
+# --------------------------------
+title_col, tut_col = st.columns([4,1])
+with title_col:
+    st.title("ClinicReminders & Factoids Prototype v5.1 - with password")
+st.markdown("---")
+
+
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
 
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
+
+# ===== Speed helpers (place near imports) =====
+DATA_VER = st.session_state.get("data_version", 0)
+
+# Use data_version to bust cache instead of hashing giant DataFrames each rerun
+CACHE_HASH = {pd.DataFrame: lambda _df: f"ver:{DATA_VER}"}
 
 # -----------------------
 # Keyword Definitions
@@ -153,14 +168,6 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-# --------------------------------
-# Title
-# --------------------------------
-title_col, tut_col = st.columns([4,1])
-with title_col:
-    st.title("ClinicReminders & Factoids Prototype v5.0 - with password")
-st.markdown("---")
 
 # --------------------------------
 # CSS Styling
@@ -1383,24 +1390,29 @@ if st.session_state["factoids_unlocked"]:
         st.markdown("<div id='factoids-monthlycharts' class='anchor-offset'></div>", unsafe_allow_html=True)
         st.markdown("### 📈 Monthly Charts")
     
-        @st.cache_data(show_spinner=False)
-        def compute_core_metrics(df: pd.DataFrame):
-            """Compute monthly absolute-value clinic metrics (12-month window + ghost-year support)."""
-            if df.empty:
+        
+        @st.cache_data(show_spinner=False, hash_funcs=CACHE_HASH)
+        def compute_core_metrics_fast(
+            _data_ver: int,
+            df_blocked: pd.DataFrame,
+            tx_client: pd.DataFrame,
+            patients_per_month: pd.Series
+        ) -> pd.DataFrame:
+            """Compute monthly absolute-value clinic metrics (same outputs as before, but no nested recompute)."""
+            if df_blocked.empty:
                 return pd.DataFrame()
         
-            df = df.copy()
+            df = df_blocked.copy()
             df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
             df["Month"] = df["ChargeDate"].dt.to_period("M")
         
-            # --- Base monthly metrics (now using physical visits)
             g = df.groupby("Month")
             core = pd.DataFrame({
                 "Total Revenue": g["Amount"].sum(),
                 "Unique Clients Seen": g["Client Name"].nunique(),
             }).reset_index()
-            
-            # --- Add Unique Patient Visits (distinct patient who visited at least once in that month)
+        
+            # Unique Patient Visits (at least once in month)
             df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
             vis = df[df["VisitFlag"]].copy()
             vis["ClientKey"] = (
@@ -1414,64 +1426,49 @@ if st.session_state["factoids_unlocked"]:
                 .str.replace(r"\s+", " ", regex=True)
             )
             vis["Month"] = vis["ChargeDate"].dt.to_period("M")
-            
+        
             unique_patient_visits = (
                 vis.dropna(subset=["Month","ClientKey","AnimalKey"])
-                   .drop_duplicates(subset=["Month","ClientKey","AnimalKey"])  # <-- monthly de-dupe
+                   .drop_duplicates(subset=["Month","ClientKey","AnimalKey"])
                    .groupby("Month").size().rename("Unique Patient Visits")
             )
-            
             core = core.merge(unique_patient_visits, on="Month", how="left").fillna({"Unique Patient Visits": 0})
             core["Unique Patient Visits"] = core["Unique Patient Visits"].astype(int)
-
-            # --- Transactions (client-level only)
-            _, tx_client, tx_patient, _ = prepare_factoids_data(df)
         
+            # Client Transactions
             if not tx_client.empty:
-                tx_client["Month"] = tx_client["StartDate"].dt.to_period("M")
-                tx_month_client = tx_client.groupby("Month").size().rename("Client Transactions")
+                tx_client2 = tx_client.copy()
+                tx_client2["Month"] = tx_client2["StartDate"].dt.to_period("M")
+                tx_month_client = tx_client2.groupby("Month").size().rename("Client Transactions")
                 core = core.merge(tx_month_client, on="Month", how="left")
             else:
                 core["Client Transactions"] = 0
         
-            # --- Patient Visits (distinct by client+animal+day)
-            df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
-            vis = df[df["VisitFlag"]].copy()
-            vis["ClientKey"] = (
-                vis["Client Name"].astype(str).str.normalize("NFKC").str.lower()
-                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
-                .str.replace(r"\s+", " ", regex=True)
-            )
-            vis["AnimalKey"] = (
-                vis["Animal Name"].astype(str).str.normalize("NFKC").str.lower()
-                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
-                .str.replace(r"\s+", " ", regex=True)
-            )
-            vis["VisitDate"] = vis["ChargeDate"].dt.normalize()
-            vis["Month"] = vis["VisitDate"].dt.to_period("M")
-            
+            # Patient Visits (distinct by client+animal+day)
+            vis2 = df[df["VisitFlag"]].copy()
+            vis2["ClientKey"] = vis["ClientKey"]
+            vis2["AnimalKey"] = vis["AnimalKey"]
+            vis2["VisitDate"] = vis2["ChargeDate"].dt.normalize()
+            vis2["Month"] = vis2["VisitDate"].dt.to_period("M")
             visit_monthly = (
-                vis.dropna(subset=["ClientKey","AnimalKey","VisitDate"])
-                   .drop_duplicates(subset=["ClientKey","AnimalKey","VisitDate"])
-                   .groupby("Month").size().rename("Patient Visits")
+                vis2.dropna(subset=["ClientKey","AnimalKey","VisitDate"])
+                    .drop_duplicates(subset=["ClientKey","AnimalKey","VisitDate"])
+                    .groupby("Month").size().rename("Patient Visits")
             )
-            
-            core = core.merge(visit_monthly, on="Month", how="left")
-            core["Patient Visits"] = core["Patient Visits"].fillna(0).astype(int)
-
+            core = core.merge(visit_monthly, on="Month", how="left").fillna({"Patient Visits": 0})
+            core["Patient Visits"] = core["Patient Visits"].astype(int)
         
-            # --- Deaths and Neuters keyword-based counts
+            # Deaths / Neuters
             df["DeathFlag"] = make_mask(df, DEATH_KEYWORDS, DEATH_EXCLUSIONS)
             df["NeuterFlag"] = make_mask(df, NEUTER_KEYWORDS, NEUTER_EXCLUSIONS)
+            core = (
+                core.merge(df.groupby("Month")["DeathFlag"].sum().rename("Deaths"), on="Month", how="left")
+                    .merge(df.groupby("Month")["NeuterFlag"].sum().rename("Neuters"), on="Month", how="left")
+                    .fillna({"Deaths": 0, "Neuters": 0})
+            )
+            core[["Deaths","Neuters"]] = core[["Deaths","Neuters"]].astype(int)
         
-            death_monthly = df.groupby("Month")["DeathFlag"].sum().rename("Deaths")
-            neuter_monthly = df.groupby("Month")["NeuterFlag"].sum().rename("Neuters")
-        
-            core = core.merge(death_monthly, on="Month", how="left")
-            core = core.merge(neuter_monthly, on="Month", how="left")
-            core[["Deaths", "Neuters"]] = core[["Deaths", "Neuters"]].fillna(0).astype(int)
-        
-            # --- Derived ratios
+            # Derived ratios
             core["Revenue per Client"] = core.apply(
                 lambda r: r["Total Revenue"] / r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1
             )
@@ -1485,52 +1482,42 @@ if st.session_state["factoids_unlocked"]:
                 lambda r: r["Total Revenue"] / r["Patient Visits"] if r["Patient Visits"] else 0, axis=1
             )
         
-            # --- Transactions per Client / Visits per Patient
             core["Transactions per Client"] = core.apply(
                 lambda r: round(r["Client Transactions"] / r["Unique Clients Seen"], 2)
-                if r["Unique Clients Seen"]
-                else 0,
-                axis=1,
+                if r["Unique Clients Seen"] else 0, axis=1
             )
             core["Visits per Patient"] = core.apply(
                 lambda r: round(r["Patient Visits"] / r["Unique Patient Visits"], 2)
-                if r["Unique Patient Visits"]
-                else 0,
-                axis=1,
+                if r["Unique Patient Visits"] else 0, axis=1
             )
-
-            # --- New Clients / Patients
+        
+            # New Clients / Patients (by first appearance)
             df_sorted = df.sort_values("ChargeDate")
             seen_clients, seen_pairs = set(), set()
             new_clients, new_patients = [], []
             for _, row in df_sorted.iterrows():
-                if pd.isna(row["ChargeDate"]):
-                    continue
+                if pd.isna(row["ChargeDate"]): continue
                 m = pd.Period(row["ChargeDate"], freq="M")
                 c = str(row["Client Name"]).strip().lower()
                 p = (c, str(row["Animal Name"]).strip().lower())
                 if c and c not in seen_clients:
-                    new_clients.append((m, c))
-                    seen_clients.add(c)
+                    new_clients.append((m, c)); seen_clients.add(c)
                 if p and p not in seen_pairs:
-                    new_patients.append((m, p))
-                    seen_pairs.add(p)
-        
+                    new_patients.append((m, p)); seen_pairs.add(p)
             nc = pd.DataFrame(new_clients, columns=["Month", "Client"]).groupby("Month").size().rename("New Clients")
             npat = pd.DataFrame(new_patients, columns=["Month", "Pair"]).groupby("Month").size().rename("New Patients")
             core = core.merge(nc, on="Month", how="left").merge(npat, on="Month", how="left").fillna(0)
         
-            # --- Metadata
             core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
             core["Year"] = core["Month"].dt.year
-        
             return core.sort_values("Month")
+
 
 
         # ---- Render Core Metrics (strict 12 months + ghost-year overlay)
         core_df = st.session_state.get("working_df")
         if core_df is not None and not core_df.empty:
-            core_monthly = compute_core_metrics(core_df)
+            core_monthly = compute_core_metrics_fast(DATA_VER, df_blocked, tx_client, patients_per_month)
             if not core_monthly.empty:
                 
                 # ---------------------------
@@ -1807,30 +1794,27 @@ if st.session_state["factoids_unlocked"]:
             unsafe_allow_html=True
         )
     
-        @st.cache_data(show_spinner=False)
-        def compute_revenue_breakdown(df: pd.DataFrame) -> pd.DataFrame:
-            """Compute monthly revenue totals and category breakdowns using include/exclude filtering."""
+        @st.cache_data(show_spinner=False, hash_funcs=CACHE_HASH)
+        def compute_revenue_breakdown_fast(_data_ver: int, df: pd.DataFrame) -> pd.DataFrame:
             if df.empty:
                 return pd.DataFrame()
-    
-            df = df.copy()
-            df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
-            df["Month"] = df["ChargeDate"].dt.to_period("M")
-    
-            # --- helper to aggregate filtered sums ---
+        
+            d = df.copy()
+            d["ChargeDate"] = pd.to_datetime(d["ChargeDate"], errors="coerce")
+            d["Month"] = d["ChargeDate"].dt.to_period("M")
+        
             def _sum(include, exclude):
-                mask = make_mask(df, include, exclude)
-                return df.loc[mask].groupby("Month")["Amount"].sum()
-    
-            # --- compute each category ---
+                mask = make_mask(d, include, exclude)
+                return d.loc[mask].groupby("Month")["Amount"].sum()
+        
             flea   = _sum(FLEA_WORM_KEYWORDS, FLEA_WORM_EXCLUSIONS)
             food   = _sum(FOOD_KEYWORDS, FOOD_EXCLUSIONS)
             lab    = _sum(LABWORK_KEYWORDS, LABWORK_EXCLUSIONS)
             neuter = _sum(NEUTER_KEYWORDS, NEUTER_EXCLUSIONS)
             ultra  = _sum(ULTRASOUND_KEYWORDS, ULTRASOUND_EXCLUSIONS)
             xray   = _sum(XRAY_KEYWORDS, XRAY_EXCLUSIONS)
-            total  = df.groupby("Month")["Amount"].sum()
-    
+            total  = d.groupby("Month")["Amount"].sum()
+        
             out = pd.DataFrame({
                 "Total": total,
                 "Revenue from Flea/Worm": flea,
@@ -1840,19 +1824,19 @@ if st.session_state["factoids_unlocked"]:
                 "Revenue from Ultrasounds": ultra,
                 "Revenue from X-rays": xray
             }).fillna(0)
-    
-            # --- add %-of-total columns
+        
             for col in ["Flea/Worm", "Food", "Lab Work", "Neuters", "Ultrasounds", "X-rays"]:
                 out[f"Revenue from {col} (% of total)"] = out[f"Revenue from {col}"] / out["Total"]
-    
+        
             out["MonthLabel"] = out.index.strftime("%b %Y")
             out["Year"] = out.index.year
             return out.reset_index()
+
     
         # --- Render Revenue Breakdown Chart
         rev_df = st.session_state.get("working_df")
         if rev_df is not None and not rev_df.empty:
-            rev_all = compute_revenue_breakdown(rev_df)
+            rev_all = compute_revenue_breakdown_fast(DATA_VER, rev_df)
             if not rev_all.empty:
                 last_m = rev_all["Month"].max()
                 current_12 = pd.period_range(last_m - 11, last_m, freq="M")
@@ -1973,7 +1957,7 @@ if st.session_state["factoids_unlocked"]:
 
     
         # ============================
-        # Chart 4: Patient Breakdown % Chart (with MA + Ghost MA)
+        # Patient Breakdown % Chart (vectorized & cached)
         # ============================
         st.markdown(
             "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
@@ -1993,106 +1977,87 @@ if st.session_state["factoids_unlocked"]:
             "X-rays": {"include": XRAY_KEYWORDS, "exclude": XRAY_EXCLUSIONS, "color": "#93c5fd"},
         }
         
-        sorted_metrics = sorted(metric_configs.keys())
-        choice = st.selectbox("Select a metric:", sorted_metrics, index=0, key="factoid_metric")
+        choice = st.selectbox("Select a metric:", sorted(metric_configs.keys()), index=0, key="factoid_metric")
         conf = metric_configs[choice]
         
-        # --- Determine which rows match the selected metric ---
-        if "custom" in conf:
-            mask = df_blocked["Item Name"].astype(str).str.contains(conf["custom"], na=False)
-        else:
-            mask = make_mask(df_blocked, conf["include"], conf["exclude"])
+        @st.cache_data(show_spinner=False, hash_funcs=CACHE_HASH)
+        def _patient_breakdown_timeseries(
+            _data_ver: int,
+            df_blocked: pd.DataFrame,
+            tx_client: pd.DataFrame,
+            patients_per_month: pd.Series,
+            choice_key: str,
+            conf: dict
+        ) -> pd.DataFrame:
+            """Returns a monthly time series with UniquePatients, TotalPatientsMonth, Percent, and shifted prev-year columns."""
+            if df_blocked.empty:
+                return pd.DataFrame()
         
-        # --- Build monthly patient % breakdown using this mask ---
-        if mask.any():
-            service_rows = df_blocked.loc[mask, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
-            qualifying = pd.merge(service_rows, tx_client, on=["Client Name", "Block"], how="left")
-            qualifying["Month"] = qualifying["ChargeDate"].dt.to_period("M")
+            d = df_blocked.copy()
+            d["ChargeDate"] = pd.to_datetime(d["ChargeDate"], errors="coerce")
+            d["Month"] = d["ChargeDate"].dt.to_period("M")
         
-            monthly = (
-                qualifying.groupby("Month")["Patients"]
-                .apply(lambda p: len(set().union(*p)) if isinstance(p.iloc[0], (list, set)) else 0)
-                .reset_index(name="UniquePatients")
-            )
+            # Full month range present in data for proper 12-month shift
+            all_months = pd.period_range(d["Month"].min(), d["Month"].max(), freq="M")
         
-            monthly["TotalPatientsMonth"] = monthly["Month"].map(patients_per_month).fillna(0).astype(int)
-            monthly["Percent"] = monthly.apply(
-                lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"]) if r["TotalPatientsMonth"] > 0 else 0,
-                axis=1,
-            )
-            monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
+            # Mask rows for selected category
+            if "custom" in conf:
+                mask = d["Item Name"].astype(str).str.contains(conf["custom"], na=False)
+            else:
+                mask = make_mask(d, conf["include"], conf["exclude"])
         
-            # Restrict to latest 12 months
-            if not monthly.empty:
-                last_m = monthly["Month"].max()
-                month_range = pd.period_range(last_m - 11, last_m, freq="M")
-                monthly = monthly[monthly["Month"].isin(month_range)]
-        else:
-            monthly = pd.DataFrame()
+            service_rows = d.loc[mask, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
+            if service_rows.empty:
+                out = pd.DataFrame({
+                    "Month": all_months,
+                    "UniquePatients": 0,
+                    "TotalPatientsMonth": patients_per_month.reindex(all_months).fillna(0).astype(int).values
+                })
+                out["Percent"] = out.apply(
+                    lambda r: (r["UniquePatients"]/r["TotalPatientsMonth"]) if r["TotalPatientsMonth"]>0 else 0, axis=1
+                )
+            else:
+                q = pd.merge(service_rows, tx_client, on=["Client Name","Block"], how="left")
+                q["Month"] = q["ChargeDate"].dt.to_period("M")
+                # Unique patients per month via set union (same semantics as before)
+                cat_monthly = (
+                    q.groupby("Month")["Patients"]
+                     .apply(lambda p: len(set().union(*p)) if len(p) else 0)
+                     .reindex(all_months, fill_value=0)
+                     .rename("UniquePatients")
+                     .to_frame()
+                )
         
-        if monthly.empty:
+                cat_monthly["TotalPatientsMonth"] = patients_per_month.reindex(all_months).fillna(0).astype(int)
+                cat_monthly["Percent"] = cat_monthly.apply(
+                    lambda r: (r["UniquePatients"]/r["TotalPatientsMonth"]) if r["TotalPatientsMonth"]>0 else 0, axis=1
+                )
+                out = cat_monthly.reset_index().rename(columns={"index": "Month"})
+        
+            # Prev-year values via vectorized 12-step shift
+            out["PrevUniquePatients"] = out["UniquePatients"].shift(12, fill_value=pd.NA)
+            out["PrevTotalPatients"]  = out["TotalPatientsMonth"].shift(12, fill_value=pd.NA)
+            out["PrevPercent"]        = out["Percent"].shift(12, fill_value=pd.NA)
+        
+            out["MonthLabel"] = out["Month"].dt.strftime("%b %Y")
+            out["Year"] = out["Month"].dt.year
+            return out
+        
+        monthly_full = _patient_breakdown_timeseries(DATA_VER, df_blocked, tx_client, patients_per_month, choice, conf)
+        
+        if monthly_full.empty:
             st.info(f"No qualifying {choice.lower()} data found.")
         else:
-            monthly["Year"] = monthly["Month"].dt.year
-            monthly["MonthNum"] = monthly["Month"].dt.month
-            df_blocked["Year"] = df_blocked["ChargeDate"].dt.year
-            df_blocked["MonthNum"] = df_blocked["ChargeDate"].dt.month
-        
-            # --- Find previous-year ghost data
-            ghost_data = []
-            for _, row in monthly.iterrows():
-                year_prev = row["Year"] - 1
-                month_num = row["MonthNum"]
-                subset_prev = df_blocked[
-                    (df_blocked["Year"] == year_prev) & (df_blocked["MonthNum"] == month_num)
-                ]
-                if not subset_prev.empty:
-                    if "custom" in conf:
-                        mask_prev = subset_prev["Item Name"].astype(str).str.contains(conf["custom"], na=False)
-                    else:
-                        mask_prev = make_mask(subset_prev, conf["include"], conf["exclude"])
-                    service_prev = subset_prev.loc[mask_prev, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
-                    if not service_prev.empty:
-                        qualifying_prev = pd.merge(service_prev, tx_client, on=["Client Name", "Block"], how="left")
-                        qualifying_prev["Month"] = qualifying_prev["ChargeDate"].dt.to_period("M")
-                        prev_monthly = (
-                            qualifying_prev.groupby("Month")["Patients"]
-                            .apply(lambda p: len(set().union(*p)) if isinstance(p.iloc[0], (list, set)) else 0)
-                            .reset_index(name="UniquePatients")
-                        )
-                        prev_monthly["TotalPatientsMonth"] = prev_monthly["Month"].map(patients_per_month).fillna(0).astype(int)
-                        prev_monthly["Percent"] = prev_monthly.apply(
-                            lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"])
-                            if r["TotalPatientsMonth"] > 0 else 0,
-                            axis=1,
-                        )
-                        if not prev_monthly.empty:
-                            last_m_prev = prev_monthly["Month"].max()
-                            prev_range = pd.period_range(last_m_prev - 11, last_m_prev, freq="M")
-                            prev_monthly = prev_monthly[prev_monthly["Month"].isin(prev_range)]
-                            if not prev_monthly.empty:
-                                ghost_val = prev_monthly["Percent"].iloc[-1]
-                                ghost_patients = prev_monthly["UniquePatients"].iloc[-1]
-                                ghost_total = prev_monthly["TotalPatientsMonth"].iloc[-1]
-                                ghost_data.append((row["MonthLabel"], year_prev, ghost_val, ghost_patients, ghost_total))
-        
-            # --- Merge ghost results
-            merged = monthly.copy()
-            merged["PrevPercent"] = pd.NA
-            merged["PrevUniquePatients"] = pd.NA
-            merged["PrevYear"] = pd.NA
-            merged["PrevTotalPatients"] = pd.NA
-            for label, yprev, val, pats, tot in ghost_data:
-                merged.loc[merged["MonthLabel"] == label, "PrevPercent"] = val
-                merged.loc[merged["MonthLabel"] == label, "PrevUniquePatients"] = pats
-                merged.loc[merged["MonthLabel"] == label, "PrevYear"] = yprev
-                merged.loc[merged["MonthLabel"] == label, "PrevTotalPatients"] = tot
+            # Restrict to latest 12 months
+            last_m = monthly_full["Month"].max()
+            current_12 = pd.period_range(last_m - 11, last_m, freq="M")
+            merged = monthly_full[monthly_full["Month"].isin(current_12)].copy()
         
             merged["has_ghost"] = merged["PrevPercent"].notna()
             merged["MonthOnly"] = merged["MonthLabel"].str.split().str[0]
             color = conf["color"]
         
-            # --- Ghost bars
+            # --- Ghost bars (unchanged style)
             ghost = (
                 alt.Chart(merged)
                 .transform_filter("datum.PrevPercent != null")
@@ -2102,7 +2067,7 @@ if st.session_state["factoids_unlocked"]:
                             axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                     y=alt.Y("PrevPercent:Q", title="% Patients", axis=alt.Axis(format=".1%")),
                     tooltip=[
-                        alt.Tooltip("PrevYear:O", title="Year"),
+                        alt.Tooltip("Year:O", title="Year"),
                         alt.Tooltip("MonthOnly:N", title="Month"),
                         alt.Tooltip("PrevTotalPatients:Q", title="Monthly Patients", format=",.0f"),
                         alt.Tooltip("PrevUniquePatients:Q", title=f"{choice} Patients", format=",.0f"),
@@ -2111,7 +2076,7 @@ if st.session_state["factoids_unlocked"]:
                 )
             )
         
-            # --- Current bars
+            # --- Current bars (unchanged style)
             current = (
                 alt.Chart(merged)
                 .mark_bar(size=20, color=color)
@@ -2130,11 +2095,8 @@ if st.session_state["factoids_unlocked"]:
                 .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
             )
         
-            # --- Add 3-mo MA & Ghost MA
-            first_current = monthly["Month"].min()
-            seed_months = pd.period_range(first_current - 2, first_current - 1, freq="M")
-            df_ma_seed_src = monthly.copy()
-            df_ma_seed_src = df_ma_seed_src[["Month", "MonthLabel", "Percent"]].rename(columns={"Percent": "Value"})
+            # --- MA + Ghost MA (unchanged visuals)
+            df_ma_seed_src = merged[["MonthLabel","Percent"]].rename(columns={"Percent":"Value"}).copy()
             allowed_labels = merged["MonthLabel"].tolist()
         
             ma_line = (
@@ -2166,7 +2128,6 @@ if st.session_state["factoids_unlocked"]:
                 )
             )
         
-            # --- Combine all layers
             chart = (
                 alt.layer(ghost, current, ma_line, ma_line_ghost)
                 .resolve_scale(y="shared")
@@ -2176,7 +2137,6 @@ if st.session_state["factoids_unlocked"]:
                     title=f"% of Monthly Patients Having {choice} (with previous-year ghost bars + 3-mo moving average)"
                 )
             )
-        
             st.altair_chart(chart, use_container_width=True)
 
     
@@ -3079,6 +3039,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
