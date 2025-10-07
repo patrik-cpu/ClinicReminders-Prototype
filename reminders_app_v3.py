@@ -2160,7 +2160,7 @@ if st.session_state["factoids_unlocked"]:
                 top_count = int(pet_counts.iloc[0]["Count"])
                 metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
     
-        # --- Patient with Most Visits (distinct client+animal+day)
+        # --- Patient with Most Visits (tolerant definition)
         if not df.empty:
             df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
             visits_df = df[df["VisitFlag"]].copy()
@@ -2176,12 +2176,25 @@ if st.session_state["factoids_unlocked"]:
             )
             visits_df["VisitDate"] = pd.to_datetime(visits_df["ChargeDate"], errors="coerce").dt.normalize()
         
-            # Count unique visit days per patient
+            # sort for grouping
+            visits_df = visits_df.sort_values(["ClientKey", "AnimalKey", "VisitDate"])
+        
+            # group by animal and collapse dates within 1 day as a single visit
+            def merge_close_visits(dates):
+                dates = dates.sort_values().dropna().reset_index(drop=True)
+                if dates.empty:
+                    return 0
+                visit_count = 1
+                last_date = dates.iloc[0]
+                for current_date in dates.iloc[1:]:
+                    if (current_date - last_date).days > 1:  # gap >1 day ⇒ new visit
+                        visit_count += 1
+                    last_date = current_date
+                return visit_count
+        
             visits_count = (
-                visits_df.dropna(subset=["ClientKey", "AnimalKey", "VisitDate"])
-                         .drop_duplicates(subset=["ClientKey", "AnimalKey", "VisitDate"])
-                         .groupby(["ClientKey", "AnimalKey"])
-                         .size()
+                visits_df.groupby(["ClientKey", "AnimalKey"])["VisitDate"]
+                         .apply(merge_close_visits)
                          .reset_index(name="VisitCount")
                          .sort_values("VisitCount", ascending=False)
             )
@@ -2834,6 +2847,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
