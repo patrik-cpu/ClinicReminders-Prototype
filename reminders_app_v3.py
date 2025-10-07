@@ -2486,7 +2486,7 @@ if st.session_state["factoids_unlocked"]:
             metrics["Number of Client Transactions"] = f"{client_transactions:,}"
             metrics["Number of Patient Visits"] = f"{patient_visits:,}"
             metrics["Revenue per Client"] = f"{rev_per_client:,.0f}"
-            metrics["Revenue per Visiting Patient"] = f"{rev_per_patient:,.0f}"
+            metrics["Revenue per Visiting Patient"] = f"{rev_per_visiting_patient:,.0f}"
             metrics["Revenue per Client Transaction"] = f"{rev_per_client_tx:,.0f}"
             metrics["Revenue per Patient Visit"] = f"{rev_per_patient_visit:,.0f}"
             metrics["Transactions per Client"] = f"{tx_per_client:.1f}".rstrip("0").rstrip(".")
@@ -2933,6 +2933,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
