@@ -19,59 +19,59 @@ _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
 
 # -----------------------
-    # Keyword Definitions
-    # -----------------------
-    FLEA_WORM_KEYWORDS = [
-        "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
-        "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend"
-    ]
-    FLEA_WORM_EXCLUSIONS = ["felv","fiv","antigen","antibody","wild catz"]
+# Keyword Definitions
+# -----------------------
+FLEA_WORM_KEYWORDS = [
+    "bravecto", "revolution", "deworm", "frontline", "milbe", "milpro",
+    "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend"
+]
+FLEA_WORM_EXCLUSIONS = ["felv","fiv","antigen","antibody","wild catz"]
 
-    FOOD_KEYWORDS = [
-        "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
-        "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
-        "nutro", "pouch", "canned", "wet", "dry", "kibble",
-        "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", "grain", "rc","bhn"
-    ]
-    FOOD_EXCLUSIONS = [
-        "caniverm","deworm","caninsulin","referral","endoscopy","colonoscopy","In-patient","Cat Sitting",
-        "Selamectin","Thromboplastin","Injection Fee"
-    ]
-                      
+FOOD_KEYWORDS = [
+    "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
+    "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
+    "nutro", "pouch", "canned", "wet", "dry", "kibble",
+    "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", "grain", "rc","bhn"
+]
+FOOD_EXCLUSIONS = [
+    "caniverm","deworm","caninsulin","referral","endoscopy","colonoscopy","In-patient","Cat Sitting",
+    "Selamectin","Thromboplastin","Injection Fee"
+]
+                  
 
-    XRAY_KEYWORDS = ["xray", "x-ray", "radiograph", "radiology"]
-    XRAY_EXCLUSIONS = []
+XRAY_KEYWORDS = ["xray", "x-ray", "radiograph", "radiology"]
+XRAY_EXCLUSIONS = []
 
-    ULTRASOUND_KEYWORDS = ["ultrasound", "echo", "afast", "tfast", "a-fast", "t-fast"]
-    ULTRASOUND_EXCLUSIONS = []
+ULTRASOUND_KEYWORDS = ["ultrasound", "echo", "afast", "tfast", "a-fast", "t-fast"]
+ULTRASOUND_EXCLUSIONS = []
 
-    LABWORK_KEYWORDS = [
-        "cbc", "blood test", "lab", "biochemistry", "haematology", "urinalysis", "labwork", "idexx", "ghp",
-        "chem", "felv", "fiv", "urine", "cytology", "smear", "faecal", "fecal", "microscopic", "slide", "bun",
-        "crea", "phosphate", "cpl", "cpli", "lipase", "amylase", "pancreatic", "cortisol"
-    ]
-    LABWORK_EXCLUSIONS = ["cream","labrador","cremation","enema"]
+LABWORK_KEYWORDS = [
+    "cbc", "blood test", "lab", "biochemistry", "haematology", "urinalysis", "labwork", "idexx", "ghp",
+    "chem", "felv", "fiv", "urine", "cytology", "smear", "faecal", "fecal", "microscopic", "slide", "bun",
+    "crea", "phosphate", "cpl", "cpli", "lipase", "amylase", "pancreatic", "cortisol"
+]
+LABWORK_EXCLUSIONS = ["cream","labrador","cremation","enema"]
 
-    ANAESTHETIC_KEYWORDS = [
-        "anaesthesia", "anesthesia", "spay", "neuter", "castrate", "surgery",
-        "isoflurane", "propofol", "alfaxan", "alfaxalone"
-    ]
-    ANAESTHETIC_EXCLUSIONS = ["satiety","balance","vhn","royal canin","food"]
+ANAESTHETIC_KEYWORDS = [
+    "anaesthesia", "anesthesia", "spay", "neuter", "castrate", "surgery",
+    "isoflurane", "propofol", "alfaxan", "alfaxalone"
+]
+ANAESTHETIC_EXCLUSIONS = ["satiety","balance","vhn","royal canin","food"]
 
-    HOSPITALISATION_KEYWORDS = ["hospitalisation", "hospitalization"]
-    HOSPITALISATION_EXCLUSIONS = []
+HOSPITALISATION_KEYWORDS = ["hospitalisation", "hospitalization"]
+HOSPITALISATION_EXCLUSIONS = []
 
-    VACCINE_KEYWORDS = [
-        "vaccine", "vaccination", "booster", "rabies", "dhpp", "dhppil", "tricat",
-        "pch", "pcl", "leukemia", "kennel cough"
-    ]
-    VACCINE_EXCLUSIONS = ["test", "titre", "antibody","bites"]
+VACCINE_KEYWORDS = [
+    "vaccine", "vaccination", "booster", "rabies", "dhpp", "dhppil", "tricat",
+    "pch", "pcl", "leukemia", "kennel cough"
+]
+VACCINE_EXCLUSIONS = ["test", "titre", "antibody","bites"]
 
-    DEATH_KEYWORDS = ["euthanasia", "pentobarb", "cremation", "burial", "disposal"]
-    DEATH_EXCLUSIONS = []
+DEATH_KEYWORDS = ["euthanasia", "pentobarb", "cremation", "burial", "disposal"]
+DEATH_EXCLUSIONS = []
 
-    NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex"]
-    NEUTER_EXCLUSIONS = ["adult", "food", "diet", "canin", "purina", "proplan"]
+NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex"]
+NEUTER_EXCLUSIONS = ["adult", "food", "diet", "canin", "purina", "proplan"]
 
 # Sidebar "table of contents" — simplified navigation
 st.sidebar.markdown(
@@ -2686,6 +2686,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
