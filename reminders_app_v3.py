@@ -1503,6 +1503,7 @@ if st.session_state["factoids_unlocked"]:
             FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
             FOOD_RX = _rx(FOOD_KEYWORDS)
             LAB_RX = _rx(LABWORK_KEYWORDS)
+            NEUTER_RX = _rx(NEUTER_KEYWORDS)
             ULTRA_RX = _rx(ULTRASOUND_KEYWORDS)
             XRAY_RX = _rx(XRAY_KEYWORDS)
         
@@ -1513,6 +1514,7 @@ if st.session_state["factoids_unlocked"]:
             flea = _sum(FLEA_RX)
             food = _sum(FOOD_RX)
             lab = _sum(LAB_RX)
+            neuter = _sum(NEUTER_RX)
             ultra = _sum(ULTRA_RX)
             xray = _sum(XRAY_RX)
             total = df.groupby("Month")["Amount"].sum()
@@ -1522,11 +1524,12 @@ if st.session_state["factoids_unlocked"]:
                 "Revenue from Flea/Worm": flea,
                 "Revenue from Food": food,
                 "Revenue from Lab Work": lab,
+                "Revenue from Neuters": neuter,
                 "Revenue from Ultrasounds": ultra,
                 "Revenue from X-rays": xray
             }).fillna(0)
         
-            for col in ["Flea/Worm","Food","Lab Work","Ultrasounds","X-rays"]:
+            for col in ["Flea/Worm","Food","Lab Work","Neuters","Ultrasounds","X-rays"]:
                 out[f"Revenue from {col} (% of total)"] = out[f"Revenue from {col}"] / out["Total"]
         
             out["MonthLabel"] = out.index.strftime("%b %Y")
@@ -1548,6 +1551,8 @@ if st.session_state["factoids_unlocked"]:
                     "Revenue from Food (% of total)",
                     "Revenue from Lab Work",
                     "Revenue from Lab Work (% of total)",
+                    "Revenue from Neuters",
+                    "Revenue from Neuters (% of total)",
                     "Revenue from Ultrasounds",
                     "Revenue from Ultrasounds (% of total)",
                     "Revenue from X-rays",
@@ -1571,6 +1576,7 @@ if st.session_state["factoids_unlocked"]:
                     "#4ade80","#facc15","#fbbf24","#a5b4fc","#93c5fd",
                     "#fb7185","#60a5fa","#f97316","#fbbf24","#a5b4fc"
                 ]
+
                 color = palette[metrics.index(sel) % len(palette)]
         
                 is_pct = "(% of total)" in sel
@@ -2480,6 +2486,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
