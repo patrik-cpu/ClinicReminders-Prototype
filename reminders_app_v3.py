@@ -2280,10 +2280,7 @@ def run_factoids():
     if curve_choice == "Items":
         rev_items = (
             df.groupby("Item Name", dropna=False)
-            .agg(
-                Frequency=("Qty", "sum"),
-                TotalRevenue=("Amount", "sum")
-            )
+            .agg(Frequency=("Qty", "sum"), TotalRevenue=("Amount", "sum"))
             .sort_values("TotalRevenue", ascending=False)
             .reset_index()
         )
@@ -2311,7 +2308,7 @@ def run_factoids():
             color_items = "#60a5fa"  # blue
             chart_items = (
                 alt.layer(
-                    base_items.mark_line(color=color_items, strokeWidth=2),
+                    base_items.mark_line(color=color_items, strokeWidth=2, opacity=0.7),
                     base_items.mark_point(color=color_items, size=50, filled=True)
                 )
                 .properties(
@@ -2358,7 +2355,7 @@ def run_factoids():
             color_clients = "#f97316"  # orange
             chart_clients = (
                 alt.layer(
-                    base_clients.mark_line(color=color_clients, strokeWidth=2),
+                    base_clients.mark_line(color=color_clients, strokeWidth=2, opacity=0.7),
                     base_clients.mark_point(color=color_clients, size=50, filled=True)
                 )
                 .properties(
@@ -2458,6 +2455,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
