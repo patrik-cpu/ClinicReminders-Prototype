@@ -47,7 +47,7 @@ FLEA_WORM_EXCLUSIONS = ["felv","fiv","antigen","antibody","wild catz","ringworm"
 FOOD_KEYWORDS = [
     "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
     "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
-    "nutro", "pouch", "canned", "wet", "dry", "kibble",
+    "nutro", "pouch", "canned", "wet", "dry", "kibble","fcn","hair & skin","hair&skin"
     "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", 
     "grain", "rc","bhn","vet diet","prescription diet","trovet"
 ]
@@ -121,7 +121,7 @@ PATIENT_VISIT_EXCLUSIONS = (
 # Optionally, add your own custom visit-only indicators here
 PATIENT_VISIT_KEYWORDS += [
     "consult", "exam", "checkup", "check-up","recheck", "re-check","follow-up","follow up",
-    "dentistry", "dental", "scale", "wound", "bandage", "biopsy",
+    "dentistry", "dental", "scale", "wound clean", "bandage", "biopsy","sedation",
     "admit", "discharge", "inpatient", "in patient","in-patient"
 ]
 
@@ -1768,10 +1768,16 @@ if st.session_state["factoids_unlocked"]:
                 chart_cp = (
                     alt.layer(ghost_cp, current_cp, ma_line_cp, ma_line_ghost_cp)
                     .resolve_scale(y="shared")
-                    .properties(height=400, width=700,
-                                title=f"{sel_core_cp} per Month (with previous-year ghost bars + 3-mo moving average)")
+                    .properties(
+                        height=400,
+                        width=700,
+                        title=f"{sel_core_cp} per Month (with previous-year ghost bars + 3-mo moving average)"
+                    )
+                    .configure_title(anchor='start', offset=20)
                 )
-                st.altair_chart(chart_cp, use_container_width=True)
+                chart_cp = chart_cp.configure_view(continuousHeight=400, continuousWidth=700)
+                st.altair_chart(chart_cp, use_container_width=False)
+
 
 
     
@@ -1951,9 +1957,9 @@ if st.session_state["factoids_unlocked"]:
 
 
     
-        # ============================
-        # Patient Breakdown % Chart (vectorized & cached)
-        # ============================
+        # ---------------------------
+        # Chart 4: Patient Breakdown %'s
+        # ---------------------------
         st.markdown(
             "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
             unsafe_allow_html=True
@@ -1961,7 +1967,7 @@ if st.session_state["factoids_unlocked"]:
         
         metric_configs = {
             "Anaesthetics": {"include": ANAESTHETIC_KEYWORDS, "exclude": ANAESTHETIC_EXCLUSIONS, "color": "#fb7185"},
-            "Dentals": {"custom": re.compile("dental", re.I), "color": "#60a5fa", "filter": True},
+            "Dentals": {"custom": re.compile("dental", re.I), "color": "#60a5fa"},
             "Flea/Worm Treatments": {"include": FLEA_WORM_KEYWORDS, "exclude": FLEA_WORM_EXCLUSIONS, "color": "#4ade80"},
             "Food Purchases": {"include": FOOD_KEYWORDS, "exclude": FOOD_EXCLUSIONS, "color": "#facc15"},
             "Hospitalisations": {"include": HOSPITALISATION_KEYWORDS, "exclude": HOSPITALISATION_EXCLUSIONS, "color": "#f97316"},
@@ -1991,8 +1997,6 @@ if st.session_state["factoids_unlocked"]:
             d = df_blocked.copy()
             d["ChargeDate"] = pd.to_datetime(d["ChargeDate"], errors="coerce")
             d["Month"] = d["ChargeDate"].dt.to_period("M")
-        
-            # Full month range present in data for proper 12-month shift
             all_months = pd.period_range(d["Month"].min(), d["Month"].max(), freq="M")
         
             # Mask rows for selected category
@@ -2014,7 +2018,6 @@ if st.session_state["factoids_unlocked"]:
             else:
                 q = pd.merge(service_rows, tx_client, on=["Client Name","Block"], how="left")
                 q["Month"] = q["ChargeDate"].dt.to_period("M")
-                # Unique patients per month via set union (same semantics as before)
                 cat_monthly = (
                     q.groupby("Month")["Patients"]
                      .apply(lambda p: len(set().union(*p)) if len(p) else 0)
@@ -2022,7 +2025,6 @@ if st.session_state["factoids_unlocked"]:
                      .rename("UniquePatients")
                      .to_frame()
                 )
-        
                 cat_monthly["TotalPatientsMonth"] = patients_per_month.reindex(all_months).fillna(0).astype(int)
                 cat_monthly["Percent"] = cat_monthly.apply(
                     lambda r: (r["UniquePatients"]/r["TotalPatientsMonth"]) if r["TotalPatientsMonth"]>0 else 0, axis=1
@@ -2033,7 +2035,6 @@ if st.session_state["factoids_unlocked"]:
             out["PrevUniquePatients"] = out["UniquePatients"].shift(12, fill_value=pd.NA)
             out["PrevTotalPatients"]  = out["TotalPatientsMonth"].shift(12, fill_value=pd.NA)
             out["PrevPercent"]        = out["Percent"].shift(12, fill_value=pd.NA)
-        
             out["MonthLabel"] = out["Month"].dt.strftime("%b %Y")
             out["Year"] = out["Month"].dt.year
             return out
@@ -2043,16 +2044,14 @@ if st.session_state["factoids_unlocked"]:
         if monthly_full.empty:
             st.info(f"No qualifying {choice.lower()} data found.")
         else:
-            # Restrict to latest 12 months
             last_m = monthly_full["Month"].max()
             current_12 = pd.period_range(last_m - 11, last_m, freq="M")
             merged = monthly_full[monthly_full["Month"].isin(current_12)].copy()
-        
             merged["has_ghost"] = merged["PrevPercent"].notna()
             merged["MonthOnly"] = merged["MonthLabel"].str.split().str[0]
             color = conf["color"]
         
-            # --- Ghost bars (unchanged style)
+            # --- Ghost bars
             ghost = (
                 alt.Chart(merged)
                 .transform_filter("datum.PrevPercent != null")
@@ -2071,7 +2070,7 @@ if st.session_state["factoids_unlocked"]:
                 )
             )
         
-            # --- Current bars (unchanged style)
+            # --- Current bars
             current = (
                 alt.Chart(merged)
                 .mark_bar(size=20, color=color)
@@ -2090,7 +2089,7 @@ if st.session_state["factoids_unlocked"]:
                 .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
             )
         
-            # --- MA + Ghost MA (unchanged visuals)
+            # --- MA + Ghost MA
             df_ma_seed_src = merged[["MonthLabel","Percent"]].rename(columns={"Percent":"Value"}).copy()
             allowed_labels = merged["MonthLabel"].tolist()
         
@@ -2123,19 +2122,22 @@ if st.session_state["factoids_unlocked"]:
                 )
             )
         
+            # --- Combine + Title + Stable Dimensions
             chart = (
-                alt.layer(ghost, current, ma_line, ma_line_ghost)  # ← your real chart layers here
+                alt.layer(ghost, current, ma_line, ma_line_ghost)
                 .resolve_scale(y="shared")
                 .properties(
                     height=400,
                     width=700,
-                    title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
+                    title=f"{choice} per Month (with previous-year ghost bars + 3-mo moving average)"
                 )
                 .configure_title(anchor='start', offset=20)
+                .configure_view(continuousHeight=400, continuousWidth=700)
             )
-            
+        
             if "chart" in locals():
-                st.altair_chart(chart, use_container_width=True)
+                st.altair_chart(chart, use_container_width=False)
+
 
 
     
@@ -3038,6 +3040,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
