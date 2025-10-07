@@ -1469,7 +1469,7 @@ def run_factoids():
         df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
         df["Month"] = df["ChargeDate"].dt.to_period("M")
     
-        # keyword regexes
+        # keyword regexes (reuse same patterns)
         FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
         FOOD_RX = _rx(FOOD_KEYWORDS)
         LAB_RX = _rx(LABWORK_KEYWORDS)
@@ -1554,6 +1554,7 @@ def run_factoids():
             safe = re.sub(r"[^A-Za-z0-9_]", "_", sel)
             df_plot = rev.rename(columns={sel: safe}).copy()
     
+            # --- ghost bars (identical to Core Metrics)
             ghost = (
                 alt.Chart(df_plot)
                 .transform_filter("datum.PrevValue != null")
@@ -1571,6 +1572,7 @@ def run_factoids():
                 )
             )
     
+            # --- current bars (identical to Core Metrics)
             current = (
                 alt.Chart(df_plot)
                 .mark_bar(size=20, color=color)
@@ -1588,6 +1590,7 @@ def run_factoids():
                 .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
             )
     
+            # combine (ghost first)
             chart = (
                 alt.layer(ghost, current)
                 .resolve_scale(y="shared")
@@ -1597,11 +1600,13 @@ def run_factoids():
                     title=f"{sel} by Month (with previous-year ghost bars)"
                 )
             )
+    
             st.altair_chart(chart, use_container_width=True)
         else:
             st.info("No data available for revenue breakdown.")
     else:
         st.info("Upload data to display Revenue Breakdown by Month.")
+
 
 
 
@@ -2328,6 +2333,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
