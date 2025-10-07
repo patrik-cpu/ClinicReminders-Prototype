@@ -2610,10 +2610,10 @@ if st.button("Send", key="fb_send"):
             st.error(f"Could not save your message: {e}")
 
 # --------------------------------
-# 🧪 Keyword Debugging Export (silent version)
+# 🧪 Keyword Debugging Export (Revenue + Count rankings)
 # --------------------------------
 st.markdown("---")
-st.markdown("### 🧪 Keyword Debugging Export - Nova Vet Family Admin Use Only")
+st.markdown("### 🧪 Keyword Debugging Export")
 
 if st.session_state.get("working_df") is not None:
     df_debug = st.session_state["working_df"].copy()
@@ -2633,28 +2633,46 @@ if st.session_state.get("working_df") is not None:
     }
 
     debug_frames = []
+
     for label, (includes, excludes) in keyword_groups.items():
         mask = make_mask(df_debug, includes, excludes)
         if not mask.any():
             continue
-        sub = (
+
+        # --- Revenue-based top 25
+        sub_revenue = (
             df_debug.loc[mask]
-            .groupby("Item Name", as_index=False)["Amount"]
-            .sum()
-            .sort_values("Amount", ascending=False)
+            .groupby("Item Name", as_index=False)
+            .agg(TotalRevenue=("Amount", "sum"), Count=("Item Name", "size"))
+            .sort_values("TotalRevenue", ascending=False)
             .head(25)
         )
-        sub["Category"] = label
-        debug_frames.append(sub)
+        sub_revenue["Category"] = label
+        sub_revenue["Metric"] = "Top 25 by Revenue"
+
+        # --- Count-based top 25
+        sub_count = (
+            df_debug.loc[mask]
+            .groupby("Item Name", as_index=False)
+            .agg(TotalRevenue=("Amount", "sum"), Count=("Item Name", "size"))
+            .sort_values("Count", ascending=False)
+            .head(25)
+        )
+        sub_count["Category"] = label
+        sub_count["Metric"] = "Top 25 by Count"
+
+        debug_frames.extend([sub_revenue, sub_count])
 
     if debug_frames:
         debug_out = pd.concat(debug_frames, ignore_index=True)
-        debug_out = debug_out[["Category", "Item Name", "Amount"]]
-        debug_out["Amount"] = debug_out["Amount"].astype(int)
-        csv_bytes = debug_out.to_csv(index=False).encode("utf-8")
+        debug_out = debug_out[
+            ["Category", "Metric", "Item Name", "TotalRevenue", "Count"]
+        ]
+        debug_out["TotalRevenue"] = debug_out["TotalRevenue"].astype(int)
 
+        csv_bytes = debug_out.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="⬇️ Download Keyword Debug CSV",
+            label="⬇️ Download Keyword Debug CSV (Top 25 by Revenue & Count)",
             data=csv_bytes,
             file_name="keyword_debug_top25.csv",
             mime="text/csv",
@@ -2663,3 +2681,5 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
+
