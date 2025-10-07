@@ -36,8 +36,7 @@ FOOD_KEYWORDS = [
 FOOD_EXCLUSIONS = [
     "caniverm","deworm","caninsulin","referral","endoscopy","colonoscopy","In-patient","Cat Sitting",
     "Selamectin","Thromboplastin","Injection Fee"
-]
-                  
+]                
 
 XRAY_KEYWORDS = ["xray", "x-ray", "radiograph", "radiology"]
 XRAY_EXCLUSIONS = []
@@ -72,6 +71,23 @@ DEATH_EXCLUSIONS = []
 
 NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex"]
 NEUTER_EXCLUSIONS = ["adult", "food", "diet", "canin", "purina", "proplan"]
+
+# --------------------------------
+# Keyword Mask Helper (Global)
+# --------------------------------
+def make_mask(df, include_words, exclude_words=None):
+    """Returns a boolean mask matching include_words but excluding exclude_words."""
+    if df.empty or "Item Name" not in df.columns:
+        return pd.Series(False, index=df.index)
+
+    include_rx = re.compile("|".join(map(re.escape, include_words)), re.I)
+    mask = df["Item Name"].astype(str).str.contains(include_rx, na=False)
+
+    if exclude_words:
+        exclude_rx = re.compile("|".join(map(re.escape, exclude_words)), re.I)
+        mask &= ~df["Item Name"].astype(str).str.contains(exclude_rx, na=False)
+
+    return mask
 
 # Sidebar "table of contents" — simplified navigation
 st.sidebar.markdown(
@@ -1219,25 +1235,6 @@ if not st.session_state["factoids_unlocked"]:
 
 # --- Only show Factoids after unlock ---
 if st.session_state["factoids_unlocked"]:
-
-    # -----------------------
-    # Masking Utility
-    # -----------------------
-    def make_mask(df, include_words, exclude_words=None):
-        """
-        Returns a boolean mask matching include_words but excluding exclude_words.
-        """
-        if df.empty:
-            return pd.Series(False, index=df.index)
-
-        include_rx = re.compile("|".join(map(re.escape, include_words)), re.I)
-        mask = df["Item Name"].astype(str).str.contains(include_rx, na=False)
-
-        if exclude_words:
-            exclude_rx = re.compile("|".join(map(re.escape, exclude_words)), re.I)
-            mask &= ~df["Item Name"].astype(str).str.contains(exclude_rx, na=False)
-
-        return mask
 
     # -----------------------
     # Cached Base Computation
@@ -2686,6 +2683,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
