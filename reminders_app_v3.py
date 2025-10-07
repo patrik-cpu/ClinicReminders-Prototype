@@ -1642,37 +1642,41 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
 
-                # --- Extend ghost MA with pre-seed months if >24 months exist (only affects MA calc)
+                # --- Build ghost MA source with small pre-seed if >24 months exist
                 if len(core_monthly["Month"].unique()) > 24:
-                    # 2 months before the first ghost month (12 months before the first current)
+                    # 2 months before the first ghost month (12 months before first current)
                     first_ghost_month = current_12[0] - 12
                     seed_months = pd.period_range(first_ghost_month - 2, first_ghost_month - 1, freq="M")
                 
-                    # Include the two seed months + the 12 ghost months
+                    # include the two seed months + the 12 ghost months
                     ghost_ma_months = list(seed_months) + [m - 12 for m in current_12]
-                    ghost_ma_src = core_monthly[core_monthly["Month"].isin(ghost_ma_months)].copy()
                 else:
-                    # Fallback — just use the visible ghost window
-                    ghost_ma_src = core_monthly[core_monthly["Month"].isin([m - 12 for m in current_12])].copy()
+                    # fallback — just the visible ghost window
+                    ghost_ma_months = [m - 12 for m in current_12]
                 
-                # Keep only needed columns for MA calculation
-                ghost_ma_src = ghost_ma_src[["Month", "MonthLabel", sel_core_rev]].rename(columns={sel_core_rev: "PrevValue"})
+                ghost_ma_src = (
+                    core_monthly[core_monthly["Month"].isin(ghost_ma_months)]
+                    .copy()[["Month", "MonthLabel", sel_core_rev]]
+                    .rename(columns={sel_core_rev: "PrevValue"})
+                )
                 
-                # Use the SAME 12 MonthLabels as the bars (so x stays identical)
-                allowed_labels = df_plot["MonthLabel"].tolist()  # the 12 current labels, in order
-                
-                # --- Ghost Moving Average Line (3-mo trailing; pre-seeded, but plotting ONLY visible labels)
+                # --- Ghost Moving Average Line (3-mo trailing; now actually uses the pre-seeded data)
                 ma_line_ghost = (
                     alt.Chart(ghost_ma_src)
                     .transform_window(
                         ghost_rolling_mean="mean(PrevValue)",
-                        frame=[-2, 0]  # same 3-month trailing window
+                        frame=[-2, 0]  # same 3-month trailing average
                     )
-                    # <- this filter is the key: draw only the 12 visible current labels
-                    .transform_filter(alt.FieldOneOfPredicate(field="MonthLabel", oneOf=allowed_labels))
+                    # only draw points for the 12 visible ghost months
+                    .transform_filter(
+                        alt.FieldOneOfPredicate(
+                            field="MonthLabel",
+                            oneOf=[m.strftime("%b %Y") for m in [m - 12 for m in current_12]],
+                        )
+                    )
                     .mark_line(color=color, size=2.0, opacity=0.3)
                     .encode(
-                        x=alt.X("MonthLabel:N", sort=allowed_labels),
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist()),
                         y=alt.Y("ghost_rolling_mean:Q"),
                         tooltip=[
                             alt.Tooltip("MonthOnly:N", title="Month"),
@@ -1680,6 +1684,8 @@ if st.session_state["factoids_unlocked"]:
                         ],
                     )
                 )
+
+
 
 
 
@@ -3017,6 +3023,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
