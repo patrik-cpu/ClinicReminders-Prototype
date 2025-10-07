@@ -1726,6 +1726,14 @@ if st.session_state["factoids_unlocked"]:
                 axis=1,
             )
             monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
+
+            # --- Restrict to the latest 12 months (same behavior as before)
+            if not monthly.empty:
+                last_m = monthly["Month"].max()
+                month_range = pd.period_range(last_m - 11, last_m, freq="M")
+                monthly = monthly[monthly["Month"].isin(month_range)]
+
+            
         else:
             monthly = pd.DataFrame()  # fallback if no matches
 
@@ -2593,6 +2601,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
