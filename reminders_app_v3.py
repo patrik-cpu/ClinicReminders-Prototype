@@ -1727,24 +1727,75 @@ if st.session_state["factoids_unlocked"]:
         )
     
         metric_configs = {
-            "Anaesthetics": {"rx": _rx(ANAESTHETIC_KEYWORDS), "color": "#fb7185"},
-            "Dentals": {"rx": re.compile("dental", re.I), "color": "#60a5fa", "filter": True},
-            "Flea/Worm Treatments": {"rx": _rx(FLEA_WORM_KEYWORDS), "color": "#4ade80"},
-            "Food Purchases": {"rx": _rx(FOOD_KEYWORDS), "color": "#facc15"},
-            "Hospitalisations": {"rx": _rx(HOSPITALISATION_KEYWORDS), "color": "#f97316"},
-            "Lab Work": {"rx": _rx(LABWORK_KEYWORDS), "color": "#fbbf24"},
-            "Neuters": {"rx": _rx(NEUTER_KEYWORDS), "color": "#14b8a6"},
-            "Ultrasounds": {"rx": _rx(ULTRASOUND_KEYWORDS), "color": "#a5b4fc"},
-            "Vaccinations": {"rx": _rx(VACCINE_KEYWORDS), "color": "#22d3ee"},
-            "X-rays": {"rx": _rx(XRAY_KEYWORDS), "color": "#93c5fd"},
+            "Anaesthetics": {
+                "key": "ANAESTHETIC",
+                "color": "#fb7185"
+            },
+            "Dentals": {
+                "custom": re.compile("dental", re.I),
+                "color": "#60a5fa",
+                "filter": True
+            },
+            "Flea/Worm Treatments": {
+                "key": "FLEA_WORM",
+                "color": "#4ade80"
+            },
+            "Food Purchases": {
+                "key": "FOOD",
+                "color": "#facc15"
+            },
+            "Hospitalisations": {
+                "key": "HOSPITALISATION",
+                "color": "#f97316"
+            },
+            "Lab Work": {
+                "key": "LABWORK",
+                "color": "#fbbf24"
+            },
+            "Neuters": {
+                "key": "NEUTER",
+                "color": "#14b8a6"
+            },
+            "Ultrasounds": {
+                "key": "ULTRASOUND",
+                "color": "#a5b4fc"
+            },
+            "Vaccinations": {
+                "key": "VACCINE",
+                "color": "#22d3ee"
+            },
+            "X-rays": {
+                "key": "XRAY",
+                "color": "#93c5fd"
+            },
         }
+
     
         sorted_metrics = sorted(metric_configs.keys())
         choice = st.selectbox("Select a metric:", sorted_metrics, index=0, key="factoid_metric")
         conf = metric_configs[choice]
     
         # --- compute current 12-month data
-        monthly = compute_monthly_data(df_blocked, tx_client, patients_per_month, conf["rx"], conf.get("filter", False))
+        # --- determine which filtering to use ---
+        if "custom" in conf:
+            # special case (e.g., "Dentals") still uses a direct regex
+            custom_rx = conf["custom"]
+            mask = df_blocked["Item Name"].astype(str).str.contains(custom_rx, na=False)
+        else:
+            # use include/exclude filtering from KEYWORD_SETS
+            key = conf["key"]
+            inc = KEYWORD_SETS[key]["include"]
+            exc = KEYWORD_SETS[key]["exclude"]
+            mask = make_filtered_mask(df_blocked, inc, exc)
+        
+        # --- compute monthly patient percentages using this mask ---
+        service_rows = df_blocked.loc[mask, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
+        if not service_rows.empty:
+            qualifying = pd.merge(service_rows, tx_client, on=["Client Name", "Block"], how="left")
+            qualifying["Month"] = qualifying["ChargeDate"].dt.to_period("M")
+        else:
+            qualifying = pd.DataFrame(columns=["Client Name","Block","ChargeDate","Month"])
+
         if monthly.empty:
             st.info(f"No qualifying {choice.lower()} data found.")
         else:
@@ -2572,6 +2623,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
