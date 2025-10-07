@@ -1946,16 +1946,19 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
         
-                chart = (
-                    alt.layer(ghost, current, ma_line, ma_line_ghost)
-                    .resolve_scale(y="shared")
-                    .properties(
-                        height=400,
-                        width=700,
-                        title=f"{sel} by Month (with previous-year ghost bars + 3-mo moving average)"
+                chart = None  # prevent UnboundLocalError
+
+                if not core_monthly.empty:
+                    # build chart as before
+                    chart = (
+                        alt.layer(...)
+                        .resolve_scale(y="shared")
+                        .properties(height=400, width=700, title=...)
+                        .configure_title(anchor='start', offset=20)
                     )
-                )
-                st.altair_chart(chart, use_container_width=True)
+                
+                if chart is not None:
+                    st.altair_chart(chart, use_container_width=True)
 
 
     
@@ -3042,6 +3045,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
