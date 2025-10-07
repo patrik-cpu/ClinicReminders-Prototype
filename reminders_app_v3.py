@@ -1654,6 +1654,7 @@ if st.session_state["factoids_unlocked"]:
                     .resolve_scale(y="shared")
                     .properties(
                         height=400, width=700,
+                        .configure_title(anchor='start', offset=20)
                         title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
                     )
                 )
@@ -1663,7 +1664,8 @@ if st.session_state["factoids_unlocked"]:
                     st.session_state.pop("rev_chart_rendered")
                 st.session_state["rev_chart_rendered"] = True
                 
-                st.altair_chart(chart.configure_view(continuousHeight=400, continuousWidth=700), use_container_width=False)
+                st.altair_chart(chart, use_container_width=True)
+
 
 
                 # ---------------------------
@@ -3040,6 +3042,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
