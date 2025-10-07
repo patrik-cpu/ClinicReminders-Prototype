@@ -1158,7 +1158,7 @@ if not st.session_state["factoids_unlocked"]:
         submitted = st.form_submit_button("Unlock Factoids")
 
     if submitted:
-        if password_input == "clinic123":
+        if password_input == "x":
             st.session_state["factoids_unlocked"] = True
             st.success("✅ Access granted. Loading Factoids...")
             st.rerun()
@@ -2467,6 +2467,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
