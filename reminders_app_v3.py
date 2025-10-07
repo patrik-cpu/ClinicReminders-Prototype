@@ -1574,7 +1574,7 @@ if st.session_state["factoids_unlocked"]:
                 safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core_rev)
                 df_plot = core_current.rename(columns={sel_core_rev: safe_col}).copy()
                 
-                # --- Bars (ghost + current)
+                # --- Ghost bars
                 ghost = (
                     alt.Chart(df_plot)
                     .transform_filter("datum.PrevValue != null")
@@ -1591,6 +1591,7 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
                 
+                # --- Current bars
                 current = (
                     alt.Chart(df_plot)
                     .mark_bar(size=20, color=color)
@@ -1607,12 +1608,12 @@ if st.session_state["factoids_unlocked"]:
                     .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
                 
-                # --- Moving Average Line (current; unchanged)
-                ma_line_current = (
+                # --- Moving Average Line (3-month trailing mean)
+                ma_line = (
                     alt.Chart(df_plot)
                     .transform_window(
                         rolling_mean=f"mean({safe_col})",
-                        frame=[-2, 0]  # 3-month trailing MA
+                        frame=[-2, 0]  # 3-month trailing moving average (including current)
                     )
                     .mark_line(color=color, size=2.5)
                     .encode(
@@ -1625,56 +1626,18 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
                 
-                # --- NEW: Ghost Moving Average Line (simple; mirrors ghost bars)
-                ma_line_ghost = (
-                    alt.Chart(df_plot)
-                    .transform_filter("datum.PrevValue != null")          # only if ghost bars exist
-                    .transform_window(
-                        rolling_mean="mean(PrevValue)",
-                        frame=[-2, 0]                                     # 3-month trailing MA
-                    )
-                    .mark_line(color=color, size=2.0, opacity=0.3)        # same color, 30% opacity
-                    .encode(
-                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist()),
-                        y=alt.Y("rolling_mean:Q"),
-                        tooltip=[
-                            alt.Tooltip("MonthOnly:N", title="Month"),
-                            alt.Tooltip("rolling_mean:Q", title="Ghost 3-mo MA", format=y_fmt),
-                        ],
-                    )
-                )
-                
+                # --- Combine bars + MA line
                 chart_rev_tx = (
-                    alt.layer(
-                        ghost,
-                        current,
-                        ma_line_ghost,
-                        ma_line_current
-                    )
-                    .resolve_scale(
-                        x='shared',  # ensure both lines and bars share the same x-axis
-                        y='shared'   # same y-axis domain
-                    )
-                    .configure_axis(
-                        labelFontSize=12,
-                        titleFontSize=13,
-                        labelColor='#d1d5db',
-                        titleColor='#d1d5db'
-                    )
-                    .configure_view(
-                        strokeWidth=0,  # removes outer border
-                        continuousWidth=700,
-                        continuousHeight=400
-                    )
+                    alt.layer(ghost, current, ma_line)
+                    .resolve_scale(y="shared")
                     .properties(
-                        height=400,
-                        width=700,
+                        height=400, width=700,
                         title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
                     )
                 )
-
                 
                 st.altair_chart(chart_rev_tx, use_container_width=True)
+
 
         
                 # ---------------------------
@@ -2996,6 +2959,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
