@@ -2609,7 +2609,61 @@ if st.button("Send", key="fb_send"):
         except Exception as e:
             st.error(f"Could not save your message: {e}")
 
+# --------------------------------
+# 🧪 Keyword Debugging Export (at the very bottom)
+# --------------------------------
+st.markdown("---")
+st.markdown("### 🧪 Keyword Debugging Export")
 
+if st.session_state.get("working_df") is not None:
+    df_debug = st.session_state["working_df"].copy()
+    df_debug["Amount"] = pd.to_numeric(df_debug["Amount"], errors="coerce").fillna(0)
+
+    keyword_groups = {
+        "FLEA_WORM": (FLEA_WORM_KEYWORDS, FLEA_WORM_EXCLUSIONS),
+        "FOOD": (FOOD_KEYWORDS, FOOD_EXCLUSIONS),
+        "XRAY": (XRAY_KEYWORDS, XRAY_EXCLUSIONS),
+        "ULTRASOUND": (ULTRASOUND_KEYWORDS, ULTRASOUND_EXCLUSIONS),
+        "LABWORK": (LABWORK_KEYWORDS, LABWORK_EXCLUSIONS),
+        "ANAESTHETIC": (ANAESTHETIC_KEYWORDS, ANAESTHETIC_EXCLUSIONS),
+        "HOSPITALISATION": (HOSPITALISATION_KEYWORDS, HOSPITALISATION_EXCLUSIONS),
+        "VACCINE": (VACCINE_KEYWORDS, VACCINE_EXCLUSIONS),
+        "DEATH": (DEATH_KEYWORDS, DEATH_EXCLUSIONS),
+        "NEUTER": (NEUTER_KEYWORDS, NEUTER_EXCLUSIONS),
+    }
+
+    debug_frames = []
+    for label, (includes, excludes) in keyword_groups.items():
+        mask = make_mask(df_debug, includes, excludes)
+        sub = (
+            df_debug.loc[mask]
+            .groupby("Item Name", as_index=False)["Amount"]
+            .sum()
+            .sort_values("Amount", ascending=False)
+            .head(25)
+        )
+        sub["Category"] = label
+        debug_frames.append(sub)
+
+    if debug_frames:
+        debug_out = pd.concat(debug_frames, ignore_index=True)
+        debug_out = debug_out[["Category", "Item Name", "Amount"]]
+        debug_out["Amount"] = debug_out["Amount"].astype(int)
+
+        csv_bytes = debug_out.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="⬇️ Download Keyword Debug CSV",
+            data=csv_bytes,
+            file_name="keyword_debug_top25.csv",
+            mime="text/csv",
+        )
+
+        st.success("Click to download the top 25 items per keyword group (after exclusions).")
+        st.dataframe(debug_out, use_container_width=True, height=400)
+    else:
+        st.info("No keyword matches found.")
+else:
+    st.warning("Upload data to enable debugging export.")
 
 
 
