@@ -667,9 +667,10 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 val = normalize_display_case(val)
             cols[j].markdown(val)
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
-            first_name  = vals['Client Name'].split()[0].strip() if vals['Client Name'] else "there"
-            animal_name = vals['Animal Name'].strip() if vals['Animal Name'] else "your pet"
-            plan_for_msg = vals["Plan Item"].strip()
+            first_name  = normalize_display_case(vals['Client Name'].split()[0].strip()) if vals['Client Name'] else "there"
+            animal_name = normalize_display_case(vals['Animal Name'].strip()) if vals['Animal Name'] else "your pet"
+            plan_for_msg = normalize_display_case(vals["Plan Item"].strip())
+            
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
             closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
@@ -685,7 +686,8 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
-            st.markdown(f"**Preview:** {st.session_state[msg_key]}")
+            st.markdown(f"**Preview:** {normalize_display_case(st.session_state[msg_key])}")
+
     comp_main, comp_tip = st.columns([4,1])
     with comp_main:
         st.write("### WhatsApp Composer")
@@ -2465,6 +2467,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
