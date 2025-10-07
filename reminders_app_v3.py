@@ -1884,6 +1884,7 @@ if st.session_state["factoids_unlocked"]:
             "Flea/Worm": _rx(FLEA_WORM_KEYWORDS),
             "Food": _rx(FOOD_KEYWORDS),
             "Lab Work": _rx(LABWORK_KEYWORDS),
+            "Neuters": _rx(NEUTER_KEYWORDS),
             "Anaesthetics": _rx(ANAESTHETIC_KEYWORDS),
             "Hospitalisations": _rx(HOSPITALISATION_KEYWORDS),
             "Vaccinations": _rx(VACCINE_KEYWORDS),
@@ -2146,6 +2147,7 @@ if st.session_state["factoids_unlocked"]:
             FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
             FOOD_RX = _rx(FOOD_KEYWORDS)
             LAB_RX = _rx(LABWORK_KEYWORDS)
+            NEUTER_RX = _rx(NEUTER_KEYWORDS)
             ULTRA_RX = _rx(ULTRASOUND_KEYWORDS)
             XRAY_RX = _rx(XRAY_KEYWORDS)
         
@@ -2159,6 +2161,7 @@ if st.session_state["factoids_unlocked"]:
                 "Revenue from Flea/Worm (Total & %)": _sum_revenue(FLEA_RX),
                 "Revenue from Food (Total & %)": _sum_revenue(FOOD_RX),
                 "Revenue from Lab Work (Total & %)": _sum_revenue(LAB_RX),
+                "Revenue from Neuters (Total & %)": _sum_revenue(NEUTER_RX),
                 "Revenue from Ultrasounds (Total & %)": _sum_revenue(ULTRA_RX),
                 "Revenue from X-rays (Total & %)": _sum_revenue(XRAY_RX),
             }
@@ -2487,6 +2490,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
