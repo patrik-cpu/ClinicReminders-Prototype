@@ -1775,7 +1775,6 @@ if st.session_state["factoids_unlocked"]:
         choice = st.selectbox("Select a metric:", sorted_metrics, index=0, key="factoid_metric")
         conf = metric_configs[choice]
     
-        # --- compute current 12-month data
         # --- determine which filtering to use ---
         if "custom" in conf:
             # special case (e.g., "Dentals") still uses a direct regex
@@ -1788,13 +1787,29 @@ if st.session_state["factoids_unlocked"]:
             exc = KEYWORD_SETS[key]["exclude"]
             mask = make_filtered_mask(df_blocked, inc, exc)
         
-        # --- compute monthly patient percentages using this mask ---
-        service_rows = df_blocked.loc[mask, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
-        if not service_rows.empty:
+        # --- now compute monthly patient % breakdown using the chosen mask ---
+        if mask.any():
+            service_rows = df_blocked.loc[mask, ["Client Name", "Block", "ChargeDate"]].drop_duplicates()
             qualifying = pd.merge(service_rows, tx_client, on=["Client Name", "Block"], how="left")
             qualifying["Month"] = qualifying["ChargeDate"].dt.to_period("M")
+        
+            # reuse your patient computation logic from before
+            monthly = (
+                qualifying.groupby("Month")["Patients"]
+                .apply(lambda p: len(set().union(*p)) if isinstance(p.iloc[0], (list, set)) else 0)
+                .reset_index(name="UniquePatients")
+            )
+        
+            monthly["TotalPatientsMonth"] = monthly["Month"].map(patients_per_month).fillna(0).astype(int)
+            monthly["Percent"] = monthly.apply(
+                lambda r: (r["UniquePatients"] / r["TotalPatientsMonth"])
+                if r["TotalPatientsMonth"] > 0 else 0,
+                axis=1,
+            )
+            monthly["MonthLabel"] = monthly["Month"].dt.strftime("%b %Y")
         else:
-            qualifying = pd.DataFrame(columns=["Client Name","Block","ChargeDate","Month"])
+            monthly = pd.DataFrame()  # fallback so .empty always works safely
+
 
         if monthly.empty:
             st.info(f"No qualifying {choice.lower()} data found.")
@@ -2623,6 +2638,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
