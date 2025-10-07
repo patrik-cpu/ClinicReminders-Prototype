@@ -1575,13 +1575,32 @@ if st.session_state["factoids_unlocked"]:
                 safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core_rev)
                 df_plot = core_current.rename(columns={sel_core_rev: safe_col}).copy()
                 
+                # --- Moving Average Data Preparation (includes ghost months)
+                df_all_ma = core_monthly.copy().sort_values("Month")
+                df_all_ma["MonthLabel"] = df_all_ma["MonthLabel"].astype(str)
+                df_all_ma["MonthOnly"] = df_all_ma["MonthLabel"].str.split().str[0]
+                df_all_ma["MonthOrder"] = df_all_ma["Month"].dt.to_timestamp()  # chronological sort key
+                
+                # Compute 3-month rolling mean for all months
+                df_all_ma["rolling_mean"] = (
+                    df_all_ma[sel_core_rev]
+                    .rolling(window=3, min_periods=1)
+                    .mean()
+                )
+                
+                # Identify ghost vs current range
+                df_all_ma["is_current"] = df_all_ma["Month"].isin(current_12)
+                ghost_ma_df = df_all_ma[df_all_ma["is_current"] == False].tail(14)  # includes overlap for smooth join
+                current_ma_df = df_all_ma[df_all_ma["is_current"] == True].copy()
+                
                 # --- Bars: Ghost + Current
                 ghost = (
                     alt.Chart(df_plot)
                     .transform_filter("datum.PrevValue != null")
                     .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
                     .encode(
-                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
+                        x=alt.X("MonthLabel:N",
+                                sort=alt.SortField(field="MonthOrder", order="ascending"),
                                 axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                         y=alt.Y("PrevValue:Q", title=sel_core_rev, axis=alt.Axis(format=y_fmt)),
                         tooltip=[
@@ -1596,7 +1615,8 @@ if st.session_state["factoids_unlocked"]:
                     alt.Chart(df_plot)
                     .mark_bar(size=20, color=color)
                     .encode(
-                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
+                        x=alt.X("MonthLabel:N",
+                                sort=alt.SortField(field="MonthOrder", order="ascending"),
                                 axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                         y=alt.Y(f"{safe_col}:Q", title=sel_core_rev, axis=alt.Axis(format=y_fmt)),
                         tooltip=[
@@ -1608,29 +1628,14 @@ if st.session_state["factoids_unlocked"]:
                     .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
                 
-                # --- Moving Average Data Preparation (includes ghost months)
-                df_all_ma = core_monthly.copy().sort_values("Month")
-                df_all_ma["MonthLabel"] = df_all_ma["MonthLabel"].astype(str)
-                df_all_ma["MonthOnly"] = df_all_ma["MonthLabel"].str.split().str[0]
-                
-                # Compute 3-month rolling mean for all months
-                df_all_ma["rolling_mean"] = (
-                    df_all_ma[sel_core_rev]
-                    .rolling(window=3, min_periods=1)
-                    .mean()
-                )
-                
-                # Identify ghost vs current range
-                df_all_ma["is_current"] = df_all_ma["Month"].isin(current_12)
-                ghost_ma_df = df_all_ma[df_all_ma["is_current"] == False].tail(14)  # includes overlap for smooth join
-                current_ma_df = df_all_ma[df_all_ma["is_current"] == True].copy()
-                
-                # --- Ghost MA line (faded, continues into current)
+                # --- Ghost MA line (faded)
                 ma_line_ghost = (
                     alt.Chart(ghost_ma_df)
                     .mark_line(color=color, size=2.5, opacity=0.3, interpolate="monotone")
                     .encode(
-                        x=alt.X("MonthLabel:N", sort=df_all_ma["MonthLabel"].tolist()),
+                        x=alt.X("MonthLabel:N",
+                                sort=alt.SortField(field="MonthOrder", order="ascending"),
+                                axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                         y=alt.Y("rolling_mean:Q"),
                         tooltip=[
                             alt.Tooltip("MonthLabel:N", title="Month"),
@@ -1639,12 +1644,14 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
                 
-                # --- Current MA line (solid, continuation)
+                # --- Current MA line (solid)
                 ma_line_current = (
                     alt.Chart(current_ma_df)
                     .mark_line(color=color, size=2.5, interpolate="monotone")
                     .encode(
-                        x=alt.X("MonthLabel:N", sort=df_all_ma["MonthLabel"].tolist()),
+                        x=alt.X("MonthLabel:N",
+                                sort=alt.SortField(field="MonthOrder", order="ascending"),
+                                axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
                         y=alt.Y("rolling_mean:Q"),
                         tooltip=[
                             alt.Tooltip("MonthLabel:N", title="Month"),
@@ -2990,6 +2997,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
