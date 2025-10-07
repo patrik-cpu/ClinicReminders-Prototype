@@ -1642,20 +1642,7 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
 
-                # --- Build small extended dataset for ghost MA (add 2 pre-ghost months if available)
-                if len(core_monthly["Month"].unique()) > 24:
-                    first_ghost = current_12[0] - 12
-                    extra_months = pd.period_range(first_ghost - 2, first_ghost - 1, freq="M")
-                    ghost_months_extended = list(extra_months) + [m - 12 for m in current_12]
-                else:
-                    ghost_months_extended = [m - 12 for m in current_12]
                 
-                # slice from full dataset — this gives MA access to the older months
-                df_ma_ghost = (
-                    core_monthly[core_monthly["Month"].isin(ghost_months_extended)]
-                    .copy()[["Month", "MonthLabel", sel_core_rev]]
-                    .rename(columns={sel_core_rev: "PrevValue"})
-                )
                 
                 # --- Moving Average (3-mo trailing, with actual pre-seed data)
                 ma_line_ghost = (
@@ -3022,6 +3009,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
