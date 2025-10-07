@@ -1409,25 +1409,24 @@ if st.session_state["factoids_unlocked"]:
                 "Unique Clients Seen": g["Client Name"].nunique(),
             }).reset_index()
             
-            # --- Add Unique Patient Visits (distinct patient-visit pairs)
+            # --- Add Unique Patient Visits (distinct patient who visited at least once in that month)
             df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
             vis = df[df["VisitFlag"]].copy()
             vis["ClientKey"] = (
                 vis["Client Name"].astype(str).str.normalize("NFKC").str.lower()
-                .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                .str.strip().str.replace(r"\s+", " ", regex=True)
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
             )
             vis["AnimalKey"] = (
                 vis["Animal Name"].astype(str).str.normalize("NFKC").str.lower()
-                .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                .str.strip().str.replace(r"\s+", " ", regex=True)
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
             )
-            
             vis["Month"] = vis["ChargeDate"].dt.to_period("M")
             
             unique_patient_visits = (
-                vis.dropna(subset=["ClientKey", "AnimalKey"])
-                   .drop_duplicates(subset=["ClientKey", "AnimalKey"])
+                vis.dropna(subset=["Month","ClientKey","AnimalKey"])
+                   .drop_duplicates(subset=["Month","ClientKey","AnimalKey"])  # <-- monthly de-dupe
                    .groupby("Month").size().rename("Unique Patient Visits")
             )
             
@@ -2869,6 +2868,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
