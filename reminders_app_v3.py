@@ -1469,7 +1469,6 @@ def run_factoids():
         df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
         df["Month"] = df["ChargeDate"].dt.to_period("M")
     
-        # keyword regexes (reuse same patterns)
         FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
         FOOD_RX = _rx(FOOD_KEYWORDS)
         LAB_RX = _rx(LABWORK_KEYWORDS)
@@ -1496,7 +1495,6 @@ def run_factoids():
             "Revenue from X-rays": xray
         }).fillna(0)
     
-        # percent of total
         for col in ["Flea/Worm","Food","Lab Work","Ultrasounds","X-rays"]:
             out[f"Revenue from {col} (% of total)"] = out[f"Revenue from {col}"] / out["Total"]
     
@@ -1506,12 +1504,11 @@ def run_factoids():
     
     rev_df = st.session_state.get("working_df")
     if rev_df is not None and not rev_df.empty:
-        rev = compute_revenue_breakdown(rev_df)
-        if not rev.empty:
-            # 12-month window
-            last_m = rev["Month"].max()
+        rev_all = compute_revenue_breakdown(rev_df)
+        if not rev_all.empty:
+            last_m = rev_all["Month"].max()
             current_12 = pd.period_range(last_m - 11, last_m, freq="M")
-            rev = rev[rev["Month"].isin(current_12)].copy()
+            rev_current = rev_all[rev_all["Month"].isin(current_12)].copy()
     
             metrics = [
                 "Revenue from Flea/Worm",
@@ -1528,33 +1525,31 @@ def run_factoids():
     
             sel = st.selectbox("Select Revenue Metric:", metrics, index=0, key="rev_breakdown_metric")
     
-            # compute ghost (previous year)
-            metric_series = rev.set_index("Month")[sel]
-            rev["PrevValue"] = rev["Month"].apply(
+            # 🔧 Core Metrics-style ghost computation
+            metric_series = rev_all.set_index("Month")[sel]
+            rev_current["PrevValue"] = rev_current["Month"].apply(
                 lambda m: metric_series.get(m - 12, pd.NA)
             )
-            rev["PrevYear"] = rev["Month"].apply(
+            rev_current["PrevYear"] = rev_current["Month"].apply(
                 lambda m: (m - 12).year if (m - 12) in metric_series.index else pd.NA
             )
-            rev["MonthOnly"] = rev["MonthLabel"].str.split().str[0]
-            rev["has_ghost"] = rev["PrevValue"].notna()
+            rev_current["MonthOnly"] = rev_current["MonthLabel"].str.split().str[0]
+            rev_current["has_ghost"] = rev_current["PrevValue"].notna()
     
-            # color consistent with other charts
             palette = [
                 "#4ade80","#facc15","#fbbf24","#a5b4fc","#93c5fd",
                 "#fb7185","#60a5fa","#f97316","#fbbf24","#a5b4fc"
             ]
             color = palette[metrics.index(sel) % len(palette)]
     
-            # value formatting
             is_pct = "(% of total)" in sel
             y_fmt = ".1%" if is_pct else ",.0f"
             y_title = "% of Total" if is_pct else "Revenue (AED)"
     
             safe = re.sub(r"[^A-Za-z0-9_]", "_", sel)
-            df_plot = rev.rename(columns={sel: safe}).copy()
+            df_plot = rev_current.rename(columns={sel: safe}).copy()
     
-            # --- ghost bars (identical to Core Metrics)
+            # ✅ exact ghost rendering as Core Metrics
             ghost = (
                 alt.Chart(df_plot)
                 .transform_filter("datum.PrevValue != null")
@@ -1572,7 +1567,6 @@ def run_factoids():
                 )
             )
     
-            # --- current bars (identical to Core Metrics)
             current = (
                 alt.Chart(df_plot)
                 .mark_bar(size=20, color=color)
@@ -1590,7 +1584,6 @@ def run_factoids():
                 .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
             )
     
-            # combine (ghost first)
             chart = (
                 alt.layer(ghost, current)
                 .resolve_scale(y="shared")
@@ -1600,12 +1593,12 @@ def run_factoids():
                     title=f"{sel} by Month (with previous-year ghost bars)"
                 )
             )
-    
             st.altair_chart(chart, use_container_width=True)
         else:
             st.info("No data available for revenue breakdown.")
     else:
         st.info("Upload data to display Revenue Breakdown by Month.")
+
 
 
 
@@ -2333,6 +2326,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
