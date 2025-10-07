@@ -1503,6 +1503,7 @@ if st.session_state["factoids_unlocked"]:
             FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
             FOOD_RX = _rx(FOOD_KEYWORDS)
             LAB_RX = _rx(LABWORK_KEYWORDS)
+            NEUTER_RX = _rx(NEUTER_KEYWORDS)
             ULTRA_RX = _rx(ULTRASOUND_KEYWORDS)
             XRAY_RX = _rx(XRAY_KEYWORDS)
         
@@ -1513,6 +1514,7 @@ if st.session_state["factoids_unlocked"]:
             flea = _sum(FLEA_RX)
             food = _sum(FOOD_RX)
             lab = _sum(LAB_RX)
+            neuter = _sum(NEUTER_RX)
             ultra = _sum(ULTRA_RX)
             xray = _sum(XRAY_RX)
             total = df.groupby("Month")["Amount"].sum()
@@ -1522,11 +1524,12 @@ if st.session_state["factoids_unlocked"]:
                 "Revenue from Flea/Worm": flea,
                 "Revenue from Food": food,
                 "Revenue from Lab Work": lab,
+                "Revenue from Neuters": neuter,
                 "Revenue from Ultrasounds": ultra,
                 "Revenue from X-rays": xray
             }).fillna(0)
         
-            for col in ["Flea/Worm","Food","Lab Work","Ultrasounds","X-rays"]:
+            for col in ["Flea/Worm","Food","Lab Work","Neuters","Ultrasounds","X-rays"]:
                 out[f"Revenue from {col} (% of total)"] = out[f"Revenue from {col}"] / out["Total"]
         
             out["MonthLabel"] = out.index.strftime("%b %Y")
@@ -1548,6 +1551,8 @@ if st.session_state["factoids_unlocked"]:
                     "Revenue from Food (% of total)",
                     "Revenue from Lab Work",
                     "Revenue from Lab Work (% of total)",
+                    "Revenue from Neuters",
+                    "Revenue from Neuters (% of total)",
                     "Revenue from Ultrasounds",
                     "Revenue from Ultrasounds (% of total)",
                     "Revenue from X-rays",
@@ -1571,6 +1576,7 @@ if st.session_state["factoids_unlocked"]:
                     "#4ade80","#facc15","#fbbf24","#a5b4fc","#93c5fd",
                     "#fb7185","#60a5fa","#f97316","#fbbf24","#a5b4fc"
                 ]
+
                 color = palette[metrics.index(sel) % len(palette)]
         
                 is_pct = "(% of total)" in sel
@@ -1645,6 +1651,7 @@ if st.session_state["factoids_unlocked"]:
             "Food Purchases": {"rx": _rx(FOOD_KEYWORDS), "color": "#facc15"},
             "Hospitalisations": {"rx": _rx(HOSPITALISATION_KEYWORDS), "color": "#f97316"},
             "Lab Work": {"rx": _rx(LABWORK_KEYWORDS), "color": "#fbbf24"},
+            "Neuters": {"rx": _rx(NEUTER_KEYWORDS), "color": "#14b8a6"},
             "Ultrasounds": {"rx": _rx(ULTRASOUND_KEYWORDS), "color": "#a5b4fc"},
             "Vaccinations": {"rx": _rx(VACCINE_KEYWORDS), "color": "#22d3ee"},
             "X-rays": {"rx": _rx(XRAY_KEYWORDS), "color": "#93c5fd"},
@@ -1877,6 +1884,7 @@ if st.session_state["factoids_unlocked"]:
             "Flea/Worm": _rx(FLEA_WORM_KEYWORDS),
             "Food": _rx(FOOD_KEYWORDS),
             "Lab Work": _rx(LABWORK_KEYWORDS),
+            "Neuters": _rx(NEUTER_KEYWORDS),
             "Anaesthetics": _rx(ANAESTHETIC_KEYWORDS),
             "Hospitalisations": _rx(HOSPITALISATION_KEYWORDS),
             "Vaccinations": _rx(VACCINE_KEYWORDS),
@@ -2139,6 +2147,7 @@ if st.session_state["factoids_unlocked"]:
             FLEA_RX = _rx(FLEA_WORM_KEYWORDS)
             FOOD_RX = _rx(FOOD_KEYWORDS)
             LAB_RX = _rx(LABWORK_KEYWORDS)
+            NEUTER_RX = _rx(NEUTER_KEYWORDS)
             ULTRA_RX = _rx(ULTRASOUND_KEYWORDS)
             XRAY_RX = _rx(XRAY_KEYWORDS)
         
@@ -2152,6 +2161,7 @@ if st.session_state["factoids_unlocked"]:
                 "Revenue from Flea/Worm (Total & %)": _sum_revenue(FLEA_RX),
                 "Revenue from Food (Total & %)": _sum_revenue(FOOD_RX),
                 "Revenue from Lab Work (Total & %)": _sum_revenue(LAB_RX),
+                "Revenue from Neuters (Total & %)": _sum_revenue(NEUTER_RX),
                 "Revenue from Ultrasounds (Total & %)": _sum_revenue(ULTRA_RX),
                 "Revenue from X-rays (Total & %)": _sum_revenue(XRAY_RX),
             }
@@ -2480,6 +2490,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
