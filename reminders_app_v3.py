@@ -1657,7 +1657,6 @@ if st.session_state["factoids_unlocked"]:
                         
                         title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
                     )
-                    .configure_title(anchor='start', offset=20)
                 )
 
                 # Prevent accidental double render in Streamlit reruns
@@ -3043,6 +3042,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
