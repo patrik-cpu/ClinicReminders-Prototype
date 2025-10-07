@@ -1608,22 +1608,28 @@ if st.session_state["factoids_unlocked"]:
                     .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
                 
-                # --- Seed the MA with the two months before the current window (for smoother start)
+                # --- Seed the MA with the two months before the current window (for smooth start)
+                # figure out the two months before the first current month
                 first_current = current_12[0]
                 seed_months = pd.period_range(first_current - 2, first_current - 1, freq="M")
+                
+                # build a tiny df with those seed months from the full monthly series
                 df_ma_seed_src = core_monthly[core_monthly["Month"].isin(list(seed_months) + list(current_12))].copy()
+                
+                # use the selected metric column value (same as bars)
                 df_ma_seed_src = df_ma_seed_src[["Month", "MonthLabel", sel_core_rev]].rename(columns={sel_core_rev: "Value"})
                 
-                # Limit display to current 12 labels only (keeps x-axis clean)
-                allowed_labels = df_plot["MonthLabel"].tolist()
+                # only draw the MA on current months, but let the rolling calc see the 2 seed months
+                allowed_labels = df_plot["MonthLabel"].tolist()  # current 12 labels, in order
                 
-                # --- Current Moving Average Line (3-month trailing; seeded)
+                # --- Moving Average Line (3-month trailing mean) with 2-month seed
                 ma_line = (
                     alt.Chart(df_ma_seed_src)
                     .transform_window(
                         rolling_mean="mean(Value)",
-                        frame=[-2, 0]  # 3-month trailing MA, including seed months
+                        frame=[-2, 0]  # 3-month trailing MA, using seed months if present
                     )
+                    # only show points that belong to the current 12 months
                     .transform_filter(alt.FieldOneOfPredicate(field="MonthLabel", oneOf=allowed_labels))
                     .mark_line(color=color, size=2.5)
                     .encode(
@@ -1636,12 +1642,12 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
                 
-                # --- Ghost Moving Average Line (3-month trailing; starts at first ghost bar)
+                # --- Ghost Moving Average Line (simple + safe)
                 ma_line_ghost = (
                     alt.Chart(df_plot)
                     .transform_window(
                         ghost_rolling_mean="mean(PrevValue)",
-                        frame=[-2, 0]
+                        frame=[-2, 0]  # same 3-month trailing window
                     )
                     .mark_line(color=color, size=2.0, opacity=0.3)
                     .encode(
@@ -1654,7 +1660,7 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
                 
-                # --- Combine everything
+                # --- Combine bars + MA line + ghost line
                 chart_rev_tx = (
                     alt.layer(ghost, current, ma_line, ma_line_ghost)
                     .resolve_scale(y="shared")
@@ -3006,6 +3012,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
