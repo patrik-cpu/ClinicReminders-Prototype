@@ -1138,22 +1138,26 @@ def fetch_feedback(limit=500):
 st.markdown("<div id='factoids' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 📊 Factoids")
 
-# --- Password lock
+# Simple password gate — hides all content until unlocked
 if "factoids_unlocked" not in st.session_state:
     st.session_state["factoids_unlocked"] = False
 
 if not st.session_state["factoids_unlocked"]:
+    # Show only header and password prompt
     st.info("🔒 Enter password to view Factoids (admin/manager access only).")
-    password_input = st.text_input(
-        "Enter password to view Factoids",
-        type="password",
-        key="factoids_password"
-    )
 
-    if st.button("Unlock Factoids"):
+    with st.form("unlock_factoids_form"):
+        password_input = st.text_input(
+            "Enter password to view Factoids",
+            type="password",
+            key="factoids_password"
+        )
+        submitted = st.form_submit_button("Unlock Factoids")
+
+    if submitted:
         if password_input == "clinic123":
             st.session_state["factoids_unlocked"] = True
-            st.success("✅ Access granted.")
+            st.success("✅ Access granted. Loading Factoids...")
             st.rerun()
         else:
             st.error("❌ Incorrect password. Please try again.")
@@ -2270,14 +2274,6 @@ else:
         else:
             st.info("No transactions found.")
     
-    
-    
-    
-    
-    
-    
-    
-        
         # ============================
         # 📊 Revenue Concentration Curves (Dropdown)
         # ============================
@@ -2389,21 +2385,9 @@ else:
                 st.altair_chart(chart_clients, use_container_width=True)
             else:
                 st.info("No client data found for this period.")
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+                
     run_factoids()
-
+    
 # --------------------------------
 # 💬 Feedback (Lazy Sheets; isolated from reruns)
 # --------------------------------
@@ -2479,25 +2463,3 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
