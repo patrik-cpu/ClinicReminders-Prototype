@@ -2253,24 +2253,37 @@ def run_factoids():
         st.dataframe(largest[["Client Name","DateRange","Patients","Amount"]], use_container_width=True)
     else:
         st.info("No transactions found.")
-        
+
+
+
+
+
+
+    
     # ============================
-    # 📊 Revenue Concentration Curve
+    # 📊 Revenue Concentration Curves
     # ============================
     st.markdown("---")
-    st.subheader(f"📊 Revenue Concentration Curve - {selected_period}")
-
-    rev = df.groupby("Client Name", dropna=False)["Amount"].sum().sort_values(ascending=False).reset_index()
-    if not rev.empty and rev["Amount"].sum() > 0:
-        total_revenue = float(rev["Amount"].sum())
-        n_clients = len(rev)
-        rev["Rank"] = rev.index + 1
-        rev["TopPct"] = rev["Rank"] / n_clients * 100
-        rev["CumRevenue"] = rev["Amount"].cumsum()
-        rev["CumPct"] = rev["CumRevenue"] / total_revenue * 100
-
-        chart_rev = (
-            alt.Chart(rev)
+    st.subheader(f"📊 Revenue Concentration Curve: Clients – {selected_period}")
+    
+    # --- Clients Revenue Concentration ---
+    rev_clients = (
+        df.groupby("Client Name", dropna=False)["Amount"]
+        .sum()
+        .sort_values(ascending=False)
+        .reset_index()
+    )
+    
+    if not rev_clients.empty and rev_clients["Amount"].sum() > 0:
+        total_revenue = float(rev_clients["Amount"].sum())
+        n_clients = len(rev_clients)
+        rev_clients["Rank"] = rev_clients.index + 1
+        rev_clients["TopPct"] = rev_clients["Rank"] / n_clients * 100
+        rev_clients["CumRevenue"] = rev_clients["Amount"].cumsum()
+        rev_clients["CumPct"] = rev_clients["CumRevenue"] / total_revenue * 100
+    
+        chart_rev_clients = (
+            alt.Chart(rev_clients)
             .mark_line(point=True)
             .encode(
                 x=alt.X("TopPct:Q", title="Top X% of Clients"),
@@ -2285,12 +2298,65 @@ def run_factoids():
             .properties(
                 height=400,
                 width=700,
-                title="Revenue Concentration Curve — what % of revenue comes from your top clients"
+                title=f"Revenue Concentration Curve: Clients – {selected_period}"
             )
         )
+        st.altair_chart(chart_rev_clients, use_container_width=True)
+    else:
+        st.info("No client data.")
+    
+    # --- Items Revenue Concentration ---
+    st.subheader(f"📊 Revenue Concentration Curve: Items – {selected_period}")
+    rev_items = (
+        df.groupby("Item Name", dropna=False)
+        .agg(
+            Frequency=("Qty", "sum"),     # frequency (how often item sold)
+            TotalRevenue=("Amount", "sum")
+        )
+        .sort_values("TotalRevenue", ascending=False)
+        .reset_index()
+    )
+    
+    if not rev_items.empty and rev_items["TotalRevenue"].sum() > 0:
+        total_revenue_items = float(rev_items["TotalRevenue"].sum())
+        n_items = len(rev_items)
+        rev_items["Rank"] = rev_items.index + 1
+        rev_items["TopPct"] = rev_items["Rank"] / n_items * 100
+        rev_items["CumRevenue"] = rev_items["TotalRevenue"].cumsum()
+        rev_items["CumPct"] = rev_items["CumRevenue"] / total_revenue_items * 100
+    
+        chart_rev_items = (
+            alt.Chart(rev_items)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("TopPct:Q", title="Top X% of Items"),
+                y=alt.Y("CumPct:Q", title="% of Total Revenue"),
+                tooltip=[
+                    alt.Tooltip("Item Name:N", title="Item"),
+                    alt.Tooltip("TotalRevenue:Q", title="Item Revenue", format=",.0f"),
+                    alt.Tooltip("TopPct:Q", title="Top X%", format=".1f"),
+                    alt.Tooltip("CumPct:Q", title="Cumulative % of Revenue", format=".1f"),
+                ],
+            )
+            .properties(
+                height=400,
+                width=700,
+                title=f"Revenue Concentration Curve: Items – {selected_period}"
+            )
+        )
+        st.altair_chart(chart_rev_items, use_container_width=True)
+    else:
+        st.info("No item data.")
 
-        st.altair_chart(chart_rev, use_container_width=True)
-        
+
+
+
+
+
+
+
+
+
 run_factoids()
 
 # --------------------------------
@@ -2368,6 +2434,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
