@@ -77,6 +77,42 @@ NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex","cryptorc
 NEUTER_EXCLUSIONS = ["adult", "food", "diet", "canin", "purina", "proplan"]
 
 # --------------------------------
+# Patient Visit Keywords (composite)
+# --------------------------------
+# This composite automatically includes all categories that indicate
+# a physical presence in the clinic (procedures, imaging, vaccines, etc.)
+# so it stays in sync even if you later update individual keyword sets.
+
+PATIENT_VISIT_KEYWORDS = (
+    XRAY_KEYWORDS
+    + ULTRASOUND_KEYWORDS
+    + ANAESTHETIC_KEYWORDS
+    + HOSPITALISATION_KEYWORDS
+    + VACCINE_KEYWORDS
+    + DEATH_KEYWORDS
+    + NEUTER_KEYWORDS
+)
+
+PATIENT_VISIT_EXCLUSIONS = (
+    XRAY_EXCLUSIONS
+    + ULTRASOUND_EXCLUSIONS
+    + ANAESTHETIC_EXCLUSIONS
+    + HOSPITALISATION_EXCLUSIONS
+    + VACCINE_EXCLUSIONS
+    + DEATH_EXCLUSIONS
+    + NEUTER_EXCLUSIONS
+)
+
+# Optionally, add your own custom visit-only indicators here
+PATIENT_VISIT_KEYWORDS += [
+    "consult", "exam", "checkup", "check-up","recheck", "re-check","follow-up","follow up"
+    "dentistry", "dental", "scale", "wound", "bandage", "biopsy",
+    "admit", "discharge", "inpatient", "in patient","in-patient"
+]
+
+PATIENT_VISIT_EXCLUSIONS += []
+
+# --------------------------------
 # Keyword Mask Helper (Global)
 # --------------------------------
 def make_mask(df, include_words, exclude_words=None):
@@ -1361,11 +1397,11 @@ if st.session_state["factoids_unlocked"]:
             """Compute monthly absolute-value clinic metrics (12-month window + ghost-year support)."""
             if df.empty:
                 return pd.DataFrame()
-    
+        
             df = df.copy()
             df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
             df["Month"] = df["ChargeDate"].dt.to_period("M")
-    
+        
             # --- Base monthly metrics
             g = df.groupby("Month")
             core = pd.DataFrame({
@@ -1375,51 +1411,62 @@ if st.session_state["factoids_unlocked"]:
                     lambda x: x.drop_duplicates(subset=["Client Name", "Animal Name"]).shape[0]
                 ),
             }).reset_index()
-    
-            # --- Transactions (now separate client vs patient)
+        
+            # --- Transactions (client-level only)
             _, tx_client, tx_patient, _ = prepare_factoids_data(df)
-    
+        
             if not tx_client.empty:
                 tx_client["Month"] = tx_client["StartDate"].dt.to_period("M")
                 tx_month_client = tx_client.groupby("Month").size().rename("Client Transactions")
                 core = core.merge(tx_month_client, on="Month", how="left")
             else:
                 core["Client Transactions"] = 0
-    
-            if not tx_patient.empty:
-                tx_patient["Month"] = tx_patient["StartDate"].dt.to_period("M")
-                tx_month_patient = tx_patient.groupby("Month").size().rename("Patient Transactions")
-                core = core.merge(tx_month_patient, on="Month", how="left")
-            else:
-                core["Patient Transactions"] = 0
-    
-            # --- Deaths and Neuters keyword-based counts ---
+        
+            # --- Patient Visits (subset of patient transactions that imply physical presence)
+            df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
+            visit_monthly = df.groupby("Month")["VisitFlag"].sum().rename("Patient Visits")
+            core = core.merge(visit_monthly, on="Month", how="left")
+            core["Patient Visits"] = core["Patient Visits"].fillna(0).astype(int)
+        
+            # --- Deaths and Neuters keyword-based counts
             df["DeathFlag"] = make_mask(df, DEATH_KEYWORDS, DEATH_EXCLUSIONS)
             df["NeuterFlag"] = make_mask(df, NEUTER_KEYWORDS, NEUTER_EXCLUSIONS)
-    
+        
             death_monthly = df.groupby("Month")["DeathFlag"].sum().rename("Deaths")
             neuter_monthly = df.groupby("Month")["NeuterFlag"].sum().rename("Neuters")
-    
+        
             core = core.merge(death_monthly, on="Month", how="left")
             core = core.merge(neuter_monthly, on="Month", how="left")
             core[["Deaths", "Neuters"]] = core[["Deaths", "Neuters"]].fillna(0).astype(int)
-    
+        
             # --- Derived ratios
             core["Revenue per Client"] = core.apply(
-                lambda r: r["Total Revenue"] / r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1)
+                lambda r: r["Total Revenue"] / r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1
+            )
             core["Revenue per Patient"] = core.apply(
-                lambda r: r["Total Revenue"] / r["Unique Patients Seen"] if r["Unique Patients Seen"] else 0, axis=1)
+                lambda r: r["Total Revenue"] / r["Unique Patients Seen"] if r["Unique Patients Seen"] else 0, axis=1
+            )
             core["Revenue per Client Transaction"] = core.apply(
-                lambda r: r["Total Revenue"] / r["Client Transactions"] if r["Client Transactions"] else 0, axis=1)
-            core["Revenue per Patient Transaction"] = core.apply(
-                lambda r: r["Total Revenue"] / r["Patient Transactions"] if r["Patient Transactions"] else 0, axis=1)
-    
-            # --- Transactions per Client / Patient
+                lambda r: r["Total Revenue"] / r["Client Transactions"] if r["Client Transactions"] else 0, axis=1
+            )
+            core["Revenue per Patient Visit"] = core.apply(
+                lambda r: r["Total Revenue"] / r["Patient Visits"] if r["Patient Visits"] else 0, axis=1
+            )
+        
+            # --- Transactions per Client / Visits per Patient
             core["Transactions per Client"] = core.apply(
-                lambda r: round(r["Client Transactions"] / r["Unique Clients Seen"], 2) if r["Unique Clients Seen"] else 0, axis=1)
-            core["Transactions per Patient"] = core.apply(
-                lambda r: round(r["Patient Transactions"] / r["Unique Patients Seen"], 2) if r["Unique Patients Seen"] else 0, axis=1)
-    
+                lambda r: round(r["Client Transactions"] / r["Unique Clients Seen"], 2)
+                if r["Unique Clients Seen"]
+                else 0,
+                axis=1,
+            )
+            core["Visits per Patient"] = core.apply(
+                lambda r: round(r["Patient Visits"] / r["Unique Patients Seen"], 2)
+                if r["Unique Patients Seen"]
+                else 0,
+                axis=1,
+            )
+        
             # --- New Clients / Patients
             df_sorted = df.sort_values("ChargeDate")
             seen_clients, seen_pairs = set(), set()
@@ -1436,14 +1483,18 @@ if st.session_state["factoids_unlocked"]:
                 if p and p not in seen_pairs:
                     new_patients.append((m, p))
                     seen_pairs.add(p)
+        
             nc = pd.DataFrame(new_clients, columns=["Month", "Client"]).groupby("Month").size().rename("New Clients")
             npat = pd.DataFrame(new_patients, columns=["Month", "Pair"]).groupby("Month").size().rename("New Patients")
             core = core.merge(nc, on="Month", how="left").merge(npat, on="Month", how="left").fillna(0)
-    
+        
+            # --- Metadata
             core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
             core["Year"] = core["Month"].dt.year
+        
             return core.sort_values("Month")
-    
+
+
         # ---- Render Core Metrics (strict 12 months + ghost-year overlay)
         core_df = st.session_state.get("working_df")
         if core_df is not None and not core_df.empty:
@@ -2687,6 +2738,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
