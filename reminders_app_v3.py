@@ -1658,13 +1658,10 @@ if st.session_state["factoids_unlocked"]:
                         title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
                     )
                 )
-
-                # Prevent accidental double render in Streamlit reruns
-                if "rev_chart_rendered" in st.session_state:
-                    st.session_state.pop("rev_chart_rendered")
-                st.session_state["rev_chart_rendered"] = True
                 
-                st.altair_chart(chart, use_container_width=True)
+                if "chart" in locals():
+                    st.altair_chart(chart, use_container_width=True)
+
 
 
 
@@ -1946,19 +1943,22 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
         
-                chart = None  # prevent UnboundLocalError
-
-                if not core_monthly.empty:
-                    # build chart as before
-                    chart = (
-                        alt.layer(...)
-                        .resolve_scale(y="shared")
-                        .properties(height=400, width=700, title=...)
-                        .configure_title(anchor='start', offset=20)
-                    )
                 
-                if chart is not None:
+                chart = (
+                    alt.layer(ghost, current, ma_line, ma_line_ghost)  # ← your real chart layers here
+                    .resolve_scale(y="shared")
+                    .properties(
+                        height=400,
+                        width=700,
+                        title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
+                    )
+                    .configure_title(anchor='start', offset=20)
+                )
+                
+                if "chart" in locals():
                     st.altair_chart(chart, use_container_width=True)
+
+
 
 
     
@@ -2134,19 +2134,20 @@ if st.session_state["factoids_unlocked"]:
                 )
             )
         
-            chart = None  # prevent UnboundLocalError
-
-            if not core_monthly.empty:
-                # build chart as before
-                chart = (
-                    alt.layer(...)
-                    .resolve_scale(y="shared")
-                    .properties(height=400, width=700, title=...)
-                    .configure_title(anchor='start', offset=20)
+            chart = (
+                alt.layer(ghost, current, ma_line, ma_line_ghost)  # ← your real chart layers here
+                .resolve_scale(y="shared")
+                .properties(
+                    height=400,
+                    width=700,
+                    title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)"
                 )
+                .configure_title(anchor='start', offset=20)
+            )
             
-            if chart is not None:
+            if "chart" in locals():
                 st.altair_chart(chart, use_container_width=True)
+
 
     
         # ============================
@@ -3048,6 +3049,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
