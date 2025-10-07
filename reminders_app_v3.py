@@ -2186,16 +2186,20 @@ def run_factoids():
         top["How Many"] = top["TotalCount"].astype(int).apply(lambda x: f"{x:,}")
         top["% of Total Revenue"] = top["% of Total Revenue"].astype(str) + "%"
     
-        # --- Add rank column (1–20) on the left ---
+        # --- Add rank column (1–20) ---
         top.insert(0, "#", range(1, len(top) + 1))
     
-        # Display only the relevant columns
+        # --- Reorder columns so # is truly leftmost, followed by Item Name ---
+        display_df = top.reset_index()[["#", "Item Name", "Revenue", "% of Total Revenue", "How Many"]]
+    
+        # --- Compact styling: make # column narrow ---
         st.dataframe(
-            top[["#", "Revenue", "% of Total Revenue", "How Many"]],
-            use_container_width=True
+            display_df.style.set_properties(subset=["#"], **{"width": "25px", "text-align": "center"}),
+            use_container_width=True,
         )
     else:
         st.info("No items found.")
+
 
     # Top 5 Spending Clients
     st.markdown(f"#### 💎 Top 5 Spending Clients - {selected_period}")
@@ -2355,6 +2359,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
