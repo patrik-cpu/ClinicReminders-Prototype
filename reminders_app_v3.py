@@ -1486,7 +1486,7 @@ if st.session_state["factoids_unlocked"]:
                 lambda r: r["Total Revenue"] / r["Unique Clients Seen"] if r["Unique Clients Seen"] else 0, axis=1
             )
             core["Revenue per Patient"] = core.apply(
-                lambda r: r["Total Revenue"] / r["Unique Patients Seen"] if r["Unique Patients Seen"] else 0, axis=1
+                lambda r: r["Total Revenue"] / r["Unique Patient Visits"] if r["Unique Patient Visits"] else 0, axis=1
             )
             core["Revenue per Client Transaction"] = core.apply(
                 lambda r: r["Total Revenue"] / r["Client Transactions"] if r["Client Transactions"] else 0, axis=1
@@ -1503,12 +1503,12 @@ if st.session_state["factoids_unlocked"]:
                 axis=1,
             )
             core["Visits per Patient"] = core.apply(
-                lambda r: round(r["Patient Visits"] / r["Unique Patients Seen"], 2)
-                if r["Unique Patients Seen"]
+                lambda r: round(r["Patient Visits"] / r["Unique Patient Visits"], 2)
+                if r["Unique Patient Visits"]
                 else 0,
                 axis=1,
             )
-        
+
             # --- New Clients / Patients
             df_sorted = df.sort_values("ChargeDate")
             seen_clients, seen_pairs = set(), set()
@@ -2869,6 +2869,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
