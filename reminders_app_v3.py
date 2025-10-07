@@ -2044,6 +2044,7 @@ if st.session_state["factoids_unlocked"]:
                      .drop_duplicates(subset=["ClientKey","AnimalKey","VisitDate"])
                      .groupby("VisitDate").size().reset_index(name="PatientVisits")
         )
+
         
         if not daily_visits.empty:
             max_visit_row = daily_visits.loc[daily_visits["PatientVisits"].idxmax()]
@@ -2282,7 +2283,7 @@ if st.session_state["factoids_unlocked"]:
             # --- Calculate patient visits (physical presence)
             df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
             
-            # --- Create normalized client/animal/date identifiers
+            # Build normalized keys
             visits_df = df[df["VisitFlag"]].copy()
             visits_df["ClientKey"] = (
                 visits_df["Client Name"].astype(str).str.normalize("NFKC").str.lower()
@@ -2296,21 +2297,25 @@ if st.session_state["factoids_unlocked"]:
             )
             visits_df["VisitDate"] = pd.to_datetime(visits_df["ChargeDate"], errors="coerce").dt.normalize()
             
-            # --- Count unique visits (distinct client + animal + day)
+            # Distinct counts
             patient_visits = (
-                visits_df.dropna(subset=["ClientKey", "AnimalKey", "VisitDate"])
-                         .drop_duplicates(subset=["ClientKey", "AnimalKey", "VisitDate"])
+                visits_df.dropna(subset=["ClientKey","AnimalKey","VisitDate"])
+                         .drop_duplicates(subset=["ClientKey","AnimalKey","VisitDate"])
+                         .shape[0]
+            )
+            unique_patient_visits = (
+                visits_df.dropna(subset=["ClientKey","AnimalKey"])
+                         .drop_duplicates(subset=["ClientKey","AnimalKey"])
                          .shape[0]
             )
             
-            # --- Compute derived metrics
+            # Derived
             rev_per_patient_visit = total_revenue / patient_visits if patient_visits else 0
             tx_per_client = round(client_transactions / unique_clients, 1) if unique_clients else 0
-            visits_per_patient = round(patient_visits / unique_patients, 1) if unique_patients else 0
+            visits_per_patient = round(patient_visits / unique_patient_visits, 1) if unique_patient_visits else 0
 
             # --- Add results to metrics dict (will display in cardgroup)
             metrics["Revenue per Client Transaction"] = f"{rev_per_client_tx:,.0f}"
-            metrics["Revenue per Patient Visit"] = f"{rev_per_patient_visit:,.0f}"
 
             # ---- New Clients / Patients (based on first-ever appearance in full dataset)
             # Prepare global, cleaned, normalized dataset (so we can check full-history appearances)
@@ -2825,6 +2830,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
