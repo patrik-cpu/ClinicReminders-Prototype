@@ -23,7 +23,7 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 # -----------------------
 FLEA_WORM_KEYWORDS = [
     "bravecto", "revolution", "deworm", "de-worm","frontline", "milbe", "milpro","advantix","advocate",
-    "interceptor","stronghold","drontal","frontpro","credelio"
+    "interceptor","stronghold","drontal","frontpro","credelio",
     "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend","popantel","panacur",
     "broadline","profender","comfortis","endecto"
 ]
@@ -105,7 +105,7 @@ PATIENT_VISIT_EXCLUSIONS = (
 
 # Optionally, add your own custom visit-only indicators here
 PATIENT_VISIT_KEYWORDS += [
-    "consult", "exam", "checkup", "check-up","recheck", "re-check","follow-up","follow up"
+    "consult", "exam", "checkup", "check-up","recheck", "re-check","follow-up","follow up",
     "dentistry", "dental", "scale", "wound", "bandage", "biopsy",
     "admit", "discharge", "inpatient", "in patient","in-patient"
 ]
@@ -1422,11 +1422,31 @@ if st.session_state["factoids_unlocked"]:
             else:
                 core["Client Transactions"] = 0
         
-            # --- Patient Visits (subset of patient transactions that imply physical presence)
+            # --- Patient Visits (distinct by client+animal+day)
             df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
-            visit_monthly = df.groupby("Month")["VisitFlag"].sum().rename("Patient Visits")
+            vis = df[df["VisitFlag"]].copy()
+            vis["ClientKey"] = (
+                vis["Client Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
+            )
+            vis["AnimalKey"] = (
+                vis["Animal Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
+            )
+            vis["VisitDate"] = vis["ChargeDate"].dt.normalize()
+            vis["Month"] = vis["VisitDate"].dt.to_period("M")
+            
+            visit_monthly = (
+                vis.dropna(subset=["ClientKey","AnimalKey","VisitDate"])
+                   .drop_duplicates(subset=["ClientKey","AnimalKey","VisitDate"])
+                   .groupby("Month").size().rename("Patient Visits")
+            )
+            
             core = core.merge(visit_monthly, on="Month", how="left")
             core["Patient Visits"] = core["Patient Visits"].fillna(0).astype(int)
+
         
             # --- Deaths and Neuters keyword-based counts
             df["DeathFlag"] = make_mask(df, DEATH_KEYWORDS, DEATH_EXCLUSIONS)
@@ -1986,10 +2006,10 @@ if st.session_state["factoids_unlocked"]:
                 .str.lower()
             )
     
-        # --- Daily aggregates (for Max/Avg cards)
+        # --- Daily aggregates (Client transactions + Patient visits)
         metrics = {}
         
-        # --- 1️⃣ Client transaction metrics (from transaction blocks)
+        # Client transaction daily metrics (unchanged)
         if not tx_client.empty:
             daily_tx = (
                 tx_client.groupby("StartDate")
@@ -2001,31 +2021,35 @@ if st.session_state["factoids_unlocked"]:
             )
             if not daily_tx.empty:
                 max_tx_day = daily_tx.loc[daily_tx["ClientTx"].idxmax()]
-                max_pat_tx_day = daily_tx.loc[daily_tx["Patients"].idxmax()]
                 metrics["Max Client Transactions"] = f"{int(max_tx_day['ClientTx']):,} ({max_tx_day['StartDate'].strftime('%d %b %Y')})"
                 metrics["Avg Client Transactions/Day"] = f"{daily_tx['ClientTx'].mean():.1f}"
-        else:
-            daily_tx = pd.DataFrame()
         
-        # --- 2️⃣ Patient visit metrics (physical presence)
+        # Patient visit daily metrics (distinct client+animal+day)
         df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
-        df["VisitDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce").dt.date
+        visits_df = df[df["VisitFlag"]].copy()
+        visits_df["ClientKey"] = (
+            visits_df["Client Name"].astype(str).str.normalize("NFKC").str.lower()
+            .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+            .str.replace(r"\s+", " ", regex=True)
+        )
+        visits_df["AnimalKey"] = (
+            visits_df["Animal Name"].astype(str).str.normalize("NFKC").str.lower()
+            .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+            .str.replace(r"\s+", " ", regex=True)
+        )
+        visits_df["VisitDate"] = pd.to_datetime(visits_df["ChargeDate"], errors="coerce").dt.normalize()
         
         daily_visits = (
-            df[df["VisitFlag"] == True]
-            .groupby("VisitDate")["Animal Name"]
-            .nunique()
-            .reset_index(name="PatientVisits")
+            visits_df.dropna(subset=["ClientKey","AnimalKey","VisitDate"])
+                     .drop_duplicates(subset=["ClientKey","AnimalKey","VisitDate"])
+                     .groupby("VisitDate").size().reset_index(name="PatientVisits")
         )
         
         if not daily_visits.empty:
             max_visit_row = daily_visits.loc[daily_visits["PatientVisits"].idxmax()]
-            max_visit_date = pd.to_datetime(max_visit_row["VisitDate"])
-            metrics["Max Patient Visits"] = f"{int(max_visit_row['PatientVisits']):,} ({max_visit_date.strftime('%d %b %Y')})"
+            metrics["Max Patient Visits"] = f"{int(max_visit_row['PatientVisits']):,} ({pd.to_datetime(max_visit_row['VisitDate']).strftime('%d %b %Y')})"
             metrics["Avg Patient Visits/Day"] = f"{daily_visits['PatientVisits'].mean():.1f}"
 
-
-    
         # --- Total Unique Patients (fresh each rerun)
         df_pairs = (
             df[["Client Name", "Animal Name"]]
@@ -2257,12 +2281,33 @@ if st.session_state["factoids_unlocked"]:
             
             # --- Calculate patient visits (physical presence)
             df["VisitFlag"] = make_mask(df, PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS)
-            patient_visits = int(df["VisitFlag"].sum())
-            rev_per_patient_visit = total_revenue / patient_visits if patient_visits else 0
             
+            # --- Create normalized client/animal/date identifiers
+            visits_df = df[df["VisitFlag"]].copy()
+            visits_df["ClientKey"] = (
+                visits_df["Client Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
+            )
+            visits_df["AnimalKey"] = (
+                visits_df["Animal Name"].astype(str).str.normalize("NFKC").str.lower()
+                .str.replace(r"[\u00A0\u200B]", "", regex=True).str.strip()
+                .str.replace(r"\s+", " ", regex=True)
+            )
+            visits_df["VisitDate"] = pd.to_datetime(visits_df["ChargeDate"], errors="coerce").dt.normalize()
+            
+            # --- Count unique visits (distinct client + animal + day)
+            patient_visits = (
+                visits_df.dropna(subset=["ClientKey", "AnimalKey", "VisitDate"])
+                         .drop_duplicates(subset=["ClientKey", "AnimalKey", "VisitDate"])
+                         .shape[0]
+            )
+            
+            # --- Compute derived metrics
+            rev_per_patient_visit = total_revenue / patient_visits if patient_visits else 0
             tx_per_client = round(client_transactions / unique_clients, 1) if unique_clients else 0
             visits_per_patient = round(patient_visits / unique_patients, 1) if unique_patients else 0
-            
+
             # --- Add results to metrics dict (will display in cardgroup)
             metrics["Revenue per Client Transaction"] = f"{rev_per_client_tx:,.0f}"
             metrics["Revenue per Patient Visit"] = f"{rev_per_patient_visit:,.0f}"
@@ -2780,6 +2825,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
