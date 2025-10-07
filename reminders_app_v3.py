@@ -1544,7 +1544,7 @@ if st.session_state["factoids_unlocked"]:
                 metric_list_rev_tx = [
                     "Total Revenue", "Revenue per Client", "Revenue per Patient",
                     "Revenue per Client Transaction", "Revenue per Patient Visit",
-                    "Transactions per Client", "Transactions per Patient"
+                    "Transactions per Client"
                 ]
                 sel_core_rev = st.selectbox(
                     "Select Metric (Revenue & Transactions):",
@@ -1625,6 +1625,7 @@ if st.session_state["factoids_unlocked"]:
                 metric_list_cp = [
                     "Unique Clients Seen", "Unique Patient Visits",
                     "Client Transactions", "Patient Visits",
+                    "Visits per Patient",
                     "New Clients", "New Patients",
                     "Deaths", "Neuters"
                 ]
@@ -2933,6 +2934,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
