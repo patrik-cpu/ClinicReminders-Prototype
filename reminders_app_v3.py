@@ -22,7 +22,7 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 # Keyword Definitions
 # -----------------------
 FLEA_WORM_KEYWORDS = [
-    "bravecto", "revolution", "deworm", "de-worm","frontline", "milbe", "milpro","advantix","advocate",
+    "bravecto", "revolution", "deworm","de-worm","frontline", "milbe", "milpro","advantix","advocate",
     "interceptor","stronghold","drontal","frontpro","credelio",
     "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend","popantel","panacur",
     "broadline","profender","comfortis","endecto"
@@ -1565,9 +1565,10 @@ if st.session_state["factoids_unlocked"]:
                 core_current["has_ghost"] = core_current["PrevValue"].notna()
                 
                 palette = [
-                    "#fb7185", "#60a5fa", "#4ade80", "#facc15",
-                    "#f97316", "#fbbf24", "#a5b4fc", "#22d3ee", "#93c5fd",
+                    "#22d3ee", "#60a5fa", "#4ade80", "#facc15",
+                    "#f97316", "#fbbf24", "#a5b4fc", "#fb7185", "#93c5fd",
                 ]
+                
                 color = palette[metric_list_rev_tx.index(sel_core_rev) % len(palette)]
                 y_fmt = ",.2f" if "Transactions per" in sel_core_rev else ",.0f"
                 
@@ -1677,16 +1678,6 @@ if st.session_state["factoids_unlocked"]:
                 
                 st.altair_chart(chart_rev_tx, use_container_width=True)
 
-
-
-
-
-
-
-
-
-
-        
                 # ---------------------------
                 # Chart 2: Clients & Patients
                 # ---------------------------
@@ -1694,7 +1685,7 @@ if st.session_state["factoids_unlocked"]:
                     "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>👥 Clients & Patients</h4>",
                     unsafe_allow_html=True
                 )
-        
+                
                 metric_list_cp = [
                     "Unique Clients Seen", "Unique Patient Visits",
                     "Client Transactions", "Patient Visits",
@@ -1708,7 +1699,7 @@ if st.session_state["factoids_unlocked"]:
                     index=0,
                     key="core_metric_clientspatients"
                 )
-        
+                
                 # --- Render chart for Clients & Patients
                 metric_by_month = core_monthly.set_index("Month")[sel_core_cp]
                 core_current["PrevValue"] = core_current["Month"].apply(lambda m: metric_by_month.get(m - 12, pd.NA))
@@ -1716,12 +1707,13 @@ if st.session_state["factoids_unlocked"]:
                     lambda m: (m - 12).year if (m - 12) in metric_by_month.index else pd.NA)
                 core_current["MonthOnly"] = core_current["MonthLabel"].str.split().str[0]
                 core_current["has_ghost"] = core_current["PrevValue"].notna()
-        
+                
                 color = palette[metric_list_cp.index(sel_core_cp) % len(palette)]
                 y_fmt = ",.0f"
                 safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core_cp)
                 df_plot = core_current.rename(columns={sel_core_cp: safe_col}).copy()
-        
+                
+                # --- Ghost bars
                 ghost_cp = (
                     alt.Chart(df_plot)
                     .transform_filter("datum.PrevValue != null")
@@ -1737,7 +1729,8 @@ if st.session_state["factoids_unlocked"]:
                         ],
                     )
                 )
-        
+                
+                # --- Current bars
                 current_cp = (
                     alt.Chart(df_plot)
                     .mark_bar(size=20, color=color)
@@ -1753,14 +1746,52 @@ if st.session_state["factoids_unlocked"]:
                     )
                     .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
-        
+                
+                # --- Moving Average Lines (same as first chart)
+                # Seed 2 months before current 12-month window
+                first_current = current_12[0]
+                seed_months = pd.period_range(first_current - 2, first_current - 1, freq="M")
+                df_ma_seed_src = core_monthly[core_monthly["Month"].isin(list(seed_months) + list(current_12))].copy()
+                df_ma_seed_src = df_ma_seed_src[["Month", "MonthLabel", sel_core_cp]].rename(columns={sel_core_cp: "Value"})
+                allowed_labels = df_plot["MonthLabel"].tolist()
+                
+                ma_line_cp = (
+                    alt.Chart(df_ma_seed_src)
+                    .transform_window(rolling_mean="mean(Value)", frame=[-2, 0])
+                    .transform_filter(alt.FieldOneOfPredicate(field="MonthLabel", oneOf=allowed_labels))
+                    .mark_line(color=color, size=2.5)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=allowed_labels),
+                        y=alt.Y("rolling_mean:Q"),
+                        tooltip=[
+                            alt.Tooltip("MonthLabel:N", title="Month"),
+                            alt.Tooltip("rolling_mean:Q", title="3-mo Moving Avg", format=y_fmt),
+                        ],
+                    )
+                )
+                
+                ma_line_ghost_cp = (
+                    alt.Chart(df_plot)
+                    .transform_window(ghost_rolling_mean="mean(PrevValue)", frame=[-2, 0])
+                    .mark_line(color=color, size=2.0, opacity=0.3)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist()),
+                        y=alt.Y("ghost_rolling_mean:Q"),
+                        tooltip=[
+                            alt.Tooltip("MonthOnly:N", title="Month"),
+                            alt.Tooltip("ghost_rolling_mean:Q", title="Ghost 3-mo Moving Avg", format=y_fmt),
+                        ],
+                    )
+                )
+                
                 chart_cp = (
-                    alt.layer(ghost_cp, current_cp)
+                    alt.layer(ghost_cp, current_cp, ma_line_cp, ma_line_ghost_cp)
                     .resolve_scale(y="shared")
                     .properties(height=400, width=700,
-                                title=f"{sel_core_cp} per Month (with previous-year ghost bars)")
+                                title=f"{sel_core_cp} per Month (with previous-year ghost bars + 3-mo moving average)")
                 )
                 st.altair_chart(chart_cp, use_container_width=True)
+
 
     
         # ============================
@@ -3006,6 +3037,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
