@@ -1236,6 +1236,17 @@ if st.session_state["factoids_unlocked"]:
             "exclude": ["adult", "food", "diet", "canin", "purina", "proplan"]
         }
     }
+    # --- Backward-compatible keyword list aliases (used in metric_configs etc.) ---
+    FLEA_WORM_KEYWORDS = KEYWORD_SETS["FLEA_WORM"]["include"]
+    FOOD_KEYWORDS = KEYWORD_SETS["FOOD"]["include"]
+    XRAY_KEYWORDS = KEYWORD_SETS["XRAY"]["include"]
+    ULTRASOUND_KEYWORDS = KEYWORD_SETS["ULTRASOUND"]["include"]
+    LABWORK_KEYWORDS = KEYWORD_SETS["LABWORK"]["include"]
+    ANAESTHETIC_KEYWORDS = KEYWORD_SETS["ANAESTHETIC"]["include"]
+    HOSPITALISATION_KEYWORDS = KEYWORD_SETS["HOSPITALISATION"]["include"]
+    VACCINE_KEYWORDS = KEYWORD_SETS["VACCINE"]["include"]
+    DEATH_KEYWORDS = KEYWORD_SETS["DEATH"]["include"]
+    NEUTER_KEYWORDS = KEYWORD_SETS["NEUTER"]["include"]
 
     # -----------------------
     # Keyword Utilities
@@ -2561,6 +2572,7 @@ if st.button("Send", key="fb_send"):
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
+
 
 
 
