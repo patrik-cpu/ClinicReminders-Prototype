@@ -1656,8 +1656,7 @@ if st.session_state["factoids_unlocked"]:
                     # just use visible months if we don't have enough history
                     ghost_seed_src = core_monthly.copy()
                 
-                # narrow to necessary columns and rename for clarity
-                ghost_seed_src = ghost_seed_src[["Month", "MonthLabel", sel_core_rev]].rename(columns={sel_core_rev: "PrevValue"})
+                
 
                 # --- Ghost Moving Average Line (pre-seeded if >24 months)
                 ma_line_ghost = (
@@ -3010,6 +3009,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
