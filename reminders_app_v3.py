@@ -794,18 +794,24 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
     patients_per_month = df.groupby("Month")["AnimalKey"].nunique()
 
     return df, masks, tx_client, tx_patient, patients_per_month
-# === ADD: after working_df is set (once), before Factoids/Reminders sections ===
+
+# Bundle Creation
 rules_fp = _rules_fp(st.session_state["rules"])
 bundle_key = (st.session_state.get("data_version", 0), rules_fp)
 
-if st.session_state.get("bundle_key") != bundle_key:
-    df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
-        st.session_state["working_df"], rules_fp
-    )
-    st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
-    st.session_state["bundle_key"] = bundle_key
+if st.session_state.get("working_df") is not None:
+    # Build/refresh the session bundle only when data exists
+    if st.session_state.get("bundle_key") != bundle_key:
+        df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
+            st.session_state["working_df"], rules_fp
+        )
+        st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
+        st.session_state["bundle_key"] = bundle_key
 else:
-    df_full, masks, tx_client, tx_patient, patients_per_month = st.session_state["bundle"]
+    # No data → clear any stale bundle so downstream checks can bail gracefully
+    st.session_state.pop("bundle", None)
+    st.session_state.pop("bundle_key", None)
+
 
 # --------------------------------
 # Tutorial section
@@ -1329,11 +1335,6 @@ if st.session_state.get("working_df") is not None:
                     st.info("This exclusion already exists.")
             else:
                 st.error("Enter a valid exclusion term")
-
-# --- Google Sheets Setup (LAZY & PERSISTENT) ---
-SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
-SCOPE = ["https://spreadsheets.google.com/feeds",
-         "https://www.googleapis.com/auth/drive"]
 
 @st.cache_resource(show_spinner=False)
 def get_sheet():
@@ -2230,8 +2231,9 @@ if st.session_state["factoids_unlocked"]:
             period_end        = pd.to_datetime(df_period["ChargeDate"]).max()
             new_clients       = int(first_seen_client.between(period_start, period_end).sum()) if pd.notna(period_start) else 0
             new_patients      = int(first_seen_pair.between(period_start, period_end).sum()) if pd.notna(period_start) else 0
-            if period_options[period_options.index(selected_period) if selected_period in period_options else 0] == "All Data":
-                new_clients, new_patients = unique_clients, unique_pairs  # alignment with "All Data"
+            if selected_period == "All Data":
+                new_clients, new_patients = unique_clients, unique_pairs
+
         
             # Add formatted KPIs
             metrics.update({
@@ -2755,5 +2757,6 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
