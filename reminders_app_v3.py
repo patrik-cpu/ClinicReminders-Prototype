@@ -2627,8 +2627,6 @@ if st.session_state["factoids_unlocked"]:
                     st.altair_chart(chart_clients, use_container_width=True)
                 else:
                     st.info("No client data found for this period.")
-                    
-        run_factoids()
     
 # --------------------------------
 # 💬 Feedback (Lazy Sheets; isolated from reruns)
@@ -2849,6 +2847,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
