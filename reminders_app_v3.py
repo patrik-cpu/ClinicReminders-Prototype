@@ -1561,32 +1561,36 @@ if st.session_state["factoids_unlocked"]:
             """
             total = df_full.groupby("Month")["Amount"].sum()
             out = pd.DataFrame({"Total": total})
-
+        
             def add(label, key):
                 out[label] = df_full.loc[masks[key]].groupby("Month")["Amount"].sum()
-
+        
+            # --- Revenue categories ---
             add("Revenue from Consult Fees", "CONSULT")
-            add("Revenue from Flea/Worm",  "FLEA_WORM")
-            add("Revenue from Food",       "FOOD")
-            add("Revenue from Lab Work",   "LABWORK")
-            add("Revenue from Neuters",    "NEUTER")
-            add("Revenue from Ultrasounds","ULTRASOUND")
-            add("Revenue from X-rays",     "XRAY")
-
+            add("Revenue from Flea/Worm",    "FLEA_WORM")
+            add("Revenue from Food",         "FOOD")
+            add("Revenue from Lab Work",     "LABWORK")
+            add("Revenue from Neuters",      "NEUTER")
+            add("Revenue from Ultrasounds",  "ULTRASOUND")
+            add("Revenue from X-rays",       "XRAY")
+        
+            # --- Clean & sort ---
             out = out.fillna(0.0).sort_values("Month").reset_index()
-
-            # Percent-of-total columns
-            for suff in ["Flea/Worm","Food","Lab Work","Neuters","Ultrasounds","X-rays"]:
+        
+            # --- Percent-of-total columns ---
+            for suff in ["Consult Fees", "Flea/Worm", "Food", "Lab Work", "Neuters", "Ultrasounds", "X-rays"]:
                 num = out[f"Revenue from {suff}"]
                 den = out["Total"].replace(0, np.nan)
                 out[f"Revenue from {suff} (% of total)"] = (num / den).fillna(0.0)
-
-            # Ghost (prev-year) for every plotted column (except Month, Total if you wish)
-            for col in [c for c in out.columns if c not in ("Month","Total")]:
+        
+            # --- Previous-year ghost columns ---
+            for col in [c for c in out.columns if c not in ("Month", "Total")]:
                 out[f"Prev_{col}"] = out[col].shift(12)
-
+        
+            # --- Labels for charts ---
             out["MonthLabel"] = out["Month"].dt.strftime("%b %Y")
             out["Year"]       = out["Month"].dt.year
+        
             return out
 
         @st.cache_data(show_spinner=False)
@@ -2813,6 +2817,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
