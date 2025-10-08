@@ -1989,6 +1989,14 @@ if st.session_state["factoids_unlocked"]:
                 .resolve_scale(y="shared")
                 .properties(height=400, width=700, title=f"{sel} by Month (with previous-year ghost bars)")
             )
+            
+            # If all current and previous values are 0 or NaN → overlay "No data" text
+            if df_plot[["Cur", "Prev"]].fillna(0).sum().sum() == 0:
+                text_overlay = alt.Chart(pd.DataFrame([{"label": "No data available for this metric"}])).mark_text(
+                    align="center", baseline="middle", fontSize=18, color="gray"
+                ).encode(text="label:N")
+                chart = alt.layer(chart, text_overlay)
+
             st.altair_chart(chart, use_container_width=True)
         else:
             st.info("No data available for revenue breakdown.")
@@ -3448,6 +3456,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
