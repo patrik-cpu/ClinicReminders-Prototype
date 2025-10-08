@@ -902,6 +902,13 @@ if current_files != st.session_state["last_uploaded_files"]:
         del st.session_state["prepared_df"]
         st.session_state.pop("prepared_key", None)
 
+# --------------------------------
+# Cached dataset loader (persistent across reruns)
+# --------------------------------
+@st.cache_resource(show_spinner=False)
+def load_persistent_dataset(file_blobs):
+    return summarize_uploads(file_blobs)
+
 if files:
     file_blobs = tuple(_to_blob(f) for f in files)
     datasets, summary_rows = summarize_uploads(file_blobs)
@@ -3463,6 +3470,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
