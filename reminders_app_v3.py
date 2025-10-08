@@ -3338,6 +3338,7 @@ def build_quarterly_payload_full(
             json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)
         )
 
+
         # Core monthly (last 24 months)
         if core_24 is not None and not core_24.empty:
             z.writestr("core_monthly.csv", core_24.to_csv(index=False))
@@ -3414,7 +3415,11 @@ with col_gen:
                     raw_rows_limit=None          # None = all rows of the quarter
                 )
             if zip_bytes:
-                st.session_state["llm_payload"] = payload
+                # normalize payload once for safe previewing later
+                clean_payload_json = json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)
+                clean_payload = json.loads(clean_payload_json)
+            
+                st.session_state["llm_payload"] = clean_payload
                 st.session_state["llm_zip_bytes"] = zip_bytes
                 st.session_state["llm_built_at"] = pd.Timestamp.now(tz="Asia/Dubai")
                 st.success("Quarterly LLM data generated.")
@@ -3438,5 +3443,10 @@ with col_dl:
 if st.session_state.get("llm_payload"):
     meta = f"Built at: {st.session_state.get('llm_built_at')}"
     with st.expander(f"Preview quarterly_payload.json  •  {meta}"):
-        st.code(json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2)[:8000], language="json")
+        st.code(
+            json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
+            language="json"
+        )
+
+
 
