@@ -1470,56 +1470,56 @@ if st.session_state["factoids_unlocked"]:
         def compute_core_metrics_full(data_key, df_full: pd.DataFrame, masks: dict, tx_client: pd.DataFrame):
             """
             Monthly clinic metrics over FULL dataset.
-            Returns a DataFrame with Month (Period[M]), MonthLabel, Year, and both current and Prev_<col> (t-12).
+            Returns a DataFrame with Month (Period[M]), MonthLabel, Year, current columns,
+            Prev_<col> (t-12), and MA3_<col> / Prev_MA3_<col> precomputed for ALL metrics.
             """
             df = df_full
-
+        
             # Base monthly
             g = df.groupby("Month")
             core = pd.DataFrame({
                 "Total Revenue": g["Amount"].sum(),
                 "Unique Clients Seen": g["ClientKey"].nunique(),
             }).reset_index()
-
+        
             # Visit-based metrics
             vis = df.loc[masks["PATIENT_VISIT"], ["Month", "ClientKey", "AnimalKey", "DateOnly"]].dropna()
             upv = (vis.drop_duplicates(["Month", "ClientKey", "AnimalKey"])
-                      .groupby("Month").size().rename("Unique Patient Visits"))
+                     .groupby("Month").size().rename("Unique Patient Visits"))
             pv  = (vis.drop_duplicates(["ClientKey", "AnimalKey", "DateOnly"])
-                      .groupby("Month").size().rename("Patient Visits"))
+                     .groupby("Month").size().rename("Patient Visits"))
             core = core.merge(upv, on="Month", how="left").merge(pv, on="Month", how="left").fillna(0)
-
+        
             # Client Transactions (from blocks)
-            if not tx_client.empty:
+            if tx_client is not None and not tx_client.empty:
                 txm = (tx_client.assign(Month=tx_client["StartDate"].dt.to_period("M"))
                                  .groupby("Month").size().rename("Client Transactions"))
                 core = core.merge(txm, on="Month", how="left").fillna({"Client Transactions": 0})
             else:
                 core["Client Transactions"] = 0
-
+        
             # Flags (Deaths, Neuters)
             for key, outcol in [("DEATH", "Deaths"), ("NEUTER", "Neuters")]:
                 s = df.loc[masks[key]].groupby("Month").size().rename(outcol)
                 core = core.merge(s, on="Month", how="left").fillna({outcol: 0})
-
+        
             # New Clients / New Patients (first-ever month seen)
-            # Compute first occurrence month for ClientKey and (ClientKey, AnimalKey)
             first_client_month = df.loc[~df["ClientKey"].isna()].groupby("ClientKey")["Month"].min()
             first_pair_month   = df.loc[~df["ClientKey"].isna() & ~df["AnimalKey"].isna()] \
                                    .groupby(["ClientKey", "AnimalKey"])["Month"].min()
-
+        
             new_clients_monthly = first_client_month.value_counts().rename("New Clients").to_frame()
             new_clients_monthly.index.name = "Month"
             new_clients_monthly = new_clients_monthly.reset_index()
-
+        
             new_patients_monthly = first_pair_month.value_counts().rename("New Patients").to_frame()
             new_patients_monthly.index.name = "Month"
             new_patients_monthly = new_patients_monthly.reset_index()
-
+        
             core = core.merge(new_clients_monthly, on="Month", how="left") \
                        .merge(new_patients_monthly, on="Month", how="left") \
                        .fillna({"New Clients": 0, "New Patients": 0})
-
+        
             # Ratios (vectorized)
             with np.errstate(divide='ignore', invalid='ignore'):
                 core["Revenue per Client"]             = core["Total Revenue"] / core["Unique Clients Seen"].replace(0, np.nan)
@@ -1528,24 +1528,32 @@ if st.session_state["factoids_unlocked"]:
                 core["Revenue per Patient Visit"]      = core["Total Revenue"] / core["Patient Visits"].replace(0, np.nan)
                 core["Transactions per Client"]        = core["Client Transactions"] / core["Unique Clients Seen"].replace(0, np.nan)
                 core["Visits per Patient"]             = core["Patient Visits"] / core["Unique Patient Visits"].replace(0, np.nan)
-
-            core = core.fillna(0.0).sort_values("Month")
+        
+            # Sort once, add labels
+            core = core.fillna(0.0).sort_values("Month").reset_index(drop=True)
             core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
             core["Year"]       = core["Month"].dt.year
-
-            # Ghost (prev-year) columns ready for any metric
-            ghost_cols = [
+        
+            # Prepare ghost and MA3 for ALL metrics up-front
+            metric_cols = [
                 "Total Revenue","Unique Clients Seen","Unique Patient Visits","Client Transactions",
-                "Patient Visits","Deaths","Neuters",
-                "New Clients","New Patients",
+                "Patient Visits","Deaths","Neuters","New Clients","New Patients",
                 "Revenue per Client","Revenue per Visiting Patient",
                 "Revenue per Client Transaction","Revenue per Patient Visit",
                 "Transactions per Client","Visits per Patient"
             ]
-            for col in ghost_cols:
-                core[f"Prev_{col}"] = core[col].shift(12)
-
+        
+            for col in metric_cols:
+                cur = pd.to_numeric(core[col], errors="coerce").fillna(0.0)
+                core[col] = cur
+                core[f"Prev_{col}"] = cur.shift(12)
+        
+                # precomputed 3-mo trailing MAs for current and ghost
+                core[f"MA3_{col}"]      = cur.rolling(window=3, min_periods=1).mean()
+                core[f"Prev_MA3_{col}"] = core[f"Prev_{col}"].rolling(window=3, min_periods=1).mean()
+        
             return core
+
 
         @st.cache_data(show_spinner=False)
         def compute_revenue_breakdown_full(data_key, df_full: pd.DataFrame, masks: dict):
@@ -1709,14 +1717,19 @@ if st.session_state["factoids_unlocked"]:
             current_12 = pd.period_range(last_m - 11, last_m, freq="M")
             core_win  = core_all[core_all["Month"].isin(current_12)].copy()
 
+
+
+
+
+            
             # ---------------------------
-            # Chart 1: Revenue & Transactions
+            # Chart 1: Revenue & Transactions (stable axes + precomputed MAs)
             # ---------------------------
             st.markdown(
                 "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💰 Revenue & Transactions</h4>",
                 unsafe_allow_html=True
             )
-
+            
             metric_list_rev_tx = [
                 "Total Revenue", "Revenue per Client", "Revenue per Visiting Patient",
                 "Revenue per Client Transaction", "Revenue per Patient Visit",
@@ -1728,94 +1741,106 @@ if st.session_state["factoids_unlocked"]:
                 index=0,
                 key="core_metric_revtx"
             )
-
+            
+            # Slice stable 12-month window once
+            last_m    = core_all["Month"].max()
+            current_12 = pd.period_range(last_m - 11, last_m, freq="M")
+            core_win  = core_all[core_all["Month"].isin(current_12)].copy()
+            
+            # Build plotting DF with precomputed columns
+            cols_needed = [
+                sel_core_rev,
+                f"Prev_{sel_core_rev}",
+                f"MA3_{sel_core_rev}",
+                f"Prev_MA3_{sel_core_rev}"
+            ]
+            df_plot = core_win[["Month","MonthLabel"] + cols_needed].copy()
+            
+            # Force numeric to avoid "flatline" from object dtypes
+            for c in cols_needed:
+                df_plot[c] = pd.to_numeric(df_plot[c], errors="coerce").fillna(0.0)
+            
+            # Stable x-domain so axes don't jump/clip on metric changes
+            x_domain = df_plot["MonthLabel"].tolist()
+            
+            # Cosmetics
             palette = [
                 "#fb7185", "#60a5fa", "#4ade80", "#facc15",
                 "#f97316", "#fbbf24", "#a5b4fc", "#22d3ee", "#93c5fd",
             ]
             color = palette[metric_list_rev_tx.index(sel_core_rev) % len(palette)]
             y_fmt = ",.2f" if "Transactions per" in sel_core_rev else ",.0f"
-
-            # Prepare plotting DF with Cur & Prev columns
-            df_plot = core_win[["Month","MonthLabel", sel_core_rev, f"Prev_{sel_core_rev}"]].rename(
-                columns={sel_core_rev: "Cur", f"Prev_{sel_core_rev}": "Prev"}
-            ).copy()
-            df_plot["has_ghost"] = df_plot["Prev"].notna()
-            df_plot["MonthOnly"] = df_plot["MonthLabel"].str.split().str[0]
-
-            # Ghost bars
-            ghost = (
+            
+            # Layers
+            bars_prev = (
                 alt.Chart(df_plot)
-                .transform_filter("datum.Prev != null")
-                .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
+                .mark_bar(size=20, color=color, opacity=0.3)
                 .encode(
-                    x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
-                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
-                    y=alt.Y("Prev:Q", title=sel_core_rev, axis=alt.Axis(format=y_fmt)),
-                    tooltip=[
-                        alt.Tooltip("MonthOnly:N", title="Month"),
-                        alt.Tooltip("Prev:Q", title=sel_core_rev, format=y_fmt),
-                    ],
+                    x=alt.X("MonthLabel:N",
+                            sort=x_domain,
+                            scale=alt.Scale(domain=x_domain),
+                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelLimit=140, labelPadding=6)),
+                    y=alt.Y(f"Prev_{sel_core_rev}:Q", title=sel_core_rev, axis=alt.Axis(format=y_fmt)),
+                    tooltip=[alt.Tooltip("MonthLabel:N", title="Month"),
+                             alt.Tooltip(f"Prev_{sel_core_rev}:Q", title=f"Prev {sel_core_rev}", format=y_fmt)],
                 )
             )
-
-            # Current bars
-            current = (
+            
+            bars_cur = (
                 alt.Chart(df_plot)
                 .mark_bar(size=20, color=color)
                 .encode(
-                    x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
-                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
-                    y=alt.Y("Cur:Q", title=sel_core_rev, axis=alt.Axis(format=y_fmt)),
-                    tooltip=[
-                        alt.Tooltip("MonthOnly:N", title="Month"),
-                        alt.Tooltip("Cur:Q", title=sel_core_rev, format=y_fmt),
-                    ],
-                )
-                .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
-            )
-
-            # Moving averages (3-month trailing) on visible labels only
-            allowed_labels = df_plot["MonthLabel"].tolist()
-            df_ma = core_all[core_all["Month"].isin(
-                pd.period_range(current_12[0] - 2, current_12[-1], freq="M")
-            )][["MonthLabel", sel_core_rev]].rename(columns={sel_core_rev: "Value"}).copy()
-
-            ma_line = (
-                alt.Chart(df_ma)
-                .transform_filter(alt.FieldOneOfPredicate(field="MonthLabel", oneOf=allowed_labels))
-                .transform_window(rolling_mean="mean(Value)", frame=[-2, 0])
-                .mark_line(color=color, size=2.5)
-                .encode(
-                    x=alt.X("MonthLabel:N", sort=allowed_labels),
-                    y=alt.Y("rolling_mean:Q"),
+                    x=alt.X("MonthLabel:N",
+                            sort=x_domain,
+                            scale=alt.Scale(domain=x_domain)),
+                    y=alt.Y(f"{sel_core_rev}:Q", title=sel_core_rev, axis=alt.Axis(format=y_fmt)),
                     tooltip=[alt.Tooltip("MonthLabel:N", title="Month"),
-                             alt.Tooltip("rolling_mean:Q", title="3-mo Moving Avg", format=y_fmt)]
+                             alt.Tooltip(f"{sel_core_rev}:Q", title=sel_core_rev, format=y_fmt)],
                 )
+                # offset current bars to the right when prev exists (purely visual separation)
+                .transform_calculate(xOffset="0")  # keep simple & stable; no dynamic offset jitter
             )
-
-            # Ghost MA (Prev)
-            df_ma_ghost = df_plot[["MonthLabel","Prev"]].rename(columns={"Prev":"Value"})
-            ma_line_ghost = (
-                alt.Chart(df_ma_ghost)
-                .transform_filter("datum.Value != null")
-                .transform_window(ghost_rolling_mean="mean(Value)", frame=[-2, 0])
-                .mark_line(color=color, size=2.0, opacity=0.3)
+            
+            line_ma = (
+                alt.Chart(df_plot)
+                .mark_line(color=color, strokeWidth=2.5)
                 .encode(
-                    x=alt.X("MonthLabel:N", sort=allowed_labels),
-                    y=alt.Y("ghost_rolling_mean:Q"),
+                    x=alt.X("MonthLabel:N", sort=x_domain, scale=alt.Scale(domain=x_domain)),
+                    y=alt.Y(f"MA3_{sel_core_rev}:Q", axis=alt.Axis(format=y_fmt)),
                     tooltip=[alt.Tooltip("MonthLabel:N", title="Month"),
-                             alt.Tooltip("ghost_rolling_mean:Q", title="Ghost 3-mo Moving Avg", format=y_fmt)]
+                             alt.Tooltip(f"MA3_{sel_core_rev}:Q", title=f"MA (3m) {sel_core_rev}", format=y_fmt)],
                 )
             )
-
+            
+            line_ma_prev = (
+                alt.Chart(df_plot)
+                .mark_line(color=color, strokeWidth=2.0, opacity=0.35)
+                .encode(
+                    x=alt.X("MonthLabel:N", sort=x_domain, scale=alt.Scale(domain=x_domain)),
+                    y=alt.Y(f"Prev_MA3_{sel_core_rev}:Q", axis=alt.Axis(format=y_fmt)),
+                    tooltip=[alt.Tooltip("MonthLabel:N", title="Month"),
+                             alt.Tooltip(f"Prev_MA3_{sel_core_rev}:Q", title=f"Prev MA (3m) {sel_core_rev}", format=y_fmt)],
+                )
+            )
+            
             chart_rev_tx = (
-                alt.layer(ghost, current, ma_line, ma_line_ghost)
+                alt.layer(bars_prev, bars_cur, line_ma, line_ma_prev)
                 .resolve_scale(y="shared")
-                .properties(height=400, width=700,
-                            title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)")
+                .properties(
+                    height=400,
+                    width=700,
+                    title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)",
+                    padding={"left": 10, "right": 10, "top": 10, "bottom": 50}  # keep axes visible
+                )
             )
             st.altair_chart(chart_rev_tx, use_container_width=True)
+
+
+
+
+
+
+
 
             # ---------------------------
             # Chart 2: Clients & Patients
@@ -2847,6 +2872,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
