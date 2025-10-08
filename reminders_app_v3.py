@@ -1484,6 +1484,13 @@ if st.session_state["factoids_unlocked"]:
         
             # Visit-based metrics
             vis = df.loc[masks["PATIENT_VISIT"], ["Month", "ClientKey", "AnimalKey", "DateOnly"]].dropna()
+            # Consult metrics
+            consult_rows = df.loc[masks["CONSULT"]].copy()
+            consults_monthly = consult_rows.groupby("Month").size().rename("Number of Consults")
+            consult_revenue  = consult_rows.groupby("Month")["Amount"].sum().rename("Revenue from Consult Fees")
+            core = core.merge(consults_monthly, on="Month", how="left").merge(consult_revenue, on="Month", how="left")
+            core[["Number of Consults", "Revenue from Consult Fees"]] = core[["Number of Consults", "Revenue from Consult Fees"]].fillna(0)
+
             upv = (vis.drop_duplicates(["Month", "ClientKey", "AnimalKey"])
                      .groupby("Month").size().rename("Unique Patient Visits"))
             pv  = (vis.drop_duplicates(["ClientKey", "AnimalKey", "DateOnly"])
@@ -1540,14 +1547,12 @@ if st.session_state["factoids_unlocked"]:
                 "New Clients","New Patients",
                 "Revenue per Client","Revenue per Visiting Patient",
                 "Revenue per Client Transaction","Revenue per Patient Visit",
-                "Transactions per Client","Visits per Patient"
+                "Transactions per Client","Visits per Patient",
+                "Number of Consults", "Revenue from Consult Fees"
             ]
             for col in metric_cols:
                 core[f"Prev_{col}"] = core[col].shift(12)
-        
             return core
-
-
 
         @st.cache_data(show_spinner=False)
         def compute_revenue_breakdown_full(data_key, df_full: pd.DataFrame, masks: dict):
@@ -1560,6 +1565,7 @@ if st.session_state["factoids_unlocked"]:
             def add(label, key):
                 out[label] = df_full.loc[masks[key]].groupby("Month")["Amount"].sum()
 
+            add("Revenue from Consult Fees", "CONSULT")
             add("Revenue from Flea/Worm",  "FLEA_WORM")
             add("Revenue from Food",       "FOOD")
             add("Revenue from Lab Work",   "LABWORK")
@@ -1710,11 +1716,6 @@ if st.session_state["factoids_unlocked"]:
             last_m   = core_all["Month"].max()
             current_12 = pd.period_range(last_m - 11, last_m, freq="M")
             core_win  = core_all[core_all["Month"].isin(current_12)].copy()
-
-
-
-
-
             
             # ---------------------------
             # Chart 1: Revenue & Transactions (bars only — current + ghost)
@@ -1727,7 +1728,7 @@ if st.session_state["factoids_unlocked"]:
             metric_list_rev_tx = [
                 "Total Revenue", "Revenue per Client", "Revenue per Visiting Patient",
                 "Revenue per Client Transaction", "Revenue per Patient Visit",
-                "Transactions per Client"
+                "Transactions per Client","Number of Consults"
             ]
             sel_core_rev = st.selectbox(
                 "Select Metric (Revenue & Transactions):",
@@ -1896,6 +1897,8 @@ if st.session_state["factoids_unlocked"]:
             rev_win = rev_all[rev_all["Month"].isin(current_12)].copy()
 
             metrics = [
+                "Revenue from Consult Fees",
+                "Revenue from Consult Fees (% of total)",
                 "Revenue from Flea/Worm",
                 "Revenue from Flea/Worm (% of total)",
                 "Revenue from Food",
@@ -2355,6 +2358,7 @@ if st.session_state["factoids_unlocked"]:
         
                 total_rev_period = float(df_period["Amount"].sum())
                 rb = {
+                    "Revenue from Consult Fees (Total & %)": _sum_mask("CONSULT"), 
                     "Revenue from Flea/Worm (Total & %)":  _sum_mask("FLEA_WORM"),
                     "Revenue from Food (Total & %)":       _sum_mask("FOOD"),
                     "Revenue from Lab Work (Total & %)":   _sum_mask("LABWORK"),
@@ -2391,6 +2395,7 @@ if st.session_state["factoids_unlocked"]:
                 "Visits per Patient",
                 "Max Client Transactions",
                 "Avg Client Transactions/Day",
+                "Number of Consults"
             ])
         
             # -------------------------
@@ -2808,6 +2813,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
