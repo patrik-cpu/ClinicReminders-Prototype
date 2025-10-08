@@ -35,19 +35,25 @@ CONSULT_KEYWORDS = [
     "visit", "clinical assessment",
     "physical exam", "emergency"
 ]
-CONSULT_EXCLUSIONS = ["fecal","blood","smear","faecal","urine","x-ray","xray","ultrasound","afast","tfast","a-fast","t-fast"]
+CONSULT_EXCLUSIONS = [
+    "fecal","blood","smear","faecal","urine","x-ray","xray","ultrasound","afast","tfast","a-fast","t-fast",
+    "sitting","IDEXX","VHN"
+]
 
 DENTAL_KEYWORDS = ["dental","tooth","extraction","scale and polish","scale & polish","dentistry"]
-DENTAL_EXCLUSIONS = []
+DENTAL_EXCLUSIONS = ["Cataract","Oxyfresh","Healthy Bites","Healthy Bites","my beau"]
 
 GROOM_KEYWORDS = ["groom","nail clip","nail trim","ear clean","ear flush","medicated bath"]
-GROOM_EXCLUSIONS = []
+GROOM_EXCLUSIONS = ["Oxyfresh"]
 
-BOARDING_KEYWORDS = ["board"]
-BOARDING_EXCLUSIONS = []
+BOARDING_KEYWORDS = ["board","sitting"]
+BOARDING_EXCLUSIONS = ["Cardboard"]
 
 FEE_KEYWORDS = ["fee"]
-FEE_EXCLUSIONS = []
+FEE_EXCLUSIONS = [
+    "Hospitalization","hospitalisation","Examination","Consultation","Feed","Feel","House Call",
+    
+]
 
 FLEA_WORM_KEYWORDS = [
     "bravecto", "revolution", "deworm","de-worm","frontline", "milbe", "milpro","advantix","advocate",
@@ -97,16 +103,16 @@ ANAESTHETIC_KEYWORDS = [
     "Otoendoscopy","castration","Amputation","amputate","Cystotomy","Diaphragmatic","Entropion",
     "Lump Removal","Urethrostomy","Tarsorrhaphy","3rd eye"
 ]
-ANAESTHETIC_EXCLUSIONS = ["satiety","balance","vhn","royal canin","food"]
+ANAESTHETIC_EXCLUSIONS = ["satiety","balance","vhn","royal canin","food","examination"]
 
 HOSPITALISATION_KEYWORDS = ["hospitalisation", "hospitalization"]
 HOSPITALISATION_EXCLUSIONS = []
 
 VACCINE_KEYWORDS = [
-    "vaccine", "vaccination", "booster", "rabies", "dhpp", "tricat",
+    "vaccine", "vaccination", "booster", "rabies", "dhpp", "tricat","FIV",
     "pch", "pcl", "leukemia", "kennel cough","lepto","leukaemia","felv","bordatella"
 ]
-VACCINE_EXCLUSIONS = ["test", "titre", "antibody","bites","book"]
+VACCINE_EXCLUSIONS = ["test", "titre", "antibody","bites","book","idexx","elisa","SNAP"]
 
 DEATH_KEYWORDS = ["euthanasia", "pentobarb", "cremation", "burial", "disposal"]
 DEATH_EXCLUSIONS = []
@@ -3110,3 +3116,4 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
