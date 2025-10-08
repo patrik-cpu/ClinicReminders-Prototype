@@ -2099,19 +2099,14 @@ if st.session_state["factoids_unlocked"]:
                 .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
             )
 
-            if df_plot[["Cur", "Prev"]].fillna(0).sum().sum() == 0:
-                chart = alt.Chart(pd.DataFrame([{"label": "No data available for this metric"}])).mark_text(
-                    align="center", baseline="middle", fontSize=18, color="#9ca3af"
-                ).encode(text="label:N").properties(height=300, width=700)
-            else:
-                chart = (
-                    alt.layer(ghost, current)
-                    .resolve_scale(y="shared")
-                    .properties(
-                        height=400, width=700,
-                        title=f"% of Monthly Patients Having {choice} (with previous-year ghost bars)"
-                    )
+            chart = (
+                alt.layer(ghost, current)
+                .resolve_scale(y="shared")
+                .properties(
+                    height=400, width=700,
+                    title=f"% of Monthly Patients Having {choice} (with previous-year ghost bars)"
                 )
+            )
             st.altair_chart(chart, use_container_width=True)
 
         # ============================
@@ -3460,6 +3455,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
