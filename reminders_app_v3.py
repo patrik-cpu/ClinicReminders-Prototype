@@ -1566,12 +1566,14 @@ if st.session_state["factoids_unlocked"]:
                 out[label] = df_full.loc[masks[key]].groupby("Month")["Amount"].sum()
         
             # --- Revenue categories ---
+            add("Revenue from Boarding", "BOARDING")
             add("Revenue from Consult Fees", "CONSULT")
             add("Revenue from Flea/Worm",    "FLEA_WORM")
             add("Revenue from Grooms, Ears & Nails", "GROOMING")
             add("Revenue from Food",         "FOOD")
             add("Revenue from Lab Work",     "LABWORK")
             add("Revenue from Neuters",      "NEUTER")
+            add("Revenue from Non-consult Fees", "FEE")
             add("Revenue from Ultrasounds",  "ULTRASOUND")
             add("Revenue from X-rays",       "XRAY")
         
@@ -1579,7 +1581,19 @@ if st.session_state["factoids_unlocked"]:
             out = out.fillna(0.0).sort_values("Month").reset_index()
         
             # --- Percent-of-total columns ---
-            for suff in ["Consult Fees", "Flea/Worm", "Food", "Grooms, Ears & Nails","Lab Work", "Neuters", "Ultrasounds", "X-rays"]:
+            for suff in [
+                "Boarding",
+                "Consult Fees",
+                "Flea/Worm",
+                "Food",
+                "Grooms, Ears & Nails",
+                "Lab Work",
+                "Neuters",
+                "Non-consult Fees",
+                "Ultrasounds",
+                "X-rays",
+            ]:
+
                 num = out[f"Revenue from {suff}"]
                 den = out["Total"].replace(0, np.nan)
                 out[f"Revenue from {suff} (% of total)"] = (num / den).fillna(0.0)
@@ -1689,6 +1703,7 @@ if st.session_state["factoids_unlocked"]:
         
             categories = {
                 "Anaesthetics": "ANAESTHETIC",
+                "Boarding": "BOARDING",
                 "Consults": "CONSULT",
                 "Dentals": "DENTAL",
                 "Flea/Worm Treatments": "FLEA_WORM",
@@ -1905,6 +1920,8 @@ if st.session_state["factoids_unlocked"]:
             rev_win = rev_all[rev_all["Month"].isin(current_12)].copy()
 
             metrics = [
+                "Revenue from Boarding",
+                "Revenue from Boarding (% of total)",
                 "Revenue from Consult Fees",
                 "Revenue from Consult Fees (% of total)",
                 "Revenue from Flea/Worm",
@@ -1917,6 +1934,8 @@ if st.session_state["factoids_unlocked"]:
                 "Revenue from Lab Work (% of total)",
                 "Revenue from Neuters",
                 "Revenue from Neuters (% of total)",
+                "Revenue from Non-consult Fees",
+                "Revenue from Non-consult Fees (% of total)",
                 "Revenue from Ultrasounds",
                 "Revenue from Ultrasounds (% of total)",
                 "Revenue from X-rays",
@@ -1985,6 +2004,7 @@ if st.session_state["factoids_unlocked"]:
 
         options = [
             "Anaesthetics",
+            "Boarding",
             "Consults",                        
             "Dentals",
             "Flea/Worm Treatments",
@@ -2010,6 +2030,7 @@ if st.session_state["factoids_unlocked"]:
 
             color_map = {
                 "Anaesthetics": "#fb7185",
+                "Boarding": "#8b5cf6",
                 "Consults": "#0ea5e9",       
                 "Dentals": "#60a5fa",
                 "Flea/Worm Treatments": "#4ade80",
@@ -2209,6 +2230,7 @@ if st.session_state["factoids_unlocked"]:
             # Map: label -> mask key
             pb_map = {
                 "Anaesthetics": "ANAESTHETIC",
+                "Boarding": "BOARDING",
                 "Consults": "CONSULT",       
                 "Dentals": "DENTAL",
                 "Flea/Worm": "FLEA_WORM",
@@ -2406,12 +2428,14 @@ if st.session_state["factoids_unlocked"]:
         
                 total_rev_period = float(df_period["Amount"].sum())
                 rb = {
+                    "Revenue from Boarding (Total & %)": _sum_mask("BOARDING"),
                     "Revenue from Consult Fees (Total & %)": _sum_mask("CONSULT"), 
                     "Revenue from Flea/Worm (Total & %)":  _sum_mask("FLEA_WORM"),
                     "Revenue from Food (Total & %)":       _sum_mask("FOOD"),
                     "Revenue from Grooms, Ears & Nails (Total & %)": _sum_mask("GROOMING"),
                     "Revenue from Lab Work (Total & %)":   _sum_mask("LABWORK"),
                     "Revenue from Neuters (Total & %)":    _sum_mask("NEUTER"),
+                    "Revenue from Non-consult Fees (Total & %)": _sum_mask("FEE"),
                     "Revenue from Ultrasounds (Total & %)":_sum_mask("ULTRASOUND"),
                     "Revenue from X-rays (Total & %)":     _sum_mask("XRAY"),
                 }
@@ -2862,6 +2886,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
