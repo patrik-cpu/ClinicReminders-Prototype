@@ -1786,7 +1786,6 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
                 
-                # --- Combine everything (no layout expansion)
                 chart_cp = (
                     alt.layer(ghost_cp, current_cp, ma_line_cp, ma_line_ghost_cp)
                     .resolve_scale(y="shared")
@@ -1794,13 +1793,9 @@ if st.session_state["factoids_unlocked"]:
                         height=400, width=700,
                         title=f"{sel_core_cp} per Month (with previous-year ghost bars + 3-mo moving average)"
                     )
-                    .configure_view(
-                        continuousWidth=700,
-                        continuousHeight=400
-                    )
                 )
-                
                 st.altair_chart(chart_cp, use_container_width=True)
+
 
 
     
@@ -3047,6 +3042,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
