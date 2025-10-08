@@ -880,8 +880,10 @@ st.markdown("## 📂 Data Upload")
 files = st.file_uploader(
     "Upload Sales Plan file(s)",
     type=["csv", "xls", "xlsx"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
+    key="file_uploader_main"
 )
+
 
 datasets = []
 summary_rows = []
@@ -3497,6 +3499,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
