@@ -1185,11 +1185,18 @@ if st.session_state.get("working_df") is not None:
 
     if search_term:
         q = search_term.lower()
-        # Filter the already-prepared DF — no heavy recompute
+        # Ensure lowercase columns exist for searching
+        for col in ["Client Name", "Animal Name", "Item Name"]:
+            col_lower = f"_{col.split()[0].lower()}_lower"
+            if col_lower not in prepared.columns and col in prepared.columns:
+                prepared[col_lower] = prepared[col].astype(str).str.lower()
+    
+        # Now run the query safely
         filtered2 = prepared.query(
             "_client_lower.str.contains(@q, regex=False) or _animal_lower.str.contains(@q, regex=False) or _item_lower.str.contains(@q, regex=False)",
             engine="python"
         ).copy()
+
 
         if not filtered2.empty:
             g = filtered2.groupby(["DueDateFmt", "Client Name"], dropna=False)
@@ -3456,6 +3463,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
