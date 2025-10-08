@@ -708,11 +708,32 @@ def summarize_uploads(file_blobs):
         datasets.append((pms_name, df))
     return datasets, summary_rows
 
-# === ADD: put near other top-level helpers ===
 @st.cache_data(show_spinner=False)
 def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
+    """
+    Build a single, reusable bundle for the whole app:
+      - Normalized keys & core date fields
+      - Precomputed boolean masks for ALL categories (incl. PATIENT_VISIT)
+      - VisitFlag column
+      - Transactions (client- & patient-level) using 'Block' segmentation
+      - patients_per_month series
+    NOTE: Cache key should include (data_version, rules_fp) at call site.
+    """
     import numpy as np
+
+    if df is None or len(df) == 0:
+        # Return empty structures but correct shapes to avoid downstream errors
+        empty = df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+        return (
+            empty.copy(),
+            {},  # masks
+            pd.DataFrame(columns=["ClientKey","Block","StartDate","EndDate","Patients","Amount","Client Name"]),
+            pd.DataFrame(columns=["ClientKey","AnimalKey","Block","StartDate","EndDate","Amount"]),
+            pd.Series(dtype="int64", name="AnimalKey"),
+        )
+
     df = df.copy()
+
     # ---- Core columns/prep (once) ----
     df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
     df["DateOnly"]   = df["ChargeDate"].dt.normalize()
@@ -722,18 +743,23 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
 
     def _norm(s: pd.Series) -> pd.Series:
         return (
-            s.astype(str).str.normalize("NFKC").str.lower()
+            s.astype(str)
+             .str.normalize("NFKC").str.lower()
              .str.replace(r"[\u00A0\u200B]", "", regex=True)
              .str.strip().str.replace(r"\s+", " ", regex=True)
         )
-    df["ClientKey"] = _norm(df["Client Name"])
-    df["AnimalKey"] = _norm(df["Animal Name"])
-    df["ItemNorm"]  = _norm(df["Item Name"])
+
+    df["ClientKey"] = _norm(df.get("Client Name", pd.Series(index=df.index)))
+    df["AnimalKey"] = _norm(df.get("Animal Name", pd.Series(index=df.index)))
+    df["ItemNorm"]  = _norm(df.get("Item Name", pd.Series(index=df.index)))
 
     # ---- Regex/mask helpers ----
-    def _rx(includes): 
+    def _rx(includes):
         return re.compile("|".join(map(re.escape, includes)), re.I) if includes else None
+
     def _mask(inc, exc):
+        if len(df) == 0:
+            return pd.Series(False, index=df.index)
         inc_rx = _rx(inc)
         m = df["ItemNorm"].str.contains(inc_rx) if inc_rx else pd.Series(False, index=df.index)
         if exc:
@@ -758,42 +784,56 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
         "VACCINE":        _mask(VACCINE_KEYWORDS,         VACCINE_EXCLUSIONS),
         "DEATH":          _mask(DEATH_KEYWORDS,           DEATH_EXCLUSIONS),
         "NEUTER":         _mask(NEUTER_KEYWORDS,          NEUTER_EXCLUSIONS),
-
-        # Composite for visits (already used elsewhere)
+        # Composite for visits (used widely across app)
         "PATIENT_VISIT":  _mask(PATIENT_VISIT_KEYWORDS,   PATIENT_VISIT_EXCLUSIONS),
     }
+
+    # VisitFlag used throughout
     df["VisitFlag"] = masks["PATIENT_VISIT"]
 
     # ---- Transactions (blocks) once ----
+    # Sort by client+date; compute day gaps to segment 'blocks' of contiguous days per client
     df_sorted = df.sort_values(["ClientKey", "DateOnly"])
-    daydiff   = df_sorted.groupby("ClientKey")["DateOnly"].diff().dt.days.fillna(1)
-    block     = (daydiff > 1).groupby(df_sorted["ClientKey"]).cumsum()
+    daydiff   = df_sorted.groupby("ClientKey", dropna=False)["DateOnly"].diff().dt.days.fillna(1)
+    block     = (daydiff > 1).groupby(df_sorted["ClientKey"], dropna=False).cumsum()
     df_sorted["Block"] = block
 
+    # ✅ propagate Block back to the base frame (align by original index)
+    df["Block"] = df_sorted["Block"].reindex(df.index)
+
+    # Client-level transactions (one row per contiguous block)
     tx_client = (
-        df_sorted.groupby(["ClientKey","Block"])
-        .agg(StartDate=("DateOnly","min"),
-             EndDate=("DateOnly","max"),
-             Patients=("AnimalKey", lambda x: set(x.astype(str))),
-             Amount=("Amount","sum"))
-        .reset_index()
+        df_sorted.groupby(["ClientKey","Block"], dropna=False)
+                 .agg(StartDate=("DateOnly","min"),
+                      EndDate=("DateOnly","max"),
+                      Patients=("AnimalKey", lambda x: set(x.astype(str))),
+                      Amount=("Amount","sum"))
+                 .reset_index()
     )
+
     # attach a display client name (first seen)
-    first_names = (df_sorted.groupby("ClientKey")["Client Name"].first()
-                   .rename("Client Name").reset_index())
+    first_names = (
+        df_sorted.groupby("ClientKey", dropna=False)["Client Name"]
+                 .first()
+                 .rename("Client Name")
+                 .reset_index()
+    )
     tx_client = tx_client.merge(first_names, on="ClientKey", how="left")
 
+    # Patient-level transactions (client+animal per block)
     tx_patient = (
-        df_sorted.groupby(["ClientKey","AnimalKey","Block"])
-        .agg(StartDate=("DateOnly","min"),
-             EndDate=("DateOnly","max"),
-             Amount=("Amount","sum"))
-        .reset_index()
+        df_sorted.groupby(["ClientKey","AnimalKey","Block"], dropna=False)
+                 .agg(StartDate=("DateOnly","min"),
+                      EndDate=("DateOnly","max"),
+                      Amount=("Amount","sum"))
+                 .reset_index()
     )
 
+    # Monthly denominator: unique animals per month (on the full df)
     patients_per_month = df.groupby("Month")["AnimalKey"].nunique()
 
     return df, masks, tx_client, tx_patient, patients_per_month
+
 
 # === Bundle Creation (inline hash; safe if rules not set yet) ===
 rules_dict = st.session_state.get("rules", {})  # avoid KeyError if rules not initialized
@@ -2759,6 +2799,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
