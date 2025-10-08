@@ -3020,7 +3020,13 @@ if st.session_state.get("working_df") is not None:
     df_debug = st.session_state["working_df"].copy()
     df_debug["Amount"] = pd.to_numeric(df_debug["Amount"], errors="coerce").fillna(0)
 
+    # 🔹 Include *all* keyword groups used in the app
     keyword_groups = {
+        "CONSULT": (CONSULT_KEYWORDS, CONSULT_EXCLUSIONS),
+        "DENTAL": (DENTAL_KEYWORDS, DENTAL_EXCLUSIONS),
+        "GROOMING": (GROOM_KEYWORDS, GROOM_EXCLUSIONS),
+        "BOARDING": (BOARDING_KEYWORDS, BOARDING_EXCLUSIONS),
+        "FEE": (FEE_KEYWORDS, FEE_EXCLUSIONS),
         "FLEA_WORM": (FLEA_WORM_KEYWORDS, FLEA_WORM_EXCLUSIONS),
         "FOOD": (FOOD_KEYWORDS, FOOD_EXCLUSIONS),
         "XRAY": (XRAY_KEYWORDS, XRAY_EXCLUSIONS),
@@ -3031,64 +3037,76 @@ if st.session_state.get("working_df") is not None:
         "VACCINE": (VACCINE_KEYWORDS, VACCINE_EXCLUSIONS),
         "DEATH": (DEATH_KEYWORDS, DEATH_EXCLUSIONS),
         "NEUTER": (NEUTER_KEYWORDS, NEUTER_EXCLUSIONS),
+        "PATIENT_VISIT": (PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS),
     }
 
     debug_frames = []
 
     for label, (includes, excludes) in keyword_groups.items():
         mask = make_mask(df_debug, includes, excludes)
-        if not mask.any():
-            continue
+        subset = df_debug.loc[mask].copy()
 
-        # --- Revenue-based top 25
+        # --- Revenue-based Top 50
         sub_revenue = (
-            df_debug.loc[mask]
-            .groupby("Item Name", as_index=False)
+            subset.groupby("Item Name", as_index=False)
             .agg(TotalRevenue=("Amount", "sum"), Count=("Item Name", "size"))
             .sort_values("TotalRevenue", ascending=False)
-            .head(25)
+            .head(50)
         )
         sub_revenue["Category"] = label
-        sub_revenue["Metric"] = "Top 25 by Revenue"
+        sub_revenue["Metric"] = "Top 50 by Revenue"
 
-        # --- Count-based top 25
+        # --- Count-based Top 50
         sub_count = (
-            df_debug.loc[mask]
-            .groupby("Item Name", as_index=False)
+            subset.groupby("Item Name", as_index=False)
             .agg(TotalRevenue=("Amount", "sum"), Count=("Item Name", "size"))
             .sort_values("Count", ascending=False)
-            .head(25)
+            .head(50)
         )
         sub_count["Category"] = label
-        sub_count["Metric"] = "Top 25 by Count"
+        sub_count["Metric"] = "Top 50 by Count"
 
         debug_frames.extend([sub_revenue, sub_count])
 
+    # Optional: combine *all* keyword matches into one "ALL_KEYWORDS" summary
+    all_mask = pd.Series(False, index=df_debug.index)
+    for includes, excludes in keyword_groups.values():
+        all_mask |= make_mask(df_debug, includes, excludes)
+    subset_all = df_debug.loc[all_mask].copy()
+    if not subset_all.empty:
+        all_revenue = (
+            subset_all.groupby("Item Name", as_index=False)
+            .agg(TotalRevenue=("Amount", "sum"), Count=("Item Name", "size"))
+            .sort_values("TotalRevenue", ascending=False)
+            .head(50)
+        )
+        all_revenue["Category"] = "ALL_KEYWORDS"
+        all_revenue["Metric"] = "Top 50 by Revenue"
+
+        all_count = (
+            subset_all.groupby("Item Name", as_index=False)
+            .agg(TotalRevenue=("Amount", "sum"), Count=("Item Name", "size"))
+            .sort_values("Count", ascending=False)
+            .head(50)
+        )
+        all_count["Category"] = "ALL_KEYWORDS"
+        all_count["Metric"] = "Top 50 by Count"
+
+        debug_frames.extend([all_revenue, all_count])
+
     if debug_frames:
         debug_out = pd.concat(debug_frames, ignore_index=True)
-        debug_out = debug_out[
-            ["Category", "Metric", "Item Name", "TotalRevenue", "Count"]
-        ]
+        debug_out = debug_out[["Category", "Metric", "Item Name", "TotalRevenue", "Count"]]
         debug_out["TotalRevenue"] = debug_out["TotalRevenue"].astype(int)
 
         csv_bytes = debug_out.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="⬇️ Download Keyword Debug CSV (Top 25 by Revenue & Count)",
+            label="⬇️ Download Keyword Debug CSV (Top 50 by Revenue & Count, all categories)",
             data=csv_bytes,
-            file_name="keyword_debug_top25.csv",
+            file_name="keyword_debug_top50_allcategories.csv",
             mime="text/csv",
         )
     else:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
-
-
-
-
-
-
-
-
-
-
