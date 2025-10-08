@@ -877,27 +877,25 @@ st.info(
 st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 📂 Data Upload")
 
-files = st.file_uploader(
-    "Upload Sales Plan file(s)",
-    type=["csv", "xls", "xlsx"],
-    accept_multiple_files=True,
-    key="file_uploader_main"
-)
-
-
 datasets = []
 summary_rows = []
 working_df = None
 
 # --------------------------------
-# Data Upload & Caching Logic
+# Cached dataset loader (persistent across reruns)
 # --------------------------------
+@st.cache_resource(show_spinner=False)
+def load_persistent_dataset(file_blobs):
+    return summarize_uploads(file_blobs)
 
+# --------------------------------
 # File uploader
+# --------------------------------
 files = st.file_uploader(
     "Upload Sales Plan file(s)",
     type=["csv", "xls", "xlsx"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
+    key="file_uploader_main"
 )
 
 # --------------------------------
@@ -926,13 +924,6 @@ if set(current_files) != set(st.session_state["last_uploaded_files"]):
     st.caption("🧹 Cache cleared — data will be reprocessed on next upload.")
 
 # --------------------------------
-# Cached dataset loader (persistent across reruns)
-# --------------------------------
-@st.cache_resource(show_spinner=False)
-def load_persistent_dataset(file_blobs):
-    return summarize_uploads(file_blobs)
-
-# --------------------------------
 # File upload handling
 # --------------------------------
 if files:
@@ -959,7 +950,6 @@ if files:
                 st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
         except Exception:
             st.warning("⚠️ PMS mismatch or undetected files. Reminders cannot be generated.")
-
 
 # --------------------------------
 # Render Tables
@@ -3499,6 +3489,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
