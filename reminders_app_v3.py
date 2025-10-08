@@ -795,8 +795,9 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
 
     return df, masks, tx_client, tx_patient, patients_per_month
 
-# Bundle Creation
-rules_fp = _rules_fp(st.session_state["rules"])
+# === Bundle Creation (inline hash; safe if rules not set yet) ===
+rules_dict = st.session_state.get("rules", {})  # avoid KeyError if rules not initialized
+rules_fp = hashlib.md5(json.dumps(rules_dict, sort_keys=True).encode()).hexdigest()
 bundle_key = (st.session_state.get("data_version", 0), rules_fp)
 
 if st.session_state.get("working_df") is not None:
@@ -811,6 +812,7 @@ else:
     # No data → clear any stale bundle so downstream checks can bail gracefully
     st.session_state.pop("bundle", None)
     st.session_state.pop("bundle_key", None)
+
 
 
 # --------------------------------
@@ -2757,6 +2759,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
