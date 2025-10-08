@@ -1911,6 +1911,8 @@ if st.session_state["factoids_unlocked"]:
                 "Revenue from Flea/Worm (% of total)",
                 "Revenue from Food",
                 "Revenue from Food (% of total)",
+                "Revenue from Grooms, Ears & Nails",
+                "Revenue from Grooms, Ears & Nails (% of total)",
                 "Revenue from Lab Work",
                 "Revenue from Lab Work (% of total)",
                 "Revenue from Neuters",
@@ -1920,6 +1922,7 @@ if st.session_state["factoids_unlocked"]:
                 "Revenue from X-rays",
                 "Revenue from X-rays (% of total)",
             ]
+
             sel = st.selectbox("Select Revenue Metric:", metrics, index=0, key="rev_breakdown_metric")
 
             palette = [
@@ -1986,6 +1989,7 @@ if st.session_state["factoids_unlocked"]:
             "Dentals",
             "Flea/Worm Treatments",
             "Food Purchases",
+            "Grooms, Ears & Nails",
             "Hospitalisations",
             "Lab Work",
             "Neuters",
@@ -2858,6 +2862,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
