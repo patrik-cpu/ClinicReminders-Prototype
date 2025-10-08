@@ -1471,7 +1471,7 @@ if st.session_state["factoids_unlocked"]:
             """
             Monthly clinic metrics over FULL dataset.
             Returns a DataFrame with Month (Period[M]), MonthLabel, Year, current columns,
-            Prev_<col> (t-12), and MA3_<col> / Prev_MA3_<col> precomputed for ALL metrics.
+            and Prev_<col> (t-12). NO moving-average lines here.
             """
             df = df_full
         
@@ -1529,30 +1529,24 @@ if st.session_state["factoids_unlocked"]:
                 core["Transactions per Client"]        = core["Client Transactions"] / core["Unique Clients Seen"].replace(0, np.nan)
                 core["Visits per Patient"]             = core["Patient Visits"] / core["Unique Patient Visits"].replace(0, np.nan)
         
-            # Sort once, add labels
             core = core.fillna(0.0).sort_values("Month").reset_index(drop=True)
             core["MonthLabel"] = core["Month"].dt.strftime("%b %Y")
             core["Year"]       = core["Month"].dt.year
         
-            # Prepare ghost and MA3 for ALL metrics up-front
+            # Ghost (prev-year) columns ready for any metric
             metric_cols = [
                 "Total Revenue","Unique Clients Seen","Unique Patient Visits","Client Transactions",
-                "Patient Visits","Deaths","Neuters","New Clients","New Patients",
+                "Patient Visits","Deaths","Neuters",
+                "New Clients","New Patients",
                 "Revenue per Client","Revenue per Visiting Patient",
                 "Revenue per Client Transaction","Revenue per Patient Visit",
                 "Transactions per Client","Visits per Patient"
             ]
-        
             for col in metric_cols:
-                cur = pd.to_numeric(core[col], errors="coerce").fillna(0.0)
-                core[col] = cur
-                core[f"Prev_{col}"] = cur.shift(12)
-        
-                # precomputed 3-mo trailing MAs for current and ghost
-                core[f"MA3_{col}"]      = cur.rolling(window=3, min_periods=1).mean()
-                core[f"Prev_MA3_{col}"] = core[f"Prev_{col}"].rolling(window=3, min_periods=1).mean()
+                core[f"Prev_{col}"] = core[col].shift(12)
         
             return core
+
 
 
         @st.cache_data(show_spinner=False)
@@ -1723,7 +1717,7 @@ if st.session_state["factoids_unlocked"]:
 
             
             # ---------------------------
-            # Chart 1: Revenue & Transactions (stable axes + precomputed MAs)
+            # Chart 1: Revenue & Transactions (bars only — current + ghost)
             # ---------------------------
             st.markdown(
                 "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💰 Revenue & Transactions</h4>",
@@ -1742,98 +1736,68 @@ if st.session_state["factoids_unlocked"]:
                 key="core_metric_revtx"
             )
             
-            # Slice stable 12-month window once
-            last_m    = core_all["Month"].max()
-            current_12 = pd.period_range(last_m - 11, last_m, freq="M")
-            core_win  = core_all[core_all["Month"].isin(current_12)].copy()
+            # Full-data, cached monthly metrics (w/ Prev_ cols)
+            core_all = compute_core_metrics_full(data_key, df_full, masks, tx_client)
+            if not core_all.empty:
+                last_m    = core_all["Month"].max()
+                current_12 = pd.period_range(last_m - 11, last_m, freq="M")
+                core_win  = core_all[core_all["Month"].isin(current_12)].copy()
             
-            # Build plotting DF with precomputed columns
-            cols_needed = [
-                sel_core_rev,
-                f"Prev_{sel_core_rev}",
-                f"MA3_{sel_core_rev}",
-                f"Prev_MA3_{sel_core_rev}"
-            ]
-            df_plot = core_win[["Month","MonthLabel"] + cols_needed].copy()
+                safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core_rev)
+                df_plot = core_win[["Month","MonthLabel", sel_core_rev, f"Prev_{sel_core_rev}"]].copy()
+                df_plot = df_plot.rename(columns={sel_core_rev:"Cur", f"Prev_{sel_core_rev}":"Prev"})
+                df_plot["has_ghost"] = df_plot["Prev"].notna()
+                df_plot["MonthOnly"] = df_plot["MonthLabel"].str.split().str[0]
             
-            # Force numeric to avoid "flatline" from object dtypes
-            for c in cols_needed:
-                df_plot[c] = pd.to_numeric(df_plot[c], errors="coerce").fillna(0.0)
+                palette = [
+                    "#fb7185", "#60a5fa", "#4ade80", "#facc15",
+                    "#f97316", "#fbbf24", "#a5b4fc", "#22d3ee", "#93c5fd",
+                ]
+                color = palette[metric_list_rev_tx.index(sel_core_rev) % len(palette)]
+                y_fmt = ",.2f" if "Transactions per" in sel_core_rev else ",.0f"
             
-            # Stable x-domain so axes don't jump/clip on metric changes
-            x_domain = df_plot["MonthLabel"].tolist()
-            
-            # Cosmetics
-            palette = [
-                "#fb7185", "#60a5fa", "#4ade80", "#facc15",
-                "#f97316", "#fbbf24", "#a5b4fc", "#22d3ee", "#93c5fd",
-            ]
-            color = palette[metric_list_rev_tx.index(sel_core_rev) % len(palette)]
-            y_fmt = ",.2f" if "Transactions per" in sel_core_rev else ",.0f"
-            
-            # Layers
-            bars_prev = (
-                alt.Chart(df_plot)
-                .mark_bar(size=20, color=color, opacity=0.3)
-                .encode(
-                    x=alt.X("MonthLabel:N",
-                            sort=x_domain,
-                            scale=alt.Scale(domain=x_domain),
-                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelLimit=140, labelPadding=6)),
-                    y=alt.Y(f"Prev_{sel_core_rev}:Q", title=sel_core_rev, axis=alt.Axis(format=y_fmt)),
-                    tooltip=[alt.Tooltip("MonthLabel:N", title="Month"),
-                             alt.Tooltip(f"Prev_{sel_core_rev}:Q", title=f"Prev {sel_core_rev}", format=y_fmt)],
+                ghost = (
+                    alt.Chart(df_plot)
+                    .transform_filter("datum.Prev != null")
+                    .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
+                                axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                        y=alt.Y("Prev:Q", title=sel_core_rev, axis=alt.Axis(format=y_fmt)),
+                        tooltip=[
+                            alt.Tooltip("MonthOnly:N", title="Month"),
+                            alt.Tooltip("Prev:Q", title=f"Prev {sel_core_rev}", format=y_fmt),
+                        ],
+                    )
                 )
-            )
             
-            bars_cur = (
-                alt.Chart(df_plot)
-                .mark_bar(size=20, color=color)
-                .encode(
-                    x=alt.X("MonthLabel:N",
-                            sort=x_domain,
-                            scale=alt.Scale(domain=x_domain)),
-                    y=alt.Y(f"{sel_core_rev}:Q", title=sel_core_rev, axis=alt.Axis(format=y_fmt)),
-                    tooltip=[alt.Tooltip("MonthLabel:N", title="Month"),
-                             alt.Tooltip(f"{sel_core_rev}:Q", title=sel_core_rev, format=y_fmt)],
+                current = (
+                    alt.Chart(df_plot)
+                    .mark_bar(size=20, color=color)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
+                                axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                        y=alt.Y("Cur:Q", title=sel_core_rev, axis=alt.Axis(format=y_fmt)),
+                        tooltip=[
+                            alt.Tooltip("MonthOnly:N", title="Month"),
+                            alt.Tooltip("Cur:Q", title=sel_core_rev, format=y_fmt),
+                        ],
+                    )
+                    .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
-                # offset current bars to the right when prev exists (purely visual separation)
-                .transform_calculate(xOffset="0")  # keep simple & stable; no dynamic offset jitter
-            )
             
-            line_ma = (
-                alt.Chart(df_plot)
-                .mark_line(color=color, strokeWidth=2.5)
-                .encode(
-                    x=alt.X("MonthLabel:N", sort=x_domain, scale=alt.Scale(domain=x_domain)),
-                    y=alt.Y(f"MA3_{sel_core_rev}:Q", axis=alt.Axis(format=y_fmt)),
-                    tooltip=[alt.Tooltip("MonthLabel:N", title="Month"),
-                             alt.Tooltip(f"MA3_{sel_core_rev}:Q", title=f"MA (3m) {sel_core_rev}", format=y_fmt)],
+                chart_rev_tx = (
+                    alt.layer(ghost, current)
+                    .resolve_scale(y="shared")
+                    .properties(
+                        height=400, width=700,
+                        title=f"{sel_core_rev} per Month (with previous-year ghost bars)"
+                    )
                 )
-            )
-            
-            line_ma_prev = (
-                alt.Chart(df_plot)
-                .mark_line(color=color, strokeWidth=2.0, opacity=0.35)
-                .encode(
-                    x=alt.X("MonthLabel:N", sort=x_domain, scale=alt.Scale(domain=x_domain)),
-                    y=alt.Y(f"Prev_MA3_{sel_core_rev}:Q", axis=alt.Axis(format=y_fmt)),
-                    tooltip=[alt.Tooltip("MonthLabel:N", title="Month"),
-                             alt.Tooltip(f"Prev_MA3_{sel_core_rev}:Q", title=f"Prev MA (3m) {sel_core_rev}", format=y_fmt)],
-                )
-            )
-            
-            chart_rev_tx = (
-                alt.layer(bars_prev, bars_cur, line_ma, line_ma_prev)
-                .resolve_scale(y="shared")
-                .properties(
-                    height=400,
-                    width=700,
-                    title=f"{sel_core_rev} per Month (with previous-year ghost bars + 3-mo moving average)",
-                    padding={"left": 10, "right": 10, "top": 10, "bottom": 50}  # keep axes visible
-                )
-            )
-            st.altair_chart(chart_rev_tx, use_container_width=True)
+                st.altair_chart(chart_rev_tx, use_container_width=True)
+            else:
+                st.info("No data for this chart.")
+
 
 
 
@@ -1843,13 +1807,13 @@ if st.session_state["factoids_unlocked"]:
 
 
             # ---------------------------
-            # Chart 2: Clients & Patients
+            # Chart 2: Clients & Patients (bars only — current + ghost)
             # ---------------------------
             st.markdown(
                 "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>👥 Clients & Patients</h4>",
                 unsafe_allow_html=True
             )
-
+            
             metric_list_cp = [
                 "Unique Clients Seen", "Unique Patient Visits",
                 "Client Transactions", "Patient Visits",
@@ -1863,87 +1827,67 @@ if st.session_state["factoids_unlocked"]:
                 index=0,
                 key="core_metric_clientspatients"
             )
-
-            color = palette[metric_list_cp.index(sel_core_cp) % len(palette)]
-            y_fmt = ",.0f" if sel_core_cp not in ("Visits per Patient",) else ",.2f"
-
-            df_plot2 = core_win[["Month","MonthLabel", sel_core_cp, f"Prev_{sel_core_cp}"]].rename(
-                columns={sel_core_cp: "Cur", f"Prev_{sel_core_cp}": "Prev"}
-            ).copy()
-            df_plot2["has_ghost"] = df_plot2["Prev"].notna()
-            df_plot2["MonthOnly"] = df_plot2["MonthLabel"].str.split().str[0]
-
-            ghost_cp = (
-                alt.Chart(df_plot2)
-                .transform_filter("datum.Prev != null")
-                .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
-                .encode(
-                    x=alt.X("MonthLabel:N", sort=df_plot2["MonthLabel"].tolist(),
-                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
-                    y=alt.Y("Prev:Q", title=sel_core_cp, axis=alt.Axis(format=y_fmt)),
-                    tooltip=[
-                        alt.Tooltip("MonthOnly:N", title="Month"),
-                        alt.Tooltip("Prev:Q", title=sel_core_cp, format=y_fmt),
-                    ],
+            
+            core_all = compute_core_metrics_full(data_key, df_full, masks, tx_client)
+            if not core_all.empty:
+                last_m    = core_all["Month"].max()
+                current_12 = pd.period_range(last_m - 11, last_m, freq="M")
+                core_win  = core_all[core_all["Month"].isin(current_12)].copy()
+            
+                safe_col = re.sub(r"[^A-Za-z0-9_]", "_", sel_core_cp)
+                df_plot = core_win[["Month","MonthLabel", sel_core_cp, f"Prev_{sel_core_cp}"]].copy()
+                df_plot = df_plot.rename(columns={sel_core_cp:"Cur", f"Prev_{sel_core_cp}":"Prev"})
+                df_plot["has_ghost"] = df_plot["Prev"].notna()
+                df_plot["MonthOnly"] = df_plot["MonthLabel"].str.split().str[0]
+            
+                palette = [
+                    "#fb7185", "#60a5fa", "#4ade80", "#facc15",
+                    "#f97316", "#fbbf24", "#a5b4fc", "#22d3ee", "#93c5fd",
+                ]
+                color = palette[metric_list_cp.index(sel_core_cp) % len(palette)]
+                y_fmt = ",.0f" if sel_core_cp not in ("Visits per Patient",) else ",.2f"
+            
+                ghost_cp = (
+                    alt.Chart(df_plot)
+                    .transform_filter("datum.Prev != null")
+                    .mark_bar(size=20, color=color, opacity=0.3, xOffset=-25)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
+                                axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                        y=alt.Y("Prev:Q", title=sel_core_cp, axis=alt.Axis(format=y_fmt)),
+                        tooltip=[
+                            alt.Tooltip("MonthOnly:N", title="Month"),
+                            alt.Tooltip("Prev:Q", title=f"Prev {sel_core_cp}", format=y_fmt),
+                        ],
+                    )
                 )
-            )
-
-            current_cp = (
-                alt.Chart(df_plot2)
-                .mark_bar(size=20, color=color)
-                .encode(
-                    x=alt.X("MonthLabel:N", sort=df_plot2["MonthLabel"].tolist(),
-                            axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
-                    y=alt.Y("Cur:Q", title=sel_core_cp, axis=alt.Axis(format=y_fmt)),
-                    tooltip=[
-                        alt.Tooltip("MonthOnly:N", title="Month"),
-                        alt.Tooltip("Cur:Q", title=sel_core_cp, format=y_fmt),
-                    ],
+            
+                current_cp = (
+                    alt.Chart(df_plot)
+                    .mark_bar(size=20, color=color)
+                    .encode(
+                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist(),
+                                axis=alt.Axis(title=None, labelAngle=45, labelFontSize=12, labelOffset=-15)),
+                        y=alt.Y("Cur:Q", title=sel_core_cp, axis=alt.Axis(format=y_fmt)),
+                        tooltip=[
+                            alt.Tooltip("MonthOnly:N", title="Month"),
+                            alt.Tooltip("Cur:Q", title=sel_core_cp, format=y_fmt),
+                        ],
+                    )
+                    .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
-                .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
-            )
-
-            allowed_labels_cp = df_plot2["MonthLabel"].tolist()
-            df_ma2 = core_all[core_all["Month"].isin(
-                pd.period_range(current_12[0] - 2, current_12[-1], freq="M")
-            )][["MonthLabel", sel_core_cp]].rename(columns={sel_core_cp: "Value"}).copy()
-
-            ma_line_cp = (
-                alt.Chart(df_ma2)
-                .transform_filter(alt.FieldOneOfPredicate(field="MonthLabel", oneOf=allowed_labels_cp))
-                .transform_window(rolling_mean="mean(Value)", frame=[-2, 0])
-                .mark_line(color=color, size=2.5)
-                .encode(
-                    x=alt.X("MonthLabel:N", sort=allowed_labels_cp),
-                    y=alt.Y("rolling_mean:Q"),
-                    tooltip=[alt.Tooltip("MonthLabel:N", title="Month"),
-                             alt.Tooltip("rolling_mean:Q", title="3-mo Moving Avg", format=y_fmt)]
+            
+                chart_cp = (
+                    alt.layer(ghost_cp, current_cp)
+                    .resolve_scale(y="shared")
+                    .properties(
+                        height=400, width=700,
+                        title=f"{sel_core_cp} per Month (with previous-year ghost bars)"
+                    )
                 )
-            )
-
-            df_ma_ghost2 = df_plot2[["MonthLabel","Prev"]].rename(columns={"Prev":"Value"})
-            ma_line_ghost_cp = (
-                alt.Chart(df_ma_ghost2)
-                .transform_filter("datum.Value != null")
-                .transform_window(ghost_rolling_mean="mean(Value)", frame=[-2, 0])
-                .mark_line(color=color, size=2.0, opacity=0.3)
-                .encode(
-                    x=alt.X("MonthLabel:N", sort=allowed_labels_cp),
-                    y=alt.Y("ghost_rolling_mean:Q"),
-                    tooltip=[alt.Tooltip("MonthLabel:N", title="Month"),
-                             alt.Tooltip("ghost_rolling_mean:Q", title="Ghost 3-mo Moving Avg", format=y_fmt)]
-                )
-            )
-
-            chart_cp = (
-                alt.layer(ghost_cp, current_cp, ma_line_cp, ma_line_ghost_cp)
-                .resolve_scale(y="shared")
-                .properties(
-                    height=400, width=700,
-                    title=f"{sel_core_cp} per Month (with previous-year ghost bars + 3-mo moving average)"
-                )
-            )
-            st.altair_chart(chart_cp, use_container_width=True)
+                st.altair_chart(chart_cp, use_container_width=True)
+            else:
+                st.info("No data for this chart.")
 
         # ============================
         # Chart 3: 💵 Revenue Breakdown by Month
@@ -2872,6 +2816,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
