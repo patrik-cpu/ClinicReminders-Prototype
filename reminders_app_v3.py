@@ -29,9 +29,26 @@ st.markdown("---")
 # -----------------------
 # Keyword Definitions
 # -----------------------
+CONSULT_KEYWORDS = [
+    "consult","examination", "checkup", "check-up",
+    "recheck", "re-check", "follow-up", "follow up",
+    "visit", "clinical assessment",
+    "physical exam", "emergency"
+]
+CONSULT_EXCLUSIONS = ["fecal","blood","smear","faecal","urine","x-ray","xray"]
+
+DENTAL_KEYWORDS = ["dental","tooth","extraction","scale","dentistry"]
+DENTAL_EXCLUSIONS = []
+
+GROOM_KEYWORDS = ["groom"]
+GROOM_EXCLUSIONS = []
+
+BOARDING_KEYWORDS = ["board"]
+BOARDING_EXCLUSIONS = []
+
 FLEA_WORM_KEYWORDS = [
     "bravecto", "revolution", "deworm","de-worm","frontline", "milbe", "milpro","advantix","advocate",
-    "interceptor","stronghold","drontal","frontpro","credelio",
+    "interceptor","stronghold","drontal","frontpro","credelio","caniverm",
     "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend","popantel","panacur",
     "broadline","profender","comfortis","endecto"
 ]
@@ -40,9 +57,10 @@ FLEA_WORM_EXCLUSIONS = ["felv","fiv","antigen","antibody","wild catz","ringworm"
 FOOD_KEYWORDS = [
     "hill's", "hills", "royal canin", "purina", "proplan", "iams", "eukanuba",
     "orijen", "acana", "farmina", "vetlife", "wellness", "taste of the wild",
-    "nutro", "pouch", "canned", "wet", "dry", "kibble","fcn","hair & skin","hair&skin"
+    "nutro", "pouch", "canned", "wet", "dry", "kibble","fcn","hair & skin","hair&skin",
     "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", 
-    "grain", "rc","bhn","vet diet","prescription diet","trovet"
+    "grain", "rc","bhn","vet diet","prescription diet","trovet","vhn","vcn","shn","fhn",
+    "ccn"
 ]
 FOOD_EXCLUSIONS = [
     "caniverm","deworm","caninsulin","referral","endoscopy","colonoscopy","In-patient","Cat Sitting",
@@ -59,13 +77,16 @@ LABWORK_KEYWORDS = [
     "cbc", "blood test", "lab", "biochemistry", "haematology", "urinalysis", "labwork", "idexx", "ghp",
     "chem", "felv", "fiv", "urine", "cytology", "smear", "faecal", "fecal", "microscopic", "slide", "bun",
     "crea", "phosphate", "cpl", "cpli", "lipase", "amylase", "pancreatic", "cortisol","sdma","t4","tsh",
-    "electrolyte","thyroid","snap","bilirubin"
+    "electrolyte","thyroid","snap","bilirubin","acth","Alanine","Aminotranserase","bast","bile acid",
+    "creatinine","CRP","catalyst","tbil","total protein","microscope","fna","fine needle","floatation",
+    "Parasitology","giardia","pcv","hct","haematocrit","hematocrit","corona"
 ]
 LABWORK_EXCLUSIONS = ["cream","labrador","cremation","enema","prednisolone"]
 
 ANAESTHETIC_KEYWORDS = [
-    "anaesthesia", "anesthesia", "spay", "neuter", "castrate", "surgery",
-    "isoflurane", "propofol", "alfaxan", "alfaxalone","pyometra","cryptorch"
+    "anaesthesia", "anesthesia", "spay", "neuter", "castrate", "surgery","enucleation","laparotomy",
+    "isoflurane", "propofol", "alfaxan", "alfaxalone","pyometra","cryptorch","endoscop","colonosc",
+    "isoflo","Debridement"
 ]
 ANAESTHETIC_EXCLUSIONS = ["satiety","balance","vhn","royal canin","food"]
 
@@ -92,6 +113,9 @@ PATIENT_VISIT_KEYWORDS = (
     + VACCINE_KEYWORDS
     + DEATH_KEYWORDS
     + NEUTER_KEYWORDS
+    + DENTAL_KEYWORDS
+    + CONSULT_KEYWORDS
+    + GROOM_KEYWORDS
 )
 
 PATIENT_VISIT_EXCLUSIONS = (
@@ -102,13 +126,18 @@ PATIENT_VISIT_EXCLUSIONS = (
     + VACCINE_EXCLUSIONS
     + DEATH_EXCLUSIONS
     + NEUTER_EXCLUSIONS
+    + DENTAL_EXCLUSIONS
+    + CONSULT_EXCLUSIONS
+    + GROOM_EXCLUSIONS
+    
 )
 
 # Optionally, add your own custom visit-only indicators here
 PATIENT_VISIT_KEYWORDS += [
-    "consult", "exam", "checkup", "check-up","recheck", "re-check","follow-up","follow up",
-    "dentistry", "dental", "scale", "wound clean", "bandage", "biopsy","sedation",
-    "admit", "discharge", "inpatient", "in patient","in-patient"
+    "flush","nail clip","nail trim"
+    "wound clean", "bandage", "biopsy","sedation","anal gland",
+    "admit", "discharge", "inpatient", "in patient","in-patient","abscess","draining","eye pressure","tonometry",
+    "ocular pressure","stt","Fluorescein","oxygen","overnight","Schirmer","fluid","catheter"
 ]
 
 PATIENT_VISIT_EXCLUSIONS += []
@@ -1801,7 +1830,7 @@ if st.session_state["factoids_unlocked"]:
 
     
         # ============================
-        # 💵 Revenue Breakdown by Month Chart
+        # Chart 3: Revenue Breakdown by Month Chart
         # ============================
         st.markdown(
             "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💵 Revenue Breakdown by Month</h4>",
@@ -1947,7 +1976,7 @@ if st.session_state["factoids_unlocked"]:
 
     
         # ============================
-        # Patient Breakdown % Chart
+        # Chart 4: Patient Breakdown % Chart
         # ============================
         st.markdown(
             "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
@@ -3043,6 +3072,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
