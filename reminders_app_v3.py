@@ -2890,6 +2890,45 @@ else:
 # ====== Quarterly LLM Export (full-fat) ======
 import io, json, zipfile
 from dataclasses import dataclass
+import math
+from datetime import datetime
+
+def _json_default(obj):
+    """Coerce pandas/NumPy types and datetimes to JSON-safe Python types."""
+    # pandas & numpy numbers/bools
+    try:
+        import numpy as _np
+        if isinstance(obj, (_np.integer,)):
+            return int(obj)
+        if isinstance(obj, (_np.floating,)):
+            # convert NaN/Inf to None for strict JSON
+            return None if (math.isnan(float(obj)) or math.isinf(float(obj))) else float(obj)
+        if isinstance(obj, (_np.bool_,)):
+            return bool(obj)
+    except Exception:
+        pass
+
+    # pandas Timestamp / Period
+    try:
+        import pandas as _pd
+        if isinstance(obj, _pd.Timestamp):
+            # always output ISO string
+            return obj.tz_convert("Asia/Dubai").isoformat() if obj.tzinfo else obj.isoformat()
+        if isinstance(obj, _pd.Period):
+            return str(obj)  # e.g., '2025-07'
+    except Exception:
+        pass
+
+    # python datetime/date
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+
+    # sets → lists
+    if isinstance(obj, set):
+        return list(obj)
+
+    # fallthrough: let json raise for truly unknown types
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
 @dataclass
 class Period:
@@ -3294,7 +3333,10 @@ def build_quarterly_payload_full(
     mem = io.BytesIO()
     with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
         # JSON payload
-        z.writestr("quarterly_payload.json", json.dumps(payload, ensure_ascii=False, indent=2))
+        z.writestr(
+            "quarterly_payload.json",
+            json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)
+        )
 
         # Core monthly (last 24 months)
         if core_24 is not None and not core_24.empty:
@@ -3397,3 +3439,4 @@ if st.session_state.get("llm_payload"):
     meta = f"Built at: {st.session_state.get('llm_built_at')}"
     with st.expander(f"Preview quarterly_payload.json  •  {meta}"):
         st.code(json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2)[:8000], language="json")
+
