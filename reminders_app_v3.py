@@ -792,14 +792,13 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
     df["VisitFlag"] = masks["PATIENT_VISIT"]
 
     # ---- Transactions (blocks) once ----
-    # Sort by client+date; compute day gaps to segment 'blocks' of contiguous days per client
     df_sorted = df.sort_values(["ClientKey", "DateOnly"])
     daydiff   = df_sorted.groupby("ClientKey", dropna=False)["DateOnly"].diff().dt.days.fillna(1)
     block     = (daydiff > 1).groupby(df_sorted["ClientKey"], dropna=False).cumsum()
     df_sorted["Block"] = block
-
-    # ✅ propagate Block back to the base frame (align by original index)
-    df["Block"] = df_sorted["Block"].reindex(df.index)
+    
+    # ✅ robust propagation back to df using index alignment
+    df = df.join(df_sorted[["Block"]])
 
     # Client-level transactions (one row per contiguous block)
     tx_client = (
@@ -1588,44 +1587,93 @@ if st.session_state["factoids_unlocked"]:
         ):
             """
             Returns a dict of { category_name: DataFrame[Month, Percent, UniquePatients, TotalPatientsMonth, PrevPercent, MonthLabel, Year] }.
+            Self-heals required columns if missing (ChargeDate, ClientKey, Block).
             """
             out = {}
-
+            if df_full is None or df_full.empty:
+                return out
+        
+            # ---- SAFETY: ensure required columns exist on df_full ----
+            df = df_full.copy()
+        
+            # ChargeDate
+            if "ChargeDate" not in df.columns or not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
+                df["ChargeDate"] = pd.to_datetime(df.get("ChargeDate"), errors="coerce")
+        
+            # DateOnly / Month (cheap if already there)
+            if "DateOnly" not in df.columns:
+                df["DateOnly"] = df["ChargeDate"].dt.normalize()
+            if "Month" not in df.columns:
+                df["Month"] = df["ChargeDate"].dt.to_period("M")
+        
+            # ClientKey/AnimalKey
+            def _norm(s: pd.Series) -> pd.Series:
+                return (
+                    s.astype(str)
+                     .str.normalize("NFKC").str.lower()
+                     .str.replace(r"[\u00A0\u200B]", "", regex=True)
+                     .str.strip().str.replace(r"\s+", " ", regex=True)
+                )
+            if "ClientKey" not in df.columns:
+                df["ClientKey"] = _norm(df.get("Client Name", pd.Series(index=df.index)))
+            if "AnimalKey" not in df.columns:
+                df["AnimalKey"] = _norm(df.get("Animal Name", pd.Series(index=df.index)))
+        
+            # Block (recompute if missing)
+            if "Block" not in df.columns:
+                df_tmp = df.sort_values(["ClientKey", "DateOnly"])
+                dd  = df_tmp.groupby("ClientKey", dropna=False)["DateOnly"].diff().dt.days.fillna(1)
+                blk = (dd > 1).groupby(df_tmp["ClientKey"], dropna=False).cumsum()
+                df_tmp["Block"] = blk
+                df = df.join(df_tmp[["Block"]])  # align by index
+        
+            # Helper: compute one category
             def one_category(mask: pd.Series):
-                df = df_full
-                # service rows that match category
+                # pick only rows that match the category AND have necessary fields
+                cols_needed = ["ClientKey","Block","ChargeDate"]
+                missing = [c for c in cols_needed if c not in df.columns]
+                if missing:
+                    # If we still somehow miss columns, bail gracefully
+                    return pd.DataFrame(columns=["Month","Percent","UniquePatients","TotalPatientsMonth","PrevPercent","MonthLabel","Year"])
+        
                 service_rows = df.loc[mask, ["ClientKey", "Block", "ChargeDate"]].drop_duplicates()
                 if service_rows.empty:
                     return pd.DataFrame(columns=["Month","Percent","UniquePatients","TotalPatientsMonth","PrevPercent","MonthLabel","Year"])
-
-                # match with tx_client blocks
-                # tx_client currently keyed by ClientKey+Block, and holds Patients (set of AnimalKey)
-                # Build a join key in tx_client if not present
+        
+                # tx_client alignment (it should be built from the same bundle; still guard)
+                if tx_client is None or tx_client.empty:
+                    return pd.DataFrame(columns=["Month","Percent","UniquePatients","TotalPatientsMonth","PrevPercent","MonthLabel","Year"])
+        
                 tx = tx_client.copy()
                 tx["Month"] = tx["StartDate"].dt.to_period("M")
-
+        
                 qualifying = service_rows.merge(
                     tx[["ClientKey","Block","Patients","StartDate"]],
                     on=["ClientKey","Block"], how="left"
                 )
                 qualifying["Month"] = qualifying["ChargeDate"].dt.to_period("M")
-
-                monthly = (qualifying.groupby("Month")["Patients"]
-                                     .apply(lambda p: len(set().union(*p)) if len(p) and isinstance(p.iloc[0], (set, list)) else 0)
-                                     .rename("UniquePatients")
-                                     .to_frame()
-                                     .reset_index())
-
-                monthly["TotalPatientsMonth"] = monthly["Month"].map(patients_per_month).fillna(0).astype(int)
+        
+                monthly = (
+                    qualifying.groupby("Month")["Patients"]
+                              .apply(lambda p: len(set().union(*p)) if len(p) and isinstance(p.iloc[0], (set, list)) else 0)
+                              .rename("UniquePatients")
+                              .to_frame()
+                              .reset_index()
+                )
+        
+                # denominator from patients_per_month (fallback if empty)
+                ppm = patients_per_month if patients_per_month is not None else df.groupby("Month")["AnimalKey"].nunique()
+                monthly["TotalPatientsMonth"] = monthly["Month"].map(ppm).fillna(0).astype(int)
+        
                 with np.errstate(divide='ignore', invalid='ignore'):
                     monthly["Percent"] = (monthly["UniquePatients"] / monthly["TotalPatientsMonth"]).fillna(0.0)
-
+        
                 monthly = monthly.sort_values("Month")
                 monthly["PrevPercent"] = monthly["Percent"].shift(12)
                 monthly["MonthLabel"]  = monthly["Month"].dt.strftime("%b %Y")
                 monthly["Year"]        = monthly["Month"].dt.year
                 return monthly
-
+        
             categories = {
                 "Anaesthetics": "ANAESTHETIC",
                 "Dentals": "DENTAL",
@@ -1638,12 +1686,14 @@ if st.session_state["factoids_unlocked"]:
                 "Vaccinations": "VACCINE",
                 "X-rays": "XRAY",
             }
-
+        
             for label, key in categories.items():
-                mask = masks[key].reindex(df_full.index, fill_value=False)
+                # Ensure the mask aligns to df's index
+                mask = masks[key].reindex(df.index, fill_value=False) if key in masks else pd.Series(False, index=df.index)
                 out[label] = one_category(mask)
-
+        
             return out
+
 
         # ============================
         # 📈 Monthly Charts (with Previous-Year Ghost Bars)
@@ -2799,6 +2849,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
