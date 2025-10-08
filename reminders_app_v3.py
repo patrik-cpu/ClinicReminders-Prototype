@@ -1688,6 +1688,7 @@ if st.session_state["factoids_unlocked"]:
         
             categories = {
                 "Anaesthetics": "ANAESTHETIC",
+                "Consults": "CONSULT",
                 "Dentals": "DENTAL",
                 "Flea/Worm Treatments": "FLEA_WORM",
                 "Food Purchases": "FOOD",
@@ -1698,6 +1699,7 @@ if st.session_state["factoids_unlocked"]:
                 "Vaccinations": "VACCINE",
                 "X-rays": "XRAY",
             }
+
         
             for label, key in categories.items():
                 # Ensure the mask aligns to df's index
@@ -1991,10 +1993,19 @@ if st.session_state["factoids_unlocked"]:
             monthly_win = monthly[monthly["Month"].isin(month_range)].copy()
 
             color_map = {
-                "Anaesthetics": "#fb7185", "Dentals": "#60a5fa", "Flea/Worm Treatments": "#4ade80",
-                "Food Purchases": "#facc15", "Hospitalisations": "#f97316", "Lab Work": "#fbbf24",
-                "Neuters": "#14b8a6", "Ultrasounds": "#a5b4fc", "Vaccinations": "#22d3ee", "X-rays": "#93c5fd"
+                "Anaesthetics": "#fb7185",
+                "Consults": "#0ea5e9",       
+                "Dentals": "#60a5fa",
+                "Flea/Worm Treatments": "#4ade80",
+                "Food Purchases": "#facc15",
+                "Hospitalisations": "#f97316",
+                "Lab Work": "#fbbf24",
+                "Neuters": "#14b8a6",
+                "Ultrasounds": "#a5b4fc",
+                "Vaccinations": "#22d3ee",
+                "X-rays": "#93c5fd",
             }
+
             color = color_map.get(choice, "#60a5fa")
 
             merged = monthly_win[["MonthLabel","Year","Percent","PrevPercent","UniquePatients","TotalPatientsMonth"]].copy()
@@ -2171,16 +2182,17 @@ if st.session_state["factoids_unlocked"]:
             # -------------------------
             # Map: label -> mask key
             pb_map = {
+                "Anaesthetics": "ANAESTHETIC",
+                "Consults": "CONSULT",       
                 "Dentals": "DENTAL",
-                "X-rays": "XRAY",
-                "Ultrasounds": "ULTRASOUND",
                 "Flea/Worm": "FLEA_WORM",
                 "Food": "FOOD",
+                "Hospitalisations": "HOSPITAL",
                 "Lab Work": "LABWORK",
                 "Neuters": "NEUTER",
-                "Anaesthetics": "ANAESTHETIC",
-                "Hospitalisations": "HOSPITAL",
+                "Ultrasounds": "ULTRASOUND",
                 "Vaccinations": "VACCINE",
+                "X-rays": "XRAY",
             }
         
             for label, key in pb_map.items():
@@ -2294,7 +2306,10 @@ if st.session_state["factoids_unlocked"]:
             if selected_period == "All Data":
                 new_clients, new_patients = unique_clients, unique_pairs
 
-        
+            # Consults count during the selected period
+            consult_rows_period = df_period.loc[masks["CONSULT"]].copy()
+            num_consults_period = consult_rows_period.shape[0]
+            
             # Add formatted KPIs
             metrics.update({
                 "Total Revenue": f"{int(total_revenue):,}",
@@ -2311,7 +2326,9 @@ if st.session_state["factoids_unlocked"]:
                 "Patient Visits per Client": f"{visits_per_client:.1f}".rstrip("0").rstrip("."),
                 "New Clients": f"{new_clients:,}",
                 "New Patients": f"{new_patients:,}",
+                "Number of Consults": f"{num_consults_period:,}",
             })
+
         
             # -------------------------
             # Card Renderer
@@ -2817,6 +2834,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
