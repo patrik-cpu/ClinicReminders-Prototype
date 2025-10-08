@@ -35,22 +35,26 @@ CONSULT_KEYWORDS = [
     "visit", "clinical assessment",
     "physical exam", "emergency"
 ]
-CONSULT_EXCLUSIONS = ["fecal","blood","smear","faecal","urine","x-ray","xray"]
+CONSULT_EXCLUSIONS = ["fecal","blood","smear","faecal","urine","x-ray","xray","ultrasound","afast","tfast","a-fast","t-fast"]
 
-DENTAL_KEYWORDS = ["dental","tooth","extraction","scale","dentistry"]
+DENTAL_KEYWORDS = ["dental","tooth","extraction","scale and polish","scale & polish","dentistry"]
 DENTAL_EXCLUSIONS = []
 
-GROOM_KEYWORDS = ["groom"]
+GROOM_KEYWORDS = ["groom","nail clip","nail trim","ear clean","ear flush","medicated bath"]
 GROOM_EXCLUSIONS = []
 
 BOARDING_KEYWORDS = ["board"]
 BOARDING_EXCLUSIONS = []
 
+FEE_KEYWORDS = ["fee"]
+FEE_EXCLUSIONS = []
+
 FLEA_WORM_KEYWORDS = [
     "bravecto", "revolution", "deworm","de-worm","frontline", "milbe", "milpro","advantix","advocate",
-    "interceptor","stronghold","drontal","frontpro","credelio","caniverm",
+    "interceptor","stronghold","drontal","frontpro","credelio","caniverm","Selamectin",
     "nexgard", "simparica", "advocate", "worm", "prazi", "fenbend","popantel","panacur",
-    "broadline","profender","comfortis","endecto"
+    "broadline","profender","comfortis","endecto","Fipronil","fiprotec","Fluralaner",
+    
 ]
 FLEA_WORM_EXCLUSIONS = ["felv","fiv","antigen","antibody","wild catz","ringworm"]
 
@@ -60,7 +64,8 @@ FOOD_KEYWORDS = [
     "nutro", "pouch", "canned", "wet", "dry", "kibble","fcn","hair & skin","hair&skin",
     "tuna", "chicken", "beef", "salmon", "lamb", "duck", "senior", "diet", "food", 
     "grain", "rc","bhn","vet diet","prescription diet","trovet","vhn","vcn","shn","fhn",
-    "ccn"
+    "ccn","applaws","Feline Health Nutrition","satiety","Inaba Churu","Inaba Ciao",
+    "Instinctive","thrive","Vet Diet","Moderate Calorie"
 ]
 FOOD_EXCLUSIONS = [
     "caniverm","deworm","caninsulin","referral","endoscopy","colonoscopy","In-patient","Cat Sitting",
@@ -70,7 +75,7 @@ FOOD_EXCLUSIONS = [
 XRAY_KEYWORDS = ["xray", "x-ray", "radiograph", "radiology"]
 XRAY_EXCLUSIONS = []
 
-ULTRASOUND_KEYWORDS = ["ultrasound", "echo", "afast", "tfast", "a-fast", "t-fast"]
+ULTRASOUND_KEYWORDS = ["ultrasound", "echo", "afast", "tfast", "a-fast", "t-fast","cardiac scan","abdo scan","abdominal scan"]
 ULTRASOUND_EXCLUSIONS = []
 
 LABWORK_KEYWORDS = [
@@ -79,14 +84,18 @@ LABWORK_KEYWORDS = [
     "crea", "phosphate", "cpl", "cpli", "lipase", "amylase", "pancreatic", "cortisol","sdma","t4","tsh",
     "electrolyte","thyroid","snap","bilirubin","acth","Alanine","Aminotranserase","bast","bile acid",
     "creatinine","CRP","catalyst","tbil","total protein","microscope","fna","fine needle","floatation",
-    "Parasitology","giardia","pcv","hct","haematocrit","hematocrit","corona"
+    "Parasitology","giardia","pcv","hct","haematocrit","hematocrit","corona","cystocentesis","aPTT",
+    "coag","smear","Fructosamine","UPPC","UPC","protein creatinine","Immunohistochemistry","MRSA","PARR",
+    "Culture & Sensitivity","C&S","swab","Immunology","favn","antibody","antigen","elisa","skin scrap"
 ]
 LABWORK_EXCLUSIONS = ["cream","labrador","cremation","enema","prednisolone"]
 
 ANAESTHETIC_KEYWORDS = [
     "anaesthesia", "anesthesia", "spay", "neuter", "castrate", "surgery","enucleation","laparotomy",
     "isoflurane", "propofol", "alfaxan", "alfaxalone","pyometra","cryptorch","endoscop","colonosc",
-    "isoflo","Debridement"
+    "isoflo","Debride","induce","induction","graft","Exploratory","Laparoscopy","Myringotomy",
+    "Otoendoscopy","castration","Amputation","amputate","Cystotomy","Diaphragmatic","Entropion",
+    "Lump Removal","Urethrostomy","Tarsorrhaphy","3rd eye"
 ]
 ANAESTHETIC_EXCLUSIONS = ["satiety","balance","vhn","royal canin","food"]
 
@@ -134,10 +143,11 @@ PATIENT_VISIT_EXCLUSIONS = (
 
 # Optionally, add your own custom visit-only indicators here
 PATIENT_VISIT_KEYWORDS += [
-    "flush","nail clip","nail trim"
-    "wound clean", "bandage", "biopsy","sedation","anal gland",
+    "flush","nail clip","nail trim","injection","blood glucose","blood pressure","blood sampl","woods lamp",
+    "wound clean", "bandage", "biopsy","sedation","anal gland","cystocentesis","ketamin","inj",
     "admit", "discharge", "inpatient", "in patient","in-patient","abscess","draining","eye pressure","tonometry",
-    "ocular pressure","stt","Fluorescein","oxygen","overnight","Schirmer","fluid","catheter"
+    "ocular pressure","stt","Fluorescein","oxygen","overnight","Schirmer","fluid","catheter","Thoracocentesis",
+    
 ]
 
 PATIENT_VISIT_EXCLUSIONS += []
@@ -3072,6 +3082,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
