@@ -1726,16 +1726,22 @@ if st.session_state["factoids_unlocked"]:
                     .transform_calculate(xOffset="datum.has_ghost ? 25 : 0")
                 )
                 
-                # --- Seed the MA with the two months before the current window (for smoother start)
+                # --- Seed the MA with two months before the current window (for smoother start)
                 first_current = current_12[0]
                 seed_months = pd.period_range(first_current - 2, first_current - 1, freq="M")
-                df_ma_seed_src_cp = core_monthly[core_monthly["Month"].isin(list(seed_months) + list(current_12))].copy()
-                df_ma_seed_src_cp = df_ma_seed_src_cp[["Month", "MonthLabel", sel_core_cp]].rename(columns={sel_core_cp: "Value"})
                 
-                # Limit display to current 12 labels only (keeps x-axis clean)
+                # Build limited MA dataset (same structure as current bars)
+                df_ma_seed_src_cp = core_monthly[
+                    core_monthly["Month"].isin(list(seed_months) + list(current_12))
+                ].copy()
+                df_ma_seed_src_cp = df_ma_seed_src_cp[
+                    ["Month", "MonthLabel", sel_core_cp]
+                ].rename(columns={sel_core_cp: "Value"})
+                
+                # Keep only the visible labels — same as bars, ensures no domain expansion
                 allowed_labels_cp = df_plot["MonthLabel"].tolist()
                 
-                # --- Current Moving Average Line (3-month trailing; seeded)
+                # --- Current Moving Average Line (3-month trailing)
                 ma_line_cp = (
                     alt.Chart(df_ma_seed_src_cp)
                     .transform_window(
@@ -1745,7 +1751,11 @@ if st.session_state["factoids_unlocked"]:
                     .transform_filter(alt.FieldOneOfPredicate(field="MonthLabel", oneOf=allowed_labels_cp))
                     .mark_line(color=color, size=2.5)
                     .encode(
-                        x=alt.X("MonthLabel:N", sort=allowed_labels_cp),
+                        x=alt.X(
+                            "MonthLabel:N",
+                            sort=allowed_labels_cp,
+                            scale=alt.Scale(domain=allowed_labels_cp)
+                        ),
                         y=alt.Y("rolling_mean:Q"),
                         tooltip=[
                             alt.Tooltip("MonthLabel:N", title="Month"),
@@ -1754,7 +1764,7 @@ if st.session_state["factoids_unlocked"]:
                     )
                 )
                 
-                # --- Ghost Moving Average Line (3-month trailing; previous-year)
+                # --- Ghost Moving Average Line (previous-year 3-month trailing)
                 ma_line_ghost_cp = (
                     alt.Chart(df_plot)
                     .transform_window(
@@ -1763,7 +1773,11 @@ if st.session_state["factoids_unlocked"]:
                     )
                     .mark_line(color=color, size=2.0, opacity=0.3)
                     .encode(
-                        x=alt.X("MonthLabel:N", sort=df_plot["MonthLabel"].tolist()),
+                        x=alt.X(
+                            "MonthLabel:N",
+                            sort=df_plot["MonthLabel"].tolist(),
+                            scale=alt.Scale(domain=allowed_labels_cp)
+                        ),
                         y=alt.Y("ghost_rolling_mean:Q"),
                         tooltip=[
                             alt.Tooltip("MonthOnly:N", title="Month"),
@@ -1771,14 +1785,23 @@ if st.session_state["factoids_unlocked"]:
                         ],
                     )
                 )
-
+                
+                # --- Combine everything (no layout expansion)
                 chart_cp = (
                     alt.layer(ghost_cp, current_cp, ma_line_cp, ma_line_ghost_cp)
                     .resolve_scale(y="shared")
-                    .properties(height=400, width=700,
-                                title=f"{sel_core_cp} per Month (with previous-year ghost bars)")
+                    .properties(
+                        height=400, width=700,
+                        title=f"{sel_core_cp} per Month (with previous-year ghost bars + 3-mo moving average)"
+                    )
+                    .configure_view(
+                        continuousWidth=700,
+                        continuousHeight=400
+                    )
                 )
+                
                 st.altair_chart(chart_cp, use_container_width=True)
+
 
     
         # ============================
@@ -3024,6 +3047,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
