@@ -1798,14 +1798,6 @@ if st.session_state["factoids_unlocked"]:
             else:
                 st.info("No data for this chart.")
 
-
-
-
-
-
-
-
-
             # ---------------------------
             # Chart 2: Clients & Patients (bars only — current + ghost)
             # ---------------------------
@@ -1841,8 +1833,8 @@ if st.session_state["factoids_unlocked"]:
                 df_plot["MonthOnly"] = df_plot["MonthLabel"].str.split().str[0]
             
                 palette = [
-                    "#fb7185", "#60a5fa", "#4ade80", "#facc15",
                     "#f97316", "#fbbf24", "#a5b4fc", "#22d3ee", "#93c5fd",
+                    "#fb7185", "#60a5fa", "#4ade80", "#facc15",
                 ]
                 color = palette[metric_list_cp.index(sel_core_cp) % len(palette)]
                 y_fmt = ",.0f" if sel_core_cp not in ("Visits per Patient",) else ",.2f"
@@ -2816,6 +2808,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
