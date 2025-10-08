@@ -1568,6 +1568,7 @@ if st.session_state["factoids_unlocked"]:
             # --- Revenue categories ---
             add("Revenue from Consult Fees", "CONSULT")
             add("Revenue from Flea/Worm",    "FLEA_WORM")
+            add("Revenue from Grooms, Ears & Nails", "GROOMING")
             add("Revenue from Food",         "FOOD")
             add("Revenue from Lab Work",     "LABWORK")
             add("Revenue from Neuters",      "NEUTER")
@@ -1578,7 +1579,7 @@ if st.session_state["factoids_unlocked"]:
             out = out.fillna(0.0).sort_values("Month").reset_index()
         
             # --- Percent-of-total columns ---
-            for suff in ["Consult Fees", "Flea/Worm", "Food", "Lab Work", "Neuters", "Ultrasounds", "X-rays"]:
+            for suff in ["Consult Fees", "Flea/Worm", "Food", "Grooms, Ears & Nails","Lab Work", "Neuters", "Ultrasounds", "X-rays"]:
                 num = out[f"Revenue from {suff}"]
                 den = out["Total"].replace(0, np.nan)
                 out[f"Revenue from {suff} (% of total)"] = (num / den).fillna(0.0)
@@ -1692,6 +1693,7 @@ if st.session_state["factoids_unlocked"]:
                 "Dentals": "DENTAL",
                 "Flea/Worm Treatments": "FLEA_WORM",
                 "Food Purchases": "FOOD",
+                "Grooms, Ears & Nails": "GROOMING",
                 "Hospitalisations": "HOSPITAL",
                 "Lab Work": "LABWORK",
                 "Neuters": "NEUTER",
@@ -2008,6 +2010,7 @@ if st.session_state["factoids_unlocked"]:
                 "Dentals": "#60a5fa",
                 "Flea/Worm Treatments": "#4ade80",
                 "Food Purchases": "#facc15",
+                "Grooms, Ears & Nails": "#d946ef",  
                 "Hospitalisations": "#f97316",
                 "Lab Work": "#fbbf24",
                 "Neuters": "#14b8a6",
@@ -2206,6 +2209,7 @@ if st.session_state["factoids_unlocked"]:
                 "Dentals": "DENTAL",
                 "Flea/Worm": "FLEA_WORM",
                 "Food": "FOOD",
+                "Grooms, Ears & Nails": "GROOMING",
                 "Hospitalisations": "HOSPITAL",
                 "Lab Work": "LABWORK",
                 "Neuters": "NEUTER",
@@ -2401,6 +2405,7 @@ if st.session_state["factoids_unlocked"]:
                     "Revenue from Consult Fees (Total & %)": _sum_mask("CONSULT"), 
                     "Revenue from Flea/Worm (Total & %)":  _sum_mask("FLEA_WORM"),
                     "Revenue from Food (Total & %)":       _sum_mask("FOOD"),
+                    "Revenue from Grooms, Ears & Nails (Total & %)": _sum_mask("GROOMING"),
                     "Revenue from Lab Work (Total & %)":   _sum_mask("LABWORK"),
                     "Revenue from Neuters (Total & %)":    _sum_mask("NEUTER"),
                     "Revenue from Ultrasounds (Total & %)":_sum_mask("ULTRASOUND"),
@@ -2853,6 +2858,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
