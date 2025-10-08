@@ -1979,9 +1979,19 @@ if st.session_state["factoids_unlocked"]:
         pct_all = compute_patient_breakdown_pct_full(data_key, df_full, masks, tx_client, patients_per_month)
 
         options = [
-            "Anaesthetics","Dentals","Flea/Worm Treatments","Food Purchases","Hospitalisations",
-            "Lab Work","Neuters","Ultrasounds","Vaccinations","X-rays"
+            "Anaesthetics",
+            "Consults",                        
+            "Dentals",
+            "Flea/Worm Treatments",
+            "Food Purchases",
+            "Hospitalisations",
+            "Lab Work",
+            "Neuters",
+            "Ultrasounds",
+            "Vaccinations",
+            "X-rays",
         ]
+
         choice = st.selectbox("Select a metric:", sorted(options), index=0, key="factoid_metric")
 
         monthly = pct_all.get(choice, pd.DataFrame())
@@ -2834,6 +2844,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
