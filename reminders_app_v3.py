@@ -941,11 +941,7 @@ def render_table(df, title, key_prefix, msg_key, rules):
         df["Plan Item"] = ""
     if st.session_state["exclusions"]:
         excl_pattern = "|".join(map(re.escape, st.session_state["exclusions"]))
-        mask_excl = (
-            df["Item Name"].astype(str).str.lower().str.contains(excl_pattern, regex=True, na=False) |
-            df["Plan Item"].astype(str).str.lower().str.contains(excl_pattern, regex=True, na=False)
-        )
-    df = df[~mask_excl]
+        df = df[~df["Item Name"].str.lower().str.contains(excl_pattern, regex=True, na=False)]
 
     if df.empty:
         st.info("All rows excluded by exclusion list.")
@@ -3452,6 +3448,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
