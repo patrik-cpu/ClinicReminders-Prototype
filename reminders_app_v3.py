@@ -1793,6 +1793,7 @@ if st.session_state["factoids_unlocked"]:
                         height=400, width=700,
                         title=f"{sel_core_cp} per Month (with previous-year ghost bars + 3-mo moving average)"
                     )
+                    .autosize(type="fit", contains="padding")
                 )
                 st.altair_chart(chart_cp, use_container_width=True)
 
@@ -3042,6 +3043,7 @@ if st.session_state.get("working_df") is not None:
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
