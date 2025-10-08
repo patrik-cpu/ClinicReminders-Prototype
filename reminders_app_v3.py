@@ -2122,17 +2122,17 @@ if st.session_state["factoids_unlocked"]:
                 df_period = df_full
                 period_label = f"All Data: {earliest_date.strftime('%d %b %Y')} → {latest_date.strftime('%d %b %Y')}"
         
-            # --- Period transactions (reuse precomputed blocks; cheap slice) ---
-            # tx_client_full has StartDate/EndDate per block; slice by date range and reuse
+            # --- Slice transactions strictly to the selected period ---
             tx_client = tx_client_full[
-                (tx_client_full["StartDate"] >= pd.to_datetime(df_period["ChargeDate"].min())) &
-                (tx_client_full["StartDate"] <= pd.to_datetime(df_period["ChargeDate"].max()))
+                (tx_client_full["StartDate"] >= start_date) &
+                (tx_client_full["StartDate"] <= latest_date)
             ].copy()
+            
             tx_patient = tx_patient_full[
-                (tx_patient_full["StartDate"] >= pd.to_datetime(df_period["ChargeDate"].min())) &
-                (tx_patient_full["StartDate"] <= pd.to_datetime(df_period["ChargeDate"].max()))
+                (tx_patient_full["StartDate"] >= start_date) &
+                (tx_patient_full["StartDate"] <= latest_date)
             ].copy()
-        
+
             # --- Helpers ---
             BAD_TERMS = ["counter", "walk", "cash", "test", "in-house", "in house"]
         
@@ -2160,19 +2160,28 @@ if st.session_state["factoids_unlocked"]:
                     .sort_values("StartDate")
                 )
                 if not daily_tx.empty:
+                    # limit to actual days in the selected window
+                    num_days = max(1, (latest_date - start_date).days + 1)
                     max_tx_row = daily_tx.loc[daily_tx["ClientTx"].idxmax()]
-                    metrics["Max Client Transactions"]   = f"{int(max_tx_row['ClientTx']):,} ({max_tx_row['StartDate'].strftime('%d %b %Y')})"
-                    metrics["Avg Client Transactions/Day"] = f"{daily_tx['ClientTx'].mean():.1f}"
-        
+                    metrics["Max Client Transactions"] = (
+                        f"{int(max_tx_row['ClientTx']):,} ({max_tx_row['StartDate'].strftime('%d %b %Y')})"
+                    )
+                    metrics["Avg Client Transactions/Day"] = f"{tx_client.shape[0] / num_days:.1f}"
+
             # Patient visit daily metrics (distinct client+animal+day) using VisitFlag already in df_full
             vis = df_period.loc[df_period["VisitFlag"], ["ClientKey","AnimalKey","DateOnly"]].dropna()
-            daily_visits = (vis.drop_duplicates(["ClientKey","AnimalKey","DateOnly"])
-                              .groupby("DateOnly").size().reset_index(name="PatientVisits"))
+            daily_visits = (
+                vis.drop_duplicates(["ClientKey","AnimalKey","DateOnly"])
+                   .groupby("DateOnly").size().reset_index(name="PatientVisits")
+            )
             if not daily_visits.empty:
+                num_days = max(1, (latest_date - start_date).days + 1)
                 max_visit_row = daily_visits.loc[daily_visits["PatientVisits"].idxmax()]
-                metrics["Max Patient Visits"]      = f"{int(max_visit_row['PatientVisits']):,} ({max_visit_row['DateOnly'].strftime('%d %b %Y')})"
-                metrics["Avg Patient Visits/Day"]  = f"{daily_visits['PatientVisits'].mean():.1f}"
-        
+                metrics["Max Patient Visits"] = (
+                    f"{int(max_visit_row['PatientVisits']):,} ({max_visit_row['DateOnly'].strftime('%d %b %Y')})"
+                )
+                metrics["Avg Patient Visits/Day"] = f"{daily_visits['PatientVisits'].sum() / num_days:.1f}"
+
             # -------------------------
             # Total Unique Patients (distinct ClientKey+AnimalKey) — exclude BAD_TERMS
             # -------------------------
@@ -2844,6 +2853,7 @@ if df_source is not None and not getattr(df_source, "empty", True):
         st.info("No keyword matches found for any category.")
 else:
     st.warning("Upload data to enable debugging export.")
+
 
 
 
