@@ -887,20 +887,41 @@ datasets = []
 summary_rows = []
 working_df = None
 
-# Auto clear/rekey when file list changes
+# --------------------------------
+# Data Upload & Caching Logic
+# --------------------------------
+
+# File uploader
+files = st.file_uploader(
+    "Upload Sales Plan file(s)",
+    type=["csv", "xls", "xlsx"],
+    accept_multiple_files=True
+)
+
+# --------------------------------
+# Cache invalidation logic — clear when files added/removed/renamed
+# --------------------------------
 if "last_uploaded_files" not in st.session_state:
     st.session_state["last_uploaded_files"] = []
+
 current_files = [f.name for f in files] if files else []
-if current_files != st.session_state["last_uploaded_files"]:
-    if current_files != st.session_state.get("last_uploaded_files", []):
-        st.session_state["last_uploaded_files"] = current_files
-        st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
+
+# Detect any file addition, deletion, or rename
+if set(current_files) != set(st.session_state["last_uploaded_files"]):
+    st.toast("🔄 File change detected — clearing cache and refreshing data...")
+
+    # Clear all Streamlit caches
+    st.cache_data.clear()
+    st.cache_resource.clear()
+
+    # Reset version and working state
     st.session_state["last_uploaded_files"] = current_files
-    if "working_df" in st.session_state:
-        del st.session_state["working_df"]
-    if "prepared_df" in st.session_state:
-        del st.session_state["prepared_df"]
-        st.session_state.pop("prepared_key", None)
+    st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
+
+    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
+        st.session_state.pop(key, None)
+
+    st.caption("🧹 Cache cleared — data will be reprocessed on next upload.")
 
 # --------------------------------
 # Cached dataset loader (persistent across reruns)
@@ -909,9 +930,14 @@ if current_files != st.session_state["last_uploaded_files"]:
 def load_persistent_dataset(file_blobs):
     return summarize_uploads(file_blobs)
 
+# --------------------------------
+# File upload handling
+# --------------------------------
 if files:
     file_blobs = tuple(_to_blob(f) for f in files)
-    datasets, summary_rows = summarize_uploads(file_blobs)
+    # ✅ Use cached dataset loader (faster after first run)
+    datasets, summary_rows = load_persistent_dataset(file_blobs)
+
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
     all_pms = {p for p, _ in datasets}
@@ -928,9 +954,10 @@ if files:
                 st.session_state["working_df"] = working_df
                 st.success("Files merged into canonical schema.")
             else:
-                st.warning("PMS mismatch or some files missing expected canonical columns. Reminders cannot be generated reliably.")
+                st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
         except Exception:
-            st.warning("PMS mismatch or undetected files. Reminders cannot be generated.")
+            st.warning("⚠️ PMS mismatch or undetected files. Reminders cannot be generated.")
+
 
 # --------------------------------
 # Render Tables
@@ -3470,6 +3497,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
