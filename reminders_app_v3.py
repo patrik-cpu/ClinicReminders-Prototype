@@ -2423,42 +2423,53 @@ if st.session_state["factoids_unlocked"]:
                     metrics[k] = f"{v:,} ({v/total_clients:.1%})"
         
             # -------------------------
-            # Fun Facts
+            # 🎉 Fun Facts
             # -------------------------
             if not df_pairs.empty:
-                # Clean up obvious non-names and blanks
-                name_series = (
-                    df_pairs["AnimalKey"]
-                    .astype(str)
-                    .str.normalize("NFKC")
-                    .str.strip()
-                )
+                # Build a stable client identifier for uniqueness
+                # Prefer Xpress "Client ID" if available; else fall back to normalized ClientKey
+                if "Client ID" in df_period.columns:
+                    client_uid = (
+                        df_period["Client ID"]
+                        .astype(str).str.normalize("NFKC").str.strip().str.lower()
+                    )
+                else:
+                    client_uid = df_period["ClientKey"].astype(str)
             
-                # Remove blanks, non-alpha-only, and obvious non-pet placeholders
+                # Build a compact frame for uniqueness by (client, animal name)
+                animals = pd.DataFrame({
+                    "ClientUID": client_uid.values,
+                    "AnimalKey": (
+                        df_period["AnimalKey"]
+                        .astype(str).str.normalize("NFKC").str.strip()
+                        .values
+                    ),
+                })
+            
+                # Remove blanks / obvious non-pet names
                 BAD_PET_NAMES = {
                     "", "reception", "counter", "walk", "walk in", "walk-in", "walkin",
-                    "cash", "test", "n/a", "na", "-", "--", "unknown","Nan","NAN","nan","NaN",
-                    "dog","Dog","cat","Cat"
+                    "cash", "test", "n/a", "na", "-", "--", "unknown", "nan"
                 }
-                valid_mask = (
-                    name_series.str.contains(r"[A-Za-z]", na=False)  # has at least one letter
-                    & ~name_series.str.lower().isin(BAD_PET_NAMES)   # not in blacklist
-                )
+                animals = animals[animals["AnimalKey"].str.contains(r"[A-Za-z]", na=False)]
+                animals = animals[~animals["AnimalKey"].str.lower().isin(BAD_PET_NAMES)]
             
+                # ✅ De-duplicate to true unique animals (client + animal name)
+                unique_animals = animals.drop_duplicates(subset=["ClientUID", "AnimalKey"])
+            
+                # Count most common pet names across unique animals
                 pet_counts = (
-                    df_pairs.loc[valid_mask]
-                            .drop_duplicates(subset=["ClientKey","AnimalKey"])
-                            .groupby("AnimalKey")
-                            .size()
-                            .reset_index(name="Count")
-                            .sort_values("Count", ascending=False)
-                            .reset_index(drop=True)
+                    unique_animals.groupby("AnimalKey").size()
+                    .reset_index(name="Count")
+                    .sort_values("Count", ascending=False)
+                    .reset_index(drop=True)
                 )
             
                 if not pet_counts.empty:
                     top_name  = str(pet_counts.iloc[0]["AnimalKey"]).title()
                     top_count = int(pet_counts.iloc[0]["Count"])
                     metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
+
 
             # Patient with Most Visits (merge-close-days approach)
             if not vis.empty:
@@ -3614,6 +3625,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
