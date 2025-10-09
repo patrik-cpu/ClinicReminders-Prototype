@@ -1173,21 +1173,28 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     st.markdown("---")
     st.markdown("### 🧩 WhatsApp Template Editor")
 
-    template_placeholder = (
+    default_template = (
         "Hi [Client Name], this is [Your Name] reminding you that "
         "[Pet Name] [is/are] due for their [Item] [Due Date]. "
         "Get in touch with us any time, and we look forward to hearing from you soon!"
     )
 
+    # Initialize session state template values
+    if "wa_template" not in st.session_state:
+        st.session_state["wa_template"] = st.session_state.get("user_template", default_template)
+    if f"wa_template_editor_{key_prefix}_value" not in st.session_state:
+        st.session_state[f"wa_template_editor_{key_prefix}_value"] = st.session_state.get("wa_template", default_template)
+
+    # --- Template Editor Field ---
     st.text_area(
         "Customize your WhatsApp message template:",
-        value=template_placeholder,
+        value=st.session_state.get(f"wa_template_editor_{key_prefix}_value", default_template),
         height=200,
         key=f"wa_template_editor_{key_prefix}",
         help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
     )
 
-    # --- Instructions box under Template Editor ---
+    # --- Instructions box ---
     st.info(
         "1. **Update** the WhatsApp template here. Use [Client Name], [Your Name], [Pet Name], [Item], and [Due Date] "
         "to dynamically input those values.\n\n"
@@ -1196,21 +1203,15 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
     # --- Template control buttons ---
     col_update, col_reset = st.columns([1, 1])
-    default_template = (
-        "Hi [Client Name], this is [Your Name] reminding you that "
-        "[Pet Name] [is/are] due for their [Item] [Due Date]. "
-        "Get in touch with us any time, and we look forward to hearing from you soon!"
-    )
-
-    # Initialize session state template
-    if "wa_template" not in st.session_state:
-        st.session_state["wa_template"] = st.session_state.get("user_template", default_template)
 
     # --- Handle reset trigger safely ---
     if st.session_state.get("reset_trigger"):
-        st.session_state[f"wa_template_editor_{key_prefix}"] = default_template
+        st.session_state[f"wa_template_editor_{key_prefix}_value"] = default_template
+        st.session_state["wa_template"] = default_template
+        st.session_state["user_template"] = default_template
         st.session_state["reset_trigger"] = False
-        st.rerun()
+        save_settings()
+        st.experimental_rerun()
 
     # --- Buttons ---
     with col_update:
@@ -1219,19 +1220,17 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             if new_template:
                 st.session_state["wa_template"] = new_template
                 st.session_state["user_template"] = new_template
+                st.session_state[f"wa_template_editor_{key_prefix}_value"] = new_template
                 save_settings()
                 st.success("Template updated successfully!")
+                st.experimental_rerun()
 
     with col_reset:
         if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}"):
-            st.session_state["wa_template"] = default_template
-            st.session_state["user_template"] = default_template
-            save_settings()
-
-            # safely update after current run
             st.session_state["reset_trigger"] = True
             st.success("Template reset to default!")
-            st.rerun()
+            st.experimental_rerun()
+
 
 
 
@@ -3615,6 +3614,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
