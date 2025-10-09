@@ -1174,6 +1174,13 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         key=f"wa_template_editor_{key_prefix}",
         help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
     )
+    # --- Instructions box under Template Editor ---
+    st.info(
+        "1. **Update** the WhatsApp template here. Use [Client Name], [Your Name], [Pet Name], [Item], and [Due Date] "
+        "to dynamically input those values.\n\n"
+        "2. Click **Update Template** to update your template, or **Reset Template** to reset to the default template."
+    )
+
 
 
 
@@ -3553,6 +3560,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
