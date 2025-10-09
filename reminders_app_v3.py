@@ -23,7 +23,7 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders & Factoids Prototype v5.2 - with password")
+    st.title("ClinicReminders & Factoids Prototype v5.3")
 st.markdown("---")
 
 # -----------------------
@@ -155,7 +155,6 @@ PATIENT_VISIT_KEYWORDS += [
     "ocular pressure","stt","Fluorescein","oxygen","overnight","Schirmer","fluid","catheter","Thoracocentesis",
     
 ]
-
 PATIENT_VISIT_EXCLUSIONS += []
 
 # --------------------------------
@@ -259,6 +258,14 @@ DEFAULT_RULES = {
     "kennel cough": {"days": 365, "use_qty": False, "visible_text": "Kennel Cough Vaccine"},
 }
 
+# Global default WA template (single source of truth)
+DEFAULT_WA_TEMPLATE = (
+    "Hi [Client Name], this is [Your Name] reminding you that "
+    "[Pet Name] is due for their [Item] [Due Date]. "
+    "Get in touch with us any time, and we look forward to hearing from you soon!"
+)
+
+
 # --------------------------------
 # Settings persistence (local JSON) — ephemeral on Streamlit Cloud
 # --------------------------------
@@ -271,8 +278,9 @@ def save_settings():
         "rules": st.session_state["rules"],
         "exclusions": st.session_state["exclusions"],
         "user_name": st.session_state["user_name"],
+        "user_template": st.session_state.get("user_template", "")
     }
-    if settings != _last_settings:  # only write if changed
+    if settings != _last_settings:
         with open(SETTINGS_FILE, "w") as f:
             json.dump(settings, f)
         _last_settings = settings
@@ -290,11 +298,14 @@ def load_settings():
         st.session_state["rules"] = rules
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
+        st.session_state["user_template"] = settings.get("user_template", "")
     else:
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
         st.session_state["user_name"] = ""
+        st.session_state["user_template"] = ""
         save_settings()
+
 
 # --------------------------------
 # PMS definitions
@@ -934,22 +945,47 @@ if files:
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
     all_pms = {p for p, _ in datasets}
+    rules_dict = st.session_state.get("rules", {})
+    rules_fp = hashlib.md5(json.dumps(rules_dict, sort_keys=True).encode()).hexdigest()
+
+    # --- Case 1: All files from same PMS ---
     if len(all_pms) == 1 and "Undetected" not in all_pms:
         working_df = pd.concat([df for _, df in datasets], ignore_index=True)
         st.session_state["working_df"] = working_df
+
+        # ✅ Immediately rebuild Factoids bundle after new upload
+        df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
+            st.session_state["working_df"], rules_fp
+        )
+        st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
+        st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
+
         st.success(f"All files detected as {list(all_pms)[0]} — merging datasets.")
+
+    # --- Case 2: Mixed PMS or undetected but schema-compatible ---
     else:
         try:
             cand = pd.concat([df for _, df in datasets], ignore_index=True, sort=False)
-            required_cols = ["ChargeDate","Client Name","Animal Name","Item Name","Qty","Amount"]
+            required_cols = ["ChargeDate", "Client Name", "Animal Name", "Item Name", "Qty", "Amount"]
+
             if all(c in cand.columns for c in required_cols):
                 working_df = cand
                 st.session_state["working_df"] = working_df
+
+                # ✅ Rebuild Factoids bundle even if PMS undetected
+                df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
+                    st.session_state["working_df"], rules_fp
+                )
+                st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
+                st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
+
                 st.success("Files merged into canonical schema.")
             else:
                 st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
-        except Exception:
-            st.warning("⚠️ PMS mismatch or undetected files. Reminders cannot be generated.")
+
+        except Exception as e:
+            st.warning(f"⚠️ PMS mismatch or undetected files. Reminders cannot be generated. ({e})")
+
 
 # --------------------------------
 # Render Tables
@@ -977,9 +1013,13 @@ def render_table(df, title, key_prefix, msg_key, rules):
 def render_table_with_buttons(df, key_prefix, msg_key):
     col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
     headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA"]
+
+    # --- Header row ---
     cols = st.columns(col_widths)
     for c, head in zip(cols, headers):
         c.markdown(f"**{head}**")
+
+    # --- Table rows ---
     for idx, row in df.iterrows():
         vals = {h: str(row.get(h, "")) for h in headers[:-1]}
         cols = st.columns(col_widths, gap="small")
@@ -988,34 +1028,59 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             if h in ["Client Name", "Animal Name", "Plan Item"]:
                 val = normalize_display_case(val)
             cols[j].markdown(val)
+
+        # --- WA button ---
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
-            first_name  = normalize_display_case(vals['Client Name']).split()[0].strip() if vals['Client Name'] else "there"
+            first_name = normalize_display_case(vals['Client Name']).split()[0].strip() if vals['Client Name'] else "there"
             animal_name = normalize_display_case(vals['Animal Name']).strip() if vals['Animal Name'] else "your pet"
             plan_for_msg = normalize_display_case(vals["Plan Item"]).strip()
 
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
-            closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
-            verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
-            if user:
-                st.session_state[msg_key] = (
-                    f"Hi {first_name}, this is {user} reminding you that "
-                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
-                )
-            else:
-                st.session_state[msg_key] = (
-                    f"Hi {first_name}, this is a reminder letting you know that "
-                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
-                )
+
+            template = (st.session_state.get("user_template", "") or DEFAULT_WA_TEMPLATE).strip()
+
+            def replace_case_insensitive(text, placeholder, value):
+                pattern = re.compile(re.escape(placeholder), re.IGNORECASE)
+                return pattern.sub(value, text)
+            
+            message = template
+            message = replace_case_insensitive(message, "[Client Name]", first_name)
+            message = replace_case_insensitive(message, "[Your Name]", user or "our clinic")
+            message = replace_case_insensitive(message, "[Pet Name]", animal_name)
+            message = replace_case_insensitive(message, "[Item]", plan_for_msg)
+            message = replace_case_insensitive(message, "[Due Date]", due_date_fmt)
+            # --- Grammar fix: change "is" to "are" only if multiple pets AND only when "is" directly follows the pet name
+            has_multiple_pets = bool(re.search(r"(?:\s+(?:and|&)\s+|,)", animal_name, flags=re.IGNORECASE))
+            if has_multiple_pets:
+                # Replace exactly: "<Pet Name> is" -> "<Pet Name> are" (first occurrence only)
+                pattern = re.compile(rf"({re.escape(animal_name)})\s+is\b", flags=re.IGNORECASE)
+                message, _ = pattern.subn(r"\1 are", message, count=1)
+
+
+
+            st.session_state[msg_key] = message
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
-    comp_main, comp_tip = st.columns([4,1])
+
+    # --- WhatsApp Composer section (once per table) ---
+    comp_main, comp_tip = st.columns([4, 1])
     with comp_main:
         st.write("### WhatsApp Composer")
+
+        st.session_state["user_name"] = st.text_input(
+            "Your name / clinic (appears in WhatsApp messages):",
+            value=st.session_state.get("user_name", ""),
+            key=f"user_name_input_{key_prefix}",
+            placeholder="e.g. Best Health Vet Clinic or Patrik from Best Health Vet Clinic"
+        )
+
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
+
         st.text_area("Message:", key=msg_key, height=200)
         current_message = st.session_state.get(msg_key, "")
+
         components.html(
             f'''
             <html>
@@ -1093,14 +1158,68 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             ''',
             height=130,
         )
+
+    # --- Note and Tip under composer ---
     st.markdown(
         "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
         "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
         unsafe_allow_html=True
     )
-    with comp_tip:
-        st.markdown("### 💡 Tip")
-        st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
+    st.info("If you leave the phone blank, the message is auto-copied. "
+            "WhatsApp opens in forward/search mode — just paste into the chat.")
+
+    # --- WhatsApp Template Editor ---
+    st.markdown("### 🧩 WhatsApp Template Editor")
+    
+    # persisted template init
+    if "wa_template" not in st.session_state:
+        st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE)
+    
+    # versioned key to force a fresh widget when we reset
+    ver_key = f"{key_prefix}_tmpl_ver"
+    if ver_key not in st.session_state:
+        st.session_state[ver_key] = 0
+    
+    # compute this run's editor widget key
+    editor_key = f"wa_template_editor_{key_prefix}_{st.session_state[ver_key]}"
+    
+    # render editor: because the key changes on reset, the 'value' is used fresh
+    st.text_area(
+        "Customize your WhatsApp message template:",
+        value=st.session_state["wa_template"],
+        height=200,
+        key=editor_key,
+        help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
+    )
+    
+    st.info(
+        "1. **Update** the WhatsApp template here. Use [Client Name], [Your Name], [Pet Name], [Item], and [Due Date] "
+        "to dynamically input those values.\n\n"
+        "2. Click **Update Template** to update your template, or **Reset Template** to reset to the default template."
+    )
+    
+    col_update, col_reset = st.columns([1, 1])
+    
+    with col_update:
+        if st.button("✅ Update Template", key=f"update_template_{key_prefix}"):
+            new_template = st.session_state.get(editor_key, "").strip()
+            if new_template:
+                st.session_state["wa_template"] = new_template
+                st.session_state["user_template"] = new_template
+                save_settings()
+                st.success("Template updated successfully!")
+                st.rerun()
+    
+    with col_reset:
+        if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}"):
+            # persist default
+            st.session_state["wa_template"] = DEFAULT_WA_TEMPLATE
+            st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
+            save_settings()
+            # bump version so a NEW widget mounts with the default as its value
+            st.session_state[ver_key] += 1
+            st.success("Template reset to default!")
+            st.rerun()
 
 def normalize_display_case(text: str) -> str:
     if not isinstance(text, str):
@@ -1134,21 +1253,6 @@ def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 # --------------------------------
 if st.session_state.get("working_df") is not None:
     df = st.session_state["working_df"].copy()
-
-    # Your name / clinic
-    st.markdown("---")
-    name_col, tut_col = st.columns([4,1])
-    with name_col:
-        st.markdown("### Your name / clinic")
-        st.session_state["user_name"] = st.text_input(
-            "",
-            value=st.session_state["user_name"],
-            key="user_name_input",
-            label_visibility="collapsed"
-        )
-    with tut_col:
-        st.markdown("### 💡 Tip")
-        st.info("This name will appear in your WhatsApp reminders")
 
     # Weekly Reminders
     st.markdown("---")
@@ -2319,22 +2423,54 @@ if st.session_state["factoids_unlocked"]:
                     metrics[k] = f"{v:,} ({v/total_clients:.1%})"
         
             # -------------------------
-            # Fun Facts
+            # 🎉 Fun Facts
             # -------------------------
             if not df_pairs.empty:
+                # Build a stable client identifier for uniqueness
+                # Prefer Xpress "Client ID" if available; else fall back to normalized ClientKey
+                if "Client ID" in df_period.columns:
+                    client_uid = (
+                        df_period["Client ID"]
+                        .astype(str).str.normalize("NFKC").str.strip().str.lower()
+                    )
+                else:
+                    client_uid = df_period["ClientKey"].astype(str)
+            
+                # Build a compact frame for uniqueness by (client, animal name)
+                animals = pd.DataFrame({
+                    "ClientUID": client_uid.values,
+                    "AnimalKey": (
+                        df_period["AnimalKey"]
+                        .astype(str).str.normalize("NFKC").str.strip()
+                        .values
+                    ),
+                })
+            
+                # Remove blanks / obvious non-pet names
+                BAD_PET_NAMES = {
+                    "", "reception", "counter", "walk", "walk in", "walk-in", "walkin",
+                    "cash", "test", "n/a", "na", "-", "--", "unknown", "nan","dog","cat"
+                }
+                animals = animals[animals["AnimalKey"].str.contains(r"[A-Za-z]", na=False)]
+                animals = animals[~animals["AnimalKey"].str.lower().isin(BAD_PET_NAMES)]
+            
+                # ✅ De-duplicate to true unique animals (client + animal name)
+                unique_animals = animals.drop_duplicates(subset=["ClientUID", "AnimalKey"])
+            
+                # Count most common pet names across unique animals
                 pet_counts = (
-                    df_pairs.drop_duplicates(subset=["ClientKey","AnimalKey"])
-                            .groupby("AnimalKey")
-                            .size()
-                            .reset_index(name="Count")
-                            .sort_values("Count", ascending=False)
-                            .reset_index(drop=True)
+                    unique_animals.groupby("AnimalKey").size()
+                    .reset_index(name="Count")
+                    .sort_values("Count", ascending=False)
+                    .reset_index(drop=True)
                 )
+            
                 if not pet_counts.empty:
                     top_name  = str(pet_counts.iloc[0]["AnimalKey"]).title()
                     top_count = int(pet_counts.iloc[0]["Count"])
                     metrics["Most Common Pet Name"] = f"{top_name} ({top_count:,})"
-        
+
+
             # Patient with Most Visits (merge-close-days approach)
             if not vis.empty:
                 # For each (ClientKey, AnimalKey), count visits after merging consecutive days within 1-day window
