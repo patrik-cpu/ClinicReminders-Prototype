@@ -2437,7 +2437,7 @@ if st.session_state["factoids_unlocked"]:
                 # Remove blanks, non-alpha-only, and obvious non-pet placeholders
                 BAD_PET_NAMES = {
                     "", "reception", "counter", "walk", "walk in", "walk-in", "walkin",
-                    "cash", "test", "n/a", "na", "-", "--", "unknown"
+                    "cash", "test", "n/a", "na", "-", "--", "unknown","Nan","NAN","nan","NaN"
                 }
                 valid_mask = (
                     name_series.str.contains(r"[A-Za-z]", na=False)  # has at least one letter
@@ -3613,6 +3613,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
