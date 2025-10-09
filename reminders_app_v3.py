@@ -1218,8 +1218,11 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}"):
             st.session_state["wa_template"] = default_template
             st.session_state["user_template"] = default_template
+            # update the editor field immediately
+            st.session_state[f"wa_template_editor_{key_prefix}"] = default_template
             save_settings()
             st.success("Template reset to default!")
+
 
 
 
@@ -3601,6 +3604,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
