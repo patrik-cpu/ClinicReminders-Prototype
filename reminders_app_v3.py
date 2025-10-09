@@ -23,7 +23,7 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders & Factoids Prototype v5.2 - with password")
+    st.title("ClinicReminders & Factoids Prototype v5.3
 st.markdown("---")
 
 # -----------------------
@@ -3625,6 +3625,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
