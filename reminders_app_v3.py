@@ -1186,12 +1186,14 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         key=f"wa_template_editor_{key_prefix}",
         help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
     )
+
     # --- Instructions box under Template Editor ---
     st.info(
         "1. **Update** the WhatsApp template here. Use [Client Name], [Your Name], [Pet Name], [Item], and [Due Date] "
         "to dynamically input those values.\n\n"
         "2. Click **Update Template** to update your template, or **Reset Template** to reset to the default template."
     )
+
     # --- Template control buttons ---
     col_update, col_reset = st.columns([1, 1])
     default_template = (
@@ -1204,7 +1206,13 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     if "wa_template" not in st.session_state:
         st.session_state["wa_template"] = st.session_state.get("user_template", default_template)
 
-    # Buttons
+    # --- Handle reset trigger safely ---
+    if st.session_state.get("reset_trigger"):
+        st.session_state[f"wa_template_editor_{key_prefix}"] = default_template
+        st.session_state["reset_trigger"] = False
+        st.rerun()
+
+    # --- Buttons ---
     with col_update:
         if st.button("✅ Update Template", key=f"update_template_{key_prefix}"):
             new_template = st.session_state.get(f"wa_template_editor_{key_prefix}", "").strip()
@@ -1218,10 +1226,13 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}"):
             st.session_state["wa_template"] = default_template
             st.session_state["user_template"] = default_template
-            # update the editor field immediately
-            st.session_state[f"wa_template_editor_{key_prefix}"] = default_template
             save_settings()
+
+            # safely update after current run
+            st.session_state["reset_trigger"] = True
             st.success("Template reset to default!")
+            st.rerun()
+
 
 
 
@@ -3604,6 +3615,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
