@@ -1165,8 +1165,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
         unsafe_allow_html=True
     )
-
-    st.markdown("### 💡 Tip")
     st.info("If you leave the phone blank, the message is auto-copied. "
             "WhatsApp opens in forward/search mode — just paste into the chat.")
 
@@ -3595,6 +3593,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
