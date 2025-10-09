@@ -1030,8 +1030,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
-            closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
-            verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
 
             template = st.session_state.get("user_template", "").strip()
             if not template:
@@ -1040,7 +1038,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     "[Pet Name] [is/are] due for their [Item] [Due Date]. "
                     "Get in touch with us any time, and we look forward to hearing from you soon!"
                 )
-            
+
             message = (
                 template
                 .replace("[Client Name]", first_name)
@@ -1050,8 +1048,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 .replace("[Due Date]", due_date_fmt)
             )
 
-st.session_state[msg_key] = message
-
+            st.session_state[msg_key] = message
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
@@ -3601,6 +3598,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
