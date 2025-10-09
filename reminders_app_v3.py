@@ -1170,15 +1170,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     st.info("If you leave the phone blank, the message is auto-copied. "
             "WhatsApp opens in forward/search mode — just paste into the chat.")
 
-
-
-
-
-    
-
-    
     # --- WhatsApp Template Editor ---
-    st.markdown("---")
     st.markdown("### 🧩 WhatsApp Template Editor")
     
     # persisted template init
@@ -1230,19 +1222,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.session_state[ver_key] += 1
             st.success("Template reset to default!")
             st.rerun()
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 def normalize_display_case(text: str) -> str:
     if not isinstance(text, str):
@@ -3616,6 +3595,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
