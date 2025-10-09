@@ -155,7 +155,6 @@ PATIENT_VISIT_KEYWORDS += [
     "ocular pressure","stt","Fluorescein","oxygen","overnight","Schirmer","fluid","catheter","Thoracocentesis",
     
 ]
-
 PATIENT_VISIT_EXCLUSIONS += []
 
 # --------------------------------
@@ -258,6 +257,13 @@ DEFAULT_RULES = {
     "cystaid": {"days": 30, "use_qty": False, "visible_text": "Cystaid"},
     "kennel cough": {"days": 365, "use_qty": False, "visible_text": "Kennel Cough Vaccine"},
 }
+
+# Global default WA template (single source of truth)
+DEFAULT_WA_TEMPLATE = (
+    "Hi [Client Name], this is [Your Name] reminding you that "
+    "[Pet Name] [is/are] due for their [Item] [Due Date]. "
+    "Get in touch with us any time, and we look forward to hearing from you soon!"
+)
 
 # --------------------------------
 # Settings persistence (local JSON) — ephemeral on Streamlit Cloud
@@ -1031,13 +1037,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             user = st.session_state.get("user_name", "").strip()
             due_date_fmt = format_due_date(vals['Due Date'])
 
-            template = st.session_state.get("user_template", "").strip()
-            if not template:
-                template = (
-                    "Hi [Client Name], this is [Your Name] reminding you that "
-                    "[Pet Name] [is/are] due for their [Item] [Due Date]. "
-                    "Get in touch with us any time, and we look forward to hearing from you soon!"
-                )
+            template = (st.session_state.get("user_template", "") or DEFAULT_WA_TEMPLATE).strip()
 
             def replace_case_insensitive(text, placeholder, value):
                 pattern = re.compile(re.escape(placeholder), re.IGNORECASE)
@@ -1173,63 +1173,51 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     st.markdown("---")
     st.markdown("### 🧩 WhatsApp Template Editor")
 
-    default_template = (
-        "Hi [Client Name], this is [Your Name] reminding you that "
-        "[Pet Name] [is/are] due for their [Item] [Due Date]. "
-        "Get in touch with us any time, and we look forward to hearing from you soon!"
-    )
+    editor_key = f"wa_template_editor_{key_prefix}"
 
-    # Initialize session state template values
+    # Init persisted + editor value
     if "wa_template" not in st.session_state:
-        st.session_state["wa_template"] = st.session_state.get("user_template", default_template)
-    if f"wa_template_editor_{key_prefix}_value" not in st.session_state:
-        st.session_state[f"wa_template_editor_{key_prefix}_value"] = st.session_state.get("wa_template", default_template)
+        st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE)
+    if editor_key not in st.session_state:
+        st.session_state[editor_key] = st.session_state["wa_template"]
 
-    # --- Template Editor Field ---
+    # Editor (no value=; widget reads/writes session_state[editor_key])
     st.text_area(
         "Customize your WhatsApp message template:",
-        value=st.session_state.get(f"wa_template_editor_{key_prefix}_value", default_template),
+        key=editor_key,
         height=200,
-        key=f"wa_template_editor_{key_prefix}",
         help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
     )
 
-    # --- Instructions box ---
+    # Instructions
     st.info(
         "1. **Update** the WhatsApp template here. Use [Client Name], [Your Name], [Pet Name], [Item], and [Due Date] "
         "to dynamically input those values.\n\n"
         "2. Click **Update Template** to update your template, or **Reset Template** to reset to the default template."
     )
 
-    # --- Template control buttons ---
+    # Buttons
     col_update, col_reset = st.columns([1, 1])
 
-    # --- Handle reset trigger safely ---
-    if st.session_state.get("reset_trigger"):
-        st.session_state[f"wa_template_editor_{key_prefix}_value"] = default_template
-        st.session_state["wa_template"] = default_template
-        st.session_state["user_template"] = default_template
-        st.session_state["reset_trigger"] = False
-        save_settings()
-        st.rerun()
-
-    # --- Buttons ---
     with col_update:
         if st.button("✅ Update Template", key=f"update_template_{key_prefix}"):
-            new_template = st.session_state.get(f"wa_template_editor_{key_prefix}", "").strip()
+            new_template = st.session_state.get(editor_key, "").strip()
             if new_template:
                 st.session_state["wa_template"] = new_template
                 st.session_state["user_template"] = new_template
-                st.session_state[f"wa_template_editor_{key_prefix}_value"] = new_template
                 save_settings()
                 st.success("Template updated successfully!")
                 st.rerun()
 
     with col_reset:
         if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}"):
-            st.session_state["reset_trigger"] = True
+            st.session_state["wa_template"] = DEFAULT_WA_TEMPLATE
+            st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
+            st.session_state[editor_key] = DEFAULT_WA_TEMPLATE
+            save_settings()
             st.success("Template reset to default!")
             st.rerun()
+
 
 
 
@@ -3614,6 +3602,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
