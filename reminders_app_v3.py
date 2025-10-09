@@ -1002,9 +1002,13 @@ def render_table(df, title, key_prefix, msg_key, rules):
 def render_table_with_buttons(df, key_prefix, msg_key):
     col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
     headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA"]
+
+    # --- Header row ---
     cols = st.columns(col_widths)
     for c, head in zip(cols, headers):
         c.markdown(f"**{head}**")
+
+    # --- Table rows ---
     for idx, row in df.iterrows():
         vals = {h: str(row.get(h, "")) for h in headers[:-1]}
         cols = st.columns(col_widths, gap="small")
@@ -1013,8 +1017,10 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             if h in ["Client Name", "Animal Name", "Plan Item"]:
                 val = normalize_display_case(val)
             cols[j].markdown(val)
+
+        # --- WA button ---
         if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
-            first_name  = normalize_display_case(vals['Client Name']).split()[0].strip() if vals['Client Name'] else "there"
+            first_name = normalize_display_case(vals['Client Name']).split()[0].strip() if vals['Client Name'] else "there"
             animal_name = normalize_display_case(vals['Animal Name']).strip() if vals['Animal Name'] else "your pet"
             plan_for_msg = normalize_display_case(vals["Plan Item"]).strip()
 
@@ -1022,6 +1028,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             due_date_fmt = format_due_date(vals['Due Date'])
             closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
             verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
+
             if user:
                 st.session_state[msg_key] = (
                     f"Hi {first_name}, this is {user} reminding you that "
@@ -1032,22 +1039,28 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     f"Hi {first_name}, this is a reminder letting you know that "
                     f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
                 )
+
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
-        comp_main, comp_tip = st.columns([4,1])
-        with comp_main:
-            st.write("### WhatsApp Composer")
-            st.session_state["user_name"] = st.text_input(
-                "Your name / clinic (appears in WhatsApp messages):",
-                value=st.session_state.get("user_name", ""),
-                key=f"user_name_input_{key_prefix}",
-                placeholder="e.g. Dr. Yasmin, Nova Vet Family"
-            )
+
+    # --- WhatsApp Composer section (once per table) ---
+    comp_main, comp_tip = st.columns([4, 1])
+    with comp_main:
+        st.write("### WhatsApp Composer")
+
+        st.session_state["user_name"] = st.text_input(
+            "Your name / clinic (appears in WhatsApp messages):",
+            value=st.session_state.get("user_name", ""),
+            key=f"user_name_input_{key_prefix}",
+            placeholder="e.g. Dr. Yasmin, Nova Vet Family"
+        )
 
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
+
         st.text_area("Message:", key=msg_key, height=200)
         current_message = st.session_state.get(msg_key, "")
+
         components.html(
             f'''
             <html>
@@ -1125,18 +1138,18 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             ''',
             height=130,
         )
+
+    # --- Note and Tip under composer ---
     st.markdown(
         "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
         "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
         unsafe_allow_html=True
     )
-    st.markdown(
-        "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
-        "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
-        unsafe_allow_html=True
-    )
+
     st.markdown("### 💡 Tip")
-    st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
+    st.info("If you leave the phone blank, the message is auto-copied. "
+            "WhatsApp opens in forward/search mode — just paste into the chat.")
+
 
 def normalize_display_case(text: str) -> str:
     if not isinstance(text, str):
@@ -3510,5 +3523,6 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
