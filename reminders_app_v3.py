@@ -1052,7 +1052,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             "Your name / clinic (appears in WhatsApp messages):",
             value=st.session_state.get("user_name", ""),
             key=f"user_name_input_{key_prefix}",
-            placeholder="e.g. Dr. Yasmin, Nova Vet Family"
+            placeholder="e.g. Best Health Vet Clinic or Patrik from Best Health Vet Clinic"
         )
 
         if msg_key not in st.session_state:
@@ -1162,8 +1162,8 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     st.markdown("### 🧩 WhatsApp Template Editor")
 
     template_placeholder = (
-        "Hi [Client First Name], this is [Your Name / Clinic] reminding you that "
-        "[Pet Name] [is/are] due for their [Plan Item] [Due Date]. "
+        "Hi [Client Name], this is [Your Name] reminding you that "
+        "[Pet Name] [is/are] due for their [Item] [Due Date]. "
         "Get in touch with us any time, and we look forward to hearing from you soon!"
     )
 
@@ -1172,8 +1172,9 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         value=template_placeholder,
         height=200,
         key=f"wa_template_editor_{key_prefix}",
-        help="Use placeholders like [Client First Name], [Pet Name], [Plan Item], [Due Date], [Your Name / Clinic]",
+        help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
     )
+
 
 
 
@@ -3552,6 +3553,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
