@@ -1039,14 +1039,17 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     "Get in touch with us any time, and we look forward to hearing from you soon!"
                 )
 
-            message = (
-                template
-                .replace("[Client Name]", first_name)
-                .replace("[Your Name]", user or "our clinic")
-                .replace("[Pet Name]", animal_name)
-                .replace("[Item]", plan_for_msg)
-                .replace("[Due Date]", due_date_fmt)
-            )
+            def replace_case_insensitive(text, placeholder, value):
+                pattern = re.compile(re.escape(placeholder), re.IGNORECASE)
+                return pattern.sub(value, text)
+            
+            message = template
+            message = replace_case_insensitive(message, "[Client Name]", first_name)
+            message = replace_case_insensitive(message, "[Your Name]", user or "our clinic")
+            message = replace_case_insensitive(message, "[Pet Name]", animal_name)
+            message = replace_case_insensitive(message, "[Item]", plan_for_msg)
+            message = replace_case_insensitive(message, "[Due Date]", due_date_fmt)
+
 
             st.session_state[msg_key] = message
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
@@ -3598,6 +3601,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
