@@ -934,22 +934,47 @@ if files:
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
     all_pms = {p for p, _ in datasets}
+    rules_dict = st.session_state.get("rules", {})
+    rules_fp = hashlib.md5(json.dumps(rules_dict, sort_keys=True).encode()).hexdigest()
+
+    # --- Case 1: All files from same PMS ---
     if len(all_pms) == 1 and "Undetected" not in all_pms:
         working_df = pd.concat([df for _, df in datasets], ignore_index=True)
         st.session_state["working_df"] = working_df
+
+        # ✅ Immediately rebuild Factoids bundle after new upload
+        df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
+            st.session_state["working_df"], rules_fp
+        )
+        st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
+        st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
+
         st.success(f"All files detected as {list(all_pms)[0]} — merging datasets.")
+
+    # --- Case 2: Mixed PMS or undetected but schema-compatible ---
     else:
         try:
             cand = pd.concat([df for _, df in datasets], ignore_index=True, sort=False)
-            required_cols = ["ChargeDate","Client Name","Animal Name","Item Name","Qty","Amount"]
+            required_cols = ["ChargeDate", "Client Name", "Animal Name", "Item Name", "Qty", "Amount"]
+
             if all(c in cand.columns for c in required_cols):
                 working_df = cand
                 st.session_state["working_df"] = working_df
+
+                # ✅ Rebuild Factoids bundle even if PMS undetected
+                df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
+                    st.session_state["working_df"], rules_fp
+                )
+                st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
+                st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
+
                 st.success("Files merged into canonical schema.")
             else:
                 st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
-        except Exception:
-            st.warning("⚠️ PMS mismatch or undetected files. Reminders cannot be generated.")
+
+        except Exception as e:
+            st.warning(f"⚠️ PMS mismatch or undetected files. Reminders cannot be generated. ({e})")
+
 
 # --------------------------------
 # Render Tables
@@ -3489,19 +3514,3 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
