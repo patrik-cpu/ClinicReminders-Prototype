@@ -1034,9 +1034,16 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 )
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
-    comp_main, comp_tip = st.columns([4,1])
-    with comp_main:
-        st.write("### WhatsApp Composer")
+        comp_main, comp_tip = st.columns([4,1])
+        with comp_main:
+            st.write("### WhatsApp Composer")
+            st.session_state["user_name"] = st.text_input(
+                "Your name / clinic (appears in WhatsApp messages):",
+                value=st.session_state.get("user_name", ""),
+                key="user_name_input",
+                placeholder="e.g. Dr. Yasmin, Nova Vet Family"
+            )
+
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
         st.text_area("Message:", key=msg_key, height=200)
@@ -1123,9 +1130,13 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
         unsafe_allow_html=True
     )
-    with comp_tip:
-        st.markdown("### 💡 Tip")
-        st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
+    st.markdown(
+        "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
+        "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
+        unsafe_allow_html=True
+    )
+    st.markdown("### 💡 Tip")
+    st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
 
 def normalize_display_case(text: str) -> str:
     if not isinstance(text, str):
@@ -1159,21 +1170,6 @@ def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 # --------------------------------
 if st.session_state.get("working_df") is not None:
     df = st.session_state["working_df"].copy()
-
-    # Your name / clinic
-    st.markdown("---")
-    name_col, tut_col = st.columns([4,1])
-    with name_col:
-        st.markdown("### Your name / clinic")
-        st.session_state["user_name"] = st.text_input(
-            "",
-            value=st.session_state["user_name"],
-            key="user_name_input",
-            label_visibility="collapsed"
-        )
-    with tut_col:
-        st.markdown("### 💡 Tip")
-        st.info("This name will appear in your WhatsApp reminders")
 
     # Weekly Reminders
     st.markdown("---")
@@ -3514,3 +3510,4 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
