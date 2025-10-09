@@ -271,8 +271,9 @@ def save_settings():
         "rules": st.session_state["rules"],
         "exclusions": st.session_state["exclusions"],
         "user_name": st.session_state["user_name"],
+        "user_template": st.session_state.get("user_template", "")
     }
-    if settings != _last_settings:  # only write if changed
+    if settings != _last_settings:
         with open(SETTINGS_FILE, "w") as f:
             json.dump(settings, f)
         _last_settings = settings
@@ -290,11 +291,14 @@ def load_settings():
         st.session_state["rules"] = rules
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
+        st.session_state["user_template"] = settings.get("user_template", "")
     else:
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
         st.session_state["user_name"] = ""
+        st.session_state["user_template"] = ""
         save_settings()
+
 
 # --------------------------------
 # PMS definitions
@@ -1029,16 +1033,24 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             closing = " Get in touch with us any time, and we look forward to hearing from you soon!"
             verb = "are" if (" and " in animal_name or "," in animal_name) else "is"
 
-            if user:
-                st.session_state[msg_key] = (
-                    f"Hi {first_name}, this is {user} reminding you that "
-                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
+            template = st.session_state.get("user_template", "").strip()
+            if not template:
+                template = (
+                    "Hi [Client Name], this is [Your Name] reminding you that "
+                    "[Pet Name] [is/are] due for their [Item] [Due Date]. "
+                    "Get in touch with us any time, and we look forward to hearing from you soon!"
                 )
-            else:
-                st.session_state[msg_key] = (
-                    f"Hi {first_name}, this is a reminder letting you know that "
-                    f"{animal_name} {verb} due for their {plan_for_msg} {due_date_fmt}.{closing}"
-                )
+            
+            message = (
+                template
+                .replace("[Client Name]", first_name)
+                .replace("[Your Name]", user or "our clinic")
+                .replace("[Pet Name]", animal_name)
+                .replace("[Item]", plan_for_msg)
+                .replace("[Due Date]", due_date_fmt)
+            )
+
+st.session_state[msg_key] = message
 
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
@@ -1180,6 +1192,35 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         "to dynamically input those values.\n\n"
         "2. Click **Update Template** to update your template, or **Reset Template** to reset to the default template."
     )
+    # --- Template control buttons ---
+    col_update, col_reset = st.columns([1, 1])
+    default_template = (
+        "Hi [Client Name], this is [Your Name] reminding you that "
+        "[Pet Name] [is/are] due for their [Item] [Due Date]. "
+        "Get in touch with us any time, and we look forward to hearing from you soon!"
+    )
+
+    # Initialize session state template
+    if "wa_template" not in st.session_state:
+        st.session_state["wa_template"] = st.session_state.get("user_template", default_template)
+
+    # Buttons
+    with col_update:
+        if st.button("✅ Update Template", key=f"update_template_{key_prefix}"):
+            new_template = st.session_state.get(f"wa_template_editor_{key_prefix}", "").strip()
+            if new_template:
+                st.session_state["wa_template"] = new_template
+                st.session_state["user_template"] = new_template
+                save_settings()
+                st.success("Template updated successfully!")
+
+    with col_reset:
+        if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}"):
+            st.session_state["wa_template"] = default_template
+            st.session_state["user_template"] = default_template
+            save_settings()
+            st.success("Template reset to default!")
+
 
 
 
@@ -3560,6 +3601,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
