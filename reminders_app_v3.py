@@ -1172,33 +1172,36 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     # --- WhatsApp Template Editor ---
     st.markdown("---")
     st.markdown("### 🧩 WhatsApp Template Editor")
-
-    editor_key = f"wa_template_editor_{key_prefix}"
-
-    # Init persisted + editor value
+    
+    # persisted template init
     if "wa_template" not in st.session_state:
         st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE)
-    if editor_key not in st.session_state:
-        st.session_state[editor_key] = st.session_state["wa_template"]
-
-    # Editor (no value=; widget reads/writes session_state[editor_key])
+    
+    # versioned key to force a fresh widget when we reset
+    ver_key = f"{key_prefix}_tmpl_ver"
+    if ver_key not in st.session_state:
+        st.session_state[ver_key] = 0
+    
+    # compute this run's editor widget key
+    editor_key = f"wa_template_editor_{key_prefix}_{st.session_state[ver_key]}"
+    
+    # render editor: because the key changes on reset, the 'value' is used fresh
     st.text_area(
         "Customize your WhatsApp message template:",
-        key=editor_key,
+        value=st.session_state["wa_template"],
         height=200,
+        key=editor_key,
         help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
     )
-
-    # Instructions
+    
     st.info(
         "1. **Update** the WhatsApp template here. Use [Client Name], [Your Name], [Pet Name], [Item], and [Due Date] "
         "to dynamically input those values.\n\n"
         "2. Click **Update Template** to update your template, or **Reset Template** to reset to the default template."
     )
-
-    # Buttons
+    
     col_update, col_reset = st.columns([1, 1])
-
+    
     with col_update:
         if st.button("✅ Update Template", key=f"update_template_{key_prefix}"):
             new_template = st.session_state.get(editor_key, "").strip()
@@ -1208,15 +1211,18 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 save_settings()
                 st.success("Template updated successfully!")
                 st.rerun()
-
+    
     with col_reset:
         if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}"):
+            # persist default
             st.session_state["wa_template"] = DEFAULT_WA_TEMPLATE
             st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
-            st.session_state[editor_key] = DEFAULT_WA_TEMPLATE
             save_settings()
+            # bump version so a NEW widget mounts with the default as its value
+            st.session_state[ver_key] += 1
             st.success("Template reset to default!")
             st.rerun()
+
 
 
 
@@ -3602,6 +3608,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
