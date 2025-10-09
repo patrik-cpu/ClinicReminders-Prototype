@@ -1040,7 +1040,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.session_state["user_name"] = st.text_input(
                 "Your name / clinic (appears in WhatsApp messages):",
                 value=st.session_state.get("user_name", ""),
-                key="user_name_input",
+                key=f"user_name_input_{key_prefix}",
                 placeholder="e.g. Dr. Yasmin, Nova Vet Family"
             )
 
@@ -3510,4 +3510,5 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
