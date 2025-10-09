@@ -261,9 +261,10 @@ DEFAULT_RULES = {
 # Global default WA template (single source of truth)
 DEFAULT_WA_TEMPLATE = (
     "Hi [Client Name], this is [Your Name] reminding you that "
-    "[Pet Name] [is/are] due for their [Item] [Due Date]. "
+    "[Pet Name] is due for their [Item] [Due Date]. "
     "Get in touch with us any time, and we look forward to hearing from you soon!"
 )
+
 
 # --------------------------------
 # Settings persistence (local JSON) — ephemeral on Streamlit Cloud
@@ -1049,6 +1050,13 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             message = replace_case_insensitive(message, "[Pet Name]", animal_name)
             message = replace_case_insensitive(message, "[Item]", plan_for_msg)
             message = replace_case_insensitive(message, "[Due Date]", due_date_fmt)
+            # --- Grammar fix: change "is" to "are" only if multiple pets AND only when "is" directly follows the pet name
+            has_multiple_pets = bool(re.search(r"(?:\s+(?:and|&)\s+|,)", animal_name, flags=re.IGNORECASE))
+            if has_multiple_pets:
+                # Replace exactly: "<Pet Name> is" -> "<Pet Name> are" (first occurrence only)
+                pattern = re.compile(rf"({re.escape(animal_name)})\s+is\b", flags=re.IGNORECASE)
+                message, _ = pattern.subn(r"\1 are", message, count=1)
+
 
 
             st.session_state[msg_key] = message
@@ -3608,6 +3616,7 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
 
 
