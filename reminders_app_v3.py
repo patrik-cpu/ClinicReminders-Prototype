@@ -261,7 +261,7 @@ DEFAULT_RULES = {
 # Global default WA template (single source of truth)
 DEFAULT_WA_TEMPLATE = (
     "Hi [Client Name], this is [Your Name] reminding you that "
-    "[Pet Name] is due for their [Item] [Due Date]. "
+    "[Pet Name] is due for their [Item] on the [Due Date]. "
     "Get in touch with us any time, and we look forward to hearing from you soon!"
 )
 
@@ -457,12 +457,13 @@ def format_items(item_list):
 def format_due_date(date_str: str) -> str:
     try:
         dt = pd.to_datetime(date_str, format="%d %b %Y", errors="coerce")
-        if pd.isna(dt): return f"on {date_str}"
+        if pd.isna(dt):
+            return date_str
         day = dt.day
         suffix = "th" if 10 <= day % 100 <= 20 else {1:"st",2:"nd",3:"rd"}.get(day%10,"th")
-        return f"on the {day}{suffix} of {dt.strftime('%B')}, {dt.year}"
+        return f"{day}{suffix} of {dt.strftime('%B')}, {dt.year}"
     except Exception:
-        return f"on {date_str}"
+        return date_str
 
 def get_visible_plan_item(item_name: str, rules: dict) -> str:
     if not isinstance(item_name, str):
@@ -3626,4 +3627,5 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
 
