@@ -1172,8 +1172,9 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     st.markdown("### 🧩 WhatsApp Template Editor")
     
     # persisted template init
-    if "wa_template" not in st.session_state:
-        st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE)
+    if "wa_template" not in st.session_state or not st.session_state.get("wa_template"):
+        st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE) or DEFAULT_WA_TEMPLATE
+
     
     # versioned key to force a fresh widget when we reset
     ver_key = f"{key_prefix}_tmpl_ver"
@@ -3625,3 +3626,4 @@ if st.session_state.get("llm_payload"):
             json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
             language="json"
         )
+
