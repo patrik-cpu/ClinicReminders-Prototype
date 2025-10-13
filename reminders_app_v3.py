@@ -2937,7 +2937,7 @@ if "admin_unlocked" not in st.session_state:
     st.session_state["admin_unlocked"] = False
 
 if not st.session_state["admin_unlocked"]:
-    st.info("🔒 Enter password to view internal admin tools — Keyword Debugging & Quarterly LLM Export.")
+    st.info("🔒 Enter password.")
 
     with st.form("unlock_admin_form"):
         admin_pw = st.text_input(
@@ -3149,6 +3149,7 @@ if st.session_state["admin_unlocked"]:
             )
 
 else:
-    st.info("🔒 Admin-only sections (Keyword Debugging & Quarterly LLM Export) are locked. Enter the Nova Vet Family Admin password above.")
+    st.info("🔒 NVF admin-only sections are locked.")
+
 
 
