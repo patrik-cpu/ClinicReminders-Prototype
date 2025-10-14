@@ -261,7 +261,7 @@ DEFAULT_RULES = {
 # Global default WA template (single source of truth)
 DEFAULT_WA_TEMPLATE = (
     "Hi [Client Name], this is [Your Name] reminding you that "
-    "[Pet Name] is due for their [Item] [Due Date]. "
+    "[Pet Name] is due for their [Item] on the [Due Date]. "
     "Get in touch with us any time, and we look forward to hearing from you soon!"
 )
 
@@ -457,12 +457,13 @@ def format_items(item_list):
 def format_due_date(date_str: str) -> str:
     try:
         dt = pd.to_datetime(date_str, format="%d %b %Y", errors="coerce")
-        if pd.isna(dt): return f"on {date_str}"
+        if pd.isna(dt):
+            return date_str
         day = dt.day
         suffix = "th" if 10 <= day % 100 <= 20 else {1:"st",2:"nd",3:"rd"}.get(day%10,"th")
-        return f"on the {day}{suffix} of {dt.strftime('%B')}, {dt.year}"
+        return f"{day}{suffix} of {dt.strftime('%B')}, {dt.year}"
     except Exception:
-        return f"on {date_str}"
+        return date_str
 
 def get_visible_plan_item(item_name: str, rules: dict) -> str:
     if not isinstance(item_name, str):
@@ -1172,8 +1173,9 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     st.markdown("### 🧩 WhatsApp Template Editor")
     
     # persisted template init
-    if "wa_template" not in st.session_state:
-        st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE)
+    if "wa_template" not in st.session_state or not st.session_state.get("wa_template"):
+        st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE) or DEFAULT_WA_TEMPLATE
+
     
     # versioned key to force a fresh widget when we reset
     ver_key = f"{key_prefix}_tmpl_ver"
@@ -2923,731 +2925,230 @@ if submitted_fb:
         except Exception as e:
             st.error(f"Could not save your message: {e}")
 
+
 # --------------------------------
-# 🧪 Keyword Debugging Export (Revenue + Count rankings)
+# 🧷 Nova Vet Family Admin Access (Password Protected)
 # --------------------------------
 st.markdown("---")
-st.markdown("### 🧪 Keyword Debugging Export")
+st.markdown("## 🧷 Nova Vet Family Admin Access")
 
-# Prefer the preprocessed bundle if available (faster + consistent)
-if "bundle" in st.session_state:
-    df_source, pre_masks, _, _, _ = st.session_state["bundle"]
-else:
-    df_source = st.session_state.get("working_df")
+# Password gate (separate from Factoids)
+if "admin_unlocked" not in st.session_state:
+    st.session_state["admin_unlocked"] = False
 
-if df_source is not None and not getattr(df_source, "empty", True):
-    df_debug = df_source.copy()
-    df_debug["Amount"] = pd.to_numeric(df_debug["Amount"], errors="coerce").fillna(0)
+if not st.session_state["admin_unlocked"]:
+    st.info("🔒 Enter password.")
 
-    # If we have precomputed boolean masks from the bundle, use them.
-    # Otherwise, fall back to make_mask(...).
-    have_pre_masks = "bundle" in st.session_state
-
-    # Map of export labels -> mask key (when using precomputed masks)
-    mask_key_map = {
-        "CONSULT": "CONSULT",
-        "DENTAL": "DENTAL",
-        "GROOMING": "GROOMING",
-        "BOARDING": "BOARDING",
-        "FEE": "FEE",
-        "FLEA_WORM": "FLEA_WORM",
-        "FOOD": "FOOD",
-        "XRAY": "XRAY",
-        "ULTRASOUND": "ULTRASOUND",
-        "LABWORK": "LABWORK",
-        "ANAESTHETIC": "ANAESTHETIC",
-        "HOSPITALISATION": "HOSPITAL",
-        "VACCINE": "VACCINE",
-        "DEATH": "DEATH",
-        "NEUTER": "NEUTER",
-        "PATIENT_VISIT": "PATIENT_VISIT",
-    }
-
-    # Fallback include/exclude sets if we don't have precomputed masks
-    keyword_groups = {
-        "CONSULT": (CONSULT_KEYWORDS, CONSULT_EXCLUSIONS),
-        "DENTAL": (DENTAL_KEYWORDS, DENTAL_EXCLUSIONS),
-        "GROOMING": (GROOM_KEYWORDS, GROOM_EXCLUSIONS),
-        "BOARDING": (BOARDING_KEYWORDS, BOARDING_EXCLUSIONS),
-        "FEE": (FEE_KEYWORDS, FEE_EXCLUSIONS),
-        "FLEA_WORM": (FLEA_WORM_KEYWORDS, FLEA_WORM_EXCLUSIONS),
-        "FOOD": (FOOD_KEYWORDS, FOOD_EXCLUSIONS),
-        "XRAY": (XRAY_KEYWORDS, XRAY_EXCLUSIONS),
-        "ULTRASOUND": (ULTRASOUND_KEYWORDS, ULTRASOUND_EXCLUSIONS),
-        "LABWORK": (LABWORK_KEYWORDS, LABWORK_EXCLUSIONS),
-        "ANAESTHETIC": (ANAESTHETIC_KEYWORDS, ANAESTHETIC_EXCLUSIONS),
-        "HOSPITALISATION": (HOSPITALISATION_KEYWORDS, HOSPITALISATION_EXCLUSIONS),
-        "VACCINE": (VACCINE_KEYWORDS, VACCINE_EXCLUSIONS),
-        "DEATH": (DEATH_KEYWORDS, DEATH_EXCLUSIONS),
-        "NEUTER": (NEUTER_KEYWORDS, NEUTER_EXCLUSIONS),
-        "PATIENT_VISIT": (PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS),
-    }
-
-    debug_frames = []
-
-    def top_frames_for_subset(label: str, subset: pd.DataFrame):
-        # Revenue ranking (Top 50)
-        rev = (
-            subset.groupby("Item Name", as_index=False)
-                  .agg(TotalRevenue=("Amount","sum"), Count=("Item Name","size"))
+    with st.form("unlock_admin_form"):
+        admin_pw = st.text_input(
+            "Enter password for Nova Vet Family Admin Access",
+            type="password",
+            key="admin_pw_input"
         )
-        # Faster than sort_values(...).head(...)
-        rev_top = rev.nlargest(50, "TotalRevenue").copy()
-        rev_top["Category"] = label
-        rev_top["Metric"]   = "Top 50 by Revenue"
+        submitted_admin = st.form_submit_button("Unlock")
 
-        # Count ranking (Top 50)
-        cnt_top = rev.nlargest(50, "Count").copy()
-        cnt_top["Category"] = label
-        cnt_top["Metric"]   = "Top 50 by Count"
-        return rev_top, cnt_top
+    if submitted_admin:
+        if admin_pw == "Nova@2025":
+            st.session_state["admin_unlocked"] = True
+            st.success("✅ Access granted. Admin tools unlocked!")
+            st.rerun()
+        else:
+            st.error("❌ Incorrect password. Please try again.")
 
-    # Build per-category using precomputed masks if available
-    if have_pre_masks:
-        for label, key in mask_key_map.items():
-            m = pre_masks.get(key)
-            if m is None:
-                continue
-            m = m.reindex(df_debug.index, fill_value=False)
-            subset = df_debug.loc[m].copy()
-            if subset.empty:
-                continue
-            r, c = top_frames_for_subset(label, subset)
-            debug_frames.extend([r, c])
+# --------------------------------
+# If unlocked → show Keyword Debugging + Quarterly LLM Export
+# --------------------------------
+if st.session_state["admin_unlocked"]:
+    # 🧪 Keyword Debugging Export
+    st.markdown("---")
+    st.markdown("### 🧪 Keyword Debugging Export")
 
-        # ALL_KEYWORDS: union of all boolean masks
-        all_mask = None
-        for key in mask_key_map.values():
-            m = pre_masks.get(key)
-            if m is None:
-                continue
-            m = m.reindex(df_debug.index, fill_value=False)
-            all_mask = m if all_mask is None else (all_mask | m)
-        if all_mask is not None:
+    # Prefer the preprocessed bundle if available (faster + consistent)
+    if "bundle" in st.session_state:
+        df_source, pre_masks, _, _, _ = st.session_state["bundle"]
+    else:
+        df_source = st.session_state.get("working_df")
+
+    if df_source is not None and not getattr(df_source, "empty", True):
+        df_debug = df_source.copy()
+        df_debug["Amount"] = pd.to_numeric(df_debug["Amount"], errors="coerce").fillna(0)
+
+        have_pre_masks = "bundle" in st.session_state
+
+        mask_key_map = {
+            "CONSULT": "CONSULT",
+            "DENTAL": "DENTAL",
+            "GROOMING": "GROOMING",
+            "BOARDING": "BOARDING",
+            "FEE": "FEE",
+            "FLEA_WORM": "FLEA_WORM",
+            "FOOD": "FOOD",
+            "XRAY": "XRAY",
+            "ULTRASOUND": "ULTRASOUND",
+            "LABWORK": "LABWORK",
+            "ANAESTHETIC": "ANAESTHETIC",
+            "HOSPITALISATION": "HOSPITAL",
+            "VACCINE": "VACCINE",
+            "DEATH": "DEATH",
+            "NEUTER": "NEUTER",
+            "PATIENT_VISIT": "PATIENT_VISIT",
+        }
+
+        keyword_groups = {
+            "CONSULT": (CONSULT_KEYWORDS, CONSULT_EXCLUSIONS),
+            "DENTAL": (DENTAL_KEYWORDS, DENTAL_EXCLUSIONS),
+            "GROOMING": (GROOM_KEYWORDS, GROOM_EXCLUSIONS),
+            "BOARDING": (BOARDING_KEYWORDS, BOARDING_EXCLUSIONS),
+            "FEE": (FEE_KEYWORDS, FEE_EXCLUSIONS),
+            "FLEA_WORM": (FLEA_WORM_KEYWORDS, FLEA_WORM_EXCLUSIONS),
+            "FOOD": (FOOD_KEYWORDS, FOOD_EXCLUSIONS),
+            "XRAY": (XRAY_KEYWORDS, XRAY_EXCLUSIONS),
+            "ULTRASOUND": (ULTRASOUND_KEYWORDS, ULTRASOUND_EXCLUSIONS),
+            "LABWORK": (LABWORK_KEYWORDS, LABWORK_EXCLUSIONS),
+            "ANAESTHETIC": (ANAESTHETIC_KEYWORDS, ANAESTHETIC_EXCLUSIONS),
+            "HOSPITALISATION": (HOSPITALISATION_KEYWORDS, HOSPITALISATION_EXCLUSIONS),
+            "VACCINE": (VACCINE_KEYWORDS, VACCINE_EXCLUSIONS),
+            "DEATH": (DEATH_KEYWORDS, DEATH_EXCLUSIONS),
+            "NEUTER": (NEUTER_KEYWORDS, NEUTER_EXCLUSIONS),
+            "PATIENT_VISIT": (PATIENT_VISIT_KEYWORDS, PATIENT_VISIT_EXCLUSIONS),
+        }
+
+        debug_frames = []
+
+        def top_frames_for_subset(label: str, subset: pd.DataFrame):
+            rev = (
+                subset.groupby("Item Name", as_index=False)
+                      .agg(TotalRevenue=("Amount", "sum"), Count=("Item Name", "size"))
+            )
+            rev_top = rev.nlargest(50, "TotalRevenue").copy()
+            rev_top["Category"] = label
+            rev_top["Metric"] = "Top 50 by Revenue"
+
+            cnt_top = rev.nlargest(50, "Count").copy()
+            cnt_top["Category"] = label
+            cnt_top["Metric"] = "Top 50 by Count"
+            return rev_top, cnt_top
+
+        if have_pre_masks:
+            for label, key in mask_key_map.items():
+                m = pre_masks.get(key)
+                if m is None:
+                    continue
+                m = m.reindex(df_debug.index, fill_value=False)
+                subset = df_debug.loc[m].copy()
+                if subset.empty:
+                    continue
+                r, c = top_frames_for_subset(label, subset)
+                debug_frames.extend([r, c])
+
+            all_mask = None
+            for key in mask_key_map.values():
+                m = pre_masks.get(key)
+                if m is None:
+                    continue
+                m = m.reindex(df_debug.index, fill_value=False)
+                all_mask = m if all_mask is None else (all_mask | m)
+            if all_mask is not None:
+                subset_all = df_debug.loc[all_mask].copy()
+                if not subset_all.empty:
+                    r_all, c_all = top_frames_for_subset("ALL_KEYWORDS", subset_all)
+                    debug_frames.extend([r_all, c_all])
+        else:
+            for label, (includes, excludes) in keyword_groups.items():
+                m = make_mask(df_debug, includes, excludes)
+                subset = df_debug.loc[m].copy()
+                if subset.empty:
+                    continue
+                r, c = top_frames_for_subset(label, subset)
+                debug_frames.extend([r, c])
+
+            all_mask = pd.Series(False, index=df_debug.index)
+            for includes, excludes in keyword_groups.values():
+                all_mask |= make_mask(df_debug, includes, excludes)
             subset_all = df_debug.loc[all_mask].copy()
             if not subset_all.empty:
                 r_all, c_all = top_frames_for_subset("ALL_KEYWORDS", subset_all)
                 debug_frames.extend([r_all, c_all])
 
-    else:
-        # Fallback: compute masks on the fly (slower)
-        for label, (includes, excludes) in keyword_groups.items():
-            m = make_mask(df_debug, includes, excludes)
-            subset = df_debug.loc[m].copy()
-            if subset.empty:
-                continue
-            r, c = top_frames_for_subset(label, subset)
-            debug_frames.extend([r, c])
+        if debug_frames:
+            debug_out = pd.concat(debug_frames, ignore_index=True)
+            debug_out = debug_out[["Category", "Metric", "Item Name", "TotalRevenue", "Count"]]
+            debug_out["TotalRevenue"] = debug_out["TotalRevenue"].astype(int)
 
-        # ALL_KEYWORDS union via OR of individual masks
-        all_mask = pd.Series(False, index=df_debug.index)
-        for includes, excludes in keyword_groups.values():
-            all_mask |= make_mask(df_debug, includes, excludes)
-        subset_all = df_debug.loc[all_mask].copy()
-        if not subset_all.empty:
-            r_all, c_all = top_frames_for_subset("ALL_KEYWORDS", subset_all)
-            debug_frames.extend([r_all, c_all])
-
-    if debug_frames:
-        debug_out = pd.concat(debug_frames, ignore_index=True)
-        debug_out = debug_out[["Category","Metric","Item Name","TotalRevenue","Count"]]
-        debug_out["TotalRevenue"] = debug_out["TotalRevenue"].astype(int)
-
-        csv_bytes = debug_out.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="⬇️ Download Keyword Debug CSV (Top 50 by Revenue & Count, all categories)",
-            data=csv_bytes,
-            file_name="keyword_debug_top50_allcategories.csv",
-            mime="text/csv",
-        )
-    else:
-        st.info("No keyword matches found for any category.")
-else:
-    st.warning("Upload data to enable debugging export.")
-
-# ====== Quarterly LLM Export (full-fat) ======
-import io, json, zipfile
-from dataclasses import dataclass
-import math
-from datetime import datetime
-
-def _json_default(obj):
-    """Coerce pandas/NumPy types and datetimes to JSON-safe Python types."""
-    # pandas & numpy numbers/bools
-    try:
-        import numpy as _np
-        if isinstance(obj, (_np.integer,)):
-            return int(obj)
-        if isinstance(obj, (_np.floating,)):
-            # convert NaN/Inf to None for strict JSON
-            return None if (math.isnan(float(obj)) or math.isinf(float(obj))) else float(obj)
-        if isinstance(obj, (_np.bool_,)):
-            return bool(obj)
-    except Exception:
-        pass
-
-    # pandas Timestamp / Period
-    try:
-        import pandas as _pd
-        if isinstance(obj, _pd.Timestamp):
-            # always output ISO string
-            return obj.tz_convert("Asia/Dubai").isoformat() if obj.tzinfo else obj.isoformat()
-        if isinstance(obj, _pd.Period):
-            return str(obj)  # e.g., '2025-07'
-    except Exception:
-        pass
-
-    # python datetime/date
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-
-    # sets → lists
-    if isinstance(obj, set):
-        return list(obj)
-
-    # fallthrough: let json raise for truly unknown types
-    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
-
-@dataclass
-class Period:
-    start: pd.Timestamp
-    end: pd.Timestamp
-    label: str
-
-def _last_complete_month(df_dates: pd.Series) -> pd.Period:
-    # Use the latest month that has >=1 row
-    months = pd.to_datetime(df_dates, errors="coerce").dt.to_period("M").dropna()
-    if months.empty:
-        return None
-    return months.max()
-
-def _three_month_period_from(last_month: pd.Period, offset_months: int = 0) -> Period:
-    """
-    last_month = most recent month with data (Period[M])
-    offset_months=0 -> current quarter (m-2 .. m)
-    3..5 -> prev quarter, 12..14 -> same quarter last year (YoY)
-    """
-    m_end = last_month - offset_months
-    m_start = m_end - 2
-    start = m_start.to_timestamp(how="start").tz_localize(None).normalize()
-    end   = (m_end.to_timestamp(how="end")).tz_localize(None).normalize()
-    label = f"{m_start.strftime('%b %Y')}–{m_end.strftime('%b %Y')}"
-    return Period(start, end, label)
-
-def _slice_by_period(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    return df[(df["ChargeDate"] >= start) & (df["ChargeDate"] <= end)].copy()
-
-def _sum_category(df_period: pd.DataFrame, masks: dict, key: str) -> float:
-    m = masks[key].reindex(df_period.index, fill_value=False)
-    return float(pd.to_numeric(df_period.loc[m, "Amount"], errors="coerce").sum())
-
-def _unique_pairs(df: pd.DataFrame) -> int:
-    if df.empty: return 0
-    return df.dropna(subset=["ClientKey","AnimalKey"]).drop_duplicates(subset=["ClientKey","AnimalKey"]).shape[0]
-
-def _patient_visit_rows(df: pd.DataFrame) -> pd.DataFrame:
-    # distinct client+animal+day where VisitFlag True
-    vis = df.loc[df["VisitFlag"], ["ClientKey","AnimalKey","DateOnly"]].dropna()
-    return vis.drop_duplicates(["ClientKey","AnimalKey","DateOnly"])
-
-def _pct(a, b):
-    return (float(a)/float(b)*100.0) if (b and float(b) != 0) else 0.0
-
-def _pp(cur_pct, prev_pct):
-    return (float(cur_pct) - float(prev_pct))  # percentage points
-
-def build_quarterly_payload_full(
-    df_full: pd.DataFrame,
-    masks: dict,
-    tx_client: pd.DataFrame,
-    tx_patient: pd.DataFrame,
-    patients_per_month: pd.Series,
-    clinic_name: str | None = None,
-    currency: str = "AED",
-    timezone: str = "Asia/Dubai",
-    include_raw_rows_csv: bool = True,
-    raw_rows_limit: int | None = None,   # None = all rows of quarter
-):
-    """
-    Returns (payload_dict, zip_bytes) where zip contains:
-      - quarterly_payload.json
-      - core_monthly.csv
-      - revenue_breakdown_monthly.csv
-      - patient_breakdown_pct_monthly.csv
-      - daily_patient_visits.csv
-      - daily_client_transactions.csv
-      - top_items.csv
-      - top_clients.csv
-      - largest_transactions.csv
-      - raw_rows_quarter.csv (optional)
-    """
-
-    # --- Guards & prep ---
-    if df_full is None or df_full.empty:
-        return {"error": "No data"}, b""
-
-    df_full = df_full.copy()
-    df_full["Amount"] = pd.to_numeric(df_full["Amount"], errors="coerce").fillna(0)
-    df_full["ChargeDate"] = pd.to_datetime(df_full["ChargeDate"], errors="coerce")
-    df_full["DateOnly"]   = pd.to_datetime(df_full["DateOnly"], errors="coerce")
-    max_month = _last_complete_month(df_full["ChargeDate"])
-    if max_month is None:
-        return {"error": "No valid dates"}, b""
-
-    # Periods
-    curP  = _three_month_period_from(max_month, offset_months=0)     # current quarter
-    prevQ = _three_month_period_from(max_month, offset_months=3)     # previous quarter
-    prevY = _three_month_period_from(max_month, offset_months=12)    # same quarter last year
-
-    df_cur   = _slice_by_period(df_full, curP.start,  curP.end)
-    df_prevq = _slice_by_period(df_full, prevQ.start, prevQ.end)
-    df_prevy = _slice_by_period(df_full, prevY.start, prevY.end)
-
-    sufficient_qoq = not df_prevq.empty
-    sufficient_yoy = not df_prevy.empty
-
-    # === Core KPIs over period (use set-based counts to avoid double-counting across months) ===
-    def compute_period_kpis(df_period: pd.DataFrame):
-        if df_period.empty:
-            return {
-                "revenue": {"total": 0, "monthly": []},
-                "clients": {"unique_clients": 0, "new_clients": 0, "client_transactions": 0, "tx_per_client": 0.0},
-                "patients": {"unique_visiting_patients": 0, "patient_visits": 0, "visits_per_patient": 0.0, "visits_per_client": 0.0},
-                "consults": {"count": 0, "revenue": 0, "share_of_total_pct": 0.0}
-            }
-
-        # Revenue (total + monthly split)
-        total_revenue = float(df_period["Amount"].sum())
-        monthly_rev = (
-            df_period.assign(Month=df_period["ChargeDate"].dt.to_period("M"))
-                     .groupby("Month")["Amount"].sum().reset_index()
-        )
-        monthly = [{"month": str(r["Month"]), "revenue": float(r["Amount"])} for _, r in monthly_rev.iterrows()]
-
-        # Unique clients in period
-        unique_clients = int(df_period["ClientKey"].dropna().nunique())
-
-        # New clients in period (first appearance in FULL dataset falls inside period window)
-        first_seen_client = df_full.groupby("ClientKey", dropna=False)["ChargeDate"].min()
-        new_clients = int(first_seen_client.between(df_period["ChargeDate"].min(), df_period["ChargeDate"].max()).sum()) if not df_period.empty else 0
-
-        # Client transactions in period (blocks)
-        txc = 0
-        if tx_client is not None and not tx_client.empty:
-            txc = int(tx_client[(tx_client["StartDate"] >= curP.start) & (tx_client["StartDate"] <= curP.end)].shape[0]) \
-                  if df_period.equals(df_cur) else \
-                  int(tx_client[(tx_client["StartDate"] >= df_period["ChargeDate"].min()) & (tx_client["StartDate"] <= df_period["ChargeDate"].max())].shape[0])
-
-        tx_per_client = (txc / unique_clients) if unique_clients else 0.0
-
-        # Patient visits & unique visiting patients (using VisitFlag)
-        pv_rows = _patient_visit_rows(df_period)
-        patient_visits = int(pv_rows.shape[0])
-        unique_visiting_patients = _unique_pairs(df_period.loc[df_period["VisitFlag"], ["ClientKey","AnimalKey"]].assign(dummy=1))
-        visits_per_patient = (patient_visits / unique_visiting_patients) if unique_visiting_patients else 0.0
-        visits_per_client  = (patient_visits / unique_clients) if unique_clients else 0.0
-
-        # Consults
-        cons_rows = df_period.loc[masks["CONSULT"]].copy()
-        cons_count   = int(cons_rows.shape[0])
-        cons_revenue = float(cons_rows["Amount"].sum())
-        cons_share   = _pct(cons_revenue, total_revenue)
-
-        return {
-            "revenue":  {"total": round(total_revenue), "monthly": monthly},
-            "clients":  {"unique_clients": unique_clients, "new_clients": new_clients, "client_transactions": txc, "tx_per_client": round(tx_per_client, 3)},
-            "patients": {"unique_visiting_patients": unique_visiting_patients, "patient_visits": patient_visits,
-                         "visits_per_patient": round(visits_per_patient, 3), "visits_per_client": round(visits_per_client, 3)},
-            "consults": {"count": cons_count, "revenue": round(cons_revenue), "share_of_total_pct": round(cons_share, 3)},
-        }
-
-    cur_kpis   = compute_period_kpis(df_cur)
-    prevq_kpis = compute_period_kpis(df_prevq) if sufficient_qoq else compute_period_kpis(pd.DataFrame())
-    prevy_kpis = compute_period_kpis(df_prevy) if sufficient_yoy else compute_period_kpis(pd.DataFrame())
-
-    # QoQ & YoY top-level deltas
-    def _pct_change(cur, prev):
-        return ((_safe(cur) - _safe(prev)) / _safe(prev) * 100.0) if _safe(prev) != 0 else (0.0 if _safe(cur)==0 else 999.9)
-    def _safe(x): return float(x or 0)
-
-    qoq_change = _pct_change(cur_kpis["revenue"]["total"], prevq_kpis["revenue"]["total"]) if sufficient_qoq else None
-    yoy_change = _pct_change(cur_kpis["revenue"]["total"], prevy_kpis["revenue"]["total"]) if sufficient_yoy else None
-    cons_delta_pp_qoq = _pp(cur_kpis["consults"]["share_of_total_pct"], prevq_kpis["consults"]["share_of_total_pct"]) if sufficient_qoq else None
-
-    # === Revenue breakdown by category (period totals + Δpp QoQ) ===
-    cat_order = [
-        ("BOARDING",  "Boarding"),
-        ("CONSULT",   "Consult Fees"),
-        ("FLEA_WORM", "Flea/Worm"),
-        ("FOOD",      "Food"),
-        ("GROOMING",  "Grooms, Ears & Nails"),
-        ("LABWORK",   "Lab Work"),
-        ("NEUTER",    "Neuters"),
-        ("FEE",       "Non-consult Fees"),
-        ("ULTRASOUND","Ultrasounds"),
-        ("XRAY",      "X-rays"),
-        ("ANAESTHETIC","Anaesthetics"),
-        ("HOSPITAL",  "Hospitalisations"),
-        ("VACCINE",   "Vaccinations"),
-        ("DEATH",     "End-of-life"),
-    ]
-
-    def period_mix(df_period, total_rev):
-        out = []
-        for key, label in cat_order:
-            rev = _sum_category(df_period, masks, key)
-            pct = _pct(rev, total_rev)
-            out.append({"category": label, "revenue": round(rev), "pct_of_total": round(pct, 3)})
-        return out
-
-    mix_cur = period_mix(df_cur, cur_kpis["revenue"]["total"])
-    mix_prevq = period_mix(df_prevq, prevq_kpis["revenue"]["total"]) if sufficient_qoq else []
-
-    # attach Δpp QoQ
-    mix_map_prev = {m["category"]: m["pct_of_total"] for m in mix_prevq}
-    for m in mix_cur:
-        prev_pct = mix_map_prev.get(m["category"])
-        m["qoq_delta_pp"] = round(m["pct_of_total"] - prev_pct, 3) if prev_pct is not None else None
-
-    # === Patient breakdown %: % of patients in the quarter having each service (YoY Δpp) ===
-    def patients_pct(df_period):
-        total_pairs = _unique_pairs(df_period.loc[:, ["ClientKey","AnimalKey"]])
-        res = []
-        for label, key in [
-            ("Anaesthetics", "ANAESTHETIC"),
-            ("Boarding", "BOARDING"),
-            ("Consults", "CONSULT"),
-            ("Dentals", "DENTAL"),
-            ("Flea/Worm Treatments", "FLEA_WORM"),
-            ("Food Purchases", "FOOD"),
-            ("Grooms, Ears & Nails", "GROOMING"),
-            ("Hospitalisations", "HOSPITAL"),
-            ("Lab Work", "LABWORK"),
-            ("Neuters", "NEUTER"),
-            ("Ultrasounds", "ULTRASOUND"),
-            ("Vaccinations", "VACCINE"),
-            ("X-rays", "XRAY"),
-        ]:
-            m = masks[key].reindex(df_period.index, fill_value=False)
-            sub = df_period.loc[m, ["ClientKey","AnimalKey"]]
-            pts = _unique_pairs(sub)
-            pct = _pct(pts, total_pairs)
-            res.append({"category": label, "patients": pts, "pct_of_patients": round(pct, 3)})
-        return res
-
-    pb_cur = patients_pct(df_cur)
-    pb_prevy = patients_pct(df_prevy) if sufficient_yoy else []
-    pb_prevy_map = {x["category"]: x for x in pb_prevy}
-    for r in pb_cur:
-        prev_pct = pb_prevy_map.get(r["category"], {}).get("pct_of_patients")
-        r["yoy_delta_pp"] = round(_pp(r["pct_of_patients"], prev_pct), 3) if prev_pct is not None else None
-
-    # === Concentration (items & clients) ===
-    def concentration(df_period):
-        out = {"items_top_10_pct_revenue": None, "clients_top_10_pct_revenue": None}
-        if df_period.empty or df_period["Amount"].sum() <= 0:
-            return out
-        total_rev = float(df_period["Amount"].sum())
-        # items
-        items = (df_period.groupby("Item Name", dropna=False)["Amount"].sum().sort_values(ascending=False))
-        n_items = len(items)
-        if n_items:
-            k = max(1, int(np.ceil(n_items * 0.10)))
-            out["items_top_10_pct_revenue"] = round(items.head(k).sum() / total_rev * 100.0, 3)
-        # clients
-        clients = (df_period.groupby("Client Name", dropna=False)["Amount"].sum().sort_values(ascending=False))
-        n_clients = len(clients)
-        if n_clients:
-            k = max(1, int(np.ceil(n_clients * 0.10)))
-            out["clients_top_10_pct_revenue"] = round(clients.head(k).sum() / total_rev * 100.0, 3)
-        return out
-
-    conc = concentration(df_cur)
-
-    # === Leaders ===
-    # Top Items
-    top_items = (
-        df_cur.groupby("Item Name", dropna=False)
-              .agg(revenue=("Amount","sum"), count=("Qty","sum"))
-              .sort_values("revenue", ascending=False)
-              .head(10)
-              .reset_index()
-    )
-    total_rev_cur = float(df_cur["Amount"].sum()) or 1.0
-    top_items["share_pct"] = (top_items["revenue"] / total_rev_cur * 100).round(3)
-    leaders_items = [
-        {"name": r["Item Name"], "revenue": int(r["revenue"]), "count": int(r["count"]), "share_pct": float(r["share_pct"])}
-        for _, r in top_items.iterrows()
-    ]
-
-    # Top Clients (don’t anonymize)
-    top_clients = (
-        df_cur.groupby("Client Name", dropna=False)["Amount"]
-              .sum().sort_values(ascending=False).head(5).reset_index()
-    )
-    leaders_clients = [{"client": r["Client Name"], "revenue": int(r["Amount"])} for _, r in top_clients.iterrows()]
-
-    # Largest Transactions (by block)
-    txc_cur = tx_client[(tx_client["StartDate"] >= curP.start) & (tx_client["StartDate"] <= curP.end)].copy() if tx_client is not None else pd.DataFrame()
-    largest = txc_cur.sort_values("Amount", ascending=False).head(5).copy()
-    def _fmt_range(r):
-        if pd.isna(r["StartDate"]) or pd.isna(r["EndDate"]): return ""
-        if r["StartDate"].date() == r["EndDate"].date():
-            return r["StartDate"].strftime("%Y-%m-%d")
-        return f'{r["StartDate"].strftime("%Y-%m-%d")}–{r["EndDate"].strftime("%Y-%m-%d")}'
-    # Convert Patients set/list to string of names if available; else leave blank
-    def _patients_to_string(p):
-        if isinstance(p, (set, list)):
-            vals = [str(x) for x in p if isinstance(x, str)]
-            return ", ".join(sorted(set(vals)))
-        return str(p) if isinstance(p, str) else ""
-    largest["PatientsStr"] = largest["Patients"].apply(_patients_to_string) if "Patients" in largest.columns else ""
-    leaders_tx = [
-        {"client": r["Client Name"], "date_range": _fmt_range(r), "patients": r["PatientsStr"], "amount": int(r["Amount"])}
-        for _, r in largest.iterrows()
-    ]
-
-    # === Ops day-level ===
-    # Patient visits per day
-    pv = _patient_visit_rows(df_cur)
-    daily_visits = (
-        pv.groupby("DateOnly").size().reset_index(name="PatientVisits").sort_values("DateOnly")
-        if not pv.empty else pd.DataFrame(columns=["DateOnly","PatientVisits"])
-    )
-    max_vis = {"date": None, "count": None}
-    if not daily_visits.empty:
-        r = daily_visits.loc[daily_visits["PatientVisits"].idxmax()]
-        max_vis = {"date": r["DateOnly"].strftime("%Y-%m-%d"), "count": int(r["PatientVisits"])}
-    avg_vis = float(daily_visits["PatientVisits"].mean()) if not daily_visits.empty else 0.0
-
-    # Client transactions per day
-    daily_tx = pd.DataFrame(columns=["StartDate","ClientTx"])
-    if not txc_cur.empty:
-        daily_tx = (txc_cur.groupby("StartDate")["Block"].count().reset_index(name="ClientTx").sort_values("StartDate"))
-    max_tx = {"date": None, "count": None}
-    if not daily_tx.empty:
-        r = daily_tx.loc[daily_tx["ClientTx"].idxmax()]
-        max_tx = {"date": r["StartDate"].strftime("%Y-%m-%d"), "count": int(r["ClientTx"])}
-    avg_tx = float(daily_tx["ClientTx"].mean()) if not daily_tx.empty else 0.0
-
-    # === Flags (tweak thresholds as needed) ===
-    flags = {
-        "consult_share_down_gt_5pp": (cons_delta_pp_qoq is not None and cons_delta_pp_qoq <= -5.0),
-        "top_items_over_60pct": (conc.get("items_top_10_pct_revenue") or 0) >= 60.0,
-        "vaccination_pct_below_25": next((x for x in pb_cur if x["category"]=="Vaccinations"), {"pct_of_patients":0})["pct_of_patients"] < 25.0,
-        "food_share_up_gt_2pp": any((m.get("category")=="Food" and (m.get("qoq_delta_pp") or 0) >= 2.0) for m in mix_cur),
-        "new_clients_down_gt_10pct_qoq": (
-            sufficient_qoq and _pct_change(cur_kpis["clients"]["new_clients"], prevq_kpis["clients"]["new_clients"]) <= -10.0
-        ),
-        "revenue_down_gt_10pct_qoq": (sufficient_qoq and qoq_change is not None and qoq_change <= -10.0),
-    }
-
-    # === Core monthly tables for the whole dataset (24 months cap) ===
-    core_all = compute_core_metrics_full((0,0), df_full, masks, tx_client)  # you already defined this cached fn
-    rev_all  = compute_revenue_breakdown_full((0,0), df_full, masks)
-    pct_all  = compute_patient_breakdown_pct_full((0,0), df_full, masks, tx_client, patients_per_month)
-
-    # trim to last 24 months for export weight
-    def _last_24(df):
-        if df is None or df.empty: return df
-        last_m = df["Month"].max()
-        if pd.isna(last_m): return df
-        keep = pd.period_range(last_m - 23, last_m, freq="M")
-        return df[df["Month"].isin(keep)].copy()
-
-    core_24 = _last_24(core_all)
-    rev_24  = _last_24(rev_all)
-
-    # === Payload ===
-    payload = {
-        "schema_version": "2.0",
-        "clinic": {"name": clinic_name or "", "currency": currency, "timezone": timezone},
-        "periods": {
-            "current": {"start": curP.start.strftime("%Y-%m-%d"), "end": curP.end.strftime("%Y-%m-%d"), "label": curP.label},
-            "prev_q":  {"start": prevQ.start.strftime("%Y-%m-%d"), "end": prevQ.end.strftime("%Y-%m-%d"), "label": prevQ.label},
-            "prev_y":  {"start": prevY.start.strftime("%Y-%m-%d"), "end": prevY.end.strftime("%Y-%m-%d"), "label": prevY.label},
-        },
-        "coverage": {
-            "days_of_data_in_current": int((curP.end - curP.start).days + 1),
-            "sufficient_for_qoq": bool(sufficient_qoq),
-            "sufficient_for_yoy": bool(sufficient_yoy)
-        },
-        "kpis": {
-            "revenue": {
-                "total": int(cur_kpis["revenue"]["total"]),
-                "qoq_change_pct": None if qoq_change is None else round(qoq_change, 3),
-                "yoy_change_pct": None if yoy_change is None else round(yoy_change, 3),
-                "monthly": cur_kpis["revenue"]["monthly"],
-            },
-            "clients": cur_kpis["clients"],
-            "patients": cur_kpis["patients"],
-            "consults": {**cur_kpis["consults"], "share_qoq_delta_pp": None if cons_delta_pp_qoq is None else round(cons_delta_pp_qoq, 3)},
-        },
-        "mix": {
-            "revenue_breakdown": mix_cur,
-            "patient_breakdown_pct": pb_cur,
-            "concentration": conc
-        },
-        "leaders": {
-            "top_items_by_revenue": leaders_items,
-            "top_clients_by_spend": leaders_clients,
-            "largest_transactions": leaders_tx
-        },
-        "ops": {
-            "max_patient_visits_day": max_vis,
-            "avg_patient_visits_per_day": round(avg_vis, 3),
-            "max_client_transactions_day": max_tx,
-            "avg_client_transactions_per_day": round(avg_tx, 3)
-        },
-        "flags": flags,
-        "notes": [
-            "All amounts rounded to whole AED.",
-            "Client names are not anonymized."
-        ],
-        "generated_at": pd.Timestamp.now(tz="Asia/Dubai").strftime("%Y-%m-%dT%H:%M:%S%z"),
-    }
-
-    # === ZIP bundle ===
-    mem = io.BytesIO()
-    with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
-        # JSON payload
-        z.writestr(
-            "quarterly_payload.json",
-            json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)
-        )
-
-
-        # Core monthly (last 24 months)
-        if core_24 is not None and not core_24.empty:
-            z.writestr("core_monthly.csv", core_24.to_csv(index=False))
-        if rev_24 is not None and not rev_24.empty:
-            z.writestr("revenue_breakdown_monthly.csv", rev_24.to_csv(index=False))
-
-        # Patient breakdown monthly (flatten dict -> long table)
-        if pct_all:
-            rows = []
-            for cat, dfc in pct_all.items():
-                if dfc is None or dfc.empty: continue
-                tmp = dfc.copy()
-                tmp["Category"] = cat
-                rows.append(tmp)
-            if rows:
-                pbm = pd.concat(rows, ignore_index=True)
-                z.writestr("patient_breakdown_pct_monthly.csv", pbm.to_csv(index=False))
-
-        # Daily series (current quarter)
-        if not daily_visits.empty:
-            z.writestr("daily_patient_visits.csv", daily_visits.to_csv(index=False))
-        if not daily_tx.empty:
-            z.writestr("daily_client_transactions.csv", daily_tx.to_csv(index=False))
-
-        # Leaders CSVs (current quarter)
-        if not top_items.empty:
-            z.writestr("top_items.csv", top_items.rename(columns={"Item Name":"ItemName"}).to_csv(index=False))
-        if not top_clients.empty:
-            z.writestr("top_clients.csv", top_clients.rename(columns={"Client Name":"ClientName","Amount":"Revenue"}).to_csv(index=False))
-        if not largest.empty:
-            largest_out = largest[["Client Name","StartDate","EndDate","PatientsStr","Amount"]].rename(
-                columns={"Client Name":"ClientName","PatientsStr":"Patients","Amount":"Revenue"}
+            csv_bytes = debug_out.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="⬇️ Download Keyword Debug CSV (Top 50 by Revenue & Count, all categories)",
+                data=csv_bytes,
+                file_name="keyword_debug_top50_allcategories.csv",
+                mime="text/csv",
             )
-            z.writestr("largest_transactions.csv", largest_out.to_csv(index=False))
-
-        # Optional raw rows for the current quarter
-        if include_raw_rows_csv and not df_cur.empty:
-            raw = df_cur.copy()
-            if raw_rows_limit is not None:
-                raw = raw.head(int(raw_rows_limit))
-            z.writestr("raw_rows_quarter.csv", raw.to_csv(index=False))
-
-    mem.seek(0)
-    return payload, mem.getvalue()
-
-# =========================================
-# 🧾 Quarterly LLM Bundle (very end of app)
-# =========================================
-st.markdown("---")
-st.markdown("### 🧾 Quarterly LLM Bundle")
-
-# Keep heavy results in session so we only compute on click
-st.session_state.setdefault("llm_payload", None)
-st.session_state.setdefault("llm_zip_bytes", None)
-st.session_state.setdefault("llm_built_at", None)
-
-col_gen, col_dl = st.columns([1,1])
-
-with col_gen:
-    if st.button("Generate Data", help="Builds the quarterly JSON payload and CSVs (on click only)"):
-        if "bundle" not in st.session_state:
-            st.error("Upload data first to enable this export.")
         else:
-            df_full, masks, tx_client, tx_patient, patients_per_month = st.session_state["bundle"]
-            with st.spinner("Generating quarterly export bundle..."):
-                payload, zip_bytes = build_quarterly_payload_full(
-                    df_full=df_full,
-                    masks=masks,
-                    tx_client=tx_client,
-                    tx_patient=tx_patient,
-                    patients_per_month=patients_per_month,
-                    clinic_name=st.session_state.get("user_name") or None,  # optional label
-                    include_raw_rows_csv=True,   # full-fat; set False if you want leaner zips
-                    raw_rows_limit=None          # None = all rows of the quarter
-                )
-            if zip_bytes:
-                # normalize payload once for safe previewing later
-                clean_payload_json = json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)
-                clean_payload = json.loads(clean_payload_json)
-            
-                st.session_state["llm_payload"] = clean_payload
-                st.session_state["llm_zip_bytes"] = zip_bytes
-                st.session_state["llm_built_at"] = pd.Timestamp.now(tz="Asia/Dubai")
-                st.success("Quarterly LLM data generated.")
-            else:
-                st.error("Could not build the bundle (no data or invalid dates).")
-
-with col_dl:
-    has_zip = st.session_state.get("llm_zip_bytes") is not None
-    if has_zip:
-        st.download_button(
-            label="Download ZIP",
-            data=st.session_state["llm_zip_bytes"],
-            file_name="clinic_quarterly_llm_bundle.zip",
-            mime="application/zip",
-            help="Downloads quarterly_payload.json + supporting CSVs"
-        )
+            st.info("No keyword matches found for any category.")
     else:
-        st.button("Download ZIP", disabled=True, help="Generate Data first")
+        st.warning("Upload data to enable debugging export.")
 
-# Optional: small preview + meta (safe, lazy)
-if st.session_state.get("llm_payload"):
-    meta = f"Built at: {st.session_state.get('llm_built_at')}"
-    with st.expander(f"Preview quarterly_payload.json  •  {meta}"):
-        st.code(
-            json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
-            language="json"
-        )
+    # --------------------------------
+    # 🧾 Quarterly LLM Bundle
+    # --------------------------------
+    st.markdown("---")
+    st.markdown("### 🧾 Quarterly LLM Bundle")
 
+    st.session_state.setdefault("llm_payload", None)
+    st.session_state.setdefault("llm_zip_bytes", None)
+    st.session_state.setdefault("llm_built_at", None)
 
+    col_gen, col_dl = st.columns([1, 1])
 
+    with col_gen:
+        if st.button("Generate Data", help="Builds the quarterly JSON payload and CSVs (on click only)"):
+            if "bundle" not in st.session_state:
+                st.error("Upload data first to enable this export.")
+            else:
+                df_full, masks, tx_client, tx_patient, patients_per_month = st.session_state["bundle"]
+                with st.spinner("Generating quarterly export bundle..."):
+                    payload, zip_bytes = build_quarterly_payload_full(
+                        df_full=df_full,
+                        masks=masks,
+                        tx_client=tx_client,
+                        tx_patient=tx_patient,
+                        patients_per_month=patients_per_month,
+                        clinic_name=st.session_state.get("user_name") or None,
+                        include_raw_rows_csv=True,
+                        raw_rows_limit=None,
+                    )
+                if zip_bytes:
+                    clean_payload_json = json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)
+                    clean_payload = json.loads(clean_payload_json)
 
+                    st.session_state["llm_payload"] = clean_payload
+                    st.session_state["llm_zip_bytes"] = zip_bytes
+                    st.session_state["llm_built_at"] = pd.Timestamp.now(tz="Asia/Dubai")
+                    st.success("Quarterly LLM data generated.")
+                else:
+                    st.error("Could not build the bundle (no data or invalid dates).")
 
+    with col_dl:
+        has_zip = st.session_state.get("llm_zip_bytes") is not None
+        if has_zip:
+            st.download_button(
+                label="Download ZIP",
+                data=st.session_state["llm_zip_bytes"],
+                file_name="clinic_quarterly_llm_bundle.zip",
+                mime="application/zip",
+                help="Downloads quarterly_payload.json + supporting CSVs",
+            )
+        else:
+            st.button("Download ZIP", disabled=True, help="Generate Data first")
 
+    if st.session_state.get("llm_payload"):
+        meta = f"Built at: {st.session_state.get('llm_built_at')}"
+        with st.expander(f"Preview quarterly_payload.json  •  {meta}"):
+            st.code(
+                json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
+                language="json",
+            )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+else:
+    st.info("🔒 NVF admin-only sections are locked.")
 
 
