@@ -1355,20 +1355,6 @@ if st.session_state.get("working_df") is not None:
 
         grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
-        
-        # --- Show count of deleted reminders (above restore button) ---
-        num_deleted = len(st.session_state.get("deleted_reminders", []))
-        if num_deleted:
-            st.caption(f"🗑️ {num_deleted} reminders hidden (use Restore to bring them back)")
-
-        # --- Restore Deleted Reminders Button ---
-        if st.session_state.get("deleted_reminders"):
-            st.markdown("---")
-            if st.button("♻️ Restore Deleted Reminders"):
-                st.session_state["deleted_reminders"] = []
-                save_deleted_reminders([])
-                st.success("All deleted reminders restored.")
-                st.rerun()
 
     else:
         st.info("No reminders in the selected week.")
@@ -3217,6 +3203,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
