@@ -1043,34 +1043,37 @@ def render_table(df, title, key_prefix, msg_key, rules):
     render_table_with_buttons(df, key_prefix, msg_key)
 
 def render_table_with_buttons(df, key_prefix, msg_key):
-    # widths include the new Delete column
-    col_widths = [2, 2, 5, 3, 4, 1, 1, 2, 1]
-    headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Delete"]
+    # Make the WA and Hide columns the same width for clean alignment
+    col_widths = [2, 2, 5, 3, 4, 1, 1, 2, 2]
+    headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Hide"]
 
     # --- Header row ---
     header_cols = st.columns(col_widths)
     for c, head in zip(header_cols, headers):
-        c.markdown(f"**{head}**")
+        align = "center" if head in ["WA", "Hide"] else "left"
+        c.markdown(f"<div style='text-align:{align}; font-weight:600;'>{head}</div>", unsafe_allow_html=True)
 
     # --- Table rows ---
     for idx, row in df.iterrows():
-        vals = {h: str(row.get(h, "")) for h in headers[:-1]}  # all except "Delete"
+        # Values for the non-action columns (everything except WA & Hide)
+        vals = {h: str(row.get(h, "")) for h in headers[:-2]}
 
         row_cols = st.columns(col_widths, gap="small")
-        for j, h in enumerate(headers[:-1]):  # print all non-action fields
+
+        # Print ONLY data columns (not the action columns)
+        for j, h in enumerate(headers[:-2]):  # up to "Days"
             val = vals[h]
             if h in ["Client Name", "Animal Name", "Plan Item"]:
                 val = normalize_display_case(val)
             row_cols[j].markdown(val)
 
-        # --- WA button ---
-        if row_cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
-            first_name = normalize_display_case(vals['Client Name']).split()[0].strip() if vals['Client Name'] else "there"
-            animal_name = normalize_display_case(vals['Animal Name']).strip() if vals['Animal Name'] else "your pet"
-            plan_for_msg = normalize_display_case(vals["Plan Item"]).strip()
-
+        # --- WA button (aligned to its column, full-width) ---
+        if row_cols[7].button("WA", key=f"{key_prefix}_wa_{idx}", use_container_width=True):
+            first_name = normalize_display_case(row.get("Client Name", "")).split()[0].strip() if row.get("Client Name") else "there"
+            animal_name = normalize_display_case(row.get("Animal Name", "")).strip() if row.get("Animal Name") else "your pet"
+            plan_for_msg = normalize_display_case(row.get("Plan Item", "")).strip()
             user = st.session_state.get("user_name", "").strip()
-            due_date_fmt = format_due_date(vals['Due Date'])
+            due_date_fmt = format_due_date(str(row.get("Due Date", "")))
 
             template = (st.session_state.get("user_template", "") or DEFAULT_WA_TEMPLATE).strip()
 
@@ -1085,7 +1088,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             message = replace_case_insensitive(message, "[Item]", plan_for_msg)
             message = replace_case_insensitive(message, "[Due Date]", due_date_fmt)
 
-            # plural grammar tweak
+            # Grammar fix: "<Names> is" -> "are" when multiple pets listed
             has_multiple_pets = bool(re.search(r"(?:\s+(?:and|&)\s+|,)", animal_name, flags=re.IGNORECASE))
             if has_multiple_pets:
                 pattern = re.compile(rf"({re.escape(animal_name)})\s+is\b", flags=re.IGNORECASE)
@@ -1095,8 +1098,8 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
-        # --- Delete button (NOW inside the loop) ---
-        if row_cols[8].button("🗑️", key=f"{key_prefix}_delete_{idx}"):
+        # --- Hide button (❌), aligned to its column, full-width) ---
+        if row_cols[8].button("❌", key=f"{key_prefix}_hide_{idx}", use_container_width=True):
             rec = {
                 "Due Date": row.get("Due Date", ""),
                 "Charge Date": row.get("Charge Date", ""),
@@ -1109,10 +1112,20 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             }
             st.session_state.setdefault("deleted_reminders", []).append(rec)
             save_deleted_reminders(st.session_state["deleted_reminders"])
-            st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} deleted.")
+            st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} hidden.")
             st.rerun()
 
-    # --- WhatsApp Composer section (once per table) ---
+    # --- Hidden count + Restore button (directly under the table) ---
+    num_deleted = len(st.session_state.get("deleted_reminders", []))
+    if num_deleted:
+        st.caption(f"🗑️ {num_deleted} reminders hidden (use Restore to bring them back)")
+        if st.button("♻️ Restore Hidden Reminders"):
+            st.session_state["deleted_reminders"] = []
+            save_deleted_reminders([])
+            st.success("All hidden reminders restored.")
+            st.rerun()
+
+    # --- WhatsApp Composer section (after the table + restore) ---
     comp_main, comp_tip = st.columns([4, 1])
     with comp_main:
         st.write("### WhatsApp Composer")
@@ -1209,6 +1222,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         unsafe_allow_html=True
     )
     st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
+
 
     # --- WhatsApp Template Editor (unchanged) ---
     st.markdown("### 🧩 WhatsApp Template Editor")
@@ -3203,6 +3217,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
