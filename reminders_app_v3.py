@@ -1044,7 +1044,7 @@ def render_table(df, title, key_prefix, msg_key, rules):
     render_table_with_buttons(df, key_prefix, msg_key)
 
 def render_table_with_buttons(df, key_prefix, msg_key):
-    col_widths = [2, 2, 5, 3, 4, 1, 1, 2, 2]
+    col_widths = [2, 2, 5, 3, 4, 1, 1, 2, 1]
     headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Delete"]
 
     # --- Header row ---
@@ -3233,6 +3233,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
