@@ -596,20 +596,40 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     )
     return df
 
-def drop_early_duplicates_fast(df):
+def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Keeps only the most recent treatment record per client–animal–item combination
+    before the next treatment occurs, even if that next treatment happens early.
+    In effect:
+      - Each new treatment resets the due date.
+      - Any previous record with the same item before that new charge is dropped.
+    """
     if df.empty:
         return df
+
     df = df.copy()
     df["MatchedItems_str"] = df["MatchedItems"].apply(
         lambda x: ", ".join(sorted(x)) if isinstance(x, list) else str(x)
     )
-    df.sort_values(["Client Name", "Animal Name", "MatchedItems_str", "ChargeDate"],
-                   inplace=True, ignore_index=True)
-    g = df.groupby(["Client Name","Animal Name","MatchedItems_str"], dropna=False)
+
+    # Sort chronologically within each client–animal–item
+    df.sort_values(
+        ["Client Name", "Animal Name", "MatchedItems_str", "ChargeDate"],
+        inplace=True,
+        ignore_index=True
+    )
+
+    # Within each animal+item, find the next charge date
+    g = df.groupby(["Client Name", "Animal Name", "MatchedItems_str"], dropna=False)
     next_charge = g["ChargeDate"].shift(-1)
-    keep = next_charge.isna() | (next_charge > df["NextDueDate"])
-    out = df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
-    return out
+
+    # Rule:
+    #  - Drop any row that has a later charge for the same item, regardless of early/late.
+    #  - Keep only the last one (most recent) before the next charge.
+    keep = next_charge.isna()
+
+    return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
+
 
 # --------------------------------
 # File processing (decoupled from rules)
@@ -3150,5 +3170,6 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
