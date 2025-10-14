@@ -270,6 +270,7 @@ DEFAULT_WA_TEMPLATE = (
 # Settings persistence (local JSON) — ephemeral on Streamlit Cloud
 # --------------------------------
 SETTINGS_FILE = "clinicreminders_settings.json"
+DELETED_REMINDERS_FILE = "deleted_reminders.json"
 _last_settings = None  # global cache
 
 def save_settings():
@@ -306,6 +307,15 @@ def load_settings():
         st.session_state["user_template"] = ""
         save_settings()
 
+def load_deleted_reminders():
+    if os.path.exists(DELETED_REMINDERS_FILE):
+        with open(DELETED_REMINDERS_FILE, "r") as f:
+            return json.load(f)
+    return []
+    
+def save_deleted_reminders(deleted_list):
+    with open(DELETED_REMINDERS_FILE, "w") as f:
+        json.dump(deleted_list, f)
 
 # --------------------------------
 # PMS definitions
@@ -409,6 +419,8 @@ st.session_state.setdefault("weekly_message", "")
 st.session_state.setdefault("search_message", "")
 st.session_state.setdefault("new_rule_counter", 0)
 st.session_state.setdefault("form_version", 0)
+st.session_state.setdefault("deleted_reminders", load_deleted_reminders())
+
 
 # --------------------------------
 # Helpers
@@ -1032,8 +1044,8 @@ def render_table(df, title, key_prefix, msg_key, rules):
     render_table_with_buttons(df, key_prefix, msg_key)
 
 def render_table_with_buttons(df, key_prefix, msg_key):
-    col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
-    headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA"]
+    col_widths = [2, 2, 5, 3, 4, 1, 1, 2, 2]
+    headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Delete"]
 
     # --- Header row ---
     cols = st.columns(col_widths)
@@ -1083,6 +1095,28 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.session_state[msg_key] = message
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
+
+    # --- Delete button ---
+    if cols[8].button("🗑️", key=f"{key_prefix}_delete_{idx}"):
+        # Build a unique identifier for the row to store in deleted list
+        rec = {
+            "Due Date": row.get("Due Date", ""),
+            "Charge Date": row.get("Charge Date", ""),
+            "Client Name": row.get("Client Name", ""),
+            "Animal Name": row.get("Animal Name", ""),
+            "Plan Item": row.get("Plan Item", ""),
+            "Qty": row.get("Qty", ""),
+            "Days": row.get("Days", ""),
+            "DeletedAt": datetime.now().isoformat()
+        }
+        # Append to session and persist
+        st.session_state["deleted_reminders"].append(rec)
+        save_deleted_reminders(st.session_state["deleted_reminders"])
+    
+        # Drop this row from the current table (session-only)
+        df.drop(idx, inplace=True)
+        st.success(f"Reminder for {rec['Animal Name']} deleted.")
+        st.rerun()
 
     # --- WhatsApp Composer section (once per table) ---
     comp_main, comp_tip = st.columns([4, 1])
@@ -1321,8 +1355,37 @@ if st.session_state.get("working_df") is not None:
             .rename(columns={"DueDateFmt": "Due Date"})
         )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
 
+        # --- Filter out deleted reminders before rendering ---
+        deleted = st.session_state.get("deleted_reminders", [])
+        if deleted:
+            deleted_keys = {
+                (d["Client Name"], d["Animal Name"], d["Plan Item"], d["Due Date"])
+                for d in deleted
+            }
+            grouped = grouped[
+                ~grouped.apply(
+                    lambda r: (r["Client Name"], r["Animal Name"], r["Plan Item"], r["Due Date"]) in deleted_keys,
+                    axis=1
+                )
+            ]
+
         grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
+        
+        # --- Show count of deleted reminders (above restore button) ---
+        num_deleted = len(st.session_state.get("deleted_reminders", []))
+        if num_deleted:
+            st.caption(f"🗑️ {num_deleted} reminders hidden (use Restore to bring them back)")
+
+        # --- Restore Deleted Reminders Button ---
+        if st.session_state.get("deleted_reminders"):
+            st.markdown("---")
+            if st.button("♻️ Restore Deleted Reminders"):
+                st.session_state["deleted_reminders"] = []
+                save_deleted_reminders([])
+                st.success("All deleted reminders restored.")
+                st.rerun()
+
     else:
         st.info("No reminders in the selected week.")
 
@@ -3170,6 +3233,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
