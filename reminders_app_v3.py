@@ -23,7 +23,7 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders & Factoids Prototype v5.3")
+    st.title("ClinicReminders & Factoids Prototype v5.4")
 st.markdown("---")
 
 # -----------------------
@@ -39,7 +39,6 @@ CONSULT_EXCLUSIONS = [
     "fecal","blood","smear","faecal","urine","x-ray","xray","ultrasound","afast","tfast","a-fast","t-fast",
     "sitting","IDEXX","VHN"
 ]
-
 DENTAL_KEYWORDS = ["dental","tooth","extraction","scale and polish","scale & polish","dentistry"]
 DENTAL_EXCLUSIONS = ["Cataract","Oxyfresh","Healthy Bites","Healthy Bites","my beau"]
 
@@ -270,6 +269,7 @@ DEFAULT_WA_TEMPLATE = (
 # Settings persistence (local JSON) — ephemeral on Streamlit Cloud
 # --------------------------------
 SETTINGS_FILE = "clinicreminders_settings.json"
+DELETED_REMINDERS_FILE = "deleted_reminders.json"
 _last_settings = None  # global cache
 
 def save_settings():
@@ -306,6 +306,15 @@ def load_settings():
         st.session_state["user_template"] = ""
         save_settings()
 
+def load_deleted_reminders():
+    if os.path.exists(DELETED_REMINDERS_FILE):
+        with open(DELETED_REMINDERS_FILE, "r") as f:
+            return json.load(f)
+    return []
+    
+def save_deleted_reminders(deleted_list):
+    with open(DELETED_REMINDERS_FILE, "w") as f:
+        json.dump(deleted_list, f)
 
 # --------------------------------
 # PMS definitions
@@ -409,6 +418,8 @@ st.session_state.setdefault("weekly_message", "")
 st.session_state.setdefault("search_message", "")
 st.session_state.setdefault("new_rule_counter", 0)
 st.session_state.setdefault("form_version", 0)
+st.session_state.setdefault("deleted_reminders", load_deleted_reminders())
+
 
 # --------------------------------
 # Helpers
@@ -596,20 +607,40 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     )
     return df
 
-def drop_early_duplicates_fast(df):
+def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Keeps only the most recent treatment record per client–animal–item combination
+    before the next treatment occurs, even if that next treatment happens early.
+    In effect:
+      - Each new treatment resets the due date.
+      - Any previous record with the same item before that new charge is dropped.
+    """
     if df.empty:
         return df
+
     df = df.copy()
     df["MatchedItems_str"] = df["MatchedItems"].apply(
         lambda x: ", ".join(sorted(x)) if isinstance(x, list) else str(x)
     )
-    df.sort_values(["Client Name", "Animal Name", "MatchedItems_str", "ChargeDate"],
-                   inplace=True, ignore_index=True)
-    g = df.groupby(["Client Name","Animal Name","MatchedItems_str"], dropna=False)
+
+    # Sort chronologically within each client–animal–item
+    df.sort_values(
+        ["Client Name", "Animal Name", "MatchedItems_str", "ChargeDate"],
+        inplace=True,
+        ignore_index=True
+    )
+
+    # Within each animal+item, find the next charge date
+    g = df.groupby(["Client Name", "Animal Name", "MatchedItems_str"], dropna=False)
     next_charge = g["ChargeDate"].shift(-1)
-    keep = next_charge.isna() | (next_charge > df["NextDueDate"])
-    out = df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
-    return out
+
+    # Rule:
+    #  - Drop any row that has a later charge for the same item, regardless of early/late.
+    #  - Keep only the last one (most recent) before the next charge.
+    keep = next_charge.isna()
+
+    return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
+
 
 # --------------------------------
 # File processing (decoupled from rules)
@@ -1012,59 +1043,89 @@ def render_table(df, title, key_prefix, msg_key, rules):
     render_table_with_buttons(df, key_prefix, msg_key)
 
 def render_table_with_buttons(df, key_prefix, msg_key):
-    col_widths = [2, 2, 5, 3, 4, 1, 1, 2]
-    headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA"]
+    # Make the WA and Hide columns the same width for clean alignment
+    col_widths = [2, 2, 5, 3, 4, 1, 1, 2, 2]
+    headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Hide"]
 
     # --- Header row ---
-    cols = st.columns(col_widths)
-    for c, head in zip(cols, headers):
-        c.markdown(f"**{head}**")
+    header_cols = st.columns(col_widths)
+    for c, head in zip(header_cols, headers):
+        align = "center" if head in ["WA", "Hide"] else "left"
+        c.markdown(f"<div style='text-align:{align}; font-weight:600;'>{head}</div>", unsafe_allow_html=True)
 
     # --- Table rows ---
     for idx, row in df.iterrows():
-        vals = {h: str(row.get(h, "")) for h in headers[:-1]}
-        cols = st.columns(col_widths, gap="small")
-        for j, h in enumerate(headers[:-1]):
+        # Values for the non-action columns (everything except WA & Hide)
+        vals = {h: str(row.get(h, "")) for h in headers[:-2]}
+
+        row_cols = st.columns(col_widths, gap="small")
+
+        # Print ONLY data columns (not the action columns)
+        for j, h in enumerate(headers[:-2]):  # up to "Days"
             val = vals[h]
             if h in ["Client Name", "Animal Name", "Plan Item"]:
                 val = normalize_display_case(val)
-            cols[j].markdown(val)
+            row_cols[j].markdown(val)
 
-        # --- WA button ---
-        if cols[7].button("WA", key=f"{key_prefix}_wa_{idx}"):
-            first_name = normalize_display_case(vals['Client Name']).split()[0].strip() if vals['Client Name'] else "there"
-            animal_name = normalize_display_case(vals['Animal Name']).strip() if vals['Animal Name'] else "your pet"
-            plan_for_msg = normalize_display_case(vals["Plan Item"]).strip()
-
+        # --- WA button (aligned to its column, full-width) ---
+        if row_cols[7].button("WA", key=f"{key_prefix}_wa_{idx}", use_container_width=True):
+            first_name = normalize_display_case(row.get("Client Name", "")).split()[0].strip() if row.get("Client Name") else "there"
+            animal_name = normalize_display_case(row.get("Animal Name", "")).strip() if row.get("Animal Name") else "your pet"
+            plan_for_msg = normalize_display_case(row.get("Plan Item", "")).strip()
             user = st.session_state.get("user_name", "").strip()
-            due_date_fmt = format_due_date(vals['Due Date'])
+            due_date_fmt = format_due_date(str(row.get("Due Date", "")))
 
             template = (st.session_state.get("user_template", "") or DEFAULT_WA_TEMPLATE).strip()
 
             def replace_case_insensitive(text, placeholder, value):
                 pattern = re.compile(re.escape(placeholder), re.IGNORECASE)
                 return pattern.sub(value, text)
-            
+
             message = template
             message = replace_case_insensitive(message, "[Client Name]", first_name)
             message = replace_case_insensitive(message, "[Your Name]", user or "our clinic")
             message = replace_case_insensitive(message, "[Pet Name]", animal_name)
             message = replace_case_insensitive(message, "[Item]", plan_for_msg)
             message = replace_case_insensitive(message, "[Due Date]", due_date_fmt)
-            # --- Grammar fix: change "is" to "are" only if multiple pets AND only when "is" directly follows the pet name
+
+            # Grammar fix: "<Names> is" -> "are" when multiple pets listed
             has_multiple_pets = bool(re.search(r"(?:\s+(?:and|&)\s+|,)", animal_name, flags=re.IGNORECASE))
             if has_multiple_pets:
-                # Replace exactly: "<Pet Name> is" -> "<Pet Name> are" (first occurrence only)
                 pattern = re.compile(rf"({re.escape(animal_name)})\s+is\b", flags=re.IGNORECASE)
                 message, _ = pattern.subn(r"\1 are", message, count=1)
-
-
 
             st.session_state[msg_key] = message
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
-    # --- WhatsApp Composer section (once per table) ---
+        # --- Hide button (❌), aligned to its column, full-width) ---
+        if row_cols[8].button("❌", key=f"{key_prefix}_hide_{idx}", use_container_width=True):
+            rec = {
+                "Due Date": row.get("Due Date", ""),
+                "Charge Date": row.get("Charge Date", ""),
+                "Client Name": row.get("Client Name", ""),
+                "Animal Name": row.get("Animal Name", ""),
+                "Plan Item": row.get("Plan Item", ""),
+                "Qty": row.get("Qty", ""),
+                "Days": row.get("Days", ""),
+                "DeletedAt": datetime.now().isoformat()
+            }
+            st.session_state.setdefault("deleted_reminders", []).append(rec)
+            save_deleted_reminders(st.session_state["deleted_reminders"])
+            st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} hidden.")
+            st.rerun()
+
+    # --- Hidden count + Restore button (directly under the table) ---
+    num_deleted = len(st.session_state.get("deleted_reminders", []))
+    if num_deleted:
+        st.caption(f"🗑️ {num_deleted} reminders hidden (use Restore to bring them back)")
+        if st.button("♻️ Restore Hidden Reminders"):
+            st.session_state["deleted_reminders"] = []
+            save_deleted_reminders([])
+            st.success("All hidden reminders restored.")
+            st.rerun()
+
+    # --- WhatsApp Composer section (after the table + restore) ---
     comp_main, comp_tip = st.columns([4, 1])
     with comp_main:
         st.write("### WhatsApp Composer")
@@ -1121,16 +1182,11 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 <script>
                   const MESSAGE_RAW = {json.dumps(current_message)};
                   async function copyToClipboard(text) {{
-                    try {{
-                      await navigator.clipboard.writeText(text);
-                    }} catch (err) {{
+                    try {{ await navigator.clipboard.writeText(text); }}
+                    catch (err) {{
                       const ta = document.createElement('textarea');
-                      ta.value = text;
-                      document.body.appendChild(ta);
-                      ta.select();
-                      try {{ document.execCommand('copy'); }} finally {{
-                        document.body.removeChild(ta);
-                      }}
+                      ta.value = text; document.body.appendChild(ta);
+                      ta.select(); try {{ document.execCommand('copy'); }} finally {{ document.body.removeChild(ta); }}
                     }}
                   }}
                   document.getElementById('waBtn').addEventListener('click', async function(e) {{
@@ -1160,32 +1216,24 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             height=130,
         )
 
-    # --- Note and Tip under composer ---
     st.markdown(
         "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
         "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
         unsafe_allow_html=True
     )
-    st.info("If you leave the phone blank, the message is auto-copied. "
-            "WhatsApp opens in forward/search mode — just paste into the chat.")
+    st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
 
-    # --- WhatsApp Template Editor ---
+
+    # --- WhatsApp Template Editor (unchanged) ---
     st.markdown("### 🧩 WhatsApp Template Editor")
-    
-    # persisted template init
     if "wa_template" not in st.session_state or not st.session_state.get("wa_template"):
         st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE) or DEFAULT_WA_TEMPLATE
 
-    
-    # versioned key to force a fresh widget when we reset
     ver_key = f"{key_prefix}_tmpl_ver"
     if ver_key not in st.session_state:
         st.session_state[ver_key] = 0
-    
-    # compute this run's editor widget key
+
     editor_key = f"wa_template_editor_{key_prefix}_{st.session_state[ver_key]}"
-    
-    # render editor: because the key changes on reset, the 'value' is used fresh
     st.text_area(
         "Customize your WhatsApp message template:",
         value=st.session_state["wa_template"],
@@ -1193,15 +1241,8 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         key=editor_key,
         help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
     )
-    
-    st.info(
-        "1. **Update** the WhatsApp template here. Use [Client Name], [Your Name], [Pet Name], [Item], and [Due Date] "
-        "to dynamically input those values.\n\n"
-        "2. Click **Update Template** to update your template, or **Reset Template** to reset to the default template."
-    )
-    
+    st.info("1. **Update** the WhatsApp template here... 2. Click **Update Template** or **Reset Template**.")
     col_update, col_reset = st.columns([1, 1])
-    
     with col_update:
         if st.button("✅ Update Template", key=f"update_template_{key_prefix}"):
             new_template = st.session_state.get(editor_key, "").strip()
@@ -1211,14 +1252,11 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 save_settings()
                 st.success("Template updated successfully!")
                 st.rerun()
-    
     with col_reset:
         if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}"):
-            # persist default
             st.session_state["wa_template"] = DEFAULT_WA_TEMPLATE
             st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
             save_settings()
-            # bump version so a NEW widget mounts with the default as its value
             st.session_state[ver_key] += 1
             st.success("Template reset to default!")
             st.rerun()
@@ -1301,8 +1339,23 @@ if st.session_state.get("working_df") is not None:
             .rename(columns={"DueDateFmt": "Due Date"})
         )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
 
+        # --- Filter out deleted reminders before rendering ---
+        deleted = st.session_state.get("deleted_reminders", [])
+        if deleted:
+            deleted_keys = {
+                (d["Client Name"], d["Animal Name"], d["Plan Item"], d["Due Date"])
+                for d in deleted
+            }
+            grouped = grouped[
+                ~grouped.apply(
+                    lambda r: (r["Client Name"], r["Animal Name"], r["Plan Item"], r["Due Date"]) in deleted_keys,
+                    axis=1
+                )
+            ]
+
         grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
+
     else:
         st.info("No reminders in the selected week.")
 
@@ -3150,6 +3203,3 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
-
-
-
