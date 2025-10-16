@@ -666,8 +666,14 @@ def process_file(file_bytes, filename):
     else:
         raise ValueError("Unsupported file type")
 
-    # --- 2️⃣ Clean headers (remove BOMs, non-breaking spaces, trim) ---
-    df.columns = [str(c).replace("\u00a0", " ").replace("\ufeff", "").strip() for c in df.columns]
+    # --- Clean up column headers early (strip ALL whitespace and normalize unicode) ---
+    def clean_header(h):
+        if not isinstance(h, str):
+            h = str(h)
+        return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
+    
+    df.columns = [clean_header(c) for c in df.columns]
+
 
     # --- 3️⃣ Case-insensitive map for reliable lookups ---
     lower_map = {c.lower(): c for c in df.columns}
@@ -3243,6 +3249,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
