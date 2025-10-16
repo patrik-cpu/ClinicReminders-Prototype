@@ -266,52 +266,157 @@ DEFAULT_WA_TEMPLATE = (
 
 
 # --------------------------------
-# Settings persistence (local JSON) — ephemeral on Streamlit Cloud
+# 🔐 Login authorisation & per-clinic settings persistence (Google Sheets)
 # --------------------------------
-SETTINGS_FILE = "clinicreminders_settings.json"
-DELETED_REMINDERS_FILE = "deleted_reminders.json"
-_last_settings = None  # global cache
+import hashlib
 
-def save_settings():
-    global _last_settings
-    settings = {
-        "rules": st.session_state["rules"],
-        "exclusions": st.session_state["exclusions"],
-        "user_name": st.session_state["user_name"],
-        "user_template": st.session_state.get("user_template", "")
-    }
-    if settings != _last_settings:
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(settings, f)
-        _last_settings = settings
+# === CONFIGURATION ===
+SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ← your ClinicReminders_Settings_Master Sheet ID
+SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
+# === GOOGLE SHEETS CONNECTION ===
+@st.cache_resource
+def get_settings_sheet():
+    """Connect to the shared ClinicReminders_Settings_Master sheet."""
+    try:
+        creds_dict = st.secrets["gcp_service_account"]
+    except Exception:
+        with open("google-credentials.json", "r") as f:
+            creds_dict = json.load(f)
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+    client = gspread.authorize(creds)
+    return client.open_by_key(SETTINGS_SHEET_ID).sheet1
+
+
+# === LOGIN HELPER FUNCTIONS ===
+def hash_pw(pw: str):
+    """Return MD5 hash of a password."""
+    return hashlib.md5(pw.encode()).hexdigest()
+
+
+def authenticate_user(username, password):
+    """Check username/password pair against the sheet."""
+    sheet = get_settings_sheet()
+    records = sheet.get_all_records()
+    for r in records:
+        if r["ClinicID"].strip().lower() == username.strip().lower():
+            if r["PasswordHash"] == hash_pw(password):
+                return r
+    return None
+
+
+# === LOGIN FORM (Sidebar) ===
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+
+if not st.session_state["logged_in"]:
+    st.sidebar.markdown("### 🔑 Clinic Login")
+    username = st.sidebar.text_input("Clinic ID / Username")
+    password = st.sidebar.text_input("Password", type="password")
+    if st.sidebar.button("Login"):
+        user_row = authenticate_user(username, password)
+        if user_row:
+            st.session_state["clinic_id"] = username
+            st.session_state["logged_in"] = True
+            st.success(f"✅ Welcome, {username}!")
+            st.rerun()
+        else:
+            st.error("❌ Invalid username or password.")
+else:
+    st.sidebar.success(f"Logged in as {st.session_state['clinic_id']}")
+    
+# --- 🚪 Logout button ---
+if st.session_state.get("logged_in", False):
+    if st.sidebar.button("🚪 Logout"):
+        # Clear login state
+        for key in ["logged_in", "clinic_id"]:
+            st.session_state.pop(key, None)
+        st.success("You have been logged out.")
+        st.rerun()
+
+# Block access to rest of app until logged in
+if not st.session_state["logged_in"]:
+    st.warning("Please log in to access ClinicReminders & Factoids.")
+    st.stop()
+
+
+# --------------------------------
+# 💾 Per-clinic settings persistence via Google Sheets
+# --------------------------------
 def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, "r") as f:
-            settings = json.load(f)
-        rules = DEFAULT_RULES.copy()
-        saved_rules = settings.get("rules", {})
-        for k, v in saved_rules.items():
-            if "visible_text" in v and not v["visible_text"].strip():
-                v.pop("visible_text")
-        rules.update(saved_rules)
-        st.session_state["rules"] = rules
+    """Load settings for the current clinic from the Google Sheet."""
+    clinic_id = st.session_state.get("clinic_id")
+    if not clinic_id:
+        st.warning("Please log in first.")
+        return
+
+    sheet = get_settings_sheet()
+    records = sheet.get_all_records()
+    rec = next((r for r in records if r["ClinicID"].strip().lower() == clinic_id.lower()), None)
+
+    if rec and rec["SettingsJSON"]:
+        try:
+            settings = json.loads(rec["SettingsJSON"])
+        except Exception:
+            settings = {}
+        st.session_state["rules"] = settings.get("rules", DEFAULT_RULES.copy())
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
-        st.session_state["user_template"] = settings.get("user_template", "")
+        st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
     else:
+        # Defaults for new clinics
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
         st.session_state["user_name"] = ""
-        st.session_state["user_template"] = ""
-        save_settings()
+        st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
+
+
+def save_settings():
+    """Save current clinic’s settings back to the Google Sheet."""
+    clinic_id = st.session_state.get("clinic_id")
+    if not clinic_id:
+        return
+
+    sheet = get_settings_sheet()
+    all_vals = sheet.get_all_values()
+    headers = all_vals[0]
+    clinic_col = headers.index("ClinicID") + 1
+
+    # Find the existing row for this clinic (2-based index since row 1 is headers)
+    row = None
+    for i, r in enumerate(all_vals[1:], start=2):
+        if r[clinic_col - 1].strip().lower() == clinic_id.lower():
+            row = i
+            break
+
+    # Build the JSON blob for settings
+    settings_data = {
+        "rules": st.session_state["rules"],
+        "exclusions": st.session_state["exclusions"],
+        "user_name": st.session_state["user_name"],
+        "user_template": st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
+    }
+    settings_json = json.dumps(settings_data)
+    updated_at = datetime.utcnow().isoformat()
+
+    # Update existing row or append a new one
+    if row:
+        sheet.update_cell(row, headers.index("SettingsJSON") + 1, settings_json)
+        sheet.update_cell(row, headers.index("UpdatedAt") + 1, updated_at)
+    else:
+        sheet.append_row([clinic_id, "", settings_json, updated_at])
+
+# --------------------------------
+# 🗑️ Local hidden-reminders tracking
+# --------------------------------
+DELETED_REMINDERS_FILE = "deleted_reminders.json"
 
 def load_deleted_reminders():
     if os.path.exists(DELETED_REMINDERS_FILE):
         with open(DELETED_REMINDERS_FILE, "r") as f:
             return json.load(f)
     return []
-    
+
 def save_deleted_reminders(deleted_list):
     with open(DELETED_REMINDERS_FILE, "w") as f:
         json.dump(deleted_list, f)
@@ -949,17 +1054,18 @@ else:
 st.markdown("<div id='tutorial' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("<h2 id='tutorial'>📖 Tutorial - Read me first!</h2>", unsafe_allow_html=True)
 st.info(
-    "### 🧭 READ THIS FIRST!\n"
-    "This prototype does two main things:\n\n"
-    "1️⃣ **Sets Reminders** for all sorts of things — Vaccines, Dentals, Flea/Worm, Librela/Solensia, and anything else.  \n"
-    "2️⃣ **Shows you interesting Factoids** about your clinic. Use the sidebar on the left to navigate.\n\n"
-    "### 📋 How to use:\n"
-    "**STEP 1:** Upload your data. Patrik has probably provided you with this.  \n"
-    "**STEP 2:** Look at the *Weekly Reminders* section. It shows reminders due starting the week after the latest date in your data.  \n"
-    "**STEP 3:** Click the *WA* button to generate a template WhatsApp message for copying or direct sending.  \n"
-    "**STEP 4:** *Search Terms* (which control what reminders are generated) can be added, modified, or deleted.  \n"
-    "**STEP 5:** View the *Factoids* section for lots of insights! Contact Patrik for a full walk-through.  \n\n"
-    "There's more you can do, but this should be enough to get you started."
+    "### 🧭 READ THIS FIRST!\n\n"
+    "Welcome to the **ClinicReminders & Factoids Prototype** — this tool helps you understand your clinic data and keep your clients engaged.\n\n"
+    "### 💡 What it does\n"
+    "1️⃣ **Sets Reminders** for everything from Vaccines, Dentals, and Flea/Worm treatments to Librela, Solensia, and more.  \n"
+    "2️⃣ **Generates Factoids & Insights** — quick, visual summaries of your clinic’s activity, clients, and trends.\n\n"
+    "### 📋 How to use\n"
+    "**STEP 1:** Upload your clinic data file (Patrik has likely provided one).  \n"
+    "**STEP 2:** Go to **Weekly Reminders** — see which reminders are due in the week after your latest data date.  \n"
+    "**STEP 3:** Click the **WA button** to instantly prepare a WhatsApp reminder message for copy or direct send.  \n"
+    "**STEP 4:** Use **Search Terms** to control what triggers reminders — add new terms, edit intervals, or remove old ones.  \n"
+    "**STEP 5:** Explore **Factoids** for performance insights and interesting clinic trends.  \n\n"
+    "That’s all you need to get started — explore freely, and reach out to **Patrik** anytime for a full walk-through or advanced setup help."
 )
 
 # --- Upload Data section ---
@@ -1176,12 +1282,20 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     with comp_main:
         st.write("### WhatsApp Composer")
 
-        st.session_state["user_name"] = st.text_input(
+        prev_name = st.session_state.get("user_name", "")
+        new_name = st.text_input(
             "Your name / clinic (appears in WhatsApp messages):",
-            value=st.session_state.get("user_name", ""),
+            value=prev_name,
             key=f"user_name_input_{key_prefix}",
-            placeholder="e.g. Best Health Vet Clinic or Patrik from Best Health Vet Clinic"
+            placeholder="e.g. Best Health Vet Clinic or Patrik from Best Health Vet Clinic",
         )
+        
+        # Auto-save to Google Sheets when the name changes
+        if new_name != prev_name:
+            st.session_state["user_name"] = new_name
+            save_settings()
+            st.toast("✅ Name saved to settings.")
+
 
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
@@ -1287,7 +1401,20 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         key=editor_key,
         help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
     )
-    st.info("1. **Update** the WhatsApp template here... 2. Click **Update Template** or **Reset Template**.")
+    st.info(
+        "### 🧩 How to Customize Your WhatsApp Message Template\n\n"
+        "**1️⃣ Edit your message below** – you can freely rewrite it to match your clinic’s tone or language.\n\n"
+        "**2️⃣ Use dynamic placeholders (square brackets)** to make messages automatically fill with client and pet details:\n"
+        "- `[Client Name]` → Inserts the client’s first name  \n"
+        "- `[Your Name]` → Inserts your name or clinic name (set above)  \n"
+        "- `[Pet Name]` → Inserts the patient’s name(s)  \n"
+        "- `[Item]` → Inserts what’s due (e.g., *Rabies Vaccine*, *Dental Exam*)  \n"
+        "- `[Due Date]` → Inserts the formatted due date (e.g., *5th of September, 2025*)\n\n"
+        "**3️⃣ Example:**  \n"
+        "_Hi [Client Name], this is [Your Name] reminding you that [Pet Name] is due for their [Item] on the [Due Date]._  \n\n"
+        "**4️⃣ Click ‘✅ Update Template’ to save**, or **‘🗑️ Reset Template’** to return to the default message."
+    )
+
     col_update, col_reset = st.columns([1, 1])
     with col_update:
         if st.button("✅ Update Template", key=f"update_template_{key_prefix}"):
@@ -1462,10 +1589,17 @@ if st.session_state.get("working_df") is not None:
     st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("#### 📝 Search Terms")
     st.info(
-        "1. See all current Search Terms, set their recurrence interval, and delete if necessary.\n"
-        "2. Decide if the Quantity column should be considered (e.g. 1× Bravecto = 90 days, 2× Bravecto = 180 days).\n"
-        "3. View and edit the Visible Text which will appear in the WhatsApp template message."
+        "### 🧩 How to Manage Search Terms\n\n"
+        "**1️⃣ View and edit all existing Search Terms** — each term represents a product or service that generates a reminder (e.g., *Rabies*, *Bravecto*, *Dental*).\n\n"
+        "**2️⃣ Set the recurrence interval (‘Days’)** — how long until the next reminder appears.  \n"
+        "Example: 90 days for Bravecto, 365 days for Vaccinations.\n\n"
+        "**3️⃣ Choose whether to use the ‘Qty’ column** — if checked, the reminder multiplies the interval by quantity.  \n"
+        "Example: *2× Bravecto* = 180 days.\n\n"
+        "**4️⃣ Edit the ‘Visible Text’** — this is what appears inside the WhatsApp message instead of the raw product name.  \n"
+        "Example: *bravecto* → **Bravecto Tablet**, *rabies* → **Rabies Vaccine**.\n\n"
+        "**5️⃣ You can also delete outdated terms or add new ones at the bottom of the section.**"
     )
+
     cols = st.columns([3,1,1,2,0.7])
     with cols[0]: st.markdown("**Rule**")
     with cols[1]: st.markdown("**Days**")
@@ -3025,11 +3159,68 @@ if submitted_fb:
             st.error(f"Could not save your message: {e}")
 
 
+
+
+
+# --------------------------------
+#  👩‍⚕️ ADMIN TOOLS
+# --------------------------------
+
+st.markdown("---")
+st.markdown("## 🧩 Clinic Account Management (Admin Only)")
+
+# --------------------------------
+# Add or Reset Clinic Accounts
+# --------------------------------
+st.markdown("---")
+st.markdown("### 👩‍⚕️ Admin: Add or Reset Clinic Accounts")
+
+# Only show to a special admin account (for example, “Admin”)
+if st.session_state.get("clinic_id") == "Admin":
+    sheet = get_settings_sheet()
+    st.info("Use this to add or update clinic login credentials. Plain passwords will be visible in the Sheet for convenience.")
+
+    with st.form("add_clinic_form"):
+        new_clinic = st.text_input("Clinic ID (e.g., HappyVet)").strip()
+        new_pw = st.text_input("Password (e.g., mypassword)").strip()
+        submitted = st.form_submit_button("➕ Add / Update Clinic")
+
+    if submitted:
+        if not new_clinic or not new_pw:
+            st.error("Please enter both Clinic ID and Password.")
+        else:
+            plain = new_pw
+            hashed = hash_pw(new_pw)
+            all_vals = sheet.get_all_values()
+            headers = all_vals[0]
+            clinic_col = headers.index("ClinicID") + 1
+
+            # Check if clinic already exists
+            row = None
+            for i, r in enumerate(all_vals[1:], start=2):
+                if r[clinic_col - 1].strip().lower() == new_clinic.lower():
+                    row = i
+                    break
+
+            if row:
+                # Update existing clinic row
+                sheet.update_cell(row, headers.index("PlainPassword") + 1, plain)
+                sheet.update_cell(row, headers.index("PasswordHash") + 1, hashed)
+                sheet.update_cell(row, headers.index("UpdatedAt") + 1, datetime.utcnow().isoformat())
+                st.success(f"✅ Updated password for clinic '{new_clinic}'.")
+            else:
+                # Add a new clinic row
+                sheet.append_row([new_clinic, plain, hashed, "{}", datetime.utcnow().isoformat()])
+                st.success(f"✅ Added new clinic '{new_clinic}'.")
+
+else:
+    st.caption("Admin-only clinic management hidden. Log in as Admin to access it.")
+    
 # --------------------------------
 # 🧷 Nova Vet Family Admin Access (Password Protected)
 # --------------------------------
 st.markdown("---")
-st.markdown("## 🧷 Nova Vet Family Admin Access")
+st.markdown("### 🧷 Nova Vet Family Admin Access")
 
 # Password gate (separate from Factoids)
 if "admin_unlocked" not in st.session_state:
@@ -3249,7 +3440,3 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
-
-
-
-
