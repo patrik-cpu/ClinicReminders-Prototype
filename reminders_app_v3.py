@@ -649,51 +649,43 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
 def process_file(file_bytes, filename):
     """
     Load, detect PMS, and normalize Vetport, Xpress, and ezyVet exports.
-    For Vetport: reorder columns immediately (before any other logic).
+    For Vetport: move 'Planitem Performed' to the first column immediately,
+    ensuring headers and data stay aligned.
     """
-
     from io import BytesIO
     file = BytesIO(file_bytes)
     lowerfn = filename.lower()
 
-    # --- 1️⃣ Load file ---
+    # --- Load ---
     if lowerfn.endswith(".csv"):
-        df = pd.read_csv(file)
+        df = pd.read_csv(file, dtype=str)
     elif lowerfn.endswith((".xls", ".xlsx")):
-        df = pd.read_excel(file)
+        df = pd.read_excel(file, dtype=str)
     else:
         raise ValueError("Unsupported file type")
-        
-    # --- Drop phantom index column if present (blank header or 'Unnamed: 0') ---
+
+    # --- Drop phantom index column if present ---
     if df.columns[0].strip().lower().startswith("unnamed") or df.columns[0].strip() == "":
         df = df.drop(df.columns[0], axis=1)
 
-    # --- 2️⃣ Detect PMS immediately (no cleaning yet) ---
-    pms_name = detect_pms(df)
-    if not pms_name:
-        return df, None, None
-    
-    # --- 4️⃣ Clean headers ---
+    # --- Clean headers ---
     def clean_header(h):
         if not isinstance(h, str):
             h = str(h)
         return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
-
     df.columns = [clean_header(c) for c in df.columns]
-    st.write("COLUMNS BEFORE:", list(df.columns))
-    st.write("First 5 values in Planitem Performed:", df["Planitem Performed"].head().tolist())
 
-    # --- 3️⃣ If Vetport → reorder columns first thing ---
+    # --- Detect PMS ---
+    pms_name = detect_pms(df)
+    if not pms_name:
+        return df, None, None
+
+    # --- Vetport reorder (move Planitem Performed to first) ---
     if pms_name == "VETport":
-        cols = list(df.columns)
-        if "Planitem Performed" in cols:
-            cols.insert(0, cols.pop(cols.index("Planitem Performed")))
-            df = df[cols]
-    st.write("COLUMNS AFTER:", list(df.columns))
-    st.write("First 5 values in Planitem Performed:", df["Planitem Performed"].head().tolist())
+        if "Planitem Performed" in df.columns:
+            df = df[["Planitem Performed"] + [c for c in df.columns if c != "Planitem Performed"]]
 
-
-    # --- 5️⃣ Apply mappings ---
+    # --- Apply mappings ---
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
     rename_map = {}
     if "date" in mappings and mappings["date"] in df.columns:
@@ -706,7 +698,7 @@ def process_file(file_bytes, filename):
         rename_map[mappings["item"]] = "Item Name"
     df = df.rename(columns=rename_map)
 
-    # --- 6️⃣ Normalize amount and quantity ---
+    # --- Normalize amount and quantity ---
     amount_col = mappings.get("amount")
     if amount_col and amount_col in df.columns:
         df["Amount"] = clean_revenue_column(df[amount_col])
@@ -719,18 +711,19 @@ def process_file(file_bytes, filename):
     else:
         df["Qty"] = 1
 
-    # --- 7️⃣ Parse date ---
+    # --- Parse ChargeDate ---
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
     else:
         df["ChargeDate"] = pd.NaT
 
-    # --- 8️⃣ Lowercase helpers ---
+    # --- Lowercase helpers ---
     df["_client_lower"] = df.get("Client Name", "").astype(str).str.lower()
     df["_animal_lower"] = df.get("Animal Name", "").astype(str).str.lower()
     df["_item_lower"] = df.get("Item Name", "").astype(str).str.lower()
 
     return df, pms_name, amount_col
+
 
 
 
@@ -3208,6 +3201,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
