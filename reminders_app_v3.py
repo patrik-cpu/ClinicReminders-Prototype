@@ -657,47 +657,51 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def process_file(file_bytes, filename):
     """
-    Robust loader for Vetport/Xpress/ezyVet CSVs & Excels.
-    Includes auto-detection of encoding and delimiter + detailed debug.
-    Prevents column shifts (e.g. Client Name misalignment).
+    Universal file loader for Vetport / Xpress / ezyVet exports.
+    - Auto-detects encoding and delimiter
+    - Auto-heals misaligned Vetport CSVs (1-column left shift)
+    - Works for Excel or CSV
+    - Provides detailed debug output for each transformation step
     """
+    import io, unicodedata
     from io import BytesIO
     file = BytesIO(file_bytes)
     lowerfn = filename.lower()
-    import io
 
+    # --------------------------------
+    # Utility for consistent debug printing
+    # --------------------------------
     def debug_step(step_label, df_dbg, prev_cols=None):
         cols_now = list(df_dbg.columns)
         changed = prev_cols is not None and cols_now != prev_cols
         st.write(f"=== {step_label} ===")
         st.write(f"Columns count: {len(cols_now)}")
         st.write(f"Columns (in order){'  [ORDER CHANGED]' if changed else ''}:", cols_now)
-        sample = {c: df_dbg[c].head(5).tolist() for c in df_dbg.columns}
-        st.write("Top-5 values per column:", sample)
+        out = {c: df_dbg[c].head(5).tolist() for c in df_dbg.columns}
+        st.write("Top-5 values per column:", out)
         return cols_now
 
     prev_cols = None
 
-    # =====================
-    # STEP 1 – Load safely & self-heal Vetport shifts
-    # =====================
+    # --------------------------------
+    # STEP 1 • Load raw file safely
+    # --------------------------------
     if lowerfn.endswith(".csv"):
-        import io
-    
+        # Detect encoding
         try:
             import chardet
             enc = chardet.detect(file_bytes[:4000]).get("encoding", "utf-8-sig")
         except Exception:
             enc = "utf-8-sig"
-    
-        preview_text = file_bytes[:10000].decode(enc, errors="replace")
-        first_line = preview_text.splitlines()[0]
-        comma_count = first_line.count(",")
-        semi_count = first_line.count(";")
+
+        # Detect delimiter heuristically
+        text_preview = file_bytes[:10000].decode(enc, errors="replace")
+        first_line = text_preview.splitlines()[0] if "\n" in text_preview else text_preview
+        comma_count, semi_count = first_line.count(","), first_line.count(";")
         delim = "," if comma_count >= semi_count else ";"
         st.write(f"Detected encoding: {enc}")
         st.write(f"Auto-selected delimiter: '{delim}'")
-    
+
         file.seek(0)
         df = pd.read_csv(
             io.TextIOWrapper(file, encoding=enc, errors="replace"),
@@ -705,64 +709,92 @@ def process_file(file_bytes, filename):
             quotechar='"',
             engine="python",
             dtype=str,
-            na_filter=False
+            na_filter=False,
         )
-    
-        # --- Self-heal: detect and fix left-shifted data (Vetport quirk) ---
-        if len(df.columns) == 13:
-            # check if first few 'Client Name' entries look numeric (should be alphabetic)
-            name_sample = df["Client Name"].astype(str).head(10)
-            bad_ratio = name_sample.str.match(r"^\s*\d+").mean()
-            if bad_ratio > 0.6:
-                st.warning("⚠ Detected left-shifted Vetport data — auto-correcting column alignment.")
-                cols = list(df.columns)
-                # insert a blank placeholder column at the end
-                df["_tmp_pad"] = ""
-                # shift all columns right by one
-                df = df[[cols[-1]] + cols[:-1]]
-                df.columns = cols + ["_tmp_pad"]
-                # drop the temporary padding column (restores original header count)
-                df = df.drop(columns=["_tmp_pad"])
-    
-        df.columns = [c.strip().replace(" ,", ",").replace(", ", ",") for c in df.columns]
-    
-    else:
+
+    elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file, dtype=str)
+    else:
+        raise ValueError("Unsupported file type. Only CSV, XLS, or XLSX allowed.")
 
-
+    # --- Clean up header whitespace, BOMs, etc. ---
+    df.columns = [
+        str(c)
+        .replace("\u00a0", " ")
+        .replace("\ufeff", "")
+        .strip()
+        .replace(" ,", ",")
+        .replace(", ", ",")
+        for c in df.columns
+    ]
 
     prev_cols = debug_step("STEP 1 • Loaded file", df, prev_cols)
 
-    # =====================
-    # STEP 2 – Detect PMS
-    # =====================
+    # --------------------------------
+    # STEP 2 • Auto-heal Vetport left-shift
+    # --------------------------------
+    if len(df.columns) == 13:  # typical Vetport export
+        # try to detect if "Client Name" column exists (maybe with variant spaces)
+        cname = next((c for c in df.columns if "Client Name" in c), None)
+        if cname:
+            name_sample = df[cname].astype(str).head(10)
+            # if first column is numeric → shifted left
+            numeric_ratio = name_sample.str.match(r"^\s*\d+").mean()
+            if numeric_ratio > 0.6:
+                st.warning("⚠ Detected Vetport 1-column left shift — auto-correcting alignment.")
+                # prepend a blank cell at start of each row (shift right)
+                df.insert(0, "_blank_fix", "")
+                # drop extra trailing column if now >13
+                if len(df.columns) > 13:
+                    df = df.iloc[:, :13]
+                # rename columns again (header same as before)
+                df.columns = [
+                    "Client Name",
+                    "Client ID",
+                    "Patient Name",
+                    "Patient ID",
+                    "Plan Item ID",
+                    "Plan Item Name",
+                    "Plan Item Quantity",
+                    "Planitem Performed",
+                    "Performed Staff",
+                    "Plan Item Amount",
+                    "Returned Quantity",
+                    "Returned Date",
+                    "Invoice No",
+                ]
+    prev_cols = debug_step("STEP 2 • After Vetport heal check", df, prev_cols)
+
+    # --------------------------------
+    # STEP 3 • Detect PMS
+    # --------------------------------
     pms_name = detect_pms(df)
     st.write(f"Detected PMS: {pms_name or 'UNKNOWN'}")
-    prev_cols = debug_step("STEP 2 • After PMS detect (no mutations expected)", df, prev_cols)
+    prev_cols = debug_step("STEP 3 • After PMS detection", df, prev_cols)
     if not pms_name:
         return df, None, None
 
-    # =====================
-    # STEP 3 – Vetport schema check
-    # =====================
+    # --------------------------------
+    # STEP 4 • Vetport schema validation
+    # --------------------------------
     if pms_name == "VETport":
         desired = PMS_DEFINITIONS["VETport"]["columns"]
-        df.columns = [str(c).replace("\u00a0", " ").replace("\ufeff", "").strip() for c in df.columns]
-        prev_cols = debug_step("STEP 3a • Cleaned headers", df, prev_cols)
-        if len(df.columns) != len(desired):
-            st.error(f"STEP 3b FAIL • Column count {len(df.columns)} ≠ expected {len(desired)}")
-            return df, None, None
+        # Remove unnamed columns if any
+        df = df.loc[:, ~df.columns.astype(str).str.match(r"^Unnamed", case=False)]
+        df.columns = [str(c).strip() for c in df.columns]
         if [c.strip() for c in df.columns] != desired:
-            st.warning("STEP 3c • Column names differ — attempting alignment by header names.")
-            # try to reorder where possible
-            df = df[[c for c in desired if c in df.columns]]
-        prev_cols = debug_step("STEP 3d • After Vetport schema check", df, prev_cols)
-    else:
-        prev_cols = debug_step("STEP 3 • Skipped (not Vetport)", df, prev_cols)
+            st.warning("STEP 4 • Vetport header order mismatch – aligning to canonical schema.")
+            # align columns where possible
+            existing = [c for c in desired if c in df.columns]
+            missing = [c for c in desired if c not in df.columns]
+            for m in missing:
+                df[m] = ""
+            df = df[desired]
+    prev_cols = debug_step("STEP 4 • Vetport schema aligned", df, prev_cols)
 
-    # =====================
-    # STEP 4 – Apply mappings
-    # =====================
+    # --------------------------------
+    # STEP 5 • Apply PMS mappings
+    # --------------------------------
     def clean_header(h):
         return unicodedata.normalize("NFKC", str(h)).replace("\u00a0", " ").replace("\ufeff", "").strip()
 
@@ -780,41 +812,37 @@ def process_file(file_bytes, filename):
             elif k == "item":
                 rename_map[v] = "Item Name"
     df = df.rename(columns=rename_map)
-    prev_cols = debug_step("STEP 4 • After mappings", df, prev_cols)
+    prev_cols = debug_step("STEP 5 • After mappings", df, prev_cols)
 
-    # =====================
-    # STEP 5 – Amount & Qty
-    # =====================
+    # --------------------------------
+    # STEP 6 • Normalize Amount & Qty
+    # --------------------------------
     amount_col = mappings.get("amount")
     qty_col = mappings.get("qty")
     df["Amount"] = clean_revenue_column(df[amount_col]) if amount_col in df.columns else 0
     df["Qty"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1).astype(int)
-    prev_cols = debug_step("STEP 5 • Amount/Qty normalized", df, prev_cols)
+    prev_cols = debug_step("STEP 6 • Amount/Qty normalized", df, prev_cols)
 
-    # =====================
-    # STEP 6 – Parse ChargeDate
-    # =====================
+    # --------------------------------
+    # STEP 7 • Parse ChargeDate
+    # --------------------------------
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
     else:
         df["ChargeDate"] = pd.NaT
-    prev_cols = debug_step("STEP 6 • ChargeDate parsed", df, prev_cols)
+    prev_cols = debug_step("STEP 7 • ChargeDate parsed", df, prev_cols)
 
-    # =====================
-    # STEP 7 – Lowercase helpers
-    # =====================
+    # --------------------------------
+    # STEP 8 • Add lowercase helper columns
+    # --------------------------------
     df["_client_lower"] = df.get("Client Name", "").astype(str).str.lower()
     df["_animal_lower"] = df.get("Animal Name", "").astype(str).str.lower()
-    df["_item_lower"]   = df.get("Item Name", "").astype(str).str.lower()
-    prev_cols = debug_step("STEP 7 • Lowercase helpers added", df, prev_cols)
-
-    # =====================
-    # STEP 8 – Final
-    # =====================
-    prev_cols = debug_step("STEP 8 • Final preview", df, prev_cols)
+    df["_item_lower"] = df.get("Item Name", "").astype(str).str.lower()
+    prev_cols = debug_step("STEP 8 • Lowercase helpers added", df, prev_cols)
 
     st.success("✅ File loaded successfully.")
     return df, pms_name, amount_col
+
 
 
 
@@ -3301,6 +3329,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
