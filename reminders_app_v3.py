@@ -663,6 +663,22 @@ def process_file(file_bytes, filename):
     if not pms_name:
         return df, None, None
 
+    if pms_name == "VETport":
+        # Force columns into the expected canonical order (even if input is shuffled)
+        expected_cols = [
+            "Planitem Performed", "Client Name", "Client ID", "Patient Name",
+            "Patient ID", "Plan Item ID", "Plan Item Name", "Plan Item Quantity",
+            "Performed Staff", "Plan Item Amount", "Returned Quantity",
+            "Returned Date", "Invoice No"
+        ]
+        # Only reorder if all expected columns exist (avoid KeyError)
+        if all(col in df.columns for col in expected_cols):
+            df = df[expected_cols]
+        else:
+            # For partially missing ones, preserve whatever exists in the expected order
+            df = df[[col for col in expected_cols if col in df.columns] + 
+                    [col for col in df.columns if col not in expected_cols]]
+
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
     amount_col = mappings.get("amount")
     if amount_col and amount_col in df.columns:
@@ -3203,3 +3219,4 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
