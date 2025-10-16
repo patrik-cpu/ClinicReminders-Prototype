@@ -3,3 +3,5 @@ pandas>=1.5
 openpyxl
 gspread
 oauth2client
+chardet>=5.1.0
+
