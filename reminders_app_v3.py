@@ -683,15 +683,11 @@ def process_file(file_bytes, filename):
     
     # --- 3️⃣ If Vetport → reorder columns first thing ---
     if pms_name == "VETport":
-        expected_cols = [
-            "Planitem Performed", "Client Name", "Client ID", "Patient Name",
-            "Patient ID", "Plan Item ID", "Plan Item Name", "Plan Item Quantity",
-            "Performed Staff", "Plan Item Amount", "Returned Quantity",
-            "Returned Date", "Invoice No"
-        ]
-        # Drop missing, keep extras at end
-        df = df[[c for c in expected_cols if c in df.columns] +
-                [c for c in df.columns if c not in expected_cols]]
+        cols = list(df.columns)
+        if "Planitem Performed" in cols:
+            cols.insert(0, cols.pop(cols.index("Planitem Performed")))
+            df = df[cols]
+
 
     # --- 5️⃣ Apply mappings ---
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
@@ -3208,6 +3204,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
