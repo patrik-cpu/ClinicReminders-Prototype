@@ -666,7 +666,7 @@ def process_file(file_bytes, filename):
         
     # --- Drop phantom index column if present (blank header or 'Unnamed: 0') ---
     if df.columns[0].strip().lower().startswith("unnamed") or df.columns[0].strip() == "":
-    df = df.drop(df.columns[0], axis=1)
+        df = df.drop(df.columns[0], axis=1)
 
     # --- 2️⃣ Detect PMS immediately (no cleaning yet) ---
     pms_name = detect_pms(df)
@@ -3208,6 +3208,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
