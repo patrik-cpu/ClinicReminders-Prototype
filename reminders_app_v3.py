@@ -683,9 +683,28 @@ def process_file(file_bytes, filename):
         return df, None, None
 
     # --- Vetport reorder (move Planitem Performed to first) ---
+    # --- Vetport reorder (move Planitem Performed to first) ---
     if pms_name == "VETport":
         if "Planitem Performed" in df.columns:
             df = df[["Planitem Performed"] + [c for c in df.columns if c != "Planitem Performed"]]
+    
+        # --- Self-heal for shifted Vetport exports ---
+        if (
+            "Planitem Performed" in df.columns
+            and "Plan Item Quantity" in df.columns
+        ):
+            # Detect if Planitem Performed column holds names (Dr. ...)
+            # and Plan Item Quantity looks like dates
+            perf_vals = df["Planitem Performed"].astype(str).head(10)
+            qty_vals = df["Plan Item Quantity"].astype(str).head(10)
+    
+            looks_like_names = perf_vals.str.contains(r"Dr\.|In Patient", na=False).mean() > 0.3
+            looks_like_dates = qty_vals.str.contains(r"\d{1,2}/[A-Za-z]{3}/\d{4}", na=False).mean() > 0.3
+    
+            if looks_like_names and looks_like_dates:
+                st.write("⚠️ Detected Vetport misaligned export — swapping Planitem Performed and Plan Item Quantity.")
+                df[["Planitem Performed", "Plan Item Quantity"]] = df[["Plan Item Quantity", "Planitem Performed"]]
+
     st.write("COLUMNS (after reorder):", list(df.columns))
     st.write("First 5 values in Planitem Performed:", df["Planitem Performed"].head().tolist())
     # --- Apply mappings ---
@@ -3204,6 +3223,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
