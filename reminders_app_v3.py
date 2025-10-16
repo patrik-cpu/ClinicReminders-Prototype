@@ -647,38 +647,44 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------
 @st.cache_data(show_spinner=False)
 def process_file(file_bytes, filename):
+    """
+    Load and normalize uploaded data files across supported PMS types.
+    Automatically detects PMS and applies schema normalization.
+    """
+
     from io import BytesIO
     file = BytesIO(file_bytes)
     lowerfn = filename.lower()
+
+    # --- Load CSV or Excel ---
     if lowerfn.endswith(".csv"):
         df = pd.read_csv(file)
     elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file)
     else:
         raise ValueError("Unsupported file type")
-    def _normalize(c): return str(c).replace("\u00a0", " ").replace("\ufeff", "").strip()
-    df.columns = [_normalize(c) for c in df.columns]
 
+    # --- Clean up column headers early ---
+    df.columns = [str(c).replace("\u00a0", " ").replace("\ufeff", "").strip() for c in df.columns]
+
+    # --- Detect PMS type ---
     pms_name = detect_pms(df)
     if not pms_name:
         return df, None, None
 
+    # ✅ Handle VETport column order and header normalization
     if pms_name == "VETport":
-        # Force columns into the expected canonical order (even if input is shuffled)
         expected_cols = [
             "Planitem Performed", "Client Name", "Client ID", "Patient Name",
             "Patient ID", "Plan Item ID", "Plan Item Name", "Plan Item Quantity",
             "Performed Staff", "Plan Item Amount", "Returned Quantity",
             "Returned Date", "Invoice No"
         ]
-        # Only reorder if all expected columns exist (avoid KeyError)
-        if all(col in df.columns for col in expected_cols):
-            df = df[expected_cols]
-        else:
-            # For partially missing ones, preserve whatever exists in the expected order
-            df = df[[col for col in expected_cols if col in df.columns] + 
-                    [col for col in df.columns if col not in expected_cols]]
+        # Reorder columns if possible
+        cols_present = [c for c in expected_cols if c in df.columns]
+        df = df[cols_present + [c for c in df.columns if c not in cols_present]]
 
+    # --- PMS mapping application ---
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
     amount_col = mappings.get("amount")
     if amount_col and amount_col in df.columns:
@@ -686,21 +692,17 @@ def process_file(file_bytes, filename):
     else:
         df["Amount"] = 0
 
+    # --- ezyVet name combination ---
     if pms_name == "ezyVet":
-        cf = mappings.get("client_first"); cl = mappings.get("client_last")
+        cf = mappings.get("client_first")
+        cl = mappings.get("client_last")
         if cf in df.columns and cl in df.columns:
             df["Client Name"] = (
-                df[cf].fillna("").astype(str).str.strip()
-                + " "
-                + df[cl].fillna("").astype(str).str.strip()
-            ).str.strip()
-        else:
-            df["Client Name"] = (
-                df.get(cf, "").astype(str).fillna("")
-                + " "
-                + df.get(cl, "").astype(str).fillna("")
+                df[cf].fillna("").astype(str).str.strip() + " " +
+                df[cl].fillna("").astype(str).str.strip()
             ).str.strip()
 
+    # --- Canonical renaming ---
     rename_map = {}
     if "date" in mappings and mappings["date"] in df.columns:
         rename_map[mappings["date"]] = "ChargeDate"
@@ -712,15 +714,7 @@ def process_file(file_bytes, filename):
         rename_map[mappings["item"]] = "Item Name"
     df = df.rename(columns=rename_map)
 
-    for col, default in [
-        ("ChargeDate", pd.NaT),
-        ("Client Name", ""),
-        ("Animal Name", ""),
-        ("Item Name", ""),
-    ]:
-        if col not in df.columns:
-            df[col] = default
-
+    # --- Quantity handling ---
     qty_col = mappings.get("qty")
     if qty_col and qty_col in df.columns:
         df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1).astype(int)
@@ -730,20 +724,22 @@ def process_file(file_bytes, filename):
         for c in fallback_qty_cols:
             if c in df.columns:
                 df["Qty"] = pd.to_numeric(df[c], errors="coerce").fillna(1).astype(int)
-                found = True; break
+                found = True
+                break
         if not found:
             df["Qty"] = 1
 
-    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
-
+    # --- Ensure ChargeDate is parsed correctly ---
     if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
-        if "ChargeDate" in df.columns:
-            df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
+        df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
 
+    # --- Lowercase helper columns for later filtering ---
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
     df["_item_lower"] = df["Item Name"].astype(str).str.lower()
+
     return df, pms_name, amount_col
+
 
 def _to_blob(uploaded):
     # Deterministic blob for caching; avoids .read() side effects
@@ -3219,4 +3215,5 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
