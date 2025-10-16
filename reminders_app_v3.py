@@ -663,7 +663,8 @@ def process_file(file_bytes, filename):
         df = pd.read_excel(file, dtype=str)
     else:
         raise ValueError("Unsupported file type")
-
+    st.write("COLUMNS (after reorder):", list(df.columns))
+    st.write("First 5 values in Planitem Performed:", df["Planitem Performed"].head().tolist())
     # --- Drop phantom index column if present ---
     if df.columns[0].strip().lower().startswith("unnamed") or df.columns[0].strip() == "":
         df = df.drop(df.columns[0], axis=1)
@@ -684,7 +685,8 @@ def process_file(file_bytes, filename):
     if pms_name == "VETport":
         if "Planitem Performed" in df.columns:
             df = df[["Planitem Performed"] + [c for c in df.columns if c != "Planitem Performed"]]
-
+    st.write("COLUMNS (after reorder):", list(df.columns))
+    st.write("First 5 values in Planitem Performed:", df["Planitem Performed"].head().tolist())
     # --- Apply mappings ---
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
     rename_map = {}
@@ -3201,6 +3203,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
