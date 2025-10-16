@@ -10,8 +10,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
 import hashlib
 import numpy as np
-import csv
-import chardet
 
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
@@ -268,55 +266,199 @@ DEFAULT_WA_TEMPLATE = (
 
 
 # --------------------------------
-# Settings persistence (local JSON) — ephemeral on Streamlit Cloud
+# 🔐 Login authorisation & per-clinic settings persistence (Google Sheets)
 # --------------------------------
-SETTINGS_FILE = "clinicreminders_settings.json"
-DELETED_REMINDERS_FILE = "deleted_reminders.json"
-_last_settings = None  # global cache
+import hashlib
 
-def save_settings():
-    global _last_settings
-    settings = {
-        "rules": st.session_state["rules"],
-        "exclusions": st.session_state["exclusions"],
-        "user_name": st.session_state["user_name"],
-        "user_template": st.session_state.get("user_template", "")
-    }
-    if settings != _last_settings:
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(settings, f)
-        _last_settings = settings
+# === CONFIGURATION ===
+SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ← your ClinicReminders_Settings_Master Sheet ID
+SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
+# === GOOGLE SHEETS CONNECTION ===
+@st.cache_resource
+def get_settings_sheet():
+    """Connect to the shared ClinicReminders_Settings_Master sheet."""
+    try:
+        creds_dict = st.secrets["gcp_service_account"]
+    except Exception:
+        with open("google-credentials.json", "r") as f:
+            creds_dict = json.load(f)
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+    client = gspread.authorize(creds)
+    return client.open_by_key(SETTINGS_SHEET_ID).sheet1
+
+
+# === LOGIN HELPER FUNCTIONS ===
+def hash_pw(pw: str):
+    """Return MD5 hash of a password."""
+    return hashlib.md5(pw.encode()).hexdigest()
+
+
+def authenticate_user(username, password):
+    """Check username/password pair against the sheet."""
+    sheet = get_settings_sheet()
+    records = sheet.get_all_records()
+    for r in records:
+        if r["ClinicID"].strip().lower() == username.strip().lower():
+            if r["PasswordHash"] == hash_pw(password):
+                return r
+    return None
+
+
+# === LOGIN FORM (Sidebar) ===
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+
+if not st.session_state["logged_in"]:
+    st.sidebar.markdown("### 🔑 Clinic Login")
+    username = st.sidebar.text_input("Clinic ID / Username")
+    password = st.sidebar.text_input("Password", type="password")
+    if st.sidebar.button("Login"):
+        user_row = authenticate_user(username, password)
+        if user_row:
+            st.session_state["clinic_id"] = username
+            st.session_state["logged_in"] = True
+            st.success(f"✅ Welcome, {username}!")
+            st.rerun()
+        else:
+            st.error("❌ Invalid username or password.")
+else:
+    st.sidebar.success(f"Logged in as {st.session_state['clinic_id']}")
+
+# Block access to rest of app until logged in
+if not st.session_state["logged_in"]:
+    st.warning("Please log in to access ClinicReminders & Factoids.")
+    st.stop()
+
+
+# --------------------------------
+# 💾 Per-clinic settings persistence via Google Sheets
+# --------------------------------
 def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, "r") as f:
-            settings = json.load(f)
-        rules = DEFAULT_RULES.copy()
-        saved_rules = settings.get("rules", {})
-        for k, v in saved_rules.items():
-            if "visible_text" in v and not v["visible_text"].strip():
-                v.pop("visible_text")
-        rules.update(saved_rules)
-        st.session_state["rules"] = rules
+    """Load settings for the current clinic from the Google Sheet."""
+    clinic_id = st.session_state.get("clinic_id")
+    if not clinic_id:
+        st.warning("Please log in first.")
+        return
+
+    sheet = get_settings_sheet()
+    records = sheet.get_all_records()
+    rec = next((r for r in records if r["ClinicID"].strip().lower() == clinic_id.lower()), None)
+
+    if rec and rec["SettingsJSON"]:
+        try:
+            settings = json.loads(rec["SettingsJSON"])
+        except Exception:
+            settings = {}
+        st.session_state["rules"] = settings.get("rules", DEFAULT_RULES.copy())
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
-        st.session_state["user_template"] = settings.get("user_template", "")
+        st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
     else:
+        # Defaults for new clinics
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
         st.session_state["user_name"] = ""
-        st.session_state["user_template"] = ""
-        save_settings()
+        st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
+
+
+def save_settings():
+    """Save current clinic’s settings back to the Google Sheet."""
+    clinic_id = st.session_state.get("clinic_id")
+    if not clinic_id:
+        return
+
+    sheet = get_settings_sheet()
+    all_vals = sheet.get_all_values()
+    headers = all_vals[0]
+    clinic_col = headers.index("ClinicID") + 1
+
+    # Find the existing row for this clinic (2-based index since row 1 is headers)
+    row = None
+    for i, r in enumerate(all_vals[1:], start=2):
+        if r[clinic_col - 1].strip().lower() == clinic_id.lower():
+            row = i
+            break
+
+    # Build the JSON blob for settings
+    settings_data = {
+        "rules": st.session_state["rules"],
+        "exclusions": st.session_state["exclusions"],
+        "user_name": st.session_state["user_name"],
+        "user_template": st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
+    }
+    settings_json = json.dumps(settings_data)
+    updated_at = datetime.utcnow().isoformat()
+
+    # Update existing row or append a new one
+    if row:
+        sheet.update_cell(row, headers.index("SettingsJSON") + 1, settings_json)
+        sheet.update_cell(row, headers.index("UpdatedAt") + 1, updated_at)
+    else:
+        sheet.append_row([clinic_id, "", settings_json, updated_at])
+
+# --------------------------------
+# 🗑️ Local hidden-reminders tracking
+# --------------------------------
+DELETED_REMINDERS_FILE = "deleted_reminders.json"
 
 def load_deleted_reminders():
     if os.path.exists(DELETED_REMINDERS_FILE):
         with open(DELETED_REMINDERS_FILE, "r") as f:
             return json.load(f)
     return []
-    
+
 def save_deleted_reminders(deleted_list):
     with open(DELETED_REMINDERS_FILE, "w") as f:
         json.dump(deleted_list, f)
+
+# --------------------------------
+# 👩‍⚕️ Admin – Add or Reset Clinic Accounts
+# --------------------------------
+st.markdown("---")
+st.markdown("### 👩‍⚕️ Admin: Add or Reset Clinic Accounts")
+
+# Only show to a special admin account (for example, “Admin”)
+if st.session_state.get("clinic_id") == "Admin":
+    sheet = get_settings_sheet()
+    st.info("Use this to add or update clinic login credentials. Plain passwords will be visible in the Sheet for convenience.")
+
+    with st.form("add_clinic_form"):
+        new_clinic = st.text_input("Clinic ID (e.g., HappyVet)").strip()
+        new_pw = st.text_input("Password (e.g., mypassword)").strip()
+        submitted = st.form_submit_button("➕ Add / Update Clinic")
+
+    if submitted:
+        if not new_clinic or not new_pw:
+            st.error("Please enter both Clinic ID and Password.")
+        else:
+            plain = new_pw
+            hashed = hash_pw(new_pw)
+            all_vals = sheet.get_all_values()
+            headers = all_vals[0]
+            clinic_col = headers.index("ClinicID") + 1
+
+            # Check if clinic already exists
+            row = None
+            for i, r in enumerate(all_vals[1:], start=2):
+                if r[clinic_col - 1].strip().lower() == new_clinic.lower():
+                    row = i
+                    break
+
+            if row:
+                # Update existing clinic row
+                sheet.update_cell(row, headers.index("PlainPassword") + 1, plain)
+                sheet.update_cell(row, headers.index("PasswordHash") + 1, hashed)
+                sheet.update_cell(row, headers.index("UpdatedAt") + 1, datetime.utcnow().isoformat())
+                st.success(f"✅ Updated password for clinic '{new_clinic}'.")
+            else:
+                # Add a new clinic row
+                sheet.append_row([new_clinic, plain, hashed, "{}", datetime.utcnow().isoformat()])
+                st.success(f"✅ Added new clinic '{new_clinic}'.")
+
+else:
+    st.caption("Admin-only clinic management hidden. Log in as Admin to access it.")
+
 
 # --------------------------------
 # PMS definitions
@@ -644,215 +786,137 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
 
 
-
-
-
-
-
-
-
 # --------------------------------
 # File processing (decoupled from rules)
 # --------------------------------
 @st.cache_data(show_spinner=False)
 def process_file(file_bytes, filename):
     """
-    Universal file loader for Vetport / Xpress / ezyVet exports.
-    - Auto-detects encoding and delimiter
-    - Auto-heals misaligned Vetport CSVs (1-column left shift)
-    - Works for Excel or CSV
-    - Provides detailed debug output for each transformation step
+    Load and normalize uploaded data files across supported PMS types.
+    Automatically detects PMS and applies schema normalization.
+    ✅ Vetport: immediately reorders columns to the canonical order
+    so all downstream logic behaves identically regardless of column order.
     """
-    import io, unicodedata
+
     from io import BytesIO
     file = BytesIO(file_bytes)
     lowerfn = filename.lower()
 
-    # --------------------------------
-    # Utility for consistent debug printing
-    # --------------------------------
-    def debug_step(step_label, df_dbg, prev_cols=None):
-        cols_now = list(df_dbg.columns)
-        changed = prev_cols is not None and cols_now != prev_cols
-        st.write(f"=== {step_label} ===")
-        st.write(f"Columns count: {len(cols_now)}")
-        st.write(f"Columns (in order){'  [ORDER CHANGED]' if changed else ''}:", cols_now)
-        out = {c: df_dbg[c].head(5).tolist() for c in df_dbg.columns}
-        st.write("Top-5 values per column:", out)
-        return cols_now
-
-    prev_cols = None
-
-    # --------------------------------
-    # STEP 1 • Load raw file safely
-    # --------------------------------
+    # --- 1️⃣ Load file ---
     if lowerfn.endswith(".csv"):
-        # Detect encoding
-        try:
-            import chardet
-            enc = chardet.detect(file_bytes[:4000]).get("encoding", "utf-8-sig")
-        except Exception:
-            enc = "utf-8-sig"
-
-        # Detect delimiter heuristically
-        text_preview = file_bytes[:10000].decode(enc, errors="replace")
-        first_line = text_preview.splitlines()[0] if "\n" in text_preview else text_preview
-        comma_count, semi_count = first_line.count(","), first_line.count(";")
-        delim = "," if comma_count >= semi_count else ";"
-        st.write(f"Detected encoding: {enc}")
-        st.write(f"Auto-selected delimiter: '{delim}'")
-
-        file.seek(0)
-        df = pd.read_csv(
-            io.TextIOWrapper(file, encoding=enc, errors="replace"),
-            delimiter=delim,
-            quotechar='"',
-            engine="python",
-            dtype=str,
-            na_filter=False,
-        )
-
+        df = pd.read_csv(file)
     elif lowerfn.endswith((".xls", ".xlsx")):
-        df = pd.read_excel(file, dtype=str)
+        df = pd.read_excel(file)
     else:
-        raise ValueError("Unsupported file type. Only CSV, XLS, or XLSX allowed.")
+        raise ValueError("Unsupported file type")
 
-    # --- Clean up header whitespace, BOMs, etc. ---
-    df.columns = [
-        str(c)
-        .replace("\u00a0", " ")
-        .replace("\ufeff", "")
-        .strip()
-        .replace(" ,", ",")
-        .replace(", ", ",")
-        for c in df.columns
-    ]
+    # --- Clean up column headers early (strip ALL whitespace and normalize unicode) ---
+    def clean_header(h):
+        if not isinstance(h, str):
+            h = str(h)
+        return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
+    
+    df.columns = [clean_header(c) for c in df.columns]
 
-    prev_cols = debug_step("STEP 1 • Loaded file", df, prev_cols)
 
-    # --------------------------------
-    # STEP 2 • Auto-heal Vetport left-shift
-    # --------------------------------
-    if len(df.columns) == 13:  # typical Vetport export
-        # try to detect if "Client Name" column exists (maybe with variant spaces)
-        cname = next((c for c in df.columns if "Client Name" in c), None)
-        if cname:
-            name_sample = df[cname].astype(str).head(10)
-            # if first column is numeric → shifted left
-            numeric_ratio = name_sample.str.match(r"^\s*\d+").mean()
-            if numeric_ratio > 0.6:
-                st.warning("⚠ Detected Vetport 1-column left shift — auto-correcting alignment.")
-                # prepend a blank cell at start of each row (shift right)
-                df.insert(0, "_blank_fix", "")
-                # drop extra trailing column if now >13
-                if len(df.columns) > 13:
-                    df = df.iloc[:, :13]
-                # rename columns again (header same as before)
-                df.columns = [
-                    "Client Name",
-                    "Client ID",
-                    "Patient Name",
-                    "Patient ID",
-                    "Plan Item ID",
-                    "Plan Item Name",
-                    "Plan Item Quantity",
-                    "Planitem Performed",
-                    "Performed Staff",
-                    "Plan Item Amount",
-                    "Returned Quantity",
-                    "Returned Date",
-                    "Invoice No",
-                ]
-    prev_cols = debug_step("STEP 2 • After Vetport heal check", df, prev_cols)
+    # --- 3️⃣ Case-insensitive map for reliable lookups ---
+    lower_map = {c.lower(): c for c in df.columns}
 
-    # --------------------------------
-    # STEP 3 • Detect PMS
-    # --------------------------------
+    # --- 4️⃣ Detect PMS ---
     pms_name = detect_pms(df)
-    st.write(f"Detected PMS: {pms_name or 'UNKNOWN'}")
-    prev_cols = debug_step("STEP 3 • After PMS detection", df, prev_cols)
     if not pms_name:
         return df, None, None
 
-    # --------------------------------
-    # STEP 4 • Vetport schema validation
-    # --------------------------------
+    # --- 5️⃣ Vetport: force canonical column order immediately ---
     if pms_name == "VETport":
-        desired = PMS_DEFINITIONS["VETport"]["columns"]
-        # Remove unnamed columns if any
-        df = df.loc[:, ~df.columns.astype(str).str.match(r"^Unnamed", case=False)]
-        df.columns = [str(c).strip() for c in df.columns]
-        if [c.strip() for c in df.columns] != desired:
-            st.warning("STEP 4 • Vetport header order mismatch – aligning to canonical schema.")
-            # align columns where possible
-            existing = [c for c in desired if c in df.columns]
-            missing = [c for c in desired if c not in df.columns]
-            for m in missing:
-                df[m] = ""
-            df = df[desired]
-    prev_cols = debug_step("STEP 4 • Vetport schema aligned", df, prev_cols)
+        expected_cols = [
+            "planitem performed", "client name", "client id", "patient name",
+            "patient id", "plan item id", "plan item name", "plan item quantity",
+            "performed staff", "plan item amount", "returned quantity",
+            "returned date", "invoice no"
+        ]
+        # Reorder in a case-insensitive way
+        cols_present = [lower_map.get(c, c) for c in expected_cols if c in lower_map]
+        df = df[cols_present + [c for c in df.columns if c not in cols_present]]
 
-    # --------------------------------
-    # STEP 5 • Apply PMS mappings
-    # --------------------------------
-    def clean_header(h):
-        return unicodedata.normalize("NFKC", str(h)).replace("\u00a0", " ").replace("\ufeff", "").strip()
-
-    df.columns = [clean_header(c) for c in df.columns]
+    # --- 6️⃣ Apply PMS mappings ---
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
     rename_map = {}
-    for k, v in mappings.items():
-        if v in df.columns:
-            if k == "date":
-                rename_map[v] = "ChargeDate"
-            elif k == "client":
-                rename_map[v] = "Client Name"
-            elif k == "animal":
-                rename_map[v] = "Animal Name"
-            elif k == "item":
-                rename_map[v] = "Item Name"
+
+    def get_col_ci(target: str):
+        """Case-insensitive column name lookup."""
+        for c in df.columns:
+            if c.lower() == target.lower():
+                return c
+        return None
+
+    date_col = get_col_ci(mappings.get("date", ""))
+    client_col = get_col_ci(mappings.get("client", ""))
+    animal_col = get_col_ci(mappings.get("animal", ""))
+    item_col = get_col_ci(mappings.get("item", ""))
+    qty_col = get_col_ci(mappings.get("qty", ""))
+    amount_col = get_col_ci(mappings.get("amount", ""))
+
+    if date_col:
+        rename_map[date_col] = "ChargeDate"
+    if client_col:
+        rename_map[client_col] = "Client Name"
+    if animal_col:
+        rename_map[animal_col] = "Animal Name"
+    if item_col:
+        rename_map[item_col] = "Item Name"
+
     df = df.rename(columns=rename_map)
-    prev_cols = debug_step("STEP 5 • After mappings", df, prev_cols)
 
-    # --------------------------------
-    # STEP 6 • Normalize Amount & Qty
-    # --------------------------------
-    amount_col = mappings.get("amount")
-    qty_col = mappings.get("qty")
-    df["Amount"] = clean_revenue_column(df[amount_col]) if amount_col in df.columns else 0
-    df["Qty"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1).astype(int)
-    prev_cols = debug_step("STEP 6 • Amount/Qty normalized", df, prev_cols)
+    # --- 7️⃣ Clean revenue column ---
+    if amount_col and amount_col in df.columns:
+        df["Amount"] = clean_revenue_column(df[amount_col])
+    else:
+        df["Amount"] = 0
 
-    # --------------------------------
-    # STEP 7 • Parse ChargeDate
-    # --------------------------------
+    # --- 8️⃣ ezyVet: merge first + last name ---
+    if pms_name == "ezyVet":
+        cf = mappings.get("client_first")
+        cl = mappings.get("client_last")
+        if cf and cl and cf in df.columns and cl in df.columns:
+            df["Client Name"] = (
+                df[cf].fillna("").astype(str).str.strip() + " " +
+                df[cl].fillna("").astype(str).str.strip()
+            ).str.strip()
+
+    # --- 9️⃣ Quantity handling ---
+    if qty_col and qty_col in df.columns:
+        df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1).astype(int)
+    else:
+        fallback_qty_cols = ["Qty", "Quantity", "Plan Item Quantity"]
+        found = False
+        for c in fallback_qty_cols:
+            if c in df.columns:
+                df["Qty"] = pd.to_numeric(df[c], errors="coerce").fillna(1).astype(int)
+                found = True
+                break
+        if not found:
+            df["Qty"] = 1
+
+    # --- 🔟 Ensure ChargeDate exists and is parsed correctly ---
+    if "ChargeDate" not in df.columns:
+        # Last resort: fallback to known Vetport variants
+        for cand in ["Planitem Performed", "PlanItem Performed", "planitem performed"]:
+            if cand in df.columns:
+                df["ChargeDate"] = df[cand]
+                break
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
     else:
-        df["ChargeDate"] = pd.NaT
-    prev_cols = debug_step("STEP 7 • ChargeDate parsed", df, prev_cols)
+        df["ChargeDate"] = pd.NaT  # guarantee existence
 
-    # --------------------------------
-    # STEP 8 • Add lowercase helper columns
-    # --------------------------------
-    df["_client_lower"] = df.get("Client Name", "").astype(str).str.lower()
-    df["_animal_lower"] = df.get("Animal Name", "").astype(str).str.lower()
-    df["_item_lower"] = df.get("Item Name", "").astype(str).str.lower()
-    prev_cols = debug_step("STEP 8 • Lowercase helpers added", df, prev_cols)
+    # --- 11️⃣ Add lowercase helper columns for search and reminders ---
+    df["_client_lower"] = df["Client Name"].astype(str).str.lower()
+    df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
+    df["_item_lower"] = df["Item Name"].astype(str).str.lower()
 
-    st.success("✅ File loaded successfully.")
+    # --- ✅ Return normalized data ---
     return df, pms_name, amount_col
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _to_blob(uploaded):
@@ -3329,18 +3393,6 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
