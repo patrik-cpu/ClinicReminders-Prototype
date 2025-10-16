@@ -679,37 +679,25 @@ def process_file(file_bytes, filename):
     prev_cols = None
 
     # =====================
-    # STEP 1 – Load safely
+    # STEP 1 – Load safely & self-heal Vetport shifts
     # =====================
     if lowerfn.endswith(".csv"):
         import io
     
-        # Detect encoding (fallback if chardet not present)
         try:
             import chardet
             enc = chardet.detect(file_bytes[:4000]).get("encoding", "utf-8-sig")
         except Exception:
             enc = "utf-8-sig"
     
-        # Read a few lines raw to test delimiters
         preview_text = file_bytes[:10000].decode(enc, errors="replace")
         first_line = preview_text.splitlines()[0]
         comma_count = first_line.count(",")
         semi_count = first_line.count(";")
-    
-        # Heuristic: choose whichever yields more fields
-        if comma_count > semi_count:
-            delim = ","
-        elif semi_count > comma_count:
-            delim = ";"
-        else:
-            # fallback if equal or unclear
-            delim = ","
-    
+        delim = "," if comma_count >= semi_count else ";"
         st.write(f"Detected encoding: {enc}")
-        st.write(f"Auto-selected delimiter: '{delim}' (based on header field count)")
+        st.write(f"Auto-selected delimiter: '{delim}'")
     
-        # Reset stream and read with this delimiter
         file.seek(0)
         df = pd.read_csv(
             io.TextIOWrapper(file, encoding=enc, errors="replace"),
@@ -720,24 +708,27 @@ def process_file(file_bytes, filename):
             na_filter=False
         )
     
-        # Handle case where header contains spaces after commas (like 'Client Name ,Client ID')
-        if len(df.columns) == 1 and "," in df.columns[0]:
-            st.warning("⚠ Detected collapsed single-column header. Retrying with comma delimiter and stripping spaces.")
-            file.seek(0)
-            df = pd.read_csv(
-                io.TextIOWrapper(file, encoding=enc, errors="replace"),
-                delimiter=",",
-                quotechar='"',
-                engine="python",
-                dtype=str,
-                na_filter=False
-            )
+        # --- Self-heal: detect and fix left-shifted data (Vetport quirk) ---
+        if len(df.columns) == 13:
+            # check if first few 'Client Name' entries look numeric (should be alphabetic)
+            name_sample = df["Client Name"].astype(str).head(10)
+            bad_ratio = name_sample.str.match(r"^\s*\d+").mean()
+            if bad_ratio > 0.6:
+                st.warning("⚠ Detected left-shifted Vetport data — auto-correcting column alignment.")
+                cols = list(df.columns)
+                # insert a blank placeholder column at the end
+                df["_tmp_pad"] = ""
+                # shift all columns right by one
+                df = df[[cols[-1]] + cols[:-1]]
+                df.columns = cols + ["_tmp_pad"]
+                # drop the temporary padding column (restores original header count)
+                df = df.drop(columns=["_tmp_pad"])
     
-        # Clean up header whitespace
-        df.columns = [c.replace(" ,", ",").replace(", ", ",").strip() for c in df.columns]
+        df.columns = [c.strip().replace(" ,", ",").replace(", ", ",") for c in df.columns]
     
     else:
         df = pd.read_excel(file, dtype=str)
+
 
 
     prev_cols = debug_step("STEP 1 • Loaded file", df, prev_cols)
@@ -3310,6 +3301,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
