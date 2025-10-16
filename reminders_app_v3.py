@@ -1329,12 +1329,20 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     with comp_main:
         st.write("### WhatsApp Composer")
 
-        st.session_state["user_name"] = st.text_input(
+        prev_name = st.session_state.get("user_name", "")
+        new_name = st.text_input(
             "Your name / clinic (appears in WhatsApp messages):",
-            value=st.session_state.get("user_name", ""),
+            value=prev_name,
             key=f"user_name_input_{key_prefix}",
-            placeholder="e.g. Best Health Vet Clinic or Patrik from Best Health Vet Clinic"
+            placeholder="e.g. Best Health Vet Clinic or Patrik from Best Health Vet Clinic",
         )
+        
+        # Auto-save to Google Sheets when the name changes
+        if new_name != prev_name:
+            st.session_state["user_name"] = new_name
+            save_settings()
+            st.toast("✅ Name saved to settings.")
+
 
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
@@ -3402,6 +3410,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
