@@ -664,7 +664,7 @@ def process_file(file_bytes, filename):
     else:
         raise ValueError("Unsupported file type")
     st.write("COLUMNS (after reorder):", list(df.columns))
-    st.write("First 5 values in Planitem Performed:", df["Planitem Performed"].head().tolist())
+    
     # --- Drop phantom index column if present ---
     if df.columns[0].strip().lower().startswith("unnamed") or df.columns[0].strip() == "":
         df = df.drop(df.columns[0], axis=1)
@@ -675,7 +675,8 @@ def process_file(file_bytes, filename):
             h = str(h)
         return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
     df.columns = [clean_header(c) for c in df.columns]
-
+    st.write("COLUMNS (after reorder):", list(df.columns))
+    st.write("First 5 values in Planitem Performed:", df["Planitem Performed"].head().tolist())
     # --- Detect PMS ---
     pms_name = detect_pms(df)
     if not pms_name:
@@ -3203,6 +3204,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
