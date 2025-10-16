@@ -668,7 +668,15 @@ def process_file(file_bytes, filename):
     pms_name = detect_pms(df)
     if not pms_name:
         return df, None, None
+        
+    # --- 4️⃣ Clean headers ---
+    def clean_header(h):
+        if not isinstance(h, str):
+            h = str(h)
+        return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
 
+    df.columns = [clean_header(c) for c in df.columns]
+    
     # --- 3️⃣ If Vetport → reorder columns first thing ---
     if pms_name == "VETport":
         expected_cols = [
@@ -680,14 +688,6 @@ def process_file(file_bytes, filename):
         # Drop missing, keep extras at end
         df = df[[c for c in expected_cols if c in df.columns] +
                 [c for c in df.columns if c not in expected_cols]]
-
-    # --- 4️⃣ Clean headers ---
-    def clean_header(h):
-        if not isinstance(h, str):
-            h = str(h)
-        return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
-
-    df.columns = [clean_header(c) for c in df.columns]
 
     # --- 5️⃣ Apply mappings ---
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
@@ -3204,6 +3204,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
