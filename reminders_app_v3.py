@@ -10,6 +10,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
 import hashlib
 import numpy as np
+import csv
+import chardet
 
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
@@ -655,41 +657,67 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def process_file(file_bytes, filename):
     """
-    Deterministic loader with explicit step-by-step debug.
-    Debug at each step prints:
-      a) number of columns
-      b) names of columns in order
-      c) top-5 entries of each column
-    It also flags when column order changed since the previous step.
+    Robust loader for Vetport/Xpress/ezyVet CSVs & Excels.
+    Includes auto-detection of encoding and delimiter + detailed debug.
+    Prevents column shifts (e.g. Client Name misalignment).
     """
     from io import BytesIO
     file = BytesIO(file_bytes)
     lowerfn = filename.lower()
+    import io
 
-    # ---------- Debug helper ----------
-    def debug_step(step_label: str, df_dbg: pd.DataFrame, prev_cols_snapshot: list[str]):
+    def debug_step(step_label, df_dbg, prev_cols=None):
         cols_now = list(df_dbg.columns)
-        changed = (prev_cols_snapshot is not None and cols_now != prev_cols_snapshot)
+        changed = prev_cols is not None and cols_now != prev_cols
         st.write(f"=== {step_label} ===")
         st.write(f"Columns count: {len(cols_now)}")
         st.write(f"Columns (in order){'  [ORDER CHANGED]' if changed else ''}:", cols_now)
-        # top-5 per column
-        out = {}
-        for c in cols_now:
-            try:
-                out[c] = df_dbg[c].head(5).tolist()
-            except Exception as e:
-                out[c] = f"<error reading column: {e}>"
-        st.write("Top-5 values per column:", out)
-        return cols_now  # return snapshot for next comparison
+        sample = {c: df_dbg[c].head(5).tolist() for c in df_dbg.columns}
+        st.write("Top-5 values per column:", sample)
+        return cols_now
 
-    prev_cols = None  # snapshot to detect order changes
+    prev_cols = None
 
-    # ------------------
-    # STEP 1 — Load
-    # ------------------
+    # =====================
+    # STEP 1 – Load safely
+    # =====================
     if lowerfn.endswith(".csv"):
-        df = pd.read_csv(file, dtype=str)
+        # Detect encoding
+        raw_bytes = file_bytes[:4000]
+        detected = chardet.detect(raw_bytes)
+        enc = detected["encoding"] or "utf-8-sig"
+
+        # Detect delimiter
+        text = raw_bytes.decode(enc, errors="replace")
+        try:
+            delim = csv.Sniffer().sniff(text, delimiters=[",", ";", "\t", "|"]).delimiter
+        except Exception:
+            delim = ";"
+
+        st.write(f"Detected encoding: {enc}")
+        st.write(f"Detected delimiter: '{delim}'")
+
+        # Reset stream and read CSV robustly
+        file.seek(0)
+        df = pd.read_csv(
+            io.TextIOWrapper(file, encoding=enc, errors="replace"),
+            delimiter=delim,
+            quotechar='"',
+            engine="python",
+            dtype=str,
+            na_filter=False
+        )
+
+        # Optional column count sanity check
+        file.seek(0)
+        line_counts = []
+        for i, line in enumerate(io.TextIOWrapper(file, encoding=enc, errors="replace")):
+            count = len(list(csv.reader([line], delimiter=delim))[0])
+            line_counts.append(count)
+            if i < 3:
+                st.write(f"Line {i+1}: {count} columns")
+        if len(set(line_counts)) > 1:
+            st.warning("⚠️ Inconsistent column counts detected — some rows may have extra commas.")
     elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file, dtype=str)
     else:
@@ -697,128 +725,87 @@ def process_file(file_bytes, filename):
 
     prev_cols = debug_step("STEP 1 • Loaded file", df, prev_cols)
 
-    # ------------------
-    # STEP 2 — Detect PMS
-    # ------------------
+    # =====================
+    # STEP 2 – Detect PMS
+    # =====================
     pms_name = detect_pms(df)
     st.write(f"Detected PMS: {pms_name or 'UNKNOWN'}")
     prev_cols = debug_step("STEP 2 • After PMS detect (no mutations expected)", df, prev_cols)
     if not pms_name:
         return df, None, None
 
-    # ------------------
-    # STEP 3 — Vetport verification (3a–3e)
-    # ------------------
+    # =====================
+    # STEP 3 – Vetport schema check
+    # =====================
     if pms_name == "VETport":
-        desired = [
-            "Planitem Performed", "Client Name", "Client ID", "Patient Name",
-            "Patient ID", "Plan Item ID", "Plan Item Name", "Plan Item Quantity",
-            "Performed Staff", "Plan Item Amount", "Returned Quantity",
-            "Returned Date", "Invoice No"
-        ]
-
-        # 3a) Drop 'Unnamed'/blank header columns
-        df = df.loc[:, ~df.columns.astype(str).str.match(r"^\s*$|^Unnamed", case=False)]
-        # light trim of headers (ONLY spaces/BOM/NBSP)
-        df.columns = [str(c).replace("\u00a0"," ").replace("\ufeff","").strip() for c in df.columns]
-        prev_cols = debug_step("STEP 3a • After dropping Unnamed/blank", df, prev_cols)
-
-        # 3b) Count check
+        desired = PMS_DEFINITIONS["VETport"]["columns"]
+        df.columns = [str(c).replace("\u00a0", " ").replace("\ufeff", "").strip() for c in df.columns]
+        prev_cols = debug_step("STEP 3a • Cleaned headers", df, prev_cols)
         if len(df.columns) != len(desired):
             st.error(f"STEP 3b FAIL • Column count {len(df.columns)} ≠ expected {len(desired)}")
             return df, None, None
-        prev_cols = debug_step("STEP 3b • Count verified", df, prev_cols)
-
-        # 3c) Move 'Planitem Performed' to column 0 (reindex only)
-        if "Planitem Performed" not in df.columns:
-            st.error("STEP 3c FAIL • 'Planitem Performed' not found")
-            return df, None, None
-        if df.columns[0] != "Planitem Performed":
-            cols = list(df.columns)
-            cols.insert(0, cols.pop(cols.index("Planitem Performed")))
-            df = df[cols]
-        prev_cols = debug_step("STEP 3c • Moved 'Planitem Performed' to first", df, prev_cols)
-
-        # 3d) Count check again
-        if len(df.columns) != len(desired):
-            st.error("STEP 3d FAIL • Column count changed unexpectedly")
-            return df, None, None
-        prev_cols = debug_step("STEP 3d • Count verified (post-move)", df, prev_cols)
-
-        # 3e) Exact name order check
         if [c.strip() for c in df.columns] != desired:
-            st.error("STEP 3e FAIL • Exact Vetport header order mismatch")
-            st.write("Expected:", desired)
-            st.write("Got     :", list(df.columns))
-            # Do not proceed if the schema isn't exact
-            return df, None, None
-        prev_cols = debug_step("STEP 3e • Exact Vetport header order verified", df, prev_cols)
+            st.warning("STEP 3c • Column names differ — attempting alignment by header names.")
+            # try to reorder where possible
+            df = df[[c for c in desired if c in df.columns]]
+        prev_cols = debug_step("STEP 3d • After Vetport schema check", df, prev_cols)
     else:
         prev_cols = debug_step("STEP 3 • Skipped (not Vetport)", df, prev_cols)
 
-    # ------------------
-    # STEP 4 — Apply mappings (create ChargeDate here)
-    # ------------------
+    # =====================
+    # STEP 4 – Apply mappings
+    # =====================
     def clean_header(h):
         return unicodedata.normalize("NFKC", str(h)).replace("\u00a0", " ").replace("\ufeff", "").strip()
-    df.columns = [clean_header(c) for c in df.columns]
 
+    df.columns = [clean_header(c) for c in df.columns]
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
     rename_map = {}
-    if "date" in mappings and mappings["date"] in df.columns:
-        rename_map[mappings["date"]] = "ChargeDate"
-    if "client" in mappings and mappings["client"] in df.columns:
-        rename_map[mappings["client"]] = "Client Name"
-    if "animal" in mappings and mappings["animal"] in df.columns:
-        rename_map[mappings["animal"]] = "Animal Name"
-    if "item" in mappings and mappings["item"] in df.columns:
-        rename_map[mappings["item"]] = "Item Name"
+    for k, v in mappings.items():
+        if v in df.columns:
+            if k == "date":
+                rename_map[v] = "ChargeDate"
+            elif k == "client":
+                rename_map[v] = "Client Name"
+            elif k == "animal":
+                rename_map[v] = "Animal Name"
+            elif k == "item":
+                rename_map[v] = "Item Name"
     df = df.rename(columns=rename_map)
+    prev_cols = debug_step("STEP 4 • After mappings", df, prev_cols)
 
-    prev_cols = debug_step("STEP 4 • After mappings (ChargeDate may exist now)", df, prev_cols)
-
-    # ------------------
-    # STEP 5 — Normalize Amount & Qty
-    # ------------------
+    # =====================
+    # STEP 5 – Amount & Qty
+    # =====================
     amount_col = mappings.get("amount")
     qty_col = mappings.get("qty")
-
-    if amount_col and amount_col in df.columns:
-        df["Amount"] = clean_revenue_column(df[amount_col])
-    else:
-        df["Amount"] = 0
-
-    if qty_col and qty_col in df.columns:
-        df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1).astype(int)
-    else:
-        df["Qty"] = 1
-
+    df["Amount"] = clean_revenue_column(df[amount_col]) if amount_col in df.columns else 0
+    df["Qty"] = pd.to_numeric(df.get(qty_col, 1), errors="coerce").fillna(1).astype(int)
     prev_cols = debug_step("STEP 5 • Amount/Qty normalized", df, prev_cols)
 
-    # ------------------
-    # STEP 6 — Parse ChargeDate
-    # ------------------
+    # =====================
+    # STEP 6 – Parse ChargeDate
+    # =====================
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
     else:
         df["ChargeDate"] = pd.NaT
-
     prev_cols = debug_step("STEP 6 • ChargeDate parsed", df, prev_cols)
 
-    # ------------------
-    # STEP 7 — Add lowercase helpers
-    # ------------------
+    # =====================
+    # STEP 7 – Lowercase helpers
+    # =====================
     df["_client_lower"] = df.get("Client Name", "").astype(str).str.lower()
     df["_animal_lower"] = df.get("Animal Name", "").astype(str).str.lower()
     df["_item_lower"]   = df.get("Item Name", "").astype(str).str.lower()
-
     prev_cols = debug_step("STEP 7 • Lowercase helpers added", df, prev_cols)
 
-    # ------------------
-    # STEP 8 — Final preview
-    # ------------------
+    # =====================
+    # STEP 8 – Final
+    # =====================
     prev_cols = debug_step("STEP 8 • Final preview", df, prev_cols)
 
+    st.success("✅ File loaded successfully.")
     return df, pms_name, amount_col
 
 
@@ -3306,6 +3293,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
