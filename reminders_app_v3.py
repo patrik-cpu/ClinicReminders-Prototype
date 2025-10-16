@@ -535,111 +535,154 @@ def parse_dates(series: pd.Series) -> pd.Series:
 # Vectorized interval mapping
 # -------------------------
 @st.cache_data(show_spinner=False)
-def map_intervals_vec(df, rules):
-    df = df.copy()
-    if "ItemNorm" not in df.columns:
-        def _norm(name):
-            if not isinstance(name, str): return ""
-            s = unicodedata.normalize("NFKC", name).lower()
-            s = re.sub(r"[\u00a0\ufeff]", " ", s)
-            s = re.sub(r"[-+/().,]", " ", s)
-            return re.sub(r"\s+", " ", s).strip()
-        df["ItemNorm"] = df["Item Name"].astype(str).map(_norm)
-
-    n = len(df)
-    interval = pd.Series(pd.NA, index=df.index, dtype="Float64")
-    matched = np.empty(n, dtype=object)
-    matched[:] = [[] for _ in range(n)]
-
-    for rule_text, settings in rules.items():
-        pat = re.escape(rule_text.lower().strip())
-        mask = df["ItemNorm"].str.contains(pat, na=False)
-        if not mask.any():
-            continue
-
-        days = int(settings["days"])
-        if settings.get("use_qty"):
-            qty = pd.to_numeric(df.loc[mask, "Qty"], errors="coerce").fillna(1).astype(int).clip(lower=1)
-            cand = qty * days
-        else:
-            cand = pd.Series(days, index=df.index)[mask]
-
-        interval = interval.where(~mask, pd.concat([interval[mask], cand], axis=1).min(axis=1))
-
-        vis = settings.get("visible_text", "").strip()
-        idxs = df.index[mask]
-        if vis:
-            for i in idxs: matched[i].append(vis)
-        else:
-            for i in idxs: matched[i].append(df.at[i, "Item Name"])
-
-    df["MatchedItems"] = [list({x.strip() for x in lst if str(x).strip()}) for lst in matched]
-    df["IntervalDays"] = interval
-    return df
-
-@st.cache_data(show_spinner=False)
-def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
-    if df is None or df.empty:
-        return pd.DataFrame(columns=[
-            "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
-            "MatchedItems", "Qty", "IntervalDays", "NextDueDate", "ChargeDate"
-        ])
-    df = df.copy()
-    for col, default in [
-        ("ChargeDate", pd.NaT),
-        ("Client Name", ""),
-        ("Animal Name", ""),
-        ("Item Name", ""),
-        ("Qty", 1),
-        ("Amount", 0),
-    ]:
-        if col not in df.columns:
-            df[col] = default
-    if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
-        df["ChargeDate"] = parse_dates(df["ChargeDate"])
-    df = map_intervals_vec(df, rules)
-    days = pd.to_numeric(df["IntervalDays"], errors="coerce")
-    df["NextDueDate"] = df["ChargeDate"] + pd.to_timedelta(days, unit="D")
-    df["ChargeDateFmt"] = pd.to_datetime(df["ChargeDate"]).dt.strftime("%d %b %Y")
-    df["DueDateFmt"]    = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
-    df["MatchedItems"] = df["MatchedItems"].apply(
-        lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
-    )
-    return df
-
-def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
+def process_file(file_bytes, filename):
     """
-    Keeps only the most recent treatment record per client–animal–item combination
-    before the next treatment occurs, even if that next treatment happens early.
-    In effect:
-      - Each new treatment resets the due date.
-      - Any previous record with the same item before that new charge is dropped.
+    Load, detect PMS, and normalize Vetport, Xpress, and ezyVet exports.
+    EXACT FLOW:
+      1) Load
+      2) Detect PMS
+      3) If Vetport → verify cols:
+         3a) Drop 'Unnamed' / blank headers
+         3b) Check count == desired
+         3c) Move 'Planitem Performed' to col 0
+         3d) Check count again
+         3e) Check name order == desired
+      4) Only then apply mappings/normalization/parsing
     """
-    if df.empty:
-        return df
+    from io import BytesIO
+    file = BytesIO(file_bytes)
+    lowerfn = filename.lower()
 
-    df = df.copy()
-    df["MatchedItems_str"] = df["MatchedItems"].apply(
-        lambda x: ", ".join(sorted(x)) if isinstance(x, list) else str(x)
-    )
+    # 1) LOAD
+    if lowerfn.endswith(".csv"):
+        df = pd.read_csv(file, dtype=str)
+    elif lowerfn.endswith((".xls", ".xlsx")):
+        df = pd.read_excel(file, dtype=str)
+    else:
+        raise ValueError("Unsupported file type")
+    st.write("STEP 1 (Load): cols=", list(df.columns))
 
-    # Sort chronologically within each client–animal–item
-    df.sort_values(
-        ["Client Name", "Animal Name", "MatchedItems_str", "ChargeDate"],
-        inplace=True,
-        ignore_index=True
-    )
+    # 2) DETECT PMS (on raw headers)
+    pms_name = detect_pms(df)
+    st.write("STEP 2 (Detect PMS):", pms_name or "UNKNOWN")
+    if not pms_name:
+        return df, None, None
 
-    # Within each animal+item, find the next charge date
-    g = df.groupby(["Client Name", "Animal Name", "MatchedItems_str"], dropna=False)
-    next_charge = g["ChargeDate"].shift(-1)
+    # 3) VETPORT VERIFICATION SEQUENCE
+    if pms_name == "VETport":
+        desired = [
+            "Planitem Performed", "Client Name", "Client ID", "Patient Name",
+            "Patient ID", "Plan Item ID", "Plan Item Name", "Plan Item Quantity",
+            "Performed Staff", "Plan Item Amount", "Returned Quantity",
+            "Returned Date", "Invoice No"
+        ]
+        st.write("STEP 3 (Vetport start): cols=", list(df.columns))
 
-    # Rule:
-    #  - Drop any row that has a later charge for the same item, regardless of early/late.
-    #  - Keep only the last one (most recent) before the next charge.
-    keep = next_charge.isna()
+        # 3a) DROP UNNAMED/BLANK
+        cols_clean = []
+        for c in df.columns:
+            c_str = str(c) if not isinstance(c, str) else c
+            c_str = c_str.replace("\u00a0", " ").replace("\ufeff", "").strip()
+            if not c_str or c_str.lower().startswith("unnamed"):
+                continue
+            cols_clean.append(c_str)
+        df.columns = cols_clean
+        st.write("STEP 3a (Drop Unnamed): cols=", list(df.columns))
 
-    return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
+        # 3b) COUNT CHECK
+        if len(df.columns) != len(desired):
+            st.write(f"STEP 3b (Count mismatch): got {len(df.columns)}, want {len(desired)}")
+            return df, None, None
+        st.write("STEP 3b OK (Count):", len(df.columns))
+
+        # 3c) MOVE 'Planitem Performed' TO COL 0
+        if "Planitem Performed" not in df.columns:
+            st.write("STEP 3c FAIL: 'Planitem Performed' missing")
+            return df, None, None
+        if df.columns[0] != "Planitem Performed":
+            cols = list(df.columns)
+            cols.insert(0, cols.pop(cols.index("Planitem Performed")))
+            df = df[cols]
+        st.write("STEP 3c OK (Moved): first=", df.columns[0])
+
+        # 3d) COUNT CHECK AGAIN
+        if len(df.columns) != len(desired):
+            st.write("STEP 3d FAIL: count changed unexpectedly")
+            return df, None, None
+        st.write("STEP 3d OK (Count):", len(df.columns))
+
+        # 3e) NAME ORDER CHECK
+        # (Normalize minor whitespace just for comparison)
+        def norm_names(names): return [n.replace("\u00a0"," ").replace("\ufeff","").strip() for n in names]
+        if norm_names(df.columns.tolist()) != norm_names(desired):
+            st.write("STEP 3e FAIL (Order mismatch):")
+            st.write("Expected:", desired)
+            st.write("Got     :", list(df.columns))
+            return df, None, None
+        st.write("STEP 3e OK (Order exact)")
+
+    # 4) HEADERS CLEAN (final pass; harmless for other PMS)
+    def clean_header(h):
+        if not isinstance(h, str):
+            h = str(h)
+        return (
+            unicodedata.normalize("NFKC", h)
+            .replace("\u00a0", " ")
+            .replace("\ufeff", "")
+            .strip()
+        )
+    df.columns = [clean_header(c) for c in df.columns]
+    st.write("STEP 4 (Headers clean): cols=", list(df.columns))
+
+    # 5) APPLY MAPPINGS
+    mappings = PMS_DEFINITIONS[pms_name]["mappings"]
+    rename_map = {}
+    if "date" in mappings and mappings["date"] in df.columns:
+        rename_map[mappings["date"]] = "ChargeDate"
+    if "client" in mappings and mappings["client"] in df.columns:
+        rename_map[mappings["client"]] = "Client Name"
+    if "animal" in mappings and mappings["animal"] in df.columns:
+        rename_map[mappings["animal"]] = "Animal Name"
+    if "item" in mappings and mappings["item"] in df.columns:
+        rename_map[mappings["item"]] = "Item Name"
+    df = df.rename(columns=rename_map)
+    st.write("STEP 5 (After mappings): cols=", list(df.columns))
+
+    # 6) NORMALIZE AMOUNT & QTY
+    amount_col = mappings.get("amount")
+    if amount_col and amount_col in df.columns:
+        df["Amount"] = clean_revenue_column(df[amount_col])
+    else:
+        df["Amount"] = 0
+    qty_col = mappings.get("qty")
+    if qty_col and qty_col in df.columns:
+        df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1).astype(int)
+    else:
+        df["Qty"] = 1
+    st.write("STEP 6 (Amount/Qty): Amount head=", df["Amount"].head(3).tolist(), "Qty head=", df["Qty"].head(3).tolist())
+
+    # 7) PARSE DATE
+    if "ChargeDate" in df.columns:
+        df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
+    else:
+        df["ChargeDate"] = pd.NaT
+    st.write("STEP 7 (ChargeDate):", df["ChargeDate"].head(3).tolist())
+
+    # 8) LOWERCASE HELPERS
+    df["_client_lower"] = df.get("Client Name", "").astype(str).str.lower()
+    df["_animal_lower"] = df.get("Animal Name", "").astype(str).str.lower()
+    df["_item_lower"] = df.get("Item Name", "").astype(str).str.lower()
+    st.write("STEP 8 (Helpers):",
+             {"_client_lower": df["_client_lower"].head(2).tolist(),
+              "_animal_lower": df["_animal_lower"].head(2).tolist(),
+              "_item_lower": df["_item_lower"].head(2).tolist()})
+
+    # 9) FINAL MINI-PREVIEW (top 2 each)
+    mini = {c: df[c].head(2).tolist() for c in df.columns}
+    st.write("STEP 9 (Preview top-2/col):", mini)
+
+    return df, pms_name, amount_col
+
 
 
 
@@ -3236,6 +3279,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
