@@ -1448,7 +1448,20 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         key=editor_key,
         help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
     )
-    st.info("1. **Update** the WhatsApp template here... 2. Click **Update Template** or **Reset Template**.")
+    st.info(
+        "### 🧩 How to Customize Your WhatsApp Message Template\n\n"
+        "**1️⃣ Edit your message below** – you can freely rewrite it to match your clinic’s tone or language.\n\n"
+        "**2️⃣ Use dynamic placeholders (square brackets)** to make messages automatically fill with client and pet details:\n"
+        "- `[Client Name]` → Inserts the client’s first name  \n"
+        "- `[Your Name]` → Inserts your name or clinic name (set above)  \n"
+        "- `[Pet Name]` → Inserts the patient’s name(s)  \n"
+        "- `[Item]` → Inserts what’s due (e.g., *Rabies Vaccine*, *Dental Exam*)  \n"
+        "- `[Due Date]` → Inserts the formatted due date (e.g., *5th of September, 2025*)\n\n"
+        "**3️⃣ Example:**  \n"
+        "_Hi [Client Name], this is [Your Name] reminding you that [Pet Name] is due for their [Item] on the [Due Date]._  \n\n"
+        "**4️⃣ Click ‘✅ Update Template’ to save**, or **‘🗑️ Reset Template’** to return to the default message."
+    )
+
     col_update, col_reset = st.columns([1, 1])
     with col_update:
         if st.button("✅ Update Template", key=f"update_template_{key_prefix}"):
@@ -3410,6 +3423,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
