@@ -324,6 +324,15 @@ if not st.session_state["logged_in"]:
             st.error("❌ Invalid username or password.")
 else:
     st.sidebar.success(f"Logged in as {st.session_state['clinic_id']}")
+    
+# --- 🚪 Logout button ---
+if st.session_state.get("logged_in", False):
+    if st.sidebar.button("🚪 Logout"):
+        # Clear login state
+        for key in ["logged_in", "clinic_id"]:
+            st.session_state.pop(key, None)
+        st.success("You have been logged out.")
+        st.rerun()
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:
@@ -3393,6 +3402,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
