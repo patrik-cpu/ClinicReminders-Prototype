@@ -648,10 +648,8 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def process_file(file_bytes, filename):
     """
-    Load and normalize uploaded data files across supported PMS types.
-    Automatically detects PMS and applies schema normalization.
-    ✅ Vetport: immediately reorders columns to the canonical order
-    so all downstream logic behaves identically regardless of column order.
+    Load, detect PMS, and normalize Vetport, Xpress, and ezyVet exports.
+    For Vetport: reorder columns immediately (before any other logic).
     """
 
     from io import BytesIO
@@ -666,116 +664,70 @@ def process_file(file_bytes, filename):
     else:
         raise ValueError("Unsupported file type")
 
-    # --- Clean up column headers early (strip ALL whitespace and normalize unicode) ---
-    def clean_header(h):
-        if not isinstance(h, str):
-            h = str(h)
-        return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
-    
-    df.columns = [clean_header(c) for c in df.columns]
-
-
-    # --- 3️⃣ Case-insensitive map for reliable lookups ---
-    lower_map = {c.lower(): c for c in df.columns}
-
-    # --- 4️⃣ Detect PMS ---
+    # --- 2️⃣ Detect PMS immediately (no cleaning yet) ---
     pms_name = detect_pms(df)
     if not pms_name:
         return df, None, None
 
-    # --- 5️⃣ Vetport: force canonical column order immediately ---
+    # --- 3️⃣ If Vetport → reorder columns first thing ---
     if pms_name == "VETport":
         expected_cols = [
-            "planitem performed", "client name", "client id", "patient name",
-            "patient id", "plan item id", "plan item name", "plan item quantity",
-            "performed staff", "plan item amount", "returned quantity",
-            "returned date", "invoice no"
+            "Planitem Performed", "Client Name", "Client ID", "Patient Name",
+            "Patient ID", "Plan Item ID", "Plan Item Name", "Plan Item Quantity",
+            "Performed Staff", "Plan Item Amount", "Returned Quantity",
+            "Returned Date", "Invoice No"
         ]
-        # Reorder in a case-insensitive way
-        cols_present = [lower_map.get(c, c) for c in expected_cols if c in lower_map]
-        df = df[cols_present + [c for c in df.columns if c not in cols_present]]
+        # Drop missing, keep extras at end
+        df = df[[c for c in expected_cols if c in df.columns] +
+                [c for c in df.columns if c not in expected_cols]]
 
-    # --- 6️⃣ Apply PMS mappings ---
+    # --- 4️⃣ Clean headers ---
+    def clean_header(h):
+        if not isinstance(h, str):
+            h = str(h)
+        return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
+
+    df.columns = [clean_header(c) for c in df.columns]
+
+    # --- 5️⃣ Apply mappings ---
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
     rename_map = {}
-
-    def get_col_ci(target: str):
-        """Case-insensitive column name lookup."""
-        for c in df.columns:
-            if c.lower() == target.lower():
-                return c
-        return None
-
-    date_col = get_col_ci(mappings.get("date", ""))
-    client_col = get_col_ci(mappings.get("client", ""))
-    animal_col = get_col_ci(mappings.get("animal", ""))
-    item_col = get_col_ci(mappings.get("item", ""))
-    qty_col = get_col_ci(mappings.get("qty", ""))
-    amount_col = get_col_ci(mappings.get("amount", ""))
-
-    if date_col:
-        rename_map[date_col] = "ChargeDate"
-    if client_col:
-        rename_map[client_col] = "Client Name"
-    if animal_col:
-        rename_map[animal_col] = "Animal Name"
-    if item_col:
-        rename_map[item_col] = "Item Name"
-
+    if "date" in mappings and mappings["date"] in df.columns:
+        rename_map[mappings["date"]] = "ChargeDate"
+    if "client" in mappings and mappings["client"] in df.columns:
+        rename_map[mappings["client"]] = "Client Name"
+    if "animal" in mappings and mappings["animal"] in df.columns:
+        rename_map[mappings["animal"]] = "Animal Name"
+    if "item" in mappings and mappings["item"] in df.columns:
+        rename_map[mappings["item"]] = "Item Name"
     df = df.rename(columns=rename_map)
-    st.write("DEBUG: Columns after rename", df.columns.tolist())
-    st.write("DEBUG: First 3 ChargeDate values", df.get("ChargeDate", []).head(3) if "ChargeDate" in df else "NO CHARGEDATE")
 
-
-    # --- 7️⃣ Clean revenue column ---
+    # --- 6️⃣ Normalize amount and quantity ---
+    amount_col = mappings.get("amount")
     if amount_col and amount_col in df.columns:
         df["Amount"] = clean_revenue_column(df[amount_col])
     else:
         df["Amount"] = 0
 
-    # --- 8️⃣ ezyVet: merge first + last name ---
-    if pms_name == "ezyVet":
-        cf = mappings.get("client_first")
-        cl = mappings.get("client_last")
-        if cf and cl and cf in df.columns and cl in df.columns:
-            df["Client Name"] = (
-                df[cf].fillna("").astype(str).str.strip() + " " +
-                df[cl].fillna("").astype(str).str.strip()
-            ).str.strip()
-
-    # --- 9️⃣ Quantity handling ---
+    qty_col = mappings.get("qty")
     if qty_col and qty_col in df.columns:
         df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1).astype(int)
     else:
-        fallback_qty_cols = ["Qty", "Quantity", "Plan Item Quantity"]
-        found = False
-        for c in fallback_qty_cols:
-            if c in df.columns:
-                df["Qty"] = pd.to_numeric(df[c], errors="coerce").fillna(1).astype(int)
-                found = True
-                break
-        if not found:
-            df["Qty"] = 1
+        df["Qty"] = 1
 
-    # --- 🔟 Ensure ChargeDate exists and is parsed correctly ---
-    if "ChargeDate" not in df.columns:
-        # Last resort: fallback to known Vetport variants
-        for cand in ["Planitem Performed", "PlanItem Performed", "planitem performed"]:
-            if cand in df.columns:
-                df["ChargeDate"] = df[cand]
-                break
+    # --- 7️⃣ Parse date ---
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
     else:
-        df["ChargeDate"] = pd.NaT  # guarantee existence
+        df["ChargeDate"] = pd.NaT
 
-    # --- 11️⃣ Add lowercase helper columns for search and reminders ---
-    df["_client_lower"] = df["Client Name"].astype(str).str.lower()
-    df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
-    df["_item_lower"] = df["Item Name"].astype(str).str.lower()
+    # --- 8️⃣ Lowercase helpers ---
+    df["_client_lower"] = df.get("Client Name", "").astype(str).str.lower()
+    df["_animal_lower"] = df.get("Animal Name", "").astype(str).str.lower()
+    df["_item_lower"] = df.get("Item Name", "").astype(str).str.lower()
 
-    # --- ✅ Return normalized data ---
     return df, pms_name, amount_col
+
 
 
 def _to_blob(uploaded):
@@ -3252,6 +3204,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
