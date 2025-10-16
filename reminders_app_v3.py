@@ -680,7 +680,8 @@ def process_file(file_bytes, filename):
         return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
 
     df.columns = [clean_header(c) for c in df.columns]
-    st.write("COLUMNS:", list(df.columns))
+    st.write("COLUMNS BEFORE:", list(df.columns))
+    st.write("First 5 values in Planitem Performed:", df["Planitem Performed"].head().tolist())
 
     # --- 3️⃣ If Vetport → reorder columns first thing ---
     if pms_name == "VETport":
@@ -688,7 +689,8 @@ def process_file(file_bytes, filename):
         if "Planitem Performed" in cols:
             cols.insert(0, cols.pop(cols.index("Planitem Performed")))
             df = df[cols]
-    st.write("COLUMNS:", list(df.columns))
+    st.write("COLUMNS AFTER:", list(df.columns))
+    st.write("First 5 values in Planitem Performed:", df["Planitem Performed"].head().tolist())
 
 
     # --- 5️⃣ Apply mappings ---
@@ -3206,6 +3208,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
