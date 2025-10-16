@@ -642,6 +642,12 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
 
 
+
+
+
+
+
+
 # --------------------------------
 # File processing (decoupled from rules)
 # --------------------------------
@@ -650,62 +656,62 @@ def process_file(file_bytes, filename):
     """
     Load, detect PMS, and normalize Vetport, Xpress, and ezyVet exports.
     For Vetport: move 'Planitem Performed' to the first column immediately,
-    ensuring headers and data stay aligned.
+    and auto-fix misaligned Vetport exports (where dates & staff are swapped).
     """
     from io import BytesIO
     file = BytesIO(file_bytes)
     lowerfn = filename.lower()
 
-    # --- Load ---
+    # --- 1️⃣ Load file ---
     if lowerfn.endswith(".csv"):
         df = pd.read_csv(file, dtype=str)
     elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file, dtype=str)
     else:
         raise ValueError("Unsupported file type")
-    
-    # --- Drop phantom index column if present ---
+
+    # --- 2️⃣ Drop phantom index/blank column if present ---
     if df.columns[0].strip().lower().startswith("unnamed") or df.columns[0].strip() == "":
         df = df.drop(df.columns[0], axis=1)
 
-    # --- Clean headers ---
+    # --- 3️⃣ Clean headers (strip spaces, BOMs, NBSPs) ---
     def clean_header(h):
         if not isinstance(h, str):
             h = str(h)
-        return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
+        return (
+            unicodedata.normalize("NFKC", h)
+            .replace("\u00a0", " ")
+            .replace("\ufeff", "")
+            .strip()
+        )
+
     df.columns = [clean_header(c) for c in df.columns]
-    st.write("COLUMNS (after reorder):", list(df.columns))
-    st.write("First 5 values in Planitem Performed:", df["Planitem Performed"].head().tolist())
-    # --- Detect PMS ---
+
+    # --- 4️⃣ Detect PMS ---
     pms_name = detect_pms(df)
     if not pms_name:
         return df, None, None
 
-    # --- Vetport reorder (move Planitem Performed to first) ---
+    # --- 5️⃣ Vetport: reorder + fix misaligned exports ---
     if pms_name == "VETport":
+
+        # (a) move Planitem Performed to column A if present
         if "Planitem Performed" in df.columns:
             df = df[["Planitem Performed"] + [c for c in df.columns if c != "Planitem Performed"]]
-    
-        # --- Self-heal for shifted Vetport exports ---
-        if (
-            "Planitem Performed" in df.columns
-            and "Plan Item Quantity" in df.columns
-        ):
-            # Detect if Planitem Performed column holds names (Dr. ...)
-            # and Plan Item Quantity looks like dates
+
+        # (b) auto-detect if Planitem Performed holds staff names instead of dates
+        if "Planitem Performed" in df.columns and "Plan Item Quantity" in df.columns:
             perf_vals = df["Planitem Performed"].astype(str).head(10)
             qty_vals = df["Plan Item Quantity"].astype(str).head(10)
-    
+
             looks_like_names = perf_vals.str.contains(r"Dr\.|In Patient", na=False).mean() > 0.3
             looks_like_dates = qty_vals.str.contains(r"\d{1,2}/[A-Za-z]{3}/\d{4}", na=False).mean() > 0.3
-    
+
             if looks_like_names and looks_like_dates:
-                st.write("⚠️ Detected Vetport misaligned export — swapping Planitem Performed and Plan Item Quantity.")
+                st.write("⚠️ Detected misaligned Vetport export — swapping Planitem Performed and Plan Item Quantity.")
                 df[["Planitem Performed", "Plan Item Quantity"]] = df[["Plan Item Quantity", "Planitem Performed"]]
 
-    st.write("COLUMNS (after reorder):", list(df.columns))
-    st.write("First 5 values in Planitem Performed:", df.head().tolist())
-    # --- Apply mappings ---
+    # --- 6️⃣ Apply mappings ---
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
     rename_map = {}
     if "date" in mappings and mappings["date"] in df.columns:
@@ -718,7 +724,7 @@ def process_file(file_bytes, filename):
         rename_map[mappings["item"]] = "Item Name"
     df = df.rename(columns=rename_map)
 
-    # --- Normalize amount and quantity ---
+    # --- 7️⃣ Normalize amount and quantity ---
     amount_col = mappings.get("amount")
     if amount_col and amount_col in df.columns:
         df["Amount"] = clean_revenue_column(df[amount_col])
@@ -731,18 +737,27 @@ def process_file(file_bytes, filename):
     else:
         df["Qty"] = 1
 
-    # --- Parse ChargeDate ---
+    # --- 8️⃣ Parse ChargeDate ---
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
     else:
         df["ChargeDate"] = pd.NaT
 
-    # --- Lowercase helpers ---
+    # --- 9️⃣ Lowercase helpers for searching ---
     df["_client_lower"] = df.get("Client Name", "").astype(str).str.lower()
     df["_animal_lower"] = df.get("Animal Name", "").astype(str).str.lower()
     df["_item_lower"] = df.get("Item Name", "").astype(str).str.lower()
 
+    # --- 🔍 Optional debug: preview first few values for all columns ---
+    st.write("DEBUG: First 5 values per column ↓")
+    for col in df.columns:
+        try:
+            st.write(f"{col}:", df[col].head(5).tolist())
+        except Exception as e:
+            st.write(f"{col}: ERROR displaying → {e}")
+
     return df, pms_name, amount_col
+
 
 
 
@@ -3221,6 +3236,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
