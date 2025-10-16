@@ -682,22 +682,34 @@ def process_file(file_bytes, filename):
     # STEP 1 – Load safely
     # =====================
     if lowerfn.endswith(".csv"):
-        # Detect encoding
-        raw_bytes = file_bytes[:4000]
-        detected = chardet.detect(raw_bytes)
-        enc = detected["encoding"] or "utf-8-sig"
-
-        # Detect delimiter
-        text = raw_bytes.decode(enc, errors="replace")
+        import io
+    
+        # Detect encoding (fallback if chardet not present)
         try:
-            delim = csv.Sniffer().sniff(text, delimiters=[",", ";", "\t", "|"]).delimiter
+            import chardet
+            enc = chardet.detect(file_bytes[:4000]).get("encoding", "utf-8-sig")
         except Exception:
+            enc = "utf-8-sig"
+    
+        # Read a few lines raw to test delimiters
+        preview_text = file_bytes[:10000].decode(enc, errors="replace")
+        first_line = preview_text.splitlines()[0]
+        comma_count = first_line.count(",")
+        semi_count = first_line.count(";")
+    
+        # Heuristic: choose whichever yields more fields
+        if comma_count > semi_count:
+            delim = ","
+        elif semi_count > comma_count:
             delim = ";"
-
+        else:
+            # fallback if equal or unclear
+            delim = ","
+    
         st.write(f"Detected encoding: {enc}")
-        st.write(f"Detected delimiter: '{delim}'")
-
-        # Reset stream and read CSV robustly
+        st.write(f"Auto-selected delimiter: '{delim}' (based on header field count)")
+    
+        # Reset stream and read with this delimiter
         file.seek(0)
         df = pd.read_csv(
             io.TextIOWrapper(file, encoding=enc, errors="replace"),
@@ -707,21 +719,26 @@ def process_file(file_bytes, filename):
             dtype=str,
             na_filter=False
         )
-
-        # Optional column count sanity check
-        file.seek(0)
-        line_counts = []
-        for i, line in enumerate(io.TextIOWrapper(file, encoding=enc, errors="replace")):
-            count = len(list(csv.reader([line], delimiter=delim))[0])
-            line_counts.append(count)
-            if i < 3:
-                st.write(f"Line {i+1}: {count} columns")
-        if len(set(line_counts)) > 1:
-            st.warning("⚠️ Inconsistent column counts detected — some rows may have extra commas.")
-    elif lowerfn.endswith((".xls", ".xlsx")):
-        df = pd.read_excel(file, dtype=str)
+    
+        # Handle case where header contains spaces after commas (like 'Client Name ,Client ID')
+        if len(df.columns) == 1 and "," in df.columns[0]:
+            st.warning("⚠ Detected collapsed single-column header. Retrying with comma delimiter and stripping spaces.")
+            file.seek(0)
+            df = pd.read_csv(
+                io.TextIOWrapper(file, encoding=enc, errors="replace"),
+                delimiter=",",
+                quotechar='"',
+                engine="python",
+                dtype=str,
+                na_filter=False
+            )
+    
+        # Clean up header whitespace
+        df.columns = [c.replace(" ,", ",").replace(", ", ",").strip() for c in df.columns]
+    
     else:
-        raise ValueError("Unsupported file type")
+        df = pd.read_excel(file, dtype=str)
+
 
     prev_cols = debug_step("STEP 1 • Loaded file", df, prev_cols)
 
@@ -3293,6 +3310,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
