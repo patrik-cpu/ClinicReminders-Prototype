@@ -537,38 +537,48 @@ def parse_dates(series: pd.Series) -> pd.Series:
 @st.cache_data(show_spinner=False)
 def process_file(file_bytes, filename):
     """
-    Load, detect PMS, and normalize Vetport, Xpress, and ezyVet exports.
-    EXACT FLOW:
+    Deterministic loader with explicit, step-by-step debug.
+    Flow:
       1) Load
       2) Detect PMS
-      3) If Vetport → verify cols:
-         3a) Drop 'Unnamed' / blank headers
+      3) If Vetport → strict verification:
+         3a) Drop 'Unnamed'/blank columns
          3b) Check count == desired
-         3c) Move 'Planitem Performed' to col 0
+         3c) Move 'Planitem Performed' to column 0
          3d) Check count again
          3e) Check name order == desired
-      4) Only then apply mappings/normalization/parsing
+      4) Apply mappings (first time we create 'ChargeDate')
+      5) Normalize Amount & Qty
+      6) Parse ChargeDate
+      7) Add lowercase helpers
+      8) Final mini-preview
     """
     from io import BytesIO
     file = BytesIO(file_bytes)
     lowerfn = filename.lower()
 
+    # ------------------
     # 1) LOAD
+    # ------------------
     if lowerfn.endswith(".csv"):
         df = pd.read_csv(file, dtype=str)
     elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file, dtype=str)
     else:
         raise ValueError("Unsupported file type")
-    st.write("STEP 1 (Load): cols=", list(df.columns))
+    st.write("STEP 1 — Load → cols:", list(df.columns))
 
-    # 2) DETECT PMS (on raw headers)
+    # ------------------
+    # 2) DETECT PMS
+    # ------------------
     pms_name = detect_pms(df)
-    st.write("STEP 2 (Detect PMS):", pms_name or "UNKNOWN")
+    st.write("STEP 2 — Detect PMS →", pms_name or "UNKNOWN")
     if not pms_name:
         return df, None, None
 
-    # 3) VETPORT VERIFICATION SEQUENCE
+    # ------------------
+    # 3) VETPORT VERIFICATION (NO RENAME YET)
+    # ------------------
     if pms_name == "VETport":
         desired = [
             "Planitem Performed", "Client Name", "Client ID", "Patient Name",
@@ -576,52 +586,63 @@ def process_file(file_bytes, filename):
             "Performed Staff", "Plan Item Amount", "Returned Quantity",
             "Returned Date", "Invoice No"
         ]
-        st.write("STEP 3 (Vetport start): cols=", list(df.columns))
+        st.write("STEP 3 — Vetport start → cols:", list(df.columns))
 
-        # 3a) DROP UNNAMED/BLANK
-        cols_clean = []
+        # 3a) Drop 'Unnamed' / blank header columns ONLY
+        new_cols = []
         for c in df.columns:
             c_str = str(c) if not isinstance(c, str) else c
             c_str = c_str.replace("\u00a0", " ").replace("\ufeff", "").strip()
             if not c_str or c_str.lower().startswith("unnamed"):
                 continue
-            cols_clean.append(c_str)
-        df.columns = cols_clean
-        st.write("STEP 3a (Drop Unnamed): cols=", list(df.columns))
+            new_cols.append(c_str)
+        # If we dropped columns, we need to actually drop data columns too
+        # Match by original names that were kept
+        keep_mask = [c for c in df.columns if (str(c).replace("\u00a0"," ").replace("\ufeff","").strip()
+                                               and not str(c).lower().startswith("unnamed"))]
+        df = df.loc[:, keep_mask]
+        df.columns = new_cols
+        st.write("STEP 3a — After drop → cols:", list(df.columns))
 
-        # 3b) COUNT CHECK
+        # 3b) Count must match desired exactly
         if len(df.columns) != len(desired):
-            st.write(f"STEP 3b (Count mismatch): got {len(df.columns)}, want {len(desired)}")
+            st.write(f"STEP 3b — FAIL (count). Got {len(df.columns)}, want {len(desired)}")
             return df, None, None
-        st.write("STEP 3b OK (Count):", len(df.columns))
+        st.write("STEP 3b — OK (count):", len(df.columns))
 
-        # 3c) MOVE 'Planitem Performed' TO COL 0
+        # 3c) Move 'Planitem Performed' to first column (ONLY reindex columns)
         if "Planitem Performed" not in df.columns:
-            st.write("STEP 3c FAIL: 'Planitem Performed' missing")
+            st.write("STEP 3c — FAIL: 'Planitem Performed' missing")
             return df, None, None
         if df.columns[0] != "Planitem Performed":
             cols = list(df.columns)
             cols.insert(0, cols.pop(cols.index("Planitem Performed")))
             df = df[cols]
-        st.write("STEP 3c OK (Moved): first=", df.columns[0])
+        st.write("STEP 3c — OK (moved first). First col:", df.columns[0])
+        # small peek at raw values BEFORE any rename
+        st.write("STEP 3c — First 3 Planitem Performed:", df["Planitem Performed"].head(3).tolist())
 
-        # 3d) COUNT CHECK AGAIN
+        # 3d) Count check again (should be unchanged)
         if len(df.columns) != len(desired):
-            st.write("STEP 3d FAIL: count changed unexpectedly")
+            st.write("STEP 3d — FAIL: count changed unexpectedly")
             return df, None, None
-        st.write("STEP 3d OK (Count):", len(df.columns))
+        st.write("STEP 3d — OK (count):", len(df.columns))
 
-        # 3e) NAME ORDER CHECK
-        # (Normalize minor whitespace just for comparison)
-        def norm_names(names): return [n.replace("\u00a0"," ").replace("\ufeff","").strip() for n in names]
-        if norm_names(df.columns.tolist()) != norm_names(desired):
-            st.write("STEP 3e FAIL (Order mismatch):")
-            st.write("Expected:", desired)
-            st.write("Got     :", list(df.columns))
+        # 3e) Column names must match desired exactly (order & spelling)
+        # normalize minor whitespace for comparison only
+        def _norm(names): return [n.replace("\u00a0"," ").replace("\ufeff","").strip() for n in names]
+        if _norm(df.columns.tolist()) != _norm(desired):
+            st.write("STEP 3e — FAIL (order mismatch)")
+            st.write("    Expected:", desired)
+            st.write("    Got     :", list(df.columns))
             return df, None, None
-        st.write("STEP 3e OK (Order exact)")
+        st.write("STEP 3e — OK (order matches exactly)")
 
-    # 4) HEADERS CLEAN (final pass; harmless for other PMS)
+    # ------------------
+    # 4) APPLY MAPPINGS (FIRST TIME WE CREATE 'ChargeDate')
+    # ------------------
+    st.write("STEP 4 — Apply mappings (now 'ChargeDate' can be created)")
+    # Light header clean (safe for all PMS) — AFTER Vetport verification
     def clean_header(h):
         if not isinstance(h, str):
             h = str(h)
@@ -632,10 +653,8 @@ def process_file(file_bytes, filename):
             .strip()
         )
     df.columns = [clean_header(c) for c in df.columns]
-    st.write("STEP 4 (Headers clean): cols=", list(df.columns))
-
-    # 5) APPLY MAPPINGS
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
+
     rename_map = {}
     if "date" in mappings and mappings["date"] in df.columns:
         rename_map[mappings["date"]] = "ChargeDate"
@@ -646,9 +665,13 @@ def process_file(file_bytes, filename):
     if "item" in mappings and mappings["item"] in df.columns:
         rename_map[mappings["item"]] = "Item Name"
     df = df.rename(columns=rename_map)
-    st.write("STEP 5 (After mappings): cols=", list(df.columns))
+    st.write("STEP 4 — After mappings → cols:", list(df.columns))
+    if "ChargeDate" in df.columns:
+        st.write("STEP 4 — First 3 ChargeDate (raw strings):", df["ChargeDate"].head(3).tolist())
 
-    # 6) NORMALIZE AMOUNT & QTY
+    # ------------------
+    # 5) NORMALIZE AMOUNT & QTY
+    # ------------------
     amount_col = mappings.get("amount")
     if amount_col and amount_col in df.columns:
         df["Amount"] = clean_revenue_column(df[amount_col])
@@ -659,29 +682,38 @@ def process_file(file_bytes, filename):
         df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1).astype(int)
     else:
         df["Qty"] = 1
-    st.write("STEP 6 (Amount/Qty): Amount head=", df["Amount"].head(3).tolist(), "Qty head=", df["Qty"].head(3).tolist())
+    st.write("STEP 5 — Amount head:", df["Amount"].head(3).tolist(),
+             "| Qty head:", df["Qty"].head(3).tolist())
 
-    # 7) PARSE DATE
+    # ------------------
+    # 6) PARSE CHARGEDATE
+    # ------------------
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
+        st.write("STEP 6 — Parsed ChargeDate head:", df["ChargeDate"].head(3).tolist())
     else:
         df["ChargeDate"] = pd.NaT
-    st.write("STEP 7 (ChargeDate):", df["ChargeDate"].head(3).tolist())
+        st.write("STEP 6 — No ChargeDate present")
 
-    # 8) LOWERCASE HELPERS
+    # ------------------
+    # 7) LOWERCASE HELPERS
+    # ------------------
     df["_client_lower"] = df.get("Client Name", "").astype(str).str.lower()
     df["_animal_lower"] = df.get("Animal Name", "").astype(str).str.lower()
-    df["_item_lower"] = df.get("Item Name", "").astype(str).str.lower()
-    st.write("STEP 8 (Helpers):",
+    df["_item_lower"]   = df.get("Item Name", "").astype(str).str.lower()
+    st.write("STEP 7 — Helpers:",
              {"_client_lower": df["_client_lower"].head(2).tolist(),
               "_animal_lower": df["_animal_lower"].head(2).tolist(),
               "_item_lower": df["_item_lower"].head(2).tolist()})
 
-    # 9) FINAL MINI-PREVIEW (top 2 each)
+    # ------------------
+    # 8) FINAL MINI PREVIEW
+    # ------------------
     mini = {c: df[c].head(2).tolist() for c in df.columns}
-    st.write("STEP 9 (Preview top-2/col):", mini)
+    st.write("STEP 8 — Final preview (top-2/col):", mini)
 
     return df, pms_name, amount_col
+
 
 
 
@@ -3279,6 +3311,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
