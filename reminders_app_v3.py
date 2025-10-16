@@ -3220,7 +3220,7 @@ else:
 # 🧷 Nova Vet Family Admin Access (Password Protected)
 # --------------------------------
 st.markdown("---")
-st.markdown("## 🧷 Nova Vet Family Admin Access")
+st.markdown("### 🧷 Nova Vet Family Admin Access")
 
 # Password gate (separate from Factoids)
 if "admin_unlocked" not in st.session_state:
@@ -3440,3 +3440,4 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
