@@ -422,54 +422,6 @@ def save_deleted_reminders(deleted_list):
         json.dump(deleted_list, f)
 
 # --------------------------------
-# 👩‍⚕️ Admin – Add or Reset Clinic Accounts
-# --------------------------------
-st.markdown("---")
-st.markdown("### 👩‍⚕️ Admin: Add or Reset Clinic Accounts")
-
-# Only show to a special admin account (for example, “Admin”)
-if st.session_state.get("clinic_id") == "Admin":
-    sheet = get_settings_sheet()
-    st.info("Use this to add or update clinic login credentials. Plain passwords will be visible in the Sheet for convenience.")
-
-    with st.form("add_clinic_form"):
-        new_clinic = st.text_input("Clinic ID (e.g., HappyVet)").strip()
-        new_pw = st.text_input("Password (e.g., mypassword)").strip()
-        submitted = st.form_submit_button("➕ Add / Update Clinic")
-
-    if submitted:
-        if not new_clinic or not new_pw:
-            st.error("Please enter both Clinic ID and Password.")
-        else:
-            plain = new_pw
-            hashed = hash_pw(new_pw)
-            all_vals = sheet.get_all_values()
-            headers = all_vals[0]
-            clinic_col = headers.index("ClinicID") + 1
-
-            # Check if clinic already exists
-            row = None
-            for i, r in enumerate(all_vals[1:], start=2):
-                if r[clinic_col - 1].strip().lower() == new_clinic.lower():
-                    row = i
-                    break
-
-            if row:
-                # Update existing clinic row
-                sheet.update_cell(row, headers.index("PlainPassword") + 1, plain)
-                sheet.update_cell(row, headers.index("PasswordHash") + 1, hashed)
-                sheet.update_cell(row, headers.index("UpdatedAt") + 1, datetime.utcnow().isoformat())
-                st.success(f"✅ Updated password for clinic '{new_clinic}'.")
-            else:
-                # Add a new clinic row
-                sheet.append_row([new_clinic, plain, hashed, "{}", datetime.utcnow().isoformat()])
-                st.success(f"✅ Added new clinic '{new_clinic}'.")
-
-else:
-    st.caption("Admin-only clinic management hidden. Log in as Admin to access it.")
-
-
-# --------------------------------
 # PMS definitions
 # --------------------------------
 PMS_DEFINITIONS = {
@@ -1102,17 +1054,18 @@ else:
 st.markdown("<div id='tutorial' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("<h2 id='tutorial'>📖 Tutorial - Read me first!</h2>", unsafe_allow_html=True)
 st.info(
-    "### 🧭 READ THIS FIRST!\n"
-    "This prototype does two main things:\n\n"
-    "1️⃣ **Sets Reminders** for all sorts of things — Vaccines, Dentals, Flea/Worm, Librela/Solensia, and anything else.  \n"
-    "2️⃣ **Shows you interesting Factoids** about your clinic. Use the sidebar on the left to navigate.\n\n"
-    "### 📋 How to use:\n"
-    "**STEP 1:** Upload your data. Patrik has probably provided you with this.  \n"
-    "**STEP 2:** Look at the *Weekly Reminders* section. It shows reminders due starting the week after the latest date in your data.  \n"
-    "**STEP 3:** Click the *WA* button to generate a template WhatsApp message for copying or direct sending.  \n"
-    "**STEP 4:** *Search Terms* (which control what reminders are generated) can be added, modified, or deleted.  \n"
-    "**STEP 5:** View the *Factoids* section for lots of insights! Contact Patrik for a full walk-through.  \n\n"
-    "There's more you can do, but this should be enough to get you started."
+    "### 🧭 READ THIS FIRST!\n\n"
+    "Welcome to the **ClinicReminders & Factoids Prototype** — this tool helps you understand your clinic data and keep your clients engaged.\n\n"
+    "### 💡 What it does\n"
+    "1️⃣ **Sets Reminders** for everything from Vaccines, Dentals, and Flea/Worm treatments to Librela, Solensia, and more.  \n"
+    "2️⃣ **Generates Factoids & Insights** — quick, visual summaries of your clinic’s activity, clients, and trends.\n\n"
+    "### 📋 How to use\n"
+    "**STEP 1:** Upload your clinic data file (Patrik has likely provided one).  \n"
+    "**STEP 2:** Go to **Weekly Reminders** — see which reminders are due in the week after your latest data date.  \n"
+    "**STEP 3:** Click the **WA button** to instantly prepare a WhatsApp reminder message for copy or direct send.  \n"
+    "**STEP 4:** Use **Search Terms** to control what triggers reminders — add new terms, edit intervals, or remove old ones.  \n"
+    "**STEP 5:** Explore **Factoids** for performance insights and interesting clinic trends.  \n\n"
+    "That’s all you need to get started — explore freely, and reach out to **Patrik** anytime for a full walk-through or advanced setup help."
 )
 
 # --- Upload Data section ---
@@ -1636,10 +1589,17 @@ if st.session_state.get("working_df") is not None:
     st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("#### 📝 Search Terms")
     st.info(
-        "1. See all current Search Terms, set their recurrence interval, and delete if necessary.\n"
-        "2. Decide if the Quantity column should be considered (e.g. 1× Bravecto = 90 days, 2× Bravecto = 180 days).\n"
-        "3. View and edit the Visible Text which will appear in the WhatsApp template message."
+        "### 🧩 How to Manage Search Terms\n\n"
+        "**1️⃣ View and edit all existing Search Terms** — each term represents a product or service that generates a reminder (e.g., *Rabies*, *Bravecto*, *Dental*).\n\n"
+        "**2️⃣ Set the recurrence interval (‘Days’)** — how long until the next reminder appears.  \n"
+        "Example: 90 days for Bravecto, 365 days for Vaccinations.\n\n"
+        "**3️⃣ Choose whether to use the ‘Qty’ column** — if checked, the reminder multiplies the interval by quantity.  \n"
+        "Example: *2× Bravecto* = 180 days.\n\n"
+        "**4️⃣ Edit the ‘Visible Text’** — this is what appears inside the WhatsApp message instead of the raw product name.  \n"
+        "Example: *bravecto* → **Bravecto Tablet**, *rabies* → **Rabies Vaccine**.\n\n"
+        "**5️⃣ You can also delete outdated terms or add new ones at the bottom of the section.**"
     )
+
     cols = st.columns([3,1,1,2,0.7])
     with cols[0]: st.markdown("**Rule**")
     with cols[1]: st.markdown("**Days**")
@@ -3199,6 +3159,63 @@ if submitted_fb:
             st.error(f"Could not save your message: {e}")
 
 
+
+
+
+# --------------------------------
+#  👩‍⚕️ ADMIN TOOLS
+# --------------------------------
+
+st.markdown("---")
+st.markdown("## 🧩 Clinic Account Management (Admin Only)")
+
+# --------------------------------
+# Add or Reset Clinic Accounts
+# --------------------------------
+st.markdown("---")
+st.markdown("### 👩‍⚕️ Admin: Add or Reset Clinic Accounts")
+
+# Only show to a special admin account (for example, “Admin”)
+if st.session_state.get("clinic_id") == "Admin":
+    sheet = get_settings_sheet()
+    st.info("Use this to add or update clinic login credentials. Plain passwords will be visible in the Sheet for convenience.")
+
+    with st.form("add_clinic_form"):
+        new_clinic = st.text_input("Clinic ID (e.g., HappyVet)").strip()
+        new_pw = st.text_input("Password (e.g., mypassword)").strip()
+        submitted = st.form_submit_button("➕ Add / Update Clinic")
+
+    if submitted:
+        if not new_clinic or not new_pw:
+            st.error("Please enter both Clinic ID and Password.")
+        else:
+            plain = new_pw
+            hashed = hash_pw(new_pw)
+            all_vals = sheet.get_all_values()
+            headers = all_vals[0]
+            clinic_col = headers.index("ClinicID") + 1
+
+            # Check if clinic already exists
+            row = None
+            for i, r in enumerate(all_vals[1:], start=2):
+                if r[clinic_col - 1].strip().lower() == new_clinic.lower():
+                    row = i
+                    break
+
+            if row:
+                # Update existing clinic row
+                sheet.update_cell(row, headers.index("PlainPassword") + 1, plain)
+                sheet.update_cell(row, headers.index("PasswordHash") + 1, hashed)
+                sheet.update_cell(row, headers.index("UpdatedAt") + 1, datetime.utcnow().isoformat())
+                st.success(f"✅ Updated password for clinic '{new_clinic}'.")
+            else:
+                # Add a new clinic row
+                sheet.append_row([new_clinic, plain, hashed, "{}", datetime.utcnow().isoformat()])
+                st.success(f"✅ Added new clinic '{new_clinic}'.")
+
+else:
+    st.caption("Admin-only clinic management hidden. Log in as Admin to access it.")
+    
 # --------------------------------
 # 🧷 Nova Vet Family Admin Access (Password Protected)
 # --------------------------------
@@ -3423,9 +3440,3 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
-
-
-
-
-
-
