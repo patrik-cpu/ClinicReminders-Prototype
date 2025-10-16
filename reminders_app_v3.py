@@ -655,38 +655,60 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def process_file(file_bytes, filename):
     """
-    Deterministic loader with one debug print per step.
-    Steps:
-      1) Load
-      2) Detect PMS
-      3) Vetport verification (3a–3e)
-      4) Apply mappings
-      5) Normalize Amount & Qty
-      6) Parse ChargeDate
-      7) Add lowercase helpers
-      8) Final preview
+    Deterministic loader with explicit step-by-step debug.
+    Debug at each step prints:
+      a) number of columns
+      b) names of columns in order
+      c) top-5 entries of each column
+    It also flags when column order changed since the previous step.
     """
     from io import BytesIO
     file = BytesIO(file_bytes)
     lowerfn = filename.lower()
 
-    # STEP 1 -----------------------------
+    # ---------- Debug helper ----------
+    def debug_step(step_label: str, df_dbg: pd.DataFrame, prev_cols_snapshot: list[str]):
+        cols_now = list(df_dbg.columns)
+        changed = (prev_cols_snapshot is not None and cols_now != prev_cols_snapshot)
+        st.write(f"=== {step_label} ===")
+        st.write(f"Columns count: {len(cols_now)}")
+        st.write(f"Columns (in order){'  [ORDER CHANGED]' if changed else ''}:", cols_now)
+        # top-5 per column
+        out = {}
+        for c in cols_now:
+            try:
+                out[c] = df_dbg[c].head(5).tolist()
+            except Exception as e:
+                out[c] = f"<error reading column: {e}>"
+        st.write("Top-5 values per column:", out)
+        return cols_now  # return snapshot for next comparison
+
+    prev_cols = None  # snapshot to detect order changes
+
+    # ------------------
+    # STEP 1 — Load
+    # ------------------
     if lowerfn.endswith(".csv"):
         df = pd.read_csv(file, dtype=str)
     elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file, dtype=str)
     else:
         raise ValueError("Unsupported file type")
-    st.write(f"✅ STEP 1 COMPLETE — Loaded {filename} with {len(df.columns)} columns:", list(df.columns))
 
-    # STEP 2 -----------------------------
+    prev_cols = debug_step("STEP 1 • Loaded file", df, prev_cols)
+
+    # ------------------
+    # STEP 2 — Detect PMS
+    # ------------------
     pms_name = detect_pms(df)
+    st.write(f"Detected PMS: {pms_name or 'UNKNOWN'}")
+    prev_cols = debug_step("STEP 2 • After PMS detect (no mutations expected)", df, prev_cols)
     if not pms_name:
-        st.error("❌ STEP 2 FAILED — PMS not detected.")
         return df, None, None
-    st.write(f"✅ STEP 2 COMPLETE — Detected PMS: {pms_name}")
 
-    # STEP 3 -----------------------------
+    # ------------------
+    # STEP 3 — Vetport verification (3a–3e)
+    # ------------------
     if pms_name == "VETport":
         desired = [
             "Planitem Performed", "Client Name", "Client ID", "Patient Name",
@@ -695,39 +717,48 @@ def process_file(file_bytes, filename):
             "Returned Date", "Invoice No"
         ]
 
-        # 3a) Drop 'Unnamed'/blank columns
-        df = df.loc[:, ~df.columns.astype(str).str.match(r"Unnamed|^\s*$", case=False)]
-        df.columns = [c.strip().replace("\u00a0", " ").replace("\ufeff", "") for c in df.columns]
+        # 3a) Drop 'Unnamed'/blank header columns
+        df = df.loc[:, ~df.columns.astype(str).str.match(r"^\s*$|^Unnamed", case=False)]
+        # light trim of headers (ONLY spaces/BOM/NBSP)
+        df.columns = [str(c).replace("\u00a0"," ").replace("\ufeff","").strip() for c in df.columns]
+        prev_cols = debug_step("STEP 3a • After dropping Unnamed/blank", df, prev_cols)
 
         # 3b) Count check
         if len(df.columns) != len(desired):
-            st.error(f"❌ STEP 3b FAILED — Column count {len(df.columns)} ≠ {len(desired)} expected.")
+            st.error(f"STEP 3b FAIL • Column count {len(df.columns)} ≠ expected {len(desired)}")
             return df, None, None
+        prev_cols = debug_step("STEP 3b • Count verified", df, prev_cols)
 
-        # 3c) Move 'Planitem Performed' to first
-        if "Planitem Performed" in df.columns:
+        # 3c) Move 'Planitem Performed' to column 0 (reindex only)
+        if "Planitem Performed" not in df.columns:
+            st.error("STEP 3c FAIL • 'Planitem Performed' not found")
+            return df, None, None
+        if df.columns[0] != "Planitem Performed":
             cols = list(df.columns)
-            if cols[0] != "Planitem Performed":
-                cols.insert(0, cols.pop(cols.index("Planitem Performed")))
-                df = df[cols]
+            cols.insert(0, cols.pop(cols.index("Planitem Performed")))
+            df = df[cols]
+        prev_cols = debug_step("STEP 3c • Moved 'Planitem Performed' to first", df, prev_cols)
 
         # 3d) Count check again
         if len(df.columns) != len(desired):
-            st.error("❌ STEP 3d FAILED — Column count changed unexpectedly.")
+            st.error("STEP 3d FAIL • Column count changed unexpectedly")
             return df, None, None
+        prev_cols = debug_step("STEP 3d • Count verified (post-move)", df, prev_cols)
 
-        # 3e) Verify name order matches desired
+        # 3e) Exact name order check
         if [c.strip() for c in df.columns] != desired:
-            st.warning("⚠️ STEP 3e — Vetport column order mismatch.")
+            st.error("STEP 3e FAIL • Exact Vetport header order mismatch")
             st.write("Expected:", desired)
-            st.write("Got:", list(df.columns))
+            st.write("Got     :", list(df.columns))
+            # Do not proceed if the schema isn't exact
             return df, None, None
-
-        st.write("✅ STEP 3 COMPLETE — Vetport columns verified OK:", list(df.columns))
+        prev_cols = debug_step("STEP 3e • Exact Vetport header order verified", df, prev_cols)
     else:
-        st.write(f"ℹ️ STEP 3 SKIPPED — PMS '{pms_name}' not Vetport.")
+        prev_cols = debug_step("STEP 3 • Skipped (not Vetport)", df, prev_cols)
 
-    # STEP 4 -----------------------------
+    # ------------------
+    # STEP 4 — Apply mappings (create ChargeDate here)
+    # ------------------
     def clean_header(h):
         return unicodedata.normalize("NFKC", str(h)).replace("\u00a0", " ").replace("\ufeff", "").strip()
     df.columns = [clean_header(c) for c in df.columns]
@@ -743,9 +774,12 @@ def process_file(file_bytes, filename):
     if "item" in mappings and mappings["item"] in df.columns:
         rename_map[mappings["item"]] = "Item Name"
     df = df.rename(columns=rename_map)
-    st.write("✅ STEP 4 COMPLETE — Mappings applied:", list(df.columns))
 
-    # STEP 5 -----------------------------
+    prev_cols = debug_step("STEP 4 • After mappings (ChargeDate may exist now)", df, prev_cols)
+
+    # ------------------
+    # STEP 5 — Normalize Amount & Qty
+    # ------------------
     amount_col = mappings.get("amount")
     qty_col = mappings.get("qty")
 
@@ -758,27 +792,35 @@ def process_file(file_bytes, filename):
         df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1).astype(int)
     else:
         df["Qty"] = 1
-    st.write("✅ STEP 5 COMPLETE — Amount/Qty normalized. Examples:",
-             {"Amount": df['Amount'].head(3).tolist(), "Qty": df['Qty'].head(3).tolist()})
 
-    # STEP 6 -----------------------------
+    prev_cols = debug_step("STEP 5 • Amount/Qty normalized", df, prev_cols)
+
+    # ------------------
+    # STEP 6 — Parse ChargeDate
+    # ------------------
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
     else:
         df["ChargeDate"] = pd.NaT
-    st.write("✅ STEP 6 COMPLETE — ChargeDate parsed. Examples:", df["ChargeDate"].head(3).tolist())
 
-    # STEP 7 -----------------------------
+    prev_cols = debug_step("STEP 6 • ChargeDate parsed", df, prev_cols)
+
+    # ------------------
+    # STEP 7 — Add lowercase helpers
+    # ------------------
     df["_client_lower"] = df.get("Client Name", "").astype(str).str.lower()
     df["_animal_lower"] = df.get("Animal Name", "").astype(str).str.lower()
     df["_item_lower"]   = df.get("Item Name", "").astype(str).str.lower()
-    st.write("✅ STEP 7 COMPLETE — Lowercase helpers added.")
 
-    # STEP 8 -----------------------------
-    preview = {c: df[c].head(2).tolist() for c in df.columns}
-    st.write("✅ STEP 8 COMPLETE — Final preview (top-2 each column):", preview)
+    prev_cols = debug_step("STEP 7 • Lowercase helpers added", df, prev_cols)
+
+    # ------------------
+    # STEP 8 — Final preview
+    # ------------------
+    prev_cols = debug_step("STEP 8 • Final preview", df, prev_cols)
 
     return df, pms_name, amount_col
+
 
 
 
@@ -3264,6 +3306,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
