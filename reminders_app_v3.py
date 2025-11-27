@@ -19,7 +19,7 @@ _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
 
 # --------------------------------
-# Title
+# Title.
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
@@ -3440,4 +3440,5 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
