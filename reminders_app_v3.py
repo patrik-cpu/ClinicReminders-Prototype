@@ -1312,7 +1312,7 @@ if st.session_state.get("shared_dataset_loaded"):
 elif st.session_state.get("shared_dataset_error"):
     st.warning(f"⚠️ Could not load shared dataset: {st.session_state['shared_dataset_error']}")
 else:
-    st.caption("No shared dataset published yet — upload a file to start.")
+    st.caption("No shared dataset published yet — upload a file to start. Remember to 'Publish' data!")
 
 def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
     if df is None or df.empty:
@@ -1340,9 +1340,9 @@ df_w = drop_duplicate_columns(df_w) if df_w is not None else None
 dmin, dmax = get_dataset_date_range(df_w)
 
 if dmin is not None and dmax is not None:
-    st.caption(f"Dataset range: {dmin:%d %b %Y} → {dmax:%d %b %Y}")
+    st.caption(f"Dataset range: {dmin:%d %b %Y} → {dmax:%d %b %Y} - remember to 'Publish' data!")
 else:
-    st.caption("Dataset range: (dates not detected)")
+    st.caption("Dataset range: (dates not detected) - remember to 'Publish' data!")
 
 # --------------------------------
 # 🗑️ Local hidden-reminders tracking
@@ -4107,6 +4107,7 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
