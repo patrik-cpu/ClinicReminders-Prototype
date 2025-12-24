@@ -854,7 +854,7 @@ def process_file(file_bytes, filename):
 
     # --- 1️⃣ Load file ---
     if lowerfn.endswith(".csv"):
-        df = pd.read_csv(file, dtype=str, keep_default_na=False)
+        df = pd.read_csv(file, dtype=str, keep_default_na=False, index_col=False)
     elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file)
     else:
@@ -3573,5 +3573,6 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
