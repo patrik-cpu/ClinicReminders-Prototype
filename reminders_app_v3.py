@@ -16,6 +16,7 @@ import numpy as np
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from google.oauth2.service_account import Credentials
+from googleapiclient.errors import HttpError
 from io import BytesIO
 DRIVE_SCOPE = [
     "https://www.googleapis.com/auth/drive",
@@ -393,13 +394,22 @@ def get_drive_service():
 
 def drive_download_bytes(file_id: str) -> bytes:
     service = get_drive_service()
-    request = service.files().get_media(fileId=file_id)
-    fh = BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    return fh.getvalue()
+    try:
+        request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+        fh = BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return fh.getvalue()
+    except HttpError as e:
+        # Show useful info in Streamlit
+        st.error(f"Drive download failed. HTTP {getattr(e.resp, 'status', '?')}")
+        try:
+            st.code(e.content.decode("utf-8"))
+        except Exception:
+            pass
+        raise
 
 def load_shared_dataset_for_clinic():
     """
@@ -439,20 +449,26 @@ def load_shared_dataset_for_clinic():
         st.session_state["shared_dataset_error"] = str(e)
 
 def drive_upload_csv_bytes(file_bytes: bytes, filename: str, folder_id: str) -> str:
-    """
-    Upload CSV bytes to Drive and return fileId.
-    Creates a new file each time (simplest & reliable).
-    """
     service = get_drive_service()
     media = MediaIoBaseUpload(BytesIO(file_bytes), mimetype="text/csv", resumable=False)
 
-    body = {
-        "name": filename,
-        "parents": [folder_id],
-    }
+    body = {"name": filename, "parents": [folder_id]}
 
-    created = service.files().create(body=body, media_body=media, fields="id").execute()
-    return created["id"]
+    try:
+        created = service.files().create(
+            body=body,
+            media_body=media,
+            fields="id",
+            supportsAllDrives=True,   # ✅ critical for Shared Drives
+        ).execute()
+        return created["id"]
+    except HttpError as e:
+        st.error(f"Drive upload failed. HTTP {getattr(e.resp, 'status', '?')}")
+        try:
+            st.code(e.content.decode("utf-8"))
+        except Exception:
+            pass
+        raise
 
 def build_vetport_rowkey(df: pd.DataFrame) -> pd.Series:
     # Build after Vetport normalization (so 1 vs 1.0 etc is stable)
@@ -1417,6 +1433,23 @@ if files:
     # ============================
     # ✅ Publish dataset for clinic
     # ============================
+    # - check if can see the folder
+    def drive_check_folder_access(folder_id: str):
+        service = get_drive_service()
+        try:
+            meta = service.files().get(
+                fileId=folder_id,
+                fields="id,name,mimeType",
+                supportsAllDrives=True,
+            ).execute()
+            st.success(f"Drive folder OK: {meta.get('name')} ({meta.get('id')})")
+        except Exception as e:
+            st.error("Cannot access the Drive folder from this app/service account.")
+            st.write(e)
+    
+    # Call it:
+    drive_check_folder_access(DATASETS_FOLDER_ID)
+
     if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
         df_preview = st.session_state["working_df"]
         min_d = pd.to_datetime(df_preview.get("ChargeDate"), errors="coerce").min()
@@ -3778,6 +3811,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
