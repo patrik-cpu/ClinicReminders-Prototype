@@ -156,7 +156,6 @@ PATIENT_VISIT_KEYWORDS += [
     
 ]
 PATIENT_VISIT_EXCLUSIONS += []
-from decimal import Decimal, InvalidOperation
 
 #########
 # VetPORT fixing
@@ -234,7 +233,7 @@ def normalize_vetport_to_patrikedit(df: pd.DataFrame) -> pd.DataFrame:
 
     # 5) Normalize numeric-looking fields to PatrikEdit style
     #    (IDs often come in with leading spaces; amounts/qty may have .0 or .00)
-    num_cols = ["Client ID", "Patient ID", "Plan Item ID", "Plan Item Quantity", "Plan Item Amount", "Returned Quantity", "Invoice No"]
+    num_cols = ["Plan Item Quantity", "Plan Item Amount", "Returned Quantity", "Invoice No"]
     for c in num_cols:
         if c in df.columns:
             df[c] = df[c].apply(_to_patrik_num_str)
@@ -596,7 +595,6 @@ def detect_pms(df: pd.DataFrame) -> str:
         return "VETport"
     x_keys = {"date", "animal name", "amount", "item name"}
     e_keys = {"invoice date", "total invoiced (excl)", "product name", "first name", "last name"}
-    if v_keys.issubset(normalized_cols): return "VETport"
     if e_keys.issubset(normalized_cols): return "ezyVet"
     if x_keys.issubset(normalized_cols): return "Xpress"
     for pms_name, definition in PMS_DEFINITIONS.items():
@@ -856,7 +854,7 @@ def process_file(file_bytes, filename):
 
     # --- 1️⃣ Load file ---
     if lowerfn.endswith(".csv"):
-        df = pd.read_csv(file)
+        df = pd.read_csv(file, dtype=str, keep_default_na=False)
     elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file)
     else:
@@ -869,10 +867,6 @@ def process_file(file_bytes, filename):
         return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
     
     df.columns = [clean_header(c) for c in df.columns]
-
-
-    # --- 3️⃣ Case-insensitive map for reliable lookups ---
-    lower_map = {c.lower(): c for c in df.columns}
 
     # --- 4️⃣ Detect PMS ---
     pms_name = detect_pms(df)
@@ -3524,3 +3518,4 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
