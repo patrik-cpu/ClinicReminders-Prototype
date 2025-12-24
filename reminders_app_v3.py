@@ -42,6 +42,15 @@ SHEET_COL_DATASET_FILE_ID = "DatasetFileId"
 SHEET_COL_DATASET_FILE_NAME = "DatasetFileName"
 SHEET_COL_DATASET_UPDATED_AT = "DatasetUpdatedAt"
 
+def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    If df has duplicate column names, keep the first occurrence.
+    (Prevents df['Client Name'] returning a DataFrame instead of Series.)
+    """
+    if df.columns.duplicated().any():
+        df = df.loc[:, ~df.columns.duplicated()].copy()
+    return df
+    
 # -----------------------
 # Keyword Definitions
 # -----------------------
@@ -1243,15 +1252,7 @@ st.session_state.setdefault("deleted_reminders", load_deleted_reminders())
 
 # --------------------------------
 # Helpers
-# --------------------------------
-def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    If df has duplicate column names, keep the first occurrence.
-    (Prevents df['Client Name'] returning a DataFrame instead of Series.)
-    """
-    if df.columns.duplicated().any():
-        df = df.loc[:, ~df.columns.duplicated()].copy()
-    return df
+# -------------------------------
     
 def ensure_min_canonical_schema(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -3870,4 +3871,5 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
