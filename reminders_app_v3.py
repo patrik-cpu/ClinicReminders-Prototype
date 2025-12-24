@@ -8,6 +8,7 @@ import streamlit.components.v1 as components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 import hashlib
 import numpy as np
 
@@ -19,7 +20,7 @@ _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
 
 # --------------------------------
-# Title.
+# Title (retention change))
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
@@ -155,6 +156,93 @@ PATIENT_VISIT_KEYWORDS += [
     
 ]
 PATIENT_VISIT_EXCLUSIONS += []
+from decimal import Decimal, InvalidOperation
+
+#########
+# VetPORT fixing
+#########
+VETPORT_PATRIKEDIT_COLS = [
+    "Planitem Performed", "Client Name", "Client ID", "Patient Name",
+    "Patient ID", "Plan Item ID", "Plan Item Name", "Plan Item Quantity",
+    "Performed Staff", "Plan Item Amount", "Returned Quantity",
+    "Returned Date", "Invoice No"
+]
+
+def _norm_header_key(h: str) -> str:
+    """Normalize header for matching (case/spacing/unicode)."""
+    if not isinstance(h, str):
+        h = str(h)
+    h = unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "")
+    h = _SPACE_RX.sub(" ", h).strip().lower()
+    return h
+
+def _to_patrik_num_str(x) -> str:
+    """
+    Make numeric strings match PatrikEdit formatting:
+    - strip whitespace
+    - remove trailing zeros (106.10 -> 106.1, 52.00 -> 52)
+    - keep '-' and '' as-is
+    """
+    if x is None:
+        return ""
+    s = str(x).strip()
+    if s == "" or s == "-" or s.lower() == "nan":
+        return "" if s.lower() == "nan" else s
+    s = s.replace(",", "")
+    try:
+        d = Decimal(s)
+    except (InvalidOperation, ValueError):
+        return s
+    # normalize removes trailing zeros; format(...,'f') avoids scientific notation
+    d = d.normalize()
+    return format(d, "f")
+
+def normalize_vetport_to_patrikedit(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Force any Vetport-shaped dataset into EXACTLY the PatrikEdit format:
+    - exact column names (case)
+    - exact column order
+    - whitespace-stripped cells
+    - numeric formatting normalized for Qty/Amount/IDs where applicable
+    """
+    df = df.copy()
+
+    # 1) Build a rename map from whatever headers we received -> canonical PatrikEdit headers
+    #    Works even if input has leading/trailing spaces or different casing.
+    canon_by_norm = {_norm_header_key(c): c for c in VETPORT_PATRIKEDIT_COLS}
+
+    rename_map = {}
+    for c in df.columns:
+        nk = _norm_header_key(c)
+        if nk in canon_by_norm:
+            rename_map[c] = canon_by_norm[nk]
+
+    df = df.rename(columns=rename_map)
+
+    # 2) Ensure all PatrikEdit columns exist (even if missing in input)
+    for c in VETPORT_PATRIKEDIT_COLS:
+        if c not in df.columns:
+            df[c] = ""
+
+    # 3) Reorder columns to EXACT PatrikEdit order (+ keep any extras at the end)
+    extras = [c for c in df.columns if c not in VETPORT_PATRIKEDIT_COLS]
+    df = df[VETPORT_PATRIKEDIT_COLS + extras]
+
+    # 4) Strip whitespace from all PatrikEdit columns (critical: removes leading spaces from CSVs)
+    for c in VETPORT_PATRIKEDIT_COLS:
+        df[c] = df[c].astype(str).str.strip().replace({"nan": ""})
+
+    # 5) Normalize numeric-looking fields to PatrikEdit style
+    #    (IDs often come in with leading spaces; amounts/qty may have .0 or .00)
+    num_cols = ["Client ID", "Patient ID", "Plan Item ID", "Plan Item Quantity", "Plan Item Amount", "Returned Quantity", "Invoice No"]
+    for c in num_cols:
+        if c in df.columns:
+            df[c] = df[c].apply(_to_patrik_num_str)
+
+    # 6) Also strip Planitem Performed again (some files have leading spaces there)
+    df["Planitem Performed"] = df["Planitem Performed"].astype(str).str.strip()
+
+    return df
 
 # --------------------------------
 # Keyword Mask Helper (Global)
@@ -502,7 +590,10 @@ def normalize_columns(cols):
 
 def detect_pms(df: pd.DataFrame) -> str:
     normalized_cols = set(normalize_columns(df.columns))
-    v_keys = {"planitem performed", "plan item amount"}
+    v_keys = {"plan item amount"}
+    v_date_keys = {"planitem performed", "plan item performed"}
+    if v_keys.issubset(normalized_cols) and len(v_date_keys.intersection(normalized_cols)) > 0:
+        return "VETport"
     x_keys = {"date", "animal name", "amount", "item name"}
     e_keys = {"invoice date", "total invoiced (excl)", "product name", "first name", "last name"}
     if v_keys.issubset(normalized_cols): return "VETport"
@@ -788,17 +879,10 @@ def process_file(file_bytes, filename):
     if not pms_name:
         return df, None, None
 
-    # --- 5️⃣ Vetport: force canonical column order immediately ---
+    # --- 5️⃣ Vetport: FORCE PatrikEdit format BEFORE proceeding further ---
     if pms_name == "VETport":
-        expected_cols = [
-            "planitem performed", "client name", "client id", "patient name",
-            "patient id", "plan item id", "plan item name", "plan item quantity",
-            "performed staff", "plan item amount", "returned quantity",
-            "returned date", "invoice no"
-        ]
-        # Reorder in a case-insensitive way
-        cols_present = [lower_map.get(c, c) for c in expected_cols if c in lower_map]
-        df = df[cols_present + [c for c in df.columns if c not in cols_present]]
+        df = normalize_vetport_to_patrikedit(df)
+
 
     # --- 6️⃣ Apply PMS mappings ---
     mappings = PMS_DEFINITIONS[pms_name]["mappings"]
@@ -3440,5 +3524,3 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
-
-
