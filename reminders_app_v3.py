@@ -12,6 +12,16 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import numpy as np
 
+#Saving data set
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
+from google.oauth2.service_account import Credentials
+from io import BytesIO
+DRIVE_SCOPE = [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/spreadsheets",
+]
+
 @st.cache_data(ttl=30)
 def fetch_feedback_cached(limit=500):
     return fetch_feedback(limit)
@@ -26,6 +36,14 @@ title_col, tut_col = st.columns([4,1])
 with title_col:
     st.title("ClinicReminders & Factoids Prototype v5.5")
 st.markdown("---")
+
+# === Drive folder where canonical datasets live ===
+DATASETS_FOLDER_ID = "1dq6O5KkHmBza-vTAygDz34q9gMsbskkE"  # from Drive folder URL
+
+# === Sheet columns you created ===
+SHEET_COL_DATASET_FILE_ID = "DatasetFileId"
+SHEET_COL_DATASET_FILE_NAME = "DatasetFileName"
+SHEET_COL_DATASET_UPDATED_AT = "DatasetUpdatedAt"
 
 # -----------------------
 # Keyword Definitions
@@ -361,6 +379,134 @@ import hashlib
 SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ← your ClinicReminders_Settings_Master Sheet ID
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
+# === GOOGLE DRIVE CONFIG ===
+@st.cache_resource
+def get_drive_service():
+    # Use Streamlit secrets first, fallback to local json file
+    try:
+        creds_dict = st.secrets["gcp_service_account"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=DRIVE_SCOPE)
+    except Exception:
+        creds = Credentials.from_service_account_file("google-credentials.json", scopes=DRIVE_SCOPE)
+
+    return build("drive", "v3", credentials=creds)
+
+def drive_download_bytes(file_id: str) -> bytes:
+    service = get_drive_service()
+    request = service.files().get_media(fileId=file_id)
+    fh = BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    return fh.getvalue()
+
+def load_shared_dataset_for_clinic():
+    """
+    If the clinic has a DatasetFileId stored in the settings sheet,
+    download it from Drive, process it, and set st.session_state['working_df'].
+    """
+    clinic_id = st.session_state.get("clinic_id")
+    if not clinic_id:
+        return
+
+    sheet = get_settings_sheet()
+    records = sheet.get_all_records()
+
+    rec = next((r for r in records if str(r.get("ClinicID", "")).strip().lower() == clinic_id.strip().lower()), None)
+    if not rec:
+        return
+
+    file_id = str(rec.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
+    if not file_id:
+        return  # no shared dataset published yet
+
+    try:
+        file_bytes = drive_download_bytes(file_id)
+
+        # Reuse your existing pipeline so schema normalization still happens
+        # Filename is just for detect logic; use stored name if present, else default
+        filename = rec.get(SHEET_COL_DATASET_FILE_NAME, "shared_dataset.csv") or "shared_dataset.csv"
+        df, pms_name, amount_col = process_file(file_bytes, filename)
+
+        st.session_state["working_df"] = df
+        st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1  # invalidate downstream caches
+        st.session_state["shared_dataset_loaded"] = True
+        st.session_state["shared_dataset_name"] = filename
+
+    except Exception as e:
+        st.session_state["shared_dataset_loaded"] = False
+        st.session_state["shared_dataset_error"] = str(e)
+
+def drive_upload_csv_bytes(file_bytes: bytes, filename: str, folder_id: str) -> str:
+    """
+    Upload CSV bytes to Drive and return fileId.
+    Creates a new file each time (simplest & reliable).
+    """
+    service = get_drive_service()
+    media = MediaIoBaseUpload(BytesIO(file_bytes), mimetype="text/csv", resumable=False)
+
+    body = {
+        "name": filename,
+        "parents": [folder_id],
+    }
+
+    created = service.files().create(body=body, media_body=media, fields="id").execute()
+    return created["id"]
+
+def build_vetport_rowkey(df: pd.DataFrame) -> pd.Series:
+    # Build after Vetport normalization (so 1 vs 1.0 etc is stable)
+    key_cols = [
+        "Invoice No",
+        "Plan Item ID",
+        "Planitem Performed",
+        "Client ID",
+        "Patient ID",
+        "Plan Item Amount",
+        "Plan Item Quantity",
+    ]
+    for c in key_cols:
+        if c not in df.columns:
+            df[c] = ""
+    return df[key_cols].astype(str).agg("|".join, axis=1)
+
+def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
+    # Only Vetport for now (since that’s your current real use case)
+    ex = existing_df.copy()
+    nw = new_df.copy()
+
+    ex["_RowKey"] = build_vetport_rowkey(ex)
+    nw["_RowKey"] = build_vetport_rowkey(nw)
+
+    merged = pd.concat([ex, nw], ignore_index=True)
+    merged = merged.drop_duplicates(subset=["_RowKey"], keep="last").drop(columns=["_RowKey"])
+
+    # Recompute ChargeDate if needed (it should already exist)
+    return merged
+
+def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
+    sheet = get_settings_sheet()
+    all_vals = sheet.get_all_values()
+    headers = all_vals[0]
+
+    # Find row for this clinic
+    clinic_col = headers.index("ClinicID") + 1
+    row_idx = None
+    for i, r in enumerate(all_vals[1:], start=2):
+        if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
+            row_idx = i
+            break
+    if row_idx is None:
+        raise ValueError("ClinicID not found in settings sheet")
+
+    # Update the dataset pointer columns
+    def col_index(name):
+        return headers.index(name) + 1
+
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_ID), file_id)
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_NAME), filename)
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_UPDATED_AT), datetime.utcnow().isoformat())
+
 # === GOOGLE SHEETS CONNECTION ===
 @st.cache_resource
 def get_settings_sheet():
@@ -405,13 +551,17 @@ if not st.session_state["logged_in"]:
         if user_row:
             st.session_state["clinic_id"] = username
             st.session_state["logged_in"] = True
+    
+            # ✅ Auto-load shared dataset from Drive into working_df
+            load_shared_dataset_for_clinic()
+    
             st.success(f"✅ Welcome, {username}!")
             st.rerun()
         else:
             st.error("❌ Invalid username or password.")
 else:
     st.sidebar.success(f"Logged in as {st.session_state['clinic_id']}")
-    
+
 # --- 🚪 Logout button ---
 if st.session_state.get("logged_in", False):
     if st.sidebar.button("🚪 Logout"):
@@ -946,13 +1096,9 @@ def process_file(file_bytes, filename):
     
     # Keep raw date strings for debugging
     if "ChargeDate" in df.columns:
-        df["_ChargeDate_raw"] = df["ChargeDate"].astype(str)
-    
-    if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
     else:
         df["ChargeDate"] = pd.NaT
-
 
     # --- 11️⃣ Add lowercase helper columns for search and reminders ---
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
@@ -961,7 +1107,6 @@ def process_file(file_bytes, filename):
 
     # --- ✅ Return normalized data ---
     return df, pms_name, amount_col
-
 
 def _to_blob(uploaded):
     # Deterministic blob for caching; avoids .read() side effects
@@ -1129,7 +1274,22 @@ else:
     st.session_state.pop("bundle", None)
     st.session_state.pop("bundle_key", None)
 
+# === What data is uploaded
+if st.session_state.get("shared_dataset_loaded"):
+    st.info(f"📌 Using shared clinic dataset: {st.session_state.get('shared_dataset_name','(unknown)')}")
+elif st.session_state.get("shared_dataset_error"):
+    st.warning(f"⚠️ Could not load shared dataset: {st.session_state['shared_dataset_error']}")
+else:
+    st.caption("No shared dataset published yet — upload a file to start.")
 
+# Show dataset date range (shared or locally uploaded)
+if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
+    dmin = pd.to_datetime(st.session_state["working_df"]["ChargeDate"], errors="coerce").min()
+    dmax = pd.to_datetime(st.session_state["working_df"]["ChargeDate"], errors="coerce").max()
+    if pd.notna(dmin) and pd.notna(dmax):
+        st.caption(f"Dataset range: {dmin:%d %b %Y} → {dmax:%d %b %Y}")
+    else:
+        st.caption("Dataset range: (dates not detected)")
 
 # --------------------------------
 # Tutorial section
@@ -1252,7 +1412,102 @@ if files:
 
         except Exception as e:
             st.warning(f"⚠️ PMS mismatch or undetected files. Reminders cannot be generated. ({e})")
+            st.session_state.pop("working_df", None)
 
+    # ============================
+    # ✅ Publish dataset for clinic
+    # ============================
+    if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
+        df_preview = st.session_state["working_df"]
+        min_d = pd.to_datetime(df_preview.get("ChargeDate"), errors="coerce").min()
+        max_d = pd.to_datetime(df_preview.get("ChargeDate"), errors="coerce").max()
+        st.caption(
+            f"Current upload date range: "
+            f"{min_d.strftime('%d %b %Y') if pd.notna(min_d) else '-'} → "
+            f"{max_d.strftime('%d %b %Y') if pd.notna(max_d) else '-'}"
+        )
+
+        st.markdown("### ✅ Publish dataset for the whole clinic")
+        st.info(
+            "This will update the shared clinic dataset in Google Drive.\n\n"
+            "If a shared dataset already exists, the app will merge and de-duplicate overlapping rows."
+        )
+
+        if st.button("📌 Publish this upload to clinic"):
+            clinic_id = st.session_state.get("clinic_id")
+            if not clinic_id:
+                st.error("Not logged in.")
+                st.stop()
+
+            new_df = st.session_state["working_df"].copy()
+
+            # Optional: do not store debug columns in the shared dataset
+            new_df = new_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
+
+            # 1) Try to load existing shared dataset (if exists)
+            existing_df = None
+            existing_file_id = ""
+            existing_name = ""
+
+            try:
+                sheet = get_settings_sheet()
+                recs = sheet.get_all_records()
+                rec = next(
+                    (r for r in recs if str(r.get("ClinicID", "")).strip().lower() == clinic_id.strip().lower()),
+                    None
+                )
+
+                if rec:
+                    existing_file_id = str(rec.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
+                    existing_name = str(rec.get(SHEET_COL_DATASET_FILE_NAME, "")).strip()
+
+                if existing_file_id:
+                    existing_bytes = drive_download_bytes(existing_file_id)
+                    # Load existing canonical dataset
+                    existing_df = pd.read_csv(
+                        BytesIO(existing_bytes),
+                        dtype=str,
+                        keep_default_na=False,
+                        index_col=False
+                    )
+                    # Also normalize it through your pipeline so schema matches perfectly
+                    existing_df, _, _ = process_file(existing_bytes, existing_name or "shared_dataset.csv")
+
+                    # Optional: drop debug columns from old canonical too
+                    existing_df = existing_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
+
+            except Exception:
+                existing_df = None  # treat as first publish
+
+            # 2) Merge + de-dupe
+            if existing_df is not None and not existing_df.empty:
+                merged_df = merge_dedupe(existing_df, new_df)
+            else:
+                merged_df = new_df
+
+            # 3) Save merged dataset to Drive (new file each time — simplest)
+            out_name = f"{clinic_id}_shared_dataset.csv"
+            out_bytes = merged_df.to_csv(index=False).encode("utf-8")
+            new_file_id = drive_upload_csv_bytes(out_bytes, out_name, DATASETS_FOLDER_ID)
+
+            # 4) Update the clinic row pointer in the settings sheet
+            update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
+
+            # 5) Load it immediately in this session and invalidate caches
+            st.session_state["working_df"] = merged_df
+            st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
+            st.session_state["shared_dataset_loaded"] = True
+            st.session_state["shared_dataset_name"] = out_name
+
+            # rebuild bundle immediately for this session
+            df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
+                st.session_state["working_df"], rules_fp
+            )
+            st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
+            st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
+
+            st.success("✅ Published! All clinic users will now load this dataset automatically.")
+            st.rerun()
 
 # --------------------------------
 # Render Tables
@@ -3523,6 +3778,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
