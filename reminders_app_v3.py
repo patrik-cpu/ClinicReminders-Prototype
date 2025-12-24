@@ -452,25 +452,29 @@ def load_shared_dataset_for_clinic():
         st.session_state["shared_dataset_loaded"] = False
         st.session_state["shared_dataset_error"] = str(e)
 
-def drive_upload_csv_bytes(file_bytes: bytes, filename: str, folder_id: str) -> str:
-    # Build a fresh service per call (avoid stale connections across Streamlit reruns)
-    service = get_drive_service_uncached()
+def drive_upsert_csv_bytes(
+    file_bytes: bytes,
+    filename: str,
+    folder_id: str,
+    existing_file_id: str | None,
+) -> str:
+    """
+    If existing_file_id is provided -> update that file in-place.
+    Else -> create a new file in folder_id.
+    Uses resumable upload to reduce BrokenPipe issues.
+    Returns the fileId.
+    """
+    service = get_drive_service()
+    media = MediaIoBaseUpload(BytesIO(file_bytes), mimetype="text/csv", resumable=True)
 
-    # Optional: quick visibility into payload size
-    size_mb = len(file_bytes) / (1024 * 1024)
-    st.caption(f"Uploading {filename} ({size_mb:.1f} MB)")
-
-    # ✅ Resumable upload with chunking
-    media = MediaIoBaseUpload(
-        BytesIO(file_bytes),
-        mimetype="text/csv",
-        resumable=True,
-        chunksize=256 * 1024,  # 256KB chunks (safe); you can increase later
-    )
-
-    body = {"name": filename, "parents": [folder_id]}
-
-    try:
+    if existing_file_id:
+        req = service.files().update(
+            fileId=existing_file_id,
+            media_body=media,
+            supportsAllDrives=True,
+        )
+    else:
+        body = {"name": filename, "parents": [folder_id]}
         req = service.files().create(
             body=body,
             media_body=media,
@@ -478,23 +482,12 @@ def drive_upload_csv_bytes(file_bytes: bytes, filename: str, folder_id: str) -> 
             supportsAllDrives=True,
         )
 
-        # ✅ Drive resumable uploads must be advanced chunk-by-chunk
-        response = None
-        while response is None:
-            status, response = req.next_chunk(num_retries=5)  # retries per chunk
-            if status:
-                st.progress(min(1.0, float(status.progress())))
+    resp = None
+    while resp is None:
+        status, resp = req.next_chunk()
 
-        return response["id"]
+    return resp["id"]
 
-    except HttpError as e:
-        st.error(f"Drive upload failed. HTTP {getattr(e.resp, 'status', '?')}")
-        try:
-            st.code(e.content.decode("utf-8"))
-        except Exception:
-            pass
-        raise
-        
 def drive_check_folder_access(folder_id: str):
     service = get_drive_service()
     try:
@@ -671,10 +664,18 @@ def publish_dataset_for_clinic(
     # 4) Upload merged dataset to Drive
     out_name  = f"{clinic_id}_shared_dataset.csv"
     out_bytes = merged_df.to_csv(index=False).encode("utf-8")
-    new_file_id = drive_upload_csv_bytes(out_bytes, out_name, datasets_folder_id)
-
-    # 5) Update pointer in settings sheet
+    
+    # ✅ Update existing file if it exists; otherwise create first time
+    new_file_id = drive_upsert_csv_bytes(
+        file_bytes=out_bytes,
+        filename=out_name,
+        folder_id=datasets_folder_id,
+        existing_file_id=(existing_file_id or None),
+    )
+    
+    # ✅ Only update pointer after upload success
     update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
+
 
     return merged_df, new_file_id, out_name
 
@@ -3898,6 +3899,7 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
