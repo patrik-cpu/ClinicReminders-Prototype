@@ -869,7 +869,8 @@ def process_file(file_bytes, filename):
         return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
     
     df.columns = [clean_header(c) for c in df.columns]
-
+    df = drop_duplicate_columns(df)
+    
     # --- 4️⃣ Detect PMS ---
     pms_name = detect_pms(df)
     if not pms_name:
@@ -908,6 +909,7 @@ def process_file(file_bytes, filename):
         rename_map[item_col] = "Item Name"
 
     df = df.rename(columns=rename_map)
+    df = drop_duplicate_columns(df)
 
     # --- 7️⃣ Clean revenue column ---
     if amount_col and amount_col in df.columns:
@@ -1037,6 +1039,7 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
         )
 
     df = df.copy()
+    df = drop_duplicate_columns(df)
 
     # ---- Core columns/prep (once) ----
     df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
@@ -1241,6 +1244,15 @@ st.session_state.setdefault("deleted_reminders", load_deleted_reminders())
 # --------------------------------
 # Helpers
 # --------------------------------
+def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    If df has duplicate column names, keep the first occurrence.
+    (Prevents df['Client Name'] returning a DataFrame instead of Series.)
+    """
+    if df.columns.duplicated().any():
+        df = df.loc[:, ~df.columns.duplicated()].copy()
+    return df
+    
 def ensure_min_canonical_schema(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     for col, default in {
@@ -3858,3 +3870,4 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
