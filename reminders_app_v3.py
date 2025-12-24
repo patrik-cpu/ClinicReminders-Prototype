@@ -24,7 +24,7 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders & Factoids Prototype v5.4")
+    st.title("ClinicReminders & Factoids Prototype v5.5")
 st.markdown("---")
 
 # -----------------------
@@ -939,15 +939,20 @@ def process_file(file_bytes, filename):
 
     # --- 🔟 Ensure ChargeDate exists and is parsed correctly ---
     if "ChargeDate" not in df.columns:
-        # Last resort: fallback to known Vetport variants
         for cand in ["Planitem Performed", "PlanItem Performed", "planitem performed"]:
             if cand in df.columns:
                 df["ChargeDate"] = df[cand]
                 break
+    
+    # Keep raw date strings for debugging
+    if "ChargeDate" in df.columns:
+        df["_ChargeDate_raw"] = df["ChargeDate"].astype(str)
+    
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
     else:
-        df["ChargeDate"] = pd.NaT  # guarantee existence
+        df["ChargeDate"] = pd.NaT
+
 
     # --- 11️⃣ Add lowercase helper columns for search and reminders ---
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
@@ -1205,6 +1210,56 @@ if files:
     datasets, summary_rows = load_persistent_dataset(file_blobs)
 
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
+    DEBUG_UPLOADS = st.sidebar.checkbox("🐞 Debug upload parsing", value=True)
+
+    if DEBUG_UPLOADS:
+        st.markdown("### 🐞 Debug: processed outputs (post-normalisation)")
+    
+        for (pms_name, df_out), meta in zip(datasets, summary_rows):
+            with st.expander(f"DEBUG — {meta['File name']}  |  PMS={pms_name}", expanded=False):
+    
+                # 1) Column names in order
+                st.write("**Columns (in order):**")
+                st.code("\n".join(df_out.columns.tolist()))
+    
+                # 2) ChargeDate diagnostics (this explains why From/To shows '-' )
+                if "ChargeDate" in df_out.columns:
+                    cd = pd.to_datetime(df_out["ChargeDate"], errors="coerce")
+                    st.write("**ChargeDate diagnostics:**", {
+                        "rows": int(len(df_out)),
+                        "non_null": int(cd.notna().sum()),
+                        "min": str(cd.min()) if cd.notna().any() else None,
+                        "max": str(cd.max()) if cd.notna().any() else None,
+                    })
+                else:
+                    st.error("ChargeDate column is missing after processing.")
+    
+                # 3) Show top 2 rows (normal view)
+                st.write("**Top 2 rows (wide):**")
+                st.dataframe(df_out.head(2), use_container_width=True)
+    
+                # 4) Show top 2 values per column (your requested format)
+                st.write("**Top 2 values per column:**")
+                percol = pd.DataFrame({"Column": df_out.columns})
+    
+                if len(df_out) > 0:
+                    percol["Row 1"] = df_out.iloc[0].astype(str).values
+                else:
+                    percol["Row 1"] = ""
+    
+                if len(df_out) > 1:
+                    percol["Row 2"] = df_out.iloc[1].astype(str).values
+                else:
+                    percol["Row 2"] = ""
+    
+                st.dataframe(percol, use_container_width=True)
+    
+                # 5) (Key extra) Show raw date strings we tried to parse
+                if "_ChargeDate_raw" in df_out.columns:
+                    st.write("**Raw ChargeDate strings (first 20):**")
+                    st.dataframe(df_out[["_ChargeDate_raw"]].head(20), use_container_width=True)
+                else:
+                    st.warning("_ChargeDate_raw not present (did ChargeDate exist before parsing?).")
 
     all_pms = {p for p, _ in datasets}
     rules_dict = st.session_state.get("rules", {})
@@ -3518,4 +3573,5 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
