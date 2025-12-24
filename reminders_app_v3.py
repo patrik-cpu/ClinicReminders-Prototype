@@ -18,6 +18,7 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from google.oauth2.service_account import Credentials
 from googleapiclient.errors import HttpError
 from io import BytesIO
+PREPARED_SCHEMA_VERSION = 2
 DRIVE_SCOPE = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
@@ -1484,8 +1485,10 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=[
             "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
-            "MatchedItems", "Qty", "IntervalDays", "NextDueDate", "ChargeDate"
+            "MatchedItems", "Qty", "IntervalDays", "BaseIntervalDays",
+            "NextDueDate", "NextDueDateBase", "ChargeDate"
         ])
+
     df = df.copy()
     for col, default in [
         ("ChargeDate", pd.NaT),
@@ -1497,16 +1500,30 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     ]:
         if col not in df.columns:
             df[col] = default
+
     if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
         df["ChargeDate"] = parse_dates(df["ChargeDate"])
+
+    # ✅ this creates BOTH IntervalDays and BaseIntervalDays
     df = map_intervals_vec(df, rules)
-    days = pd.to_numeric(df["IntervalDays"], errors="coerce")
-    df["NextDueDate"] = df["ChargeDate"] + pd.to_timedelta(days, unit="D")
+
+    days_qty  = pd.to_numeric(df.get("IntervalDays"), errors="coerce")
+    days_base = pd.to_numeric(df.get("BaseIntervalDays"), errors="coerce")
+
+    df["NextDueDate"]      = df["ChargeDate"] + pd.to_timedelta(days_qty, unit="D")
+    df["NextDueDateBase"]  = df["ChargeDate"] + pd.to_timedelta(days_base, unit="D")
+
     df["ChargeDateFmt"] = pd.to_datetime(df["ChargeDate"]).dt.strftime("%d %b %Y")
     df["DueDateFmt"]    = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
+
     df["MatchedItems"] = df["MatchedItems"].apply(
         lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
     )
+
+    # ✅ hard guarantee column exists even if something upstream changes
+    if "BaseIntervalDays" not in df.columns:
+        df["BaseIntervalDays"] = pd.NA
+
     return df
 
 def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
@@ -2040,12 +2057,14 @@ def _rules_fp(rules: dict) -> str:
     return hashlib.md5(json.dumps(rules, sort_keys=True).encode()).hexdigest()
 
 def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
-    key = (st.session_state.get("data_version", 0), _rules_fp(rules))
+    key = (st.session_state.get("data_version", 0), _rules_fp(rules), PREPARED_SCHEMA_VERSION)
     if st.session_state.get("prepared_key") != key:
         prepared = ensure_reminder_columns(working_df, rules)
         prepared = drop_early_duplicates_fast(prepared)
+
         st.session_state["prepared_df"] = prepared
         st.session_state["prepared_key"] = key
+
     return st.session_state["prepared_df"]
 
 # --------------------------------
@@ -2062,6 +2081,16 @@ if st.session_state.get("working_df") is not None:
     st.info("💡 Pick a Start Date to see reminders for the next 7-day window. Click WA to prepare a message.")
 
     prepared = get_prepared_df(df, st.session_state["rules"])
+
+    # ✅ safety: if schema changed but cache is stale, rebuild
+    if "BaseIntervalDays" not in prepared.columns:
+        st.error("Internal error: BaseIntervalDays missing. Rebuilding reminder cache...")
+        st.session_state.pop("prepared_df", None)
+        st.session_state.pop("prepared_key", None)
+        # optional big hammer:
+        # st.cache_data.clear()
+        st.rerun()
+
     latest_date = prepared["ChargeDate"].max()
     default_start = (latest_date + timedelta(days=1)).date() if pd.notna(latest_date) else date.today()
 
@@ -2091,7 +2120,7 @@ if st.session_state.get("working_df") is not None:
                     )
                 ),
 
-                # --- grouping detectors ---
+                # detectors
                 "_n_animals": g["Animal Name"].nunique(dropna=True),
                 "_n_items": g["MatchedItems"].apply(
                     lambda lists: len(set(
@@ -2102,7 +2131,7 @@ if st.session_state.get("working_df") is not None:
                     ))
                 ),
 
-                # --- base computations (keep both) ---
+                # raw aggregates
                 "_qty_sum": g["Qty"].sum(min_count=1),
 
                 "_days_qty": g["IntervalDays"].apply(
@@ -2121,15 +2150,13 @@ if st.session_state.get("working_df") is not None:
             .rename(columns={"DueDateFmt": "Due Date"})
         )
 
-        # ✅ grouped row => Qty="NA" + Days ignores Qty
         is_grouped = (grouped["_n_animals"] > 1) | (grouped["_n_items"] > 1)
-
-        grouped["Qty"] = grouped["_qty_sum"].where(~is_grouped, "NA")
+        grouped["Qty"]  = grouped["_qty_sum"].where(~is_grouped, "NA")
         grouped["Days"] = grouped["_days_qty"].where(~is_grouped, grouped["_days_base"])
 
         grouped = grouped[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
 
-        # --- Filter out deleted reminders before rendering ---
+        # Filter out deleted reminders
         deleted = st.session_state.get("deleted_reminders", [])
         if deleted:
             deleted_keys = {
@@ -2143,7 +2170,7 @@ if st.session_state.get("working_df") is not None:
                 )
             ]
 
-        # ✅ only coerce Qty to int for non-grouped rows
+        # only coerce Qty to int where it's not NA
         grouped["Qty"] = grouped["Qty"].where(
             grouped["Qty"].astype(str) == "NA",
             pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
@@ -2152,6 +2179,7 @@ if st.session_state.get("working_df") is not None:
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
     else:
         st.info("No reminders in the selected week.")
+
 
     # --------------------------------
     # Search
@@ -4036,6 +4064,7 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
