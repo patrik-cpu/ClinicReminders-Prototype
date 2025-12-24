@@ -1429,7 +1429,7 @@ if files:
 
         st.markdown("### ✅ Publish dataset for the whole clinic")
         st.info(
-            "This will update the shared clinic dataset in Google Drive.\n\n"
+            "This will update your shared clinic dataset.\n\n"
             "If a shared dataset already exists, the app will merge and de-duplicate overlapping rows."
         )
 
@@ -3778,6 +3778,7 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
