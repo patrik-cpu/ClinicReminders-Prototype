@@ -56,38 +56,25 @@ def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     
 def clear_clinic_dataset_pointer(clinic_id: str):
     sheet = get_settings_sheet()
-    all_vals = settings_sheet_all_values_cached()
-    if not all_vals:
-        raise ValueError("Settings sheet is empty")
-
+    all_vals = sheet.get_all_values()
     headers = all_vals[0]
-    try:
-        clinic_ix = headers.index("ClinicID")
-    except ValueError:
-        raise ValueError("ClinicID column not found in settings sheet")
 
-    # Find clinic row
-    cid = clinic_id.strip().lower()
+    clinic_col = headers.index("ClinicID") + 1
     row_idx = None
     for i, r in enumerate(all_vals[1:], start=2):
-        if len(r) > clinic_ix and str(r[clinic_ix]).strip().lower() == cid:
+        if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
             row_idx = i
             break
     if row_idx is None:
         raise ValueError("ClinicID not found in settings sheet")
 
-    def col_index(name): return headers.index(name) + 1
+    def col_index(name):
+        return headers.index(name) + 1
 
-    cols = {
-        col_index(SHEET_COL_DATASET_FILE_ID): "",
-        col_index(SHEET_COL_DATASET_FILE_NAME): "",
-        col_index(SHEET_COL_DATASET_UPDATED_AT): "",
-    }
-
-    _gspread_retry(_update_cells_row, sheet, row_idx, cols)
-    settings_sheet_all_values_cached.clear()
-    settings_sheet_all_records_cached.clear()
-
+    # Clear the dataset pointer cells
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_ID), "")
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_NAME), "")
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_UPDATED_AT), "")
     
 def drive_trash_file(file_id: str):
     if not file_id:
@@ -473,7 +460,7 @@ def load_shared_dataset_for_clinic():
         return
 
     sheet = get_settings_sheet()
-    records = settings_sheet_all_records_cached()
+    records = sheet.get_all_records()
 
     rec = next((r for r in records if str(r.get("ClinicID", "")).strip().lower() == clinic_id.strip().lower()), None)
     if not rec:
@@ -604,38 +591,26 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
 
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
     sheet = get_settings_sheet()
-    all_vals = settings_sheet_all_values_cached()
-    if not all_vals:
-        raise ValueError("Settings sheet is empty")
-
+    all_vals = sheet.get_all_values()
     headers = all_vals[0]
-    try:
-        clinic_ix = headers.index("ClinicID")
-    except ValueError:
-        raise ValueError("ClinicID column not found in settings sheet")
 
     # Find row for this clinic
-    cid = clinic_id.strip().lower()
+    clinic_col = headers.index("ClinicID") + 1
     row_idx = None
     for i, r in enumerate(all_vals[1:], start=2):
-        if len(r) > clinic_ix and str(r[clinic_ix]).strip().lower() == cid:
+        if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
             row_idx = i
             break
     if row_idx is None:
         raise ValueError("ClinicID not found in settings sheet")
 
-    def col_index(name): return headers.index(name) + 1
+    # Update the dataset pointer columns
+    def col_index(name):
+        return headers.index(name) + 1
 
-    cols = {
-        col_index(SHEET_COL_DATASET_FILE_ID): str(file_id),
-        col_index(SHEET_COL_DATASET_FILE_NAME): str(filename),
-        col_index(SHEET_COL_DATASET_UPDATED_AT): datetime.utcnow().isoformat(),
-    }
-
-    _gspread_retry(_update_cells_row, sheet, row_idx, cols)
-    settings_sheet_all_values_cached.clear()
-    settings_sheet_all_records_cached.clear()
-
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_ID), file_id)
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_NAME), filename)
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_UPDATED_AT), datetime.utcnow().isoformat())
 
 # ============================================================
 # ✅ Dataset Publishing (Refactor #1)
@@ -787,8 +762,7 @@ def load_settings():
         return
 
     sheet = get_settings_sheet()
-    records = settings_sheet_all_records_cached()
-
+    records = sheet.get_all_records()
     rec = next((r for r in records if r["ClinicID"].strip().lower() == clinic_id.lower()), None)
 
     if rec and rec["SettingsJSON"]:
@@ -815,9 +789,7 @@ def save_settings():
         return
 
     sheet = get_settings_sheet()
-
-    # ✅ cached read (add helper elsewhere)
-    all_vals = settings_sheet_all_values_cached()
+    all_vals = _gspread_retry(sheet.get_all_values)
     headers = all_vals[0]
     clinic_col = headers.index("ClinicID") + 1
 
@@ -840,23 +812,10 @@ def save_settings():
 
     # Update existing row or append a new one
     if row:
-        col_settings = headers.index("SettingsJSON") + 1
-        col_updated  = headers.index("UpdatedAt") + 1
-
-        # ✅ batch write (single request)
-        _gspread_retry(
-            _update_cells_row,
-            sheet,
-            row,
-            {col_settings: settings_json, col_updated: updated_at}
-        )
+        sheet.update_cell(row, headers.index("SettingsJSON") + 1, settings_json)
+        sheet.update_cell(row, headers.index("UpdatedAt") + 1, updated_at)
     else:
-        _gspread_retry(sheet.append_row, [clinic_id, "", settings_json, updated_at], value_input_option="USER_ENTERED")
-
-    # ✅ ensure UI sees fresh settings immediately
-    settings_sheet_all_values_cached.clear()
-    settings_sheet_all_records_cached.clear()
-
+        sheet.append_row([clinic_id, "", settings_json, updated_at])
 # --------------------------------
 # PMS definitions
 # --------------------------------
@@ -1125,33 +1084,6 @@ def get_settings_sheet():
     client = gspread.authorize(creds)
     return client.open_by_key(SETTINGS_SHEET_ID).sheet1
 
-@st.cache_data(ttl=10, show_spinner=False)
-def settings_sheet_all_values_cached():
-    sheet = get_settings_sheet()
-    return sheet.get_all_values()
-
-@st.cache_data(ttl=10, show_spinner=False)
-def settings_sheet_all_records_cached():
-    sheet = get_settings_sheet()
-    return sheet.get_all_records()
-    
-def _update_cells_row(sheet, row_idx: int, col_values: dict[int, str]):
-    """
-    Update multiple cells in one row in a single Sheets API call.
-    col_values: {col_index (1-based): value}
-    """
-    if not col_values:
-        return
-
-    min_c = min(col_values.keys())
-    max_c = max(col_values.keys())
-
-    cell_list = sheet.range(row_idx, min_c, row_idx, max_c)
-    for cell in cell_list:
-        if cell.col in col_values:
-            cell.value = col_values[cell.col]
-
-    sheet.update_cells(cell_list, value_input_option="USER_ENTERED")
 
 # === LOGIN HELPER FUNCTIONS ===
 def hash_pw(pw: str):
@@ -1162,7 +1094,7 @@ def hash_pw(pw: str):
 def authenticate_user(username, password):
     """Check username/password pair against the sheet."""
     sheet = get_settings_sheet()
-    records = settings_sheet_all_records_cached()
+    records = sheet.get_all_records()
     for r in records:
         if r["ClinicID"].strip().lower() == username.strip().lower():
             if r["PasswordHash"] == hash_pw(password):
@@ -1722,16 +1654,20 @@ current_files = [f.name for f in files] if files else []
 
 # Detect any file addition, deletion, or rename
 if set(current_files) != set(st.session_state["last_uploaded_files"]):
-    st.toast("🔄 File change detected — refreshing data...")
+    st.toast("🔄 File change detected — clearing cache and refreshing data...")
 
+    st.cache_data.clear()
     st.session_state["last_uploaded_files"] = current_files
     st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
 
-    # Clear only app-derived artefacts (safe + fast)
     for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
         st.session_state.pop(key, None)
 
-    st.rerun()
+    st.session_state.pop("file_uploader_main", None)
+
+    # optional but recommended
+    load_shared_dataset_for_clinic()
+
 
 # --------------------------------
 # File upload handling
@@ -1876,8 +1812,8 @@ if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_res
     st.session_state["shared_dataset_error"] = None
 
     # Optional: clear uploader + caches
+    st.cache_data.clear()
     st.session_state.pop("file_uploader_main", None)
-    st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
 
     st.success("✅ Clinic dataset reset. No shared dataset is published for this clinic now.")
     st.rerun()
@@ -3927,8 +3863,6 @@ if st.session_state.get("clinic_id") == "Admin":
                 sheet.update_cell(row, headers.index("PasswordHash") + 1, hashed)
                 sheet.update_cell(row, headers.index("UpdatedAt") + 1, datetime.utcnow().isoformat())
                 st.success(f"✅ Updated password for clinic '{new_clinic}'.")
-                settings_sheet_all_values_cached.clear()
-                settings_sheet_all_records_cached.clear()
             else:
                 # Add a new clinic row
                 sheet.append_row([new_clinic, plain, hashed, "{}", datetime.utcnow().isoformat()])
@@ -4173,4 +4107,3 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
-
