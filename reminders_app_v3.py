@@ -453,22 +453,40 @@ def load_shared_dataset_for_clinic():
         st.session_state["shared_dataset_error"] = str(e)
 
 def drive_upload_csv_bytes(file_bytes: bytes, filename: str, folder_id: str) -> str:
-    service = get_drive_service()
-    media = MediaIoBaseUpload(BytesIO(file_bytes), mimetype="text/csv", resumable=False)
+    # Build a fresh service per call (avoid stale connections across Streamlit reruns)
+    service = get_drive_service_uncached()
 
-    body = {
-        "name": filename,
-        "parents": [folder_id],  # folder inside Shared Drive
-    }
+    # Optional: quick visibility into payload size
+    size_mb = len(file_bytes) / (1024 * 1024)
+    st.caption(f"Uploading {filename} ({size_mb:.1f} MB)")
+
+    # ✅ Resumable upload with chunking
+    media = MediaIoBaseUpload(
+        BytesIO(file_bytes),
+        mimetype="text/csv",
+        resumable=True,
+        chunksize=256 * 1024,  # 256KB chunks (safe); you can increase later
+    )
+
+    body = {"name": filename, "parents": [folder_id]}
 
     try:
-        created = service.files().create(
+        req = service.files().create(
             body=body,
             media_body=media,
             fields="id",
-            supportsAllDrives=True,  # ✅ Shared Drive
-        ).execute()
-        return created["id"]
+            supportsAllDrives=True,
+        )
+
+        # ✅ Drive resumable uploads must be advanced chunk-by-chunk
+        response = None
+        while response is None:
+            status, response = req.next_chunk(num_retries=5)  # retries per chunk
+            if status:
+                st.progress(min(1.0, float(status.progress())))
+
+        return response["id"]
+
     except HttpError as e:
         st.error(f"Drive upload failed. HTTP {getattr(e.resp, 'status', '?')}")
         try:
@@ -503,6 +521,15 @@ def drive_check_folder_access(folder_id: str):
         except Exception:
             pass
         raise
+        
+def get_drive_service_uncached():
+    try:
+        creds_dict = st.secrets["gcp_service_account"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=DRIVE_SCOPE)
+    except Exception:
+        creds = Credentials.from_service_account_file("google-credentials.json", scopes=DRIVE_SCOPE)
+
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 def build_vetport_rowkey(df: pd.DataFrame) -> pd.Series:
     # Build after Vetport normalization (so 1 vs 1.0 etc is stable)
@@ -3871,5 +3898,6 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
