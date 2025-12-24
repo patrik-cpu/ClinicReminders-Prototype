@@ -2064,6 +2064,7 @@ if st.session_state.get("working_df") is not None:
     prepared = get_prepared_df(df, st.session_state["rules"])
     latest_date = prepared["ChargeDate"].max()
     default_start = (latest_date + timedelta(days=1)).date() if pd.notna(latest_date) else date.today()
+
     start_date = st.date_input("Start Date (7-day window)", value=default_start)
     end_date = start_date + timedelta(days=6)
 
@@ -2072,7 +2073,7 @@ if st.session_state.get("working_df") is not None:
         (pd.to_datetime(prepared["NextDueDate"]) <= pd.to_datetime(end_date))
     ].copy()
 
-   if not due2.empty:
+    if not due2.empty:
         g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
 
         grouped = (
@@ -2089,7 +2090,7 @@ if st.session_state.get("working_df") is not None:
                         )))
                     )
                 ),
-    
+
                 # --- grouping detectors ---
                 "_n_animals": g["Animal Name"].nunique(dropna=True),
                 "_n_items": g["MatchedItems"].apply(
@@ -2100,16 +2101,16 @@ if st.session_state.get("working_df") is not None:
                         if str(i).strip()
                     ))
                 ),
-    
+
                 # --- base computations (keep both) ---
                 "_qty_sum": g["Qty"].sum(min_count=1),
-    
+
                 "_days_qty": g["IntervalDays"].apply(
                     lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
                     if pd.to_numeric(x, errors="coerce").notna().any()
                     else ""
                 ),
-    
+
                 "_days_base": g["BaseIntervalDays"].apply(
                     lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
                     if pd.to_numeric(x, errors="coerce").notna().any()
@@ -2119,15 +2120,15 @@ if st.session_state.get("working_df") is not None:
             .reset_index()
             .rename(columns={"DueDateFmt": "Due Date"})
         )
-    
+
         # ✅ grouped row => Qty="NA" + Days ignores Qty
         is_grouped = (grouped["_n_animals"] > 1) | (grouped["_n_items"] > 1)
-    
+
         grouped["Qty"] = grouped["_qty_sum"].where(~is_grouped, "NA")
         grouped["Days"] = grouped["_days_qty"].where(~is_grouped, grouped["_days_base"])
-    
+
         grouped = grouped[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
-    
+
         # --- Filter out deleted reminders before rendering ---
         deleted = st.session_state.get("deleted_reminders", [])
         if deleted:
@@ -2141,13 +2142,14 @@ if st.session_state.get("working_df") is not None:
                     axis=1
                 )
             ]
-    
+
         # ✅ only coerce Qty to int for non-grouped rows
-        grouped["Qty"] = grouped["Qty"].where(grouped["Qty"].astype(str) == "NA",
-                                             pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int))
-    
+        grouped["Qty"] = grouped["Qty"].where(
+            grouped["Qty"].astype(str) == "NA",
+            pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
+        )
+
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
-    
     else:
         st.info("No reminders in the selected week.")
 
@@ -4034,6 +4036,7 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
