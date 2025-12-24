@@ -1533,18 +1533,18 @@ current_files = [f.name for f in files] if files else []
 if set(current_files) != set(st.session_state["last_uploaded_files"]):
     st.toast("🔄 File change detected — clearing cache and refreshing data...")
 
-    # Clear all Streamlit caches
     st.cache_data.clear()
-    # st.cache_resource.clear() - Comment out for now
-
-    # Reset version and working state
     st.session_state["last_uploaded_files"] = current_files
     st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
 
     for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
         st.session_state.pop(key, None)
 
-    st.caption("🧹 Cache cleared — data will be reprocessed on next upload.")
+    st.session_state.pop("file_uploader_main", None)
+
+    # optional but recommended
+    load_shared_dataset_for_clinic()
+
 
 # --------------------------------
 # File upload handling
@@ -1604,8 +1604,8 @@ if files:
     # ============================
 
     # Optional debug button (instead of calling on every rerun)
-    if st.button("Test Drive folder access (debug)"):
-        drive_check_folder_access(DATASETS_FOLDER_ID)
+    # if st.button("Test Drive folder access (debug)"):
+    #    drive_check_folder_access(DATASETS_FOLDER_ID)
 
     if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
         df_preview = st.session_state["working_df"]
@@ -3899,6 +3899,7 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
