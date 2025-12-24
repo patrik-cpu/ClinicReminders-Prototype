@@ -23,10 +23,6 @@ DRIVE_SCOPE = [
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
-@st.cache_data(ttl=30)
-def fetch_feedback_cached(limit=500):
-    return fetch_feedback(limit)
-
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
 
@@ -370,7 +366,6 @@ DEFAULT_WA_TEMPLATE = (
     "Get in touch with us any time, and we look forward to hearing from you soon!"
 )
 
-
 # --------------------------------
 # 🔐 Login authorisation & per-clinic settings persistence (Google Sheets)
 # --------------------------------
@@ -378,7 +373,7 @@ import hashlib
 
 # === CONFIGURATION ===
 SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ← your ClinicReminders_Settings_Master Sheet ID
-SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+SETTINGS_SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
 # === GOOGLE DRIVE CONFIG ===
 @st.cache_resource
@@ -553,75 +548,99 @@ def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
     sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_NAME), filename)
     sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_UPDATED_AT), datetime.utcnow().isoformat())
 
-# === GOOGLE SHEETS CONNECTION ===
-@st.cache_resource
-def get_settings_sheet():
-    """Connect to the shared ClinicReminders_Settings_Master sheet."""
-    try:
-        creds_dict = st.secrets["gcp_service_account"]
-    except Exception:
-        with open("google-credentials.json", "r") as f:
-            creds_dict = json.load(f)
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
-    client = gspread.authorize(creds)
-    return client.open_by_key(SETTINGS_SHEET_ID).sheet1
+# ============================================================
+# ✅ Dataset Publishing (Refactor #1)
+#   - Single orchestrator for publishing clinic datasets
+#   - Helpers to fetch existing pointer + load existing dataset
+# ============================================================
 
-
-# === LOGIN HELPER FUNCTIONS ===
-def hash_pw(pw: str):
-    """Return MD5 hash of a password."""
-    return hashlib.md5(pw.encode()).hexdigest()
-
-
-def authenticate_user(username, password):
-    """Check username/password pair against the sheet."""
+def get_existing_dataset_pointer(clinic_id: str) -> tuple[str, str]:
+    """
+    Returns (existing_file_id, existing_filename) from settings sheet.
+    If not found, returns ("", "").
+    """
     sheet = get_settings_sheet()
-    records = sheet.get_all_records()
-    for r in records:
-        if r["ClinicID"].strip().lower() == username.strip().lower():
-            if r["PasswordHash"] == hash_pw(password):
-                return r
-    return None
+    recs = sheet.get_all_records()
+
+    rec = next(
+        (r for r in recs if str(r.get("ClinicID", "")).strip().lower() == clinic_id.strip().lower()),
+        None
+    )
+    if not rec:
+        return "", ""
+
+    existing_file_id = str(rec.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
+    existing_name    = str(rec.get(SHEET_COL_DATASET_FILE_NAME, "")).strip()
+    return existing_file_id, existing_name
 
 
-# === LOGIN FORM (Sidebar) ===
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
+def load_existing_shared_df(file_id: str, filename: str) -> pd.DataFrame | None:
+    """
+    Loads an existing shared dataset from Drive (if file_id exists),
+    then normalizes it through process_file so schema matches.
+    Returns None if no file_id.
+    """
+    if not file_id:
+        return None
 
-if not st.session_state["logged_in"]:
-    st.sidebar.markdown("### 🔑 Clinic Login")
-    username = st.sidebar.text_input("Clinic ID / Username")
-    password = st.sidebar.text_input("Password", type="password")
-    if st.sidebar.button("Login"):
-        user_row = authenticate_user(username, password)
-        if user_row:
-            st.session_state["clinic_id"] = username
-            st.session_state["logged_in"] = True
-    
-            # ✅ Auto-load shared dataset from Drive into working_df
-            load_shared_dataset_for_clinic()
-    
-            st.success(f"✅ Welcome, {username}!")
-            st.rerun()
-        else:
-            st.error("❌ Invalid username or password.")
-else:
-    st.sidebar.success(f"Logged in as {st.session_state['clinic_id']}")
+    existing_bytes = drive_download_bytes(file_id)
 
-# --- 🚪 Logout button ---
-if st.session_state.get("logged_in", False):
-    if st.sidebar.button("🚪 Logout"):
-        # Clear login state
-        for key in ["logged_in", "clinic_id"]:
-            st.session_state.pop(key, None)
-        st.success("You have been logged out.")
-        st.rerun()
+    # Normalize through your pipeline to guarantee canonical columns
+    df_existing, _, _ = process_file(existing_bytes, filename or "shared_dataset.csv")
 
-# Block access to rest of app until logged in
-if not st.session_state["logged_in"]:
-    st.warning("Please log in to access ClinicReminders & Factoids.")
-    st.stop()
+    # Optional: drop debug columns if present
+    df_existing = df_existing.drop(columns=["_ChargeDate_raw"], errors="ignore")
 
+    # If it loads but is empty, treat as None for merge logic
+    if df_existing is None or getattr(df_existing, "empty", True):
+        return None
+
+    return df_existing
+
+
+def publish_dataset_for_clinic(
+    clinic_id: str,
+    new_df: pd.DataFrame,
+    datasets_folder_id: str,
+) -> tuple[pd.DataFrame, str, str]:
+    """
+    Publish upload for the whole clinic:
+      1) fetch existing dataset pointer from settings sheet
+      2) load existing shared dataset from Drive (if any)
+      3) merge + dedupe (uses your existing merge_dedupe)
+      4) upload merged CSV to Drive (new file each publish)
+      5) update dataset pointer columns in settings sheet
+
+    Returns:
+      (merged_df, new_file_id, out_name)
+    """
+    # 1) Get current pointer (if any)
+    existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+
+    # 2) Load existing dataset if present
+    existing_df = None
+    try:
+        existing_df = load_existing_shared_df(existing_file_id, existing_name)
+    except Exception as e:
+        # show signal but still allow publish
+        st.warning(f"Could not load existing shared dataset; publishing upload as new. ({e})")
+        existing_df = None
+
+    # 3) Merge + de-dupe
+    if existing_df is not None and not existing_df.empty:
+        merged_df = merge_dedupe(existing_df, new_df)
+    else:
+        merged_df = new_df
+
+    # 4) Upload merged dataset to Drive
+    out_name  = f"{clinic_id}_shared_dataset.csv"
+    out_bytes = merged_df.to_csv(index=False).encode("utf-8")
+    new_file_id = drive_upload_csv_bytes(out_bytes, out_name, datasets_folder_id)
+
+    # 5) Update pointer in settings sheet
+    update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
+
+    return merged_df, new_file_id, out_name
 
 # --------------------------------
 # 💾 Per-clinic settings persistence via Google Sheets
@@ -688,22 +707,6 @@ def save_settings():
         sheet.update_cell(row, headers.index("UpdatedAt") + 1, updated_at)
     else:
         sheet.append_row([clinic_id, "", settings_json, updated_at])
-
-# --------------------------------
-# 🗑️ Local hidden-reminders tracking
-# --------------------------------
-DELETED_REMINDERS_FILE = "deleted_reminders.json"
-
-def load_deleted_reminders():
-    if os.path.exists(DELETED_REMINDERS_FILE):
-        with open(DELETED_REMINDERS_FILE, "r") as f:
-            return json.load(f)
-    return []
-
-def save_deleted_reminders(deleted_list):
-    with open(DELETED_REMINDERS_FILE, "w") as f:
-        json.dump(deleted_list, f)
-
 # --------------------------------
 # PMS definitions
 # --------------------------------
@@ -798,92 +801,6 @@ def detect_pms(df: pd.DataFrame) -> str:
         if required.issubset(normalized_cols):
             return pms_name
     return None
-
-# --------------------------------
-# Session state init
-# --------------------------------
-if "rules" not in st.session_state:
-    load_settings()
-st.session_state.setdefault("weekly_message", "")
-st.session_state.setdefault("search_message", "")
-st.session_state.setdefault("new_rule_counter", 0)
-st.session_state.setdefault("form_version", 0)
-st.session_state.setdefault("deleted_reminders", load_deleted_reminders())
-
-
-# --------------------------------
-# Helpers
-# --------------------------------
-def simplify_vaccine_text(text: str) -> str:
-    if not isinstance(text, str):
-        return text
-    parts = [p.strip() for p in text.replace(" and ", ",").split(",") if p.strip()]
-    cleaned = [p.strip() for p in parts if p]
-    if not cleaned:
-        return text
-    cleaned_lower = [c.lower() for c in cleaned]
-    if "vaccination" in cleaned_lower and len(cleaned) > 1:
-        cleaned = [c for c in cleaned if c.lower() != "vaccination"]
-    def is_vaccine_item(s):
-        s = s.lower()
-        return s.endswith("vaccine") or s.endswith("vaccines") or s in ["vaccination", "vaccine(s)"]
-    all_vaccines = all(is_vaccine_item(c) for c in cleaned)
-    if all_vaccines:
-        stripped = []
-        for c in cleaned:
-            tokens = c.split()
-            if tokens and tokens[-1].lower().startswith("vaccine"):
-                tokens = tokens[:-1]
-            stripped.append(" ".join(tokens).strip())
-        stripped = [s for s in stripped if s]
-        if len(stripped) == 1:
-            return stripped[0] + " Vaccine"
-        elif len(stripped) == 2:
-            return f"{stripped[0]} and {stripped[1]} Vaccines"
-        else:
-            return f"{', '.join(stripped[:-1])} and {stripped[-1]} Vaccines"
-    if len(cleaned) == 1:
-        return cleaned[0]
-    elif len(cleaned) == 2:
-        return f"{cleaned[0]} and {cleaned[1]}"
-    else:
-        return f"{', '.join(cleaned[:-1])} and {cleaned[-1]}"
-
-def format_items(item_list):
-    items = [str(x).strip() for x in item_list if str(x).strip()]
-    if not items: return ""
-    if len(items) == 1: return items[0]
-    return ", ".join(items[:-1]) + " and " + items[-1]
-
-def format_due_date(date_str: str) -> str:
-    try:
-        dt = pd.to_datetime(date_str, format="%d %b %Y", errors="coerce")
-        if pd.isna(dt):
-            return date_str
-        day = dt.day
-        suffix = "th" if 10 <= day % 100 <= 20 else {1:"st",2:"nd",3:"rd"}.get(day%10,"th")
-        return f"{day}{suffix} of {dt.strftime('%B')}, {dt.year}"
-    except Exception:
-        return date_str
-
-def get_visible_plan_item(item_name: str, rules: dict) -> str:
-    if not isinstance(item_name, str):
-        return item_name
-    n = item_name.lower()
-    for rule_text, settings in rules.items():
-        if rule_text in n:
-            vis = settings.get("visible_text")
-            return vis if vis and vis.strip() else item_name
-    return item_name
-
-def normalize_item_name(name: str) -> str:
-    if not isinstance(name, str):
-        return ""
-    name = unicodedata.normalize("NFKC", name).lower()
-    name = re.sub(r"[\u00a0\ufeff]", " ", name)
-    name = re.sub(r"[-+/().,]", " ", name)
-    return re.sub(r"\s+", " ", name).strip()
-
 def clean_revenue_column(series: pd.Series) -> pd.Series:
     return (
         series.astype(str)
@@ -920,118 +837,7 @@ def parse_dates(series: pd.Series) -> pd.Series:
             return parsed.dt.normalize()
     parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
     return parsed.dt.normalize()
-
-# -------------------------
-# Vectorized interval mapping
-# -------------------------
-@st.cache_data(show_spinner=False)
-def map_intervals_vec(df, rules):
-    df = df.copy()
-    if "ItemNorm" not in df.columns:
-        def _norm(name):
-            if not isinstance(name, str): return ""
-            s = unicodedata.normalize("NFKC", name).lower()
-            s = re.sub(r"[\u00a0\ufeff]", " ", s)
-            s = re.sub(r"[-+/().,]", " ", s)
-            return re.sub(r"\s+", " ", s).strip()
-        df["ItemNorm"] = df["Item Name"].astype(str).map(_norm)
-
-    n = len(df)
-    interval = pd.Series(pd.NA, index=df.index, dtype="Float64")
-    matched = np.empty(n, dtype=object)
-    matched[:] = [[] for _ in range(n)]
-
-    for rule_text, settings in rules.items():
-        pat = re.escape(rule_text.lower().strip())
-        mask = df["ItemNorm"].str.contains(pat, na=False)
-        if not mask.any():
-            continue
-
-        days = int(settings["days"])
-        if settings.get("use_qty"):
-            qty = pd.to_numeric(df.loc[mask, "Qty"], errors="coerce").fillna(1).astype(int).clip(lower=1)
-            cand = qty * days
-        else:
-            cand = pd.Series(days, index=df.index)[mask]
-
-        interval = interval.where(~mask, pd.concat([interval[mask], cand], axis=1).min(axis=1))
-
-        vis = settings.get("visible_text", "").strip()
-        idxs = df.index[mask]
-        if vis:
-            for i in idxs: matched[i].append(vis)
-        else:
-            for i in idxs: matched[i].append(df.at[i, "Item Name"])
-
-    df["MatchedItems"] = [list({x.strip() for x in lst if str(x).strip()}) for lst in matched]
-    df["IntervalDays"] = interval
-    return df
-
-@st.cache_data(show_spinner=False)
-def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
-    if df is None or df.empty:
-        return pd.DataFrame(columns=[
-            "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
-            "MatchedItems", "Qty", "IntervalDays", "NextDueDate", "ChargeDate"
-        ])
-    df = df.copy()
-    for col, default in [
-        ("ChargeDate", pd.NaT),
-        ("Client Name", ""),
-        ("Animal Name", ""),
-        ("Item Name", ""),
-        ("Qty", 1),
-        ("Amount", 0),
-    ]:
-        if col not in df.columns:
-            df[col] = default
-    if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
-        df["ChargeDate"] = parse_dates(df["ChargeDate"])
-    df = map_intervals_vec(df, rules)
-    days = pd.to_numeric(df["IntervalDays"], errors="coerce")
-    df["NextDueDate"] = df["ChargeDate"] + pd.to_timedelta(days, unit="D")
-    df["ChargeDateFmt"] = pd.to_datetime(df["ChargeDate"]).dt.strftime("%d %b %Y")
-    df["DueDateFmt"]    = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
-    df["MatchedItems"] = df["MatchedItems"].apply(
-        lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
-    )
-    return df
-
-def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Keeps only the most recent treatment record per client–animal–item combination
-    before the next treatment occurs, even if that next treatment happens early.
-    In effect:
-      - Each new treatment resets the due date.
-      - Any previous record with the same item before that new charge is dropped.
-    """
-    if df.empty:
-        return df
-
-    df = df.copy()
-    df["MatchedItems_str"] = df["MatchedItems"].apply(
-        lambda x: ", ".join(sorted(x)) if isinstance(x, list) else str(x)
-    )
-
-    # Sort chronologically within each client–animal–item
-    df.sort_values(
-        ["Client Name", "Animal Name", "MatchedItems_str", "ChargeDate"],
-        inplace=True,
-        ignore_index=True
-    )
-
-    # Within each animal+item, find the next charge date
-    g = df.groupby(["Client Name", "Animal Name", "MatchedItems_str"], dropna=False)
-    next_charge = g["ChargeDate"].shift(-1)
-
-    # Rule:
-    #  - Drop any row that has a later charge for the same item, regardless of early/late.
-    #  - Keep only the last one (most recent) before the next charge.
-    keep = next_charge.isna()
-
-    return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
-
-
+    
 # --------------------------------
 # File processing (decoupled from rules)
 # --------------------------------
@@ -1153,6 +959,36 @@ def process_file(file_bytes, filename):
 
     # --- ✅ Return normalized data ---
     return df, pms_name, amount_col
+    
+# === GOOGLE SHEETS CONNECTION ===
+@st.cache_resource
+def get_settings_sheet():
+    """Connect to the shared ClinicReminders_Settings_Master sheet."""
+    try:
+        creds_dict = st.secrets["gcp_service_account"]
+    except Exception:
+        with open("google-credentials.json", "r") as f:
+            creds_dict = json.load(f)
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SETTINGS_SCOPE)
+    client = gspread.authorize(creds)
+    return client.open_by_key(SETTINGS_SHEET_ID).sheet1
+
+
+# === LOGIN HELPER FUNCTIONS ===
+def hash_pw(pw: str):
+    """Return MD5 hash of a password."""
+    return hashlib.md5(pw.encode()).hexdigest()
+
+
+def authenticate_user(username, password):
+    """Check username/password pair against the sheet."""
+    sheet = get_settings_sheet()
+    records = sheet.get_all_records()
+    for r in records:
+        if r["ClinicID"].strip().lower() == username.strip().lower():
+            if r["PasswordHash"] == hash_pw(password):
+                return r
+    return None
 
 def _to_blob(uploaded):
     # Deterministic blob for caching; avoids .read() side effects
@@ -1301,7 +1137,45 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
 
     return df, masks, tx_client, tx_patient, patients_per_month
 
+# === LOGIN FORM (Sidebar) ===
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
 
+if not st.session_state["logged_in"]:
+    st.sidebar.markdown("### 🔑 Clinic Login")
+    username = st.sidebar.text_input("Clinic ID / Username")
+    password = st.sidebar.text_input("Password", type="password")
+    if st.sidebar.button("Login"):
+        user_row = authenticate_user(username, password)
+        if user_row:
+            st.session_state["clinic_id"] = username
+            st.session_state["logged_in"] = True
+
+            load_settings()
+            # ✅ Auto-load shared dataset from Drive into working_df
+            load_shared_dataset_for_clinic()
+                    
+            st.success(f"✅ Welcome, {username}!")
+            st.rerun()
+        else:
+            st.error("❌ Invalid username or password.")
+else:
+    st.sidebar.success(f"Logged in as {st.session_state['clinic_id']}")
+
+# --- 🚪 Logout button ---
+if st.session_state.get("logged_in", False):
+    if st.sidebar.button("🚪 Logout"):
+        # Clear login state
+        for key in ["logged_in", "clinic_id"]:
+            st.session_state.pop(key, None)
+        st.success("You have been logged out.")
+        st.rerun()
+
+# Block access to rest of app until logged in
+if not st.session_state["logged_in"]:
+    st.warning("Please log in to access ClinicReminders & Factoids.")
+    st.stop()
+    
 # === Bundle Creation (inline hash; safe if rules not set yet) ===
 rules_dict = st.session_state.get("rules", {})  # avoid KeyError if rules not initialized
 rules_fp = hashlib.md5(json.dumps(rules_dict, sort_keys=True).encode()).hexdigest()
@@ -1336,6 +1210,230 @@ if st.session_state.get("working_df") is not None and not st.session_state["work
         st.caption(f"Dataset range: {dmin:%d %b %Y} → {dmax:%d %b %Y}")
     else:
         st.caption("Dataset range: (dates not detected)")
+                    
+# --------------------------------
+# 🗑️ Local hidden-reminders tracking
+# --------------------------------
+DELETED_REMINDERS_FILE = "deleted_reminders.json"
+
+def load_deleted_reminders():
+    if os.path.exists(DELETED_REMINDERS_FILE):
+        with open(DELETED_REMINDERS_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+def save_deleted_reminders(deleted_list):
+    with open(DELETED_REMINDERS_FILE, "w") as f:
+        json.dump(deleted_list, f)
+
+# --------------------------------
+# Session state init
+# --------------------------------
+if "rules" not in st.session_state:
+    load_settings()
+st.session_state.setdefault("weekly_message", "")
+st.session_state.setdefault("search_message", "")
+st.session_state.setdefault("new_rule_counter", 0)
+st.session_state.setdefault("form_version", 0)
+st.session_state.setdefault("deleted_reminders", load_deleted_reminders())
+
+
+# --------------------------------
+# Helpers
+# --------------------------------
+def ensure_min_canonical_schema(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    for col, default in {
+        "ChargeDate": pd.NaT,
+        "Client Name": "",
+        "Animal Name": "",
+        "Item Name": "",
+        "Qty": 1,
+        "Amount": 0,
+    }.items():
+        if col not in df.columns:
+            df[col] = default
+    return df
+
+def simplify_vaccine_text(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+    parts = [p.strip() for p in text.replace(" and ", ",").split(",") if p.strip()]
+    cleaned = [p.strip() for p in parts if p]
+    if not cleaned:
+        return text
+    cleaned_lower = [c.lower() for c in cleaned]
+    if "vaccination" in cleaned_lower and len(cleaned) > 1:
+        cleaned = [c for c in cleaned if c.lower() != "vaccination"]
+    def is_vaccine_item(s):
+        s = s.lower()
+        return s.endswith("vaccine") or s.endswith("vaccines") or s in ["vaccination", "vaccine(s)"]
+    all_vaccines = all(is_vaccine_item(c) for c in cleaned)
+    if all_vaccines:
+        stripped = []
+        for c in cleaned:
+            tokens = c.split()
+            if tokens and tokens[-1].lower().startswith("vaccine"):
+                tokens = tokens[:-1]
+            stripped.append(" ".join(tokens).strip())
+        stripped = [s for s in stripped if s]
+        if len(stripped) == 1:
+            return stripped[0] + " Vaccine"
+        elif len(stripped) == 2:
+            return f"{stripped[0]} and {stripped[1]} Vaccines"
+        else:
+            return f"{', '.join(stripped[:-1])} and {stripped[-1]} Vaccines"
+    if len(cleaned) == 1:
+        return cleaned[0]
+    elif len(cleaned) == 2:
+        return f"{cleaned[0]} and {cleaned[1]}"
+    else:
+        return f"{', '.join(cleaned[:-1])} and {cleaned[-1]}"
+
+def format_items(item_list):
+    items = [str(x).strip() for x in item_list if str(x).strip()]
+    if not items: return ""
+    if len(items) == 1: return items[0]
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+def format_due_date(date_str: str) -> str:
+    try:
+        dt = pd.to_datetime(date_str, format="%d %b %Y", errors="coerce")
+        if pd.isna(dt):
+            return date_str
+        day = dt.day
+        suffix = "th" if 10 <= day % 100 <= 20 else {1:"st",2:"nd",3:"rd"}.get(day%10,"th")
+        return f"{day}{suffix} of {dt.strftime('%B')}, {dt.year}"
+    except Exception:
+        return date_str
+
+def get_visible_plan_item(item_name: str, rules: dict) -> str:
+    if not isinstance(item_name, str):
+        return item_name
+    n = item_name.lower()
+    for rule_text, settings in rules.items():
+        if rule_text in n:
+            vis = settings.get("visible_text")
+            return vis if vis and vis.strip() else item_name
+    return item_name
+
+def normalize_item_name(name: str) -> str:
+    if not isinstance(name, str):
+        return ""
+    name = unicodedata.normalize("NFKC", name).lower()
+    name = re.sub(r"[\u00a0\ufeff]", " ", name)
+    name = re.sub(r"[-+/().,]", " ", name)
+    return re.sub(r"\s+", " ", name).strip()
+
+# -------------------------
+# Vectorized interval mapping
+# -------------------------
+@st.cache_data(show_spinner=False)
+def map_intervals_vec(df, rules):
+    df = df.copy()
+    if "ItemNorm" not in df.columns:
+        def _norm(name):
+            if not isinstance(name, str): return ""
+            s = unicodedata.normalize("NFKC", name).lower()
+            s = re.sub(r"[\u00a0\ufeff]", " ", s)
+            s = re.sub(r"[-+/().,]", " ", s)
+            return re.sub(r"\s+", " ", s).strip()
+        df["ItemNorm"] = df["Item Name"].astype(str).map(_norm)
+
+    n = len(df)
+    interval = pd.Series(pd.NA, index=df.index, dtype="Float64")
+    matched = np.empty(n, dtype=object)
+    matched[:] = [[] for _ in range(n)]
+
+    for rule_text, settings in rules.items():
+        pat = re.escape(rule_text.lower().strip())
+        mask = df["ItemNorm"].str.contains(pat, na=False)
+        if not mask.any():
+            continue
+
+        days = int(settings["days"])
+        if settings.get("use_qty"):
+            qty = pd.to_numeric(df.loc[mask, "Qty"], errors="coerce").fillna(1).astype(int).clip(lower=1)
+            cand = qty * days
+        else:
+            cand = pd.Series(days, index=df.index)[mask]
+
+        interval = interval.where(~mask, pd.concat([interval[mask], cand], axis=1).min(axis=1))
+
+        vis = settings.get("visible_text", "").strip()
+        idxs = df.index[mask]
+        if vis:
+            for i in idxs: matched[i].append(vis)
+        else:
+            for i in idxs: matched[i].append(df.at[i, "Item Name"])
+
+    df["MatchedItems"] = [list({x.strip() for x in lst if str(x).strip()}) for lst in matched]
+    df["IntervalDays"] = interval
+    return df
+
+@st.cache_data(show_spinner=False)
+def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=[
+            "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
+            "MatchedItems", "Qty", "IntervalDays", "NextDueDate", "ChargeDate"
+        ])
+    df = df.copy()
+    for col, default in [
+        ("ChargeDate", pd.NaT),
+        ("Client Name", ""),
+        ("Animal Name", ""),
+        ("Item Name", ""),
+        ("Qty", 1),
+        ("Amount", 0),
+    ]:
+        if col not in df.columns:
+            df[col] = default
+    if not pd.api.types.is_datetime64_any_dtype(df["ChargeDate"]):
+        df["ChargeDate"] = parse_dates(df["ChargeDate"])
+    df = map_intervals_vec(df, rules)
+    days = pd.to_numeric(df["IntervalDays"], errors="coerce")
+    df["NextDueDate"] = df["ChargeDate"] + pd.to_timedelta(days, unit="D")
+    df["ChargeDateFmt"] = pd.to_datetime(df["ChargeDate"]).dt.strftime("%d %b %Y")
+    df["DueDateFmt"]    = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
+    df["MatchedItems"] = df["MatchedItems"].apply(
+        lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
+    )
+    return df
+
+def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Keeps only the most recent treatment record per client–animal–item combination
+    before the next treatment occurs, even if that next treatment happens early.
+    In effect:
+      - Each new treatment resets the due date.
+      - Any previous record with the same item before that new charge is dropped.
+    """
+    if df.empty:
+        return df
+
+    df = df.copy()
+    df["MatchedItems_str"] = df["MatchedItems"].apply(
+        lambda x: ", ".join(sorted(x)) if isinstance(x, list) else str(x)
+    )
+
+    # Sort chronologically within each client–animal–item
+    df.sort_values(
+        ["Client Name", "Animal Name", "MatchedItems_str", "ChargeDate"],
+        inplace=True,
+        ignore_index=True
+    )
+
+    # Within each animal+item, find the next charge date
+    g = df.groupby(["Client Name", "Animal Name", "MatchedItems_str"], dropna=False)
+    next_charge = g["ChargeDate"].shift(-1)
+
+    # Rule:
+    #  - Drop any row that has a later charge for the same item, regardless of early/late.
+    #  - Keep only the last one (most recent) before the next charge.
+    keep = next_charge.isna()
+
+    return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
 
 # --------------------------------
 # Tutorial section
@@ -1396,7 +1494,7 @@ if set(current_files) != set(st.session_state["last_uploaded_files"]):
 
     # Clear all Streamlit caches
     st.cache_data.clear()
-    st.cache_resource.clear()
+    # st.cache_resource.clear() - Comment out for now
 
     # Reset version and working state
     st.session_state["last_uploaded_files"] = current_files
@@ -1463,22 +1561,10 @@ if files:
     # ============================
     # ✅ Publish dataset for clinic
     # ============================
-    # - check if can see the folder
-    def drive_check_folder_access(folder_id: str):
-        service = get_drive_service()
-        try:
-            meta = service.files().get(
-                fileId=folder_id,
-                fields="id,name,mimeType",
-                supportsAllDrives=True,
-            ).execute()
-            st.success(f"Drive folder OK: {meta.get('name')} ({meta.get('id')})")
-        except Exception as e:
-            st.error("Cannot access the Drive folder from this app/service account.")
-            st.write(e)
-    
-    # Call it:
-    drive_check_folder_access(DATASETS_FOLDER_ID)
+
+    # Optional debug button (instead of calling on every rerun)
+    if st.button("Test Drive folder access (debug)"):
+        drive_check_folder_access(DATASETS_FOLDER_ID)
 
     if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
         df_preview = st.session_state["working_df"]
@@ -1503,60 +1589,15 @@ if files:
                 st.stop()
 
             new_df = st.session_state["working_df"].copy()
-
-            # Optional: do not store debug columns in the shared dataset
             new_df = new_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
+            new_df = ensure_min_canonical_schema(new_df)
+            
+            merged_df, new_file_id, out_name = publish_dataset_for_clinic(
+                clinic_id=clinic_id,
+                new_df=new_df,
+                datasets_folder_id=DATASETS_FOLDER_ID,
+            )
 
-            # 1) Try to load existing shared dataset (if exists)
-            existing_df = None
-            existing_file_id = ""
-            existing_name = ""
-
-            try:
-                sheet = get_settings_sheet()
-                recs = sheet.get_all_records()
-                rec = next(
-                    (r for r in recs if str(r.get("ClinicID", "")).strip().lower() == clinic_id.strip().lower()),
-                    None
-                )
-
-                if rec:
-                    existing_file_id = str(rec.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
-                    existing_name = str(rec.get(SHEET_COL_DATASET_FILE_NAME, "")).strip()
-
-                if existing_file_id:
-                    existing_bytes = drive_download_bytes(existing_file_id)
-                    # Load existing canonical dataset
-                    existing_df = pd.read_csv(
-                        BytesIO(existing_bytes),
-                        dtype=str,
-                        keep_default_na=False,
-                        index_col=False
-                    )
-                    # Also normalize it through your pipeline so schema matches perfectly
-                    existing_df, _, _ = process_file(existing_bytes, existing_name or "shared_dataset.csv")
-
-                    # Optional: drop debug columns from old canonical too
-                    existing_df = existing_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
-
-            except Exception:
-                existing_df = None  # treat as first publish
-
-            # 2) Merge + de-dupe
-            if existing_df is not None and not existing_df.empty:
-                merged_df = merge_dedupe(existing_df, new_df)
-            else:
-                merged_df = new_df
-
-            # 3) Save merged dataset to Drive (new file each time — simplest)
-            out_name = f"{clinic_id}_shared_dataset.csv"
-            out_bytes = merged_df.to_csv(index=False).encode("utf-8")
-            new_file_id = drive_upload_csv_bytes(out_bytes, out_name, DATASETS_FOLDER_ID)
-
-            # 4) Update the clinic row pointer in the settings sheet
-            update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
-
-            # 5) Load it immediately in this session and invalidate caches
             st.session_state["working_df"] = merged_df
             st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
             st.session_state["shared_dataset_loaded"] = True
@@ -1571,6 +1612,7 @@ if files:
 
             st.success("✅ Published! All clinic users will now load this dataset automatically.")
             st.rerun()
+
 
 # --------------------------------
 # Render Tables
@@ -2151,52 +2193,6 @@ if st.session_state.get("working_df") is not None:
                     st.info("This exclusion already exists.")
             else:
                 st.error("Enter a valid exclusion term")
-
-@st.cache_resource(show_spinner=False)
-def get_sheet():
-    # Do not connect unless Feedback needs it
-    try:
-        creds_dict = st.secrets["gcp_service_account"]
-    except Exception:
-        try:
-            with open("google-credentials.json", "r") as f:
-                creds_dict = json.load(f)
-        except FileNotFoundError:
-            return None
-    try:
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
-        client = gspread.authorize(creds)
-        return client.open_by_key(SHEET_ID).sheet1
-    except Exception:
-        return None
-
-def _next_id_from_column(sheet):
-    try:
-        col_ids = sheet.col_values(1)[1:]  # skip header
-        nums = [int(x) for x in col_ids if x.strip().isdigit()]
-        return (max(nums) if nums else 0) + 1
-    except Exception:
-        rows = sheet.get_all_values()
-        return len(rows)
-
-def insert_feedback(name, email, message):
-    sheet = get_sheet()
-    if sheet is None:
-        st.error("Google credentials not found or Sheet unavailable.")
-        return
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    next_id = _next_id_from_column(sheet)
-    sheet.append_row([next_id, now, name or "", email or "", message],
-                     value_input_option="USER_ENTERED")
-
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_feedback(limit=500):
-    sheet = get_sheet()
-    if sheet is None:
-        return []
-    rows = sheet.get_all_values()
-    data = rows[1:] if rows else []
-    return data[-limit:] if data else []
 
 # --------------------------------
 # 📊 Factoids Section (Password Protected)
@@ -3480,20 +3476,16 @@ if st.session_state["factoids_unlocked"]:
                     st.altair_chart(chart_clients, use_container_width=True)
                 else:
                     st.info("No client data found for this period.")
-    
-# --------------------------------
-# 💬 Feedback (Lazy Sheets; isolated from reruns)
-# --------------------------------
-st.markdown("<div id='feedback-section' class='anchor-offset'></div>", unsafe_allow_html=True)
-st.markdown("## 💬 Feedback")
-st.markdown("### Found a problem? Let me (Patrik) know here:")
+
+# ============================================================
+# 💬 Feedback (Single source of truth)
+# ============================================================
+FEEDBACK_SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
+FEEDBACK_SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
 @st.cache_resource(show_spinner=False)
-def get_sheet():
-    """Lazy Google Sheets connector (single source of truth)."""
-    SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
-    SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Credentials: try st.secrets, then local fallback
+def get_feedback_sheet():
+    """Connect to Feedback Google Sheet (lazy; cached)."""
     try:
         creds_dict = st.secrets["gcp_service_account"]
     except Exception:
@@ -3502,37 +3494,54 @@ def get_sheet():
                 creds_dict = json.load(f)
         except FileNotFoundError:
             return None
+
     try:
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, FEEDBACK_SCOPE)
         client = gspread.authorize(creds)
-        return client.open_by_key(SHEET_ID).sheet1
+        return client.open_by_key(FEEDBACK_SHEET_ID).sheet1
     except Exception:
         return None
 
-def insert_feedback(name, email, message):
-    sheet = get_sheet()
+
+def insert_feedback(name: str, email: str, message: str):
+    sheet = get_feedback_sheet()
     if sheet is None:
-        st.error("⚠ Could not connect to Google Sheet. Please check credentials or try again later.")
+        st.error("⚠ Could not connect to Feedback Sheet. Check credentials or try again later.")
         return
+
     now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # robust next id
     try:
         col_ids = sheet.col_values(1)[1:]  # skip header
-        nums = [int(x) for x in col_ids if x.strip().isdigit()]
+        nums = [int(x) for x in col_ids if str(x).strip().isdigit()]
         next_id = (max(nums) if nums else 0) + 1
     except Exception:
         rows = sheet.get_all_values() or []
         next_id = max(0, len(rows) - 1) + 1
+
     sheet.append_row([next_id, now, name or "", email or "", message], value_input_option="USER_ENTERED")
+
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_feedback(limit=500):
-    """Optional: fetch last `limit` rows for an admin list (not used in UI yet)."""
-    sheet = get_sheet()
+    """Fetch last `limit` feedback rows (optional; for admin use)."""
+    sheet = get_feedback_sheet()
     if sheet is None:
         return []
     rows = sheet.get_all_values() or []
     data = rows[1:] if rows else []
     return data[-limit:] if data else []
+
+
+@st.cache_data(ttl=30)
+def fetch_feedback_cached(limit=500):
+    # keep your existing callsites working
+    return fetch_feedback(limit)
+
+st.markdown("<div id='feedback-section' class='anchor-offset'></div>", unsafe_allow_html=True)
+st.markdown("## 💬 Feedback")
+st.markdown("### Found a problem? Let me (Patrik) know here:")
 
 # Wrap inputs in a form to avoid reruns per keystroke
 with st.form("feedback_form"):
@@ -3558,10 +3567,6 @@ if submitted_fb:
                     del st.session_state[k]
         except Exception as e:
             st.error(f"Could not save your message: {e}")
-
-
-
-
 
 # --------------------------------
 #  👩‍⚕️ ADMIN TOOLS
@@ -3781,63 +3786,75 @@ if st.session_state["admin_unlocked"]:
     # --------------------------------
     # 🧾 Quarterly LLM Bundle
     # --------------------------------
-    st.markdown("---")
-    st.markdown("### 🧾 Quarterly LLM Bundle")
-
-    st.session_state.setdefault("llm_payload", None)
-    st.session_state.setdefault("llm_zip_bytes", None)
-    st.session_state.setdefault("llm_built_at", None)
-
-    col_gen, col_dl = st.columns([1, 1])
-
-    with col_gen:
-        if st.button("Generate Data", help="Builds the quarterly JSON payload and CSVs (on click only)"):
-            if "bundle" not in st.session_state:
-                st.error("Upload data first to enable this export.")
-            else:
-                df_full, masks, tx_client, tx_patient, patients_per_month = st.session_state["bundle"]
-                with st.spinner("Generating quarterly export bundle..."):
-                    payload, zip_bytes = build_quarterly_payload_full(
-                        df_full=df_full,
-                        masks=masks,
-                        tx_client=tx_client,
-                        tx_patient=tx_patient,
-                        patients_per_month=patients_per_month,
-                        clinic_name=st.session_state.get("user_name") or None,
-                        include_raw_rows_csv=True,
-                        raw_rows_limit=None,
-                    )
-                if zip_bytes:
-                    clean_payload_json = json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)
-                    clean_payload = json.loads(clean_payload_json)
-
-                    st.session_state["llm_payload"] = clean_payload
-                    st.session_state["llm_zip_bytes"] = zip_bytes
-                    st.session_state["llm_built_at"] = pd.Timestamp.now(tz="Asia/Dubai")
-                    st.success("Quarterly LLM data generated.")
+    # --- Guard: ensure export builders exist (prevents crashes if not included yet)
+    missing_export_bits = []
+    if "build_quarterly_payload_full" not in globals():
+        missing_export_bits.append("build_quarterly_payload_full")
+    if "_json_default" not in globals():
+        missing_export_bits.append("_json_default")
+    
+    if missing_export_bits:
+        st.warning(
+            "Quarterly export is not available in this build. Missing: "
+            + ", ".join(missing_export_bits)
+        )
+    else:
+        st.markdown("---")
+        st.markdown("### 🧾 Quarterly LLM Bundle")
+    
+        st.session_state.setdefault("llm_payload", None)
+        st.session_state.setdefault("llm_zip_bytes", None)
+        st.session_state.setdefault("llm_built_at", None)
+    
+        col_gen, col_dl = st.columns([1, 1])
+    
+        with col_gen:
+            if st.button("Generate Data", help="Builds the quarterly JSON payload and CSVs (on click only)"):
+                if "bundle" not in st.session_state:
+                    st.error("Upload data first to enable this export.")
                 else:
-                    st.error("Could not build the bundle (no data or invalid dates).")
-
-    with col_dl:
-        has_zip = st.session_state.get("llm_zip_bytes") is not None
-        if has_zip:
-            st.download_button(
-                label="Download ZIP",
-                data=st.session_state["llm_zip_bytes"],
-                file_name="clinic_quarterly_llm_bundle.zip",
-                mime="application/zip",
-                help="Downloads quarterly_payload.json + supporting CSVs",
-            )
-        else:
-            st.button("Download ZIP", disabled=True, help="Generate Data first")
-
-    if st.session_state.get("llm_payload"):
-        meta = f"Built at: {st.session_state.get('llm_built_at')}"
-        with st.expander(f"Preview quarterly_payload.json  •  {meta}"):
-            st.code(
-                json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
-                language="json",
-            )
-
+                    df_full, masks, tx_client, tx_patient, patients_per_month = st.session_state["bundle"]
+                    with st.spinner("Generating quarterly export bundle..."):
+                        payload, zip_bytes = build_quarterly_payload_full(
+                            df_full=df_full,
+                            masks=masks,
+                            tx_client=tx_client,
+                            tx_patient=tx_patient,
+                            patients_per_month=patients_per_month,
+                            clinic_name=st.session_state.get("user_name") or None,
+                            include_raw_rows_csv=True,
+                            raw_rows_limit=None,
+                        )
+                    if zip_bytes:
+                        clean_payload_json = json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)
+                        clean_payload = json.loads(clean_payload_json)
+    
+                        st.session_state["llm_payload"] = clean_payload
+                        st.session_state["llm_zip_bytes"] = zip_bytes
+                        st.session_state["llm_built_at"] = pd.Timestamp.now(tz="Asia/Dubai")
+                        st.success("Quarterly LLM data generated.")
+                    else:
+                        st.error("Could not build the bundle (no data or invalid dates).")
+    
+        with col_dl:
+            has_zip = st.session_state.get("llm_zip_bytes") is not None
+            if has_zip:
+                st.download_button(
+                    label="Download ZIP",
+                    data=st.session_state["llm_zip_bytes"],
+                    file_name="clinic_quarterly_llm_bundle.zip",
+                    mime="application/zip",
+                    help="Downloads quarterly_payload.json + supporting CSVs",
+                )
+            else:
+                st.button("Download ZIP", disabled=True, help="Generate Data first")
+    
+        if st.session_state.get("llm_payload"):
+            meta = f"Built at: {st.session_state.get('llm_built_at')}"
+            with st.expander(f"Preview quarterly_payload.json  •  {meta}"):
+                st.code(
+                    json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
+                    language="json",
+                )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
