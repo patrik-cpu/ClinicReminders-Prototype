@@ -51,6 +51,38 @@ def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
         df = df.loc[:, ~df.columns.duplicated()].copy()
     return df
     
+def clear_clinic_dataset_pointer(clinic_id: str):
+    sheet = get_settings_sheet()
+    all_vals = sheet.get_all_values()
+    headers = all_vals[0]
+
+    clinic_col = headers.index("ClinicID") + 1
+    row_idx = None
+    for i, r in enumerate(all_vals[1:], start=2):
+        if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
+            row_idx = i
+            break
+    if row_idx is None:
+        raise ValueError("ClinicID not found in settings sheet")
+
+    def col_index(name):
+        return headers.index(name) + 1
+
+    # Clear the dataset pointer cells
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_ID), "")
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_NAME), "")
+    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_UPDATED_AT), "")
+    
+def drive_trash_file(file_id: str):
+    if not file_id:
+        return
+    service = get_drive_service()
+    service.files().update(
+        fileId=file_id,
+        body={"trashed": True},
+        supportsAllDrives=True
+    ).execute()
+
 # -----------------------
 # Keyword Definitions
 # -----------------------
@@ -1654,6 +1686,42 @@ if files:
             st.success("✅ Published! All clinic users will now load this dataset automatically.")
             st.rerun()
 
+# -------------------------------------
+# Reset Clinic Dataset
+# -------------------------------------
+st.markdown("### 🧨 Reset Clinic Dataset (Testing / Wrong Upload)")
+st.caption("This clears the shared dataset pointer for this clinic so the app behaves like no dataset is published.")
+confirm_reset = st.checkbox("I understand this will remove the shared dataset for my clinic", key="confirm_reset_dataset")
+
+if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_reset):
+    clinic_id = st.session_state.get("clinic_id")
+    if not clinic_id:
+        st.error("Not logged in.")
+        st.stop()
+
+    # Grab current pointer so we can optionally trash it
+    existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+
+    # 1) Clear pointer in settings sheet (THIS is the key)
+    clear_clinic_dataset_pointer(clinic_id)
+
+    # 2) Optional: trash the old file in Drive
+    # drive_trash_file(existing_file_id)
+
+    # 3) Clear local state so UI resets immediately
+    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
+        st.session_state.pop(key, None)
+
+    st.session_state["shared_dataset_loaded"] = False
+    st.session_state["shared_dataset_name"] = None
+    st.session_state["shared_dataset_error"] = None
+
+    # Optional: clear uploader + caches
+    st.cache_data.clear()
+    st.session_state.pop("file_uploader_main", None)
+
+    st.success("✅ Clinic dataset reset. No shared dataset is published for this clinic now.")
+    st.rerun()
 
 # --------------------------------
 # Render Tables
@@ -3899,6 +3967,7 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
