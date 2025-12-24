@@ -536,7 +536,7 @@ def build_vetport_rowkey(df: pd.DataFrame) -> pd.Series:
     key_cols = [
         "Invoice No",
         "Plan Item ID",
-        "Planitem Performed",
+        "ChargeDate",
         "Client ID",
         "Patient ID",
         "Plan Item Amount",
@@ -3898,6 +3898,7 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
