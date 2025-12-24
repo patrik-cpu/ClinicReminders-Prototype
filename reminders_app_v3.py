@@ -39,7 +39,7 @@ with title_col:
 st.markdown("---")
 
 # === Drive folder where canonical datasets live ===
-DATASETS_FOLDER_ID = "1dq6O5KkHmBza-vTAygDz34q9gMsbskkE"  # from Drive folder URL
+DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive folder URL
 
 # === Sheet columns you created ===
 SHEET_COL_DATASET_FILE_ID = "DatasetFileId"
@@ -452,18 +452,48 @@ def drive_upload_csv_bytes(file_bytes: bytes, filename: str, folder_id: str) -> 
     service = get_drive_service()
     media = MediaIoBaseUpload(BytesIO(file_bytes), mimetype="text/csv", resumable=False)
 
-    body = {"name": filename, "parents": [folder_id]}
+    body = {
+        "name": filename,
+        "parents": [folder_id],  # folder inside Shared Drive
+    }
 
     try:
         created = service.files().create(
             body=body,
             media_body=media,
             fields="id",
-            supportsAllDrives=True,   # ✅ critical for Shared Drives
+            supportsAllDrives=True,  # ✅ Shared Drive
         ).execute()
         return created["id"]
     except HttpError as e:
         st.error(f"Drive upload failed. HTTP {getattr(e.resp, 'status', '?')}")
+        try:
+            st.code(e.content.decode("utf-8"))
+        except Exception:
+            pass
+        raise
+        
+def drive_check_folder_access(folder_id: str):
+    service = get_drive_service()
+    try:
+        meta = service.files().get(
+            fileId=folder_id,
+            fields="id,name,mimeType,driveId",
+            supportsAllDrives=True,
+        ).execute()
+        st.success(f"Drive folder OK: {meta.get('name')} ({meta.get('id')})")
+
+        # List children as a stronger check
+        resp = service.files().list(
+            q=f"'{folder_id}' in parents and trashed=false",
+            fields="files(id,name,mimeType), nextPageToken",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+            pageSize=5,
+        ).execute()
+        st.caption(f"Folder children visible: {len(resp.get('files', []))}")
+    except HttpError as e:
+        st.error(f"Cannot access the Drive folder. HTTP {getattr(e.resp, 'status', '?')}")
         try:
             st.code(e.content.decode("utf-8"))
         except Exception:
@@ -3811,10 +3841,3 @@ if st.session_state["admin_unlocked"]:
 
 else:
     st.info("🔒 NVF admin-only sections are locked.")
-
-
-
-
-
-
-
