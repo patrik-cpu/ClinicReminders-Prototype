@@ -11,6 +11,8 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import hashlib
 import numpy as np
+from gspread.exceptions import APIError
+import time, random
 
 #Saving data set
 from googleapiclient.discovery import build
@@ -615,26 +617,63 @@ def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
 #   - Single orchestrator for publishing clinic datasets
 #   - Helpers to fetch existing pointer + load existing dataset
 # ============================================================
+def _gspread_retry(fn, *args, **kwargs):
+    """
+    Retries common transient Google Sheets errors (429/500/503).
+    Keeps other errors as-is so you still see real permission/config issues.
+    """
+    max_tries = 6
+    for attempt in range(max_tries):
+        try:
+            return fn(*args, **kwargs)
+        except APIError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            # Some gspread versions store status differently; keep it robust:
+            if status is None:
+                status = getattr(getattr(e, "resp", None), "status", None)
+
+            # Retry only transient/quota-ish errors
+            if status in (429, 500, 503):
+                sleep = min(30, (2 ** attempt) + random.random())
+                time.sleep(sleep)
+                continue
+
+            # Not transient -> raise (likely 403 perms, 400 bad request, etc.)
+            raise
+
+    # If we exhausted retries, raise last error
+    return fn(*args, **kwargs)
 
 def get_existing_dataset_pointer(clinic_id: str) -> tuple[str, str]:
     """
-    Returns (existing_file_id, existing_filename) from settings sheet.
-    If not found, returns ("", "").
+    Returns (existing_file_id, existing_filename) using a light-weight read:
+    - sheet.get_all_values() (still whole sheet) but avoids get_all_records() overhead
+    - and does NOT parse into dicts
+    If you want to go further, see section (3) below to read only 3 columns.
     """
     sheet = get_settings_sheet()
-    recs = sheet.get_all_records()
+    all_vals = _gspread_retry(sheet.get_all_values)
 
-    rec = next(
-        (r for r in recs if str(r.get("ClinicID", "")).strip().lower() == clinic_id.strip().lower()),
-        None
-    )
-    if not rec:
+    if not all_vals or len(all_vals) < 2:
         return "", ""
 
-    existing_file_id = str(rec.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
-    existing_name    = str(rec.get(SHEET_COL_DATASET_FILE_NAME, "")).strip()
-    return existing_file_id, existing_name
+    headers = all_vals[0]
+    # Defensive: handle missing headers gracefully
+    try:
+        clinic_ix = headers.index("ClinicID")
+        fileid_ix = headers.index(SHEET_COL_DATASET_FILE_ID)
+        fname_ix  = headers.index(SHEET_COL_DATASET_FILE_NAME)
+    except ValueError:
+        return "", ""
 
+    cid = clinic_id.strip().lower()
+    for r in all_vals[1:]:
+        if len(r) <= max(clinic_ix, fileid_ix, fname_ix):
+            continue
+        if str(r[clinic_ix]).strip().lower() == cid:
+            return str(r[fileid_ix]).strip(), str(r[fname_ix]).strip()
+
+    return "", ""
 
 def load_existing_shared_df(file_id: str, filename: str) -> pd.DataFrame | None:
     """
@@ -750,7 +789,7 @@ def save_settings():
         return
 
     sheet = get_settings_sheet()
-    all_vals = sheet.get_all_values()
+    all_vals = _gspread_retry(sheet.get_all_values)
     headers = all_vals[0]
     clinic_col = headers.index("ClinicID") + 1
 
@@ -1752,7 +1791,11 @@ if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_res
         st.stop()
 
     # Grab current pointer so we can optionally trash it
-    existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+    try:
+        existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+    except Exception as e:
+        existing_file_id, existing_name = "", ""
+        st.warning(f"Could not read existing dataset pointer (will still reset). ({type(e).__name__})")
 
     # 1) Clear pointer in settings sheet (THIS is the key)
     clear_clinic_dataset_pointer(clinic_id)
@@ -4064,6 +4107,7 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
