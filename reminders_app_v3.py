@@ -1731,12 +1731,6 @@ if set(current_files) != set(st.session_state["last_uploaded_files"]):
     for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
         st.session_state.pop(key, None)
 
-    # Optional: reset uploader widget state (keeps your current behaviour)
-    st.session_state.pop("file_uploader_main", None)
-
-    # Reload shared dataset pointer (keep your current behaviour)
-    load_shared_dataset_for_clinic()
-
     st.rerun()
 
 # --------------------------------
@@ -4179,3 +4173,4 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
