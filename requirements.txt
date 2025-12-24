@@ -4,4 +4,9 @@ openpyxl
 gspread
 oauth2client
 chardet>=5.1.0
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
+
 
