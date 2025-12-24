@@ -1274,15 +1274,36 @@ elif st.session_state.get("shared_dataset_error"):
 else:
     st.caption("No shared dataset published yet — upload a file to start.")
 
-# Show dataset date range (shared or locally uploaded)
-if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
-    dmin = pd.to_datetime(st.session_state["working_df"]["ChargeDate"], errors="coerce").min()
-    dmax = pd.to_datetime(st.session_state["working_df"]["ChargeDate"], errors="coerce").max()
-    if pd.notna(dmin) and pd.notna(dmax):
-        st.caption(f"Dataset range: {dmin:%d %b %Y} → {dmax:%d %b %Y}")
+def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    if df is None or df.empty:
+        return None, None
+
+    s = df.get("ChargeDate")
+    if s is None:
+        return None, None
+
+    if pd.api.types.is_datetime64_any_dtype(s):
+        dt = pd.to_datetime(s, errors="coerce").dt.normalize()
     else:
-        st.caption("Dataset range: (dates not detected)")
-                    
+        dt = parse_dates(s).dt.normalize()
+
+    dmin = dt.min()
+    dmax = dt.max()
+    if pd.isna(dmin) or pd.isna(dmax):
+        return None, None
+    return dmin, dmax
+
+# Show dataset date range (shared or locally uploaded)
+df_w = st.session_state.get("working_df")
+df_w = drop_duplicate_columns(df_w) if df_w is not None else None
+
+dmin, dmax = get_dataset_date_range(df_w)
+
+if dmin is not None and dmax is not None:
+    st.caption(f"Dataset range: {dmin:%d %b %Y} → {dmax:%d %b %Y}")
+else:
+    st.caption("Dataset range: (dates not detected)")
+
 # --------------------------------
 # 🗑️ Local hidden-reminders tracking
 # --------------------------------
@@ -1414,7 +1435,13 @@ def map_intervals_vec(df, rules):
         df["ItemNorm"] = df["Item Name"].astype(str).map(_norm)
 
     n = len(df)
-    interval = pd.Series(pd.NA, index=df.index, dtype="Float64")
+
+    # IntervalDays = may use qty (existing behaviour)
+    interval_qty = pd.Series(pd.NA, index=df.index, dtype="Float64")
+
+    # BaseIntervalDays = NEVER uses qty (new)
+    interval_base = pd.Series(pd.NA, index=df.index, dtype="Float64")
+
     matched = np.empty(n, dtype=object)
     matched[:] = [[] for _ in range(n)]
 
@@ -1425,14 +1452,21 @@ def map_intervals_vec(df, rules):
             continue
 
         days = int(settings["days"])
+
+        # Base is always just 'days'
+        base_cand = pd.Series(days, index=df.index)[mask]
+        interval_base = interval_base.where(~mask, pd.concat([interval_base[mask], base_cand], axis=1).min(axis=1))
+
+        # Qty interval uses qty only if rule says so
         if settings.get("use_qty"):
             qty = pd.to_numeric(df.loc[mask, "Qty"], errors="coerce").fillna(1).astype(int).clip(lower=1)
-            cand = qty * days
+            qty_cand = qty * days
         else:
-            cand = pd.Series(days, index=df.index)[mask]
+            qty_cand = pd.Series(days, index=df.index)[mask]
 
-        interval = interval.where(~mask, pd.concat([interval[mask], cand], axis=1).min(axis=1))
+        interval_qty = interval_qty.where(~mask, pd.concat([interval_qty[mask], qty_cand], axis=1).min(axis=1))
 
+        # Matched visible items
         vis = settings.get("visible_text", "").strip()
         idxs = df.index[mask]
         if vis:
@@ -1441,7 +1475,8 @@ def map_intervals_vec(df, rules):
             for i in idxs: matched[i].append(df.at[i, "Item Name"])
 
     df["MatchedItems"] = [list({x.strip() for x in lst if str(x).strip()}) for lst in matched]
-    df["IntervalDays"] = interval
+    df["IntervalDays"] = interval_qty
+    df["BaseIntervalDays"] = interval_base
     return df
 
 @st.cache_data(show_spinner=False)
@@ -2037,8 +2072,9 @@ if st.session_state.get("working_df") is not None:
         (pd.to_datetime(prepared["NextDueDate"]) <= pd.to_datetime(end_date))
     ].copy()
 
-    if not due2.empty:
+   if not due2.empty:
         g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
+
         grouped = (
             pd.DataFrame({
                 "Charge Date": g["ChargeDateFmt"].max(),
@@ -2053,8 +2089,28 @@ if st.session_state.get("working_df") is not None:
                         )))
                     )
                 ),
-                "Qty": g["Qty"].sum(min_count=1),
-                "Days": g["IntervalDays"].apply(
+    
+                # --- grouping detectors ---
+                "_n_animals": g["Animal Name"].nunique(dropna=True),
+                "_n_items": g["MatchedItems"].apply(
+                    lambda lists: len(set(
+                        i.strip()
+                        for sublist in lists
+                        for i in (sublist if isinstance(sublist, list) else [sublist])
+                        if str(i).strip()
+                    ))
+                ),
+    
+                # --- base computations (keep both) ---
+                "_qty_sum": g["Qty"].sum(min_count=1),
+    
+                "_days_qty": g["IntervalDays"].apply(
+                    lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
+                    if pd.to_numeric(x, errors="coerce").notna().any()
+                    else ""
+                ),
+    
+                "_days_base": g["BaseIntervalDays"].apply(
                     lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
                     if pd.to_numeric(x, errors="coerce").notna().any()
                     else ""
@@ -2062,8 +2118,16 @@ if st.session_state.get("working_df") is not None:
             })
             .reset_index()
             .rename(columns={"DueDateFmt": "Due Date"})
-        )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
-
+        )
+    
+        # ✅ grouped row => Qty="NA" + Days ignores Qty
+        is_grouped = (grouped["_n_animals"] > 1) | (grouped["_n_items"] > 1)
+    
+        grouped["Qty"] = grouped["_qty_sum"].where(~is_grouped, "NA")
+        grouped["Days"] = grouped["_days_qty"].where(~is_grouped, grouped["_days_base"])
+    
+        grouped = grouped[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
+    
         # --- Filter out deleted reminders before rendering ---
         deleted = st.session_state.get("deleted_reminders", [])
         if deleted:
@@ -2077,10 +2141,13 @@ if st.session_state.get("working_df") is not None:
                     axis=1
                 )
             ]
-
-        grouped["Qty"] = pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
+    
+        # ✅ only coerce Qty to int for non-grouped rows
+        grouped["Qty"] = grouped["Qty"].where(grouped["Qty"].astype(str) == "NA",
+                                             pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int))
+    
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
-
+    
     else:
         st.info("No reminders in the selected week.")
 
@@ -3967,6 +4034,7 @@ if st.session_state["admin_unlocked"]:
                 )
 else:
     st.info("🔒 NVF admin-only sections are locked.")
+
 
 
 
