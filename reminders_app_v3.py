@@ -461,7 +461,72 @@ def drive_download_bytes(file_id: str) -> bytes:
         except Exception:
             pass
         raise
+        
+def ensure_min_canonical_schema(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    for col, default in {
+        "ChargeDate": pd.NaT,
+        "Client Name": "",
+        "Animal Name": "",
+        "Item Name": "",
+        "Qty": 1,
+        "Amount": 0,
+    }.items():
+        if col not in df.columns:
+            df[col] = default
+    return df
+    
+def normalize_key_series(s, index=None) -> pd.Series:
+    """
+    Robust text normalisation for key columns.
+    Avoids Arrow-backed .str.replace(regex=True) issues by using Python regex per cell.
+    """
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+    if s is None:
+        s = pd.Series("", index=index)
 
+    s = pd.Series(s, index=getattr(s, "index", index), copy=False)
+
+    def _clean_one(x):
+        if pd.isna(x):
+            return ""
+        x = unicodedata.normalize("NFKC", str(x)).lower()
+        x = re.sub(r"[\u00A0\u200B]", "", x)
+        x = re.sub(r"\s+", " ", x).strip()
+        return x
+
+    return s.map(_clean_one)
+
+def sanitize_working_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Single entry-point sanitiser for any dataframe entering app state.
+    """
+    if df is None:
+        return df
+
+    df = df.copy()
+    df = drop_duplicate_columns(df)
+    df = ensure_min_canonical_schema(df)
+
+    # force plain pandas/object-safe strings for key columns
+    for col in ["Client Name", "Animal Name", "Item Name"]:
+        if col in df.columns:
+            if isinstance(df[col], pd.DataFrame):
+                df[col] = df[col].iloc[:, 0]
+            df[col] = df[col].astype("string[python]").fillna("")
+
+    if "ChargeDate" in df.columns:
+        df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+
+    if "Qty" in df.columns:
+        df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(1).astype(int)
+
+    if "Amount" in df.columns:
+        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+
+    return df
+    
 def load_shared_dataset_for_clinic():
     """
     If the clinic has a DatasetFileId stored in the settings sheet,
@@ -977,11 +1042,22 @@ def process_file(file_bytes, filename):
 
     # --- 1️⃣ Load file ---
     if lowerfn.endswith(".csv"):
-        df = pd.read_csv(file, dtype=str, keep_default_na=False, index_col=False)
+        df = pd.read_csv(
+            file,
+            dtype=str,
+            keep_default_na=False,
+            index_col=False,
+            skip_blank_lines=True,
+        )
     elif lowerfn.endswith((".xls", ".xlsx")):
-        df = pd.read_excel(file)
+        df = pd.read_excel(file, dtype=str)
     else:
         raise ValueError("Unsupported file type")
+    
+    # Drop rows that are completely empty or whitespace-only
+    df = df.replace(r"^\s*$", "", regex=True)
+    df = df.dropna(how="all")
+    df = df.loc[~(df.eq("").all(axis=1))].copy()
 
     # --- Clean up column headers early (strip ALL whitespace and normalize unicode) ---
     def clean_header(h):
@@ -1101,7 +1177,6 @@ def get_settings_sheet():
 def hash_pw(pw: str):
     """Return MD5 hash of a password."""
     return hashlib.md5(pw.encode()).hexdigest()
-
 
 def authenticate_user(username, password):
     """Check username/password pair against the sheet."""
@@ -1372,74 +1447,9 @@ st.session_state.setdefault("new_rule_counter", 0)
 st.session_state.setdefault("form_version", 0)
 st.session_state.setdefault("deleted_reminders", load_deleted_reminders())
 
-
 # --------------------------------
 # Helpers
 # -------------------------------
-    
-def ensure_min_canonical_schema(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    for col, default in {
-        "ChargeDate": pd.NaT,
-        "Client Name": "",
-        "Animal Name": "",
-        "Item Name": "",
-        "Qty": 1,
-        "Amount": 0,
-    }.items():
-        if col not in df.columns:
-            df[col] = default
-    return df
-def normalize_key_series(s, index=None) -> pd.Series:
-    """
-    Robust text normalisation for key columns.
-    Avoids Arrow-backed .str.replace(regex=True) issues by using Python regex per cell.
-    """
-    if isinstance(s, pd.DataFrame):
-        s = s.iloc[:, 0]
-    if s is None:
-        s = pd.Series("", index=index)
-
-    s = pd.Series(s, index=getattr(s, "index", index), copy=False)
-
-    def _clean_one(x):
-        if pd.isna(x):
-            return ""
-        x = unicodedata.normalize("NFKC", str(x)).lower()
-        x = re.sub(r"[\u00A0\u200B]", "", x)
-        x = re.sub(r"\s+", " ", x).strip()
-        return x
-
-    return s.map(_clean_one)
-
-def sanitize_working_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Single entry-point sanitiser for any dataframe entering app state.
-    """
-    if df is None:
-        return df
-
-    df = df.copy()
-    df = drop_duplicate_columns(df)
-    df = ensure_min_canonical_schema(df)
-
-    # force plain pandas/object-safe strings for key columns
-    for col in ["Client Name", "Animal Name", "Item Name"]:
-        if col in df.columns:
-            if isinstance(df[col], pd.DataFrame):
-                df[col] = df[col].iloc[:, 0]
-            df[col] = df[col].astype("string[python]").fillna("")
-
-    if "ChargeDate" in df.columns:
-        df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
-
-    if "Qty" in df.columns:
-        df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(1).astype(int)
-
-    if "Amount" in df.columns:
-        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
-
-    return df
     
 def simplify_vaccine_text(text: str) -> str:
     if not isinstance(text, str):
