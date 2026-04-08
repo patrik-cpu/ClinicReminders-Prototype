@@ -47,11 +47,23 @@ SHEET_COL_DATASET_UPDATED_AT = "DatasetUpdatedAt"
 
 def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    If df has duplicate column names, keep the first occurrence.
-    (Prevents df['Client Name'] returning a DataFrame instead of Series.)
+    Drop duplicate columns after normalizing header text.
+    Keeps the first occurrence.
     """
-    if df.columns.duplicated().any():
-        df = df.loc[:, ~df.columns.duplicated()].copy()
+    if df is None:
+        return df
+
+    df = df.copy()
+
+    def _norm_col(c):
+        if not isinstance(c, str):
+            c = str(c)
+        c = unicodedata.normalize("NFKC", c).replace("\u00a0", " ").replace("\ufeff", "")
+        c = _SPACE_RX.sub(" ", c).strip().lower()
+        return c
+
+    norm_cols = pd.Index([_norm_col(c) for c in df.columns])
+    df = df.loc[:, ~norm_cols.duplicated()].copy()
     return df
     
 def clear_clinic_dataset_pointer(clinic_id: str):
@@ -478,10 +490,7 @@ def load_shared_dataset_for_clinic():
         filename = rec.get(SHEET_COL_DATASET_FILE_NAME, "shared_dataset.csv") or "shared_dataset.csv"
         df, pms_name, amount_col = process_file(file_bytes, filename)
         
-        df = drop_duplicate_columns(df)
-        df = ensure_min_canonical_schema(df)
-        
-        st.session_state["working_df"] = df
+        st.session_state["working_df"] = sanitize_working_df(df)
         st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1  # invalidate downstream caches
         st.session_state["shared_dataset_loaded"] = True
         st.session_state["shared_dataset_name"] = filename
@@ -1149,9 +1158,7 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
             pd.DataFrame(columns=["ClientKey","AnimalKey","Block","StartDate","EndDate","Amount"]),
             pd.Series(dtype="int64", name="AnimalKey"),
         )
-
-    df = df.copy()
-    df = drop_duplicate_columns(df)
+    df = sanitize_working_df(df)
 
     # ---- Core columns/prep (once) ----
     df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
@@ -1160,23 +1167,9 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
     df["Year"]       = df["ChargeDate"].dt.year
     df["MonthNum"]   = df["ChargeDate"].dt.month
 
-    def _norm(s) -> pd.Series:
-        if isinstance(s, pd.DataFrame):
-            s = s.iloc[:, 0]
-        if s is None:
-            s = pd.Series("", index=df.index)
-        return (
-            s.astype(str)
-             .str.normalize("NFKC")
-             .str.lower()
-             .str.replace(r"[\u00A0\u200B]", "", regex=True)
-             .str.strip()
-             .str.replace(r"\s+", " ", regex=True)
-        )
-
-    df["ClientKey"] = _norm(df.get("Client Name", pd.Series(index=df.index)))
-    df["AnimalKey"] = _norm(df.get("Animal Name", pd.Series(index=df.index)))
-    df["ItemNorm"]  = _norm(df.get("Item Name", pd.Series(index=df.index)))
+    df["ClientKey"] = normalize_key_series(df.get("Client Name"), index=df.index)
+    df["AnimalKey"] = normalize_key_series(df.get("Animal Name"), index=df.index)
+    df["ItemNorm"]  = normalize_key_series(df.get("Item Name"), index=df.index)
 
     # ---- Regex/mask helpers ----
     def _rx(includes):
@@ -1397,7 +1390,57 @@ def ensure_min_canonical_schema(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = default
     return df
+def normalize_key_series(s, index=None) -> pd.Series:
+    """
+    Robust text normalisation for key columns.
+    Avoids Arrow-backed .str.replace(regex=True) issues by using Python regex per cell.
+    """
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+    if s is None:
+        s = pd.Series("", index=index)
 
+    s = pd.Series(s, index=getattr(s, "index", index), copy=False)
+
+    def _clean_one(x):
+        if pd.isna(x):
+            return ""
+        x = unicodedata.normalize("NFKC", str(x)).lower()
+        x = re.sub(r"[\u00A0\u200B]", "", x)
+        x = re.sub(r"\s+", " ", x).strip()
+        return x
+
+    return s.map(_clean_one)
+
+def sanitize_working_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Single entry-point sanitiser for any dataframe entering app state.
+    """
+    if df is None:
+        return df
+
+    df = df.copy()
+    df = drop_duplicate_columns(df)
+    df = ensure_min_canonical_schema(df)
+
+    # force plain pandas/object-safe strings for key columns
+    for col in ["Client Name", "Animal Name", "Item Name"]:
+        if col in df.columns:
+            if isinstance(df[col], pd.DataFrame):
+                df[col] = df[col].iloc[:, 0]
+            df[col] = df[col].astype("string[python]").fillna("")
+
+    if "ChargeDate" in df.columns:
+        df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+
+    if "Qty" in df.columns:
+        df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(1).astype(int)
+
+    if "Amount" in df.columns:
+        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+
+    return df
+    
 def simplify_vaccine_text(text: str) -> str:
     if not isinstance(text, str):
         return text
@@ -1695,7 +1738,7 @@ if files:
     # --- Case 1: All files from same PMS ---
     if len(all_pms) == 1 and "Undetected" not in all_pms:
         working_df = pd.concat([df for _, df in datasets], ignore_index=True)
-        st.session_state["working_df"] = working_df
+        st.session_state["working_df"] = sanitize_working_df(working_df)
 
         # ✅ Immediately rebuild Factoids bundle after new upload
         df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
@@ -1714,7 +1757,7 @@ if files:
 
             if all(c in cand.columns for c in required_cols):
                 working_df = cand
-                st.session_state["working_df"] = working_df
+                st.session_state["working_df"] = sanitize_working_df(working_df)
 
                 # ✅ Rebuild Factoids bundle even if PMS undetected
                 df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
@@ -1771,7 +1814,7 @@ if files:
                 datasets_folder_id=DATASETS_FOLDER_ID,
             )
 
-            st.session_state["working_df"] = merged_df
+            st.session_state["working_df"] = sanitize_working_df(merged_df)
             st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
             st.session_state["shared_dataset_loaded"] = True
             st.session_state["shared_dataset_name"] = out_name
@@ -2663,24 +2706,10 @@ if st.session_state["factoids_unlocked"]:
                 df["Month"] = df["ChargeDate"].dt.to_period("M")
         
             # ClientKey/AnimalKey
-            def _norm(s) -> pd.Series:
-                if isinstance(s, pd.DataFrame):
-                    s = s.iloc[:, 0]
-                if s is None:
-                    s = pd.Series("", index=df.index)
-                return (
-                    s.astype(str)
-                     .str.normalize("NFKC")
-                     .str.lower()
-                     .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                     .str.strip()
-                     .str.replace(r"\s+", " ", regex=True)
-                )
-                
             if "ClientKey" not in df.columns:
-                df["ClientKey"] = _norm(df.get("Client Name", pd.Series(index=df.index)))
+                df["ClientKey"] = normalize_key_series(df.get("Client Name"), index=df.index)
             if "AnimalKey" not in df.columns:
-                df["AnimalKey"] = _norm(df.get("Animal Name", pd.Series(index=df.index)))
+                df["AnimalKey"] = normalize_key_series(df.get("Animal Name"), index=df.index)
         
             # Block (recompute if missing)
             if "Block" not in df.columns:
@@ -3208,12 +3237,7 @@ if st.session_state["factoids_unlocked"]:
             BAD_TERMS = ["counter", "walk", "cash", "test", "in-house", "in house"]
         
             def _norm_for_pairs(s: pd.Series) -> pd.Series:
-                return (
-                    s.astype(str)
-                     .str.normalize("NFKC").str.lower()
-                     .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                     .str.strip().str.replace(r"\s+", " ", regex=True)
-                )
+                return normalize_key_series(s, index=getattr(s, "index", None))
         
             metrics = {}
         
