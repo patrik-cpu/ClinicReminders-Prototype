@@ -477,7 +477,10 @@ def load_shared_dataset_for_clinic():
         # Filename is just for detect logic; use stored name if present, else default
         filename = rec.get(SHEET_COL_DATASET_FILE_NAME, "shared_dataset.csv") or "shared_dataset.csv"
         df, pms_name, amount_col = process_file(file_bytes, filename)
-
+        
+        df = drop_duplicate_columns(df)
+        df = ensure_min_canonical_schema(df)
+        
         st.session_state["working_df"] = df
         st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1  # invalidate downstream caches
         st.session_state["shared_dataset_loaded"] = True
@@ -1157,12 +1160,18 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
     df["Year"]       = df["ChargeDate"].dt.year
     df["MonthNum"]   = df["ChargeDate"].dt.month
 
-    def _norm(s: pd.Series) -> pd.Series:
+    def _norm(s) -> pd.Series:
+        if isinstance(s, pd.DataFrame):
+            s = s.iloc[:, 0]
+        if s is None:
+            s = pd.Series("", index=df.index)
         return (
             s.astype(str)
-             .str.normalize("NFKC").str.lower()
+             .str.normalize("NFKC")
+             .str.lower()
              .str.replace(r"[\u00A0\u200B]", "", regex=True)
-             .str.strip().str.replace(r"\s+", " ", regex=True)
+             .str.strip()
+             .str.replace(r"\s+", " ", regex=True)
         )
 
     df["ClientKey"] = _norm(df.get("Client Name", pd.Series(index=df.index)))
@@ -2654,13 +2663,20 @@ if st.session_state["factoids_unlocked"]:
                 df["Month"] = df["ChargeDate"].dt.to_period("M")
         
             # ClientKey/AnimalKey
-            def _norm(s: pd.Series) -> pd.Series:
+            def _norm(s) -> pd.Series:
+                if isinstance(s, pd.DataFrame):
+                    s = s.iloc[:, 0]
+                if s is None:
+                    s = pd.Series("", index=df.index)
                 return (
                     s.astype(str)
-                     .str.normalize("NFKC").str.lower()
+                     .str.normalize("NFKC")
+                     .str.lower()
                      .str.replace(r"[\u00A0\u200B]", "", regex=True)
-                     .str.strip().str.replace(r"\s+", " ", regex=True)
+                     .str.strip()
+                     .str.replace(r"\s+", " ", regex=True)
                 )
+                
             if "ClientKey" not in df.columns:
                 df["ClientKey"] = _norm(df.get("Client Name", pd.Series(index=df.index)))
             if "AnimalKey" not in df.columns:
