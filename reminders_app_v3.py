@@ -68,7 +68,11 @@ def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     
 def clear_clinic_dataset_pointer(clinic_id: str):
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-    _update_dataset_pointer_cells(sheet, headers, row_idx, "", "", "")
+
+    # Clear the dataset pointer cells
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID), "")
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_NAME), "")
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT), "")
 
 def _settings_col_index(headers, name: str) -> int:
     return headers.index(name) + 1
@@ -86,18 +90,6 @@ def _get_settings_row_for_clinic(clinic_id: str):
     if row_idx is None:
         raise ValueError("ClinicID not found in settings sheet")
     return sheet, headers, row_idx
-
-def _update_dataset_pointer_cells(sheet, headers, row_idx: int, file_id: str, filename: str, updated_at: str):
-    """
-    Update the 3 dataset pointer columns in one request to reduce partial-update risk.
-    """
-    values = [[file_id, filename, updated_at]]
-    rng = f"{gspread.utils.rowcol_to_a1(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID))}:{gspread.utils.rowcol_to_a1(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT))}"
-    _gspread_retry(
-        sheet.batch_update,
-        [{"range": rng, "values": values}],
-        value_input_option="RAW",
-    )
     
 def drive_trash_file(file_id: str):
     if not file_id:
@@ -679,14 +671,9 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
 
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-    _update_dataset_pointer_cells(
-        sheet,
-        headers,
-        row_idx,
-        file_id,
-        filename,
-        datetime.utcnow().isoformat(),
-    )
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID), file_id)
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_NAME), filename)
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT), datetime.utcnow().isoformat())
 
 # ============================================================
 # ✅ Dataset Publishing (Refactor #1)
