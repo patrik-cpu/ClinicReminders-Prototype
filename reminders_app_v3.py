@@ -6,6 +6,7 @@ import re
 import json, os, time
 import streamlit.components.v1 as components
 import gspread
+from settings_pointer_utils import settings_col_index, update_dataset_pointer_cells
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
