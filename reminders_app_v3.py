@@ -6,18 +6,12 @@ import re
 import json, os, time
 import streamlit.components.v1 as components
 import gspread
-from settings_pointer_utils import (
-    settings_col_index,
-    update_dataset_pointer_cells,
-    get_settings_row_for_clinic,
-)
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import hashlib
 import numpy as np
 from gspread.exceptions import APIError
-from gspread.utils import rowcol_to_a1
 import random
 
 #Saving data set
@@ -72,27 +66,43 @@ def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.loc[:, ~norm_cols.duplicated()].copy()
     return df
     
-def clear_clinic_dataset_pointer(clinic_id: str):
-    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-    _update_dataset_pointer_cells(sheet, headers, row_idx, "", "", "")
+
+def _settings_col_index(headers, name):
+    return headers.index(name) + 1
 
 def _get_settings_row_for_clinic(clinic_id: str):
     sheet = get_settings_sheet()
-    headers, row_idx = get_settings_row_for_clinic(sheet, clinic_id, clinic_id_col="ClinicID")
+    all_vals = _gspread_retry(sheet.get_all_values)
+    headers = all_vals[0]
+    clinic_col = _settings_col_index(headers, "ClinicID")
+
+    row_idx = None
+    for i, r in enumerate(all_vals[1:], start=2):
+        if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
+            row_idx = i
+            break
+
+    if row_idx is None:
+        raise ValueError("ClinicID not found in settings sheet")
+
     return sheet, headers, row_idx
 
 def _update_dataset_pointer_cells(sheet, headers, row_idx: int, file_id: str, filename: str, updated_at: str):
-    update_dataset_pointer_cells(
-        sheet=sheet,
-        headers=headers,
-        row_idx=row_idx,
-        file_id=file_id,
-        filename=filename,
-        updated_at=updated_at,
-        dataset_file_id_col=SHEET_COL_DATASET_FILE_ID,
-        dataset_updated_at_col=SHEET_COL_DATASET_UPDATED_AT,
-        retry_fn=_gspread_retry,
-    )
+    start_col = _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID)
+    end_col = _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT)
+    range_a1 = f"{gspread.utils.rowcol_to_a1(row_idx, start_col)}:{gspread.utils.rowcol_to_a1(row_idx, end_col)}"
+    values = [[file_id, filename, updated_at]]
+    _gspread_retry(sheet.batch_update, [{"range": range_a1, "values": values}])
+
+def _update_settings_cells(sheet, headers, row_idx: int, settings_json: str, updated_at: str):
+    start_col = _settings_col_index(headers, "SettingsJSON")
+    end_col = _settings_col_index(headers, "UpdatedAt")
+    range_a1 = f"{gspread.utils.rowcol_to_a1(row_idx, start_col)}:{gspread.utils.rowcol_to_a1(row_idx, end_col)}"
+    values = [[settings_json, updated_at]]
+    _gspread_retry(sheet.batch_update, [{"range": range_a1, "values": values}])
+def clear_clinic_dataset_pointer(clinic_id: str):
+    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+    _update_dataset_pointer_cells(sheet, headers, row_idx, "", "", "")
     
 def drive_trash_file(file_id: str):
     if not file_id:
@@ -674,14 +684,7 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
 
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-    _update_dataset_pointer_cells(
-        sheet,
-        headers,
-        row_idx,
-        file_id,
-        filename,
-        datetime.utcnow().isoformat(),
-    )
+    _update_dataset_pointer_cells(sheet, headers, row_idx, file_id, filename, datetime.utcnow().isoformat())
 
 # ============================================================
 # ✅ Dataset Publishing (Refactor #1)
@@ -853,31 +856,19 @@ def load_settings():
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
 
 
-def _update_settings_cells(sheet, headers, row_idx: int, settings_json: str, updated_at: str):
-    settings_col = headers.index("SettingsJSON") + 1
-    updated_at_col = headers.index("UpdatedAt") + 1
-    start_col = min(settings_col, updated_at_col)
-    end_col = max(settings_col, updated_at_col)
-    row_values = [""] * (end_col - start_col + 1)
-    row_values[settings_col - start_col] = settings_json
-    row_values[updated_at_col - start_col] = updated_at
-    range_a1 = f"{rowcol_to_a1(row_idx, start_col)}:{rowcol_to_a1(row_idx, end_col)}"
-    _gspread_retry(
-        sheet.batch_update,
-        [{"range": range_a1, "values": [row_values]}],
-        value_input_option="RAW",
-    )
-
-
 def save_settings():
     """Save current clinic’s settings back to the Google Sheet."""
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id:
         return
 
-    sheet = get_settings_sheet()
-    all_vals = _gspread_retry(sheet.get_all_values)
-    headers = all_vals[0]
+    row = None
+    headers = []
+    sheet = None
+    try:
+        sheet, headers, row = _get_settings_row_for_clinic(clinic_id)
+    except ValueError:
+        sheet = get_settings_sheet()
 
     # Build the JSON blob for settings
     settings_data = {
@@ -890,10 +881,9 @@ def save_settings():
     updated_at = datetime.utcnow().isoformat()
 
     # Update existing row or append a new one
-    try:
-        _, _, row = _get_settings_row_for_clinic(clinic_id)
+    if row:
         _update_settings_cells(sheet, headers, row, settings_json, updated_at)
-    except ValueError:
+    else:
         sheet.append_row([clinic_id, "", settings_json, updated_at])
 # --------------------------------
 # PMS definitions
