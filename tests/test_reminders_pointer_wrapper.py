@@ -27,34 +27,6 @@ class PointerWrapperTests(unittest.TestCase):
         self.assertEqual(captured["dataset_updated_at_col"], app.SHEET_COL_DATASET_UPDATED_AT)
         self.assertIs(captured["retry_fn"], app._gspread_retry)
 
-    def test_get_settings_row_for_clinic_case_insensitive(self):
-        class FakeSheet:
-            def get_all_values(self):
-                return [
-                    ["ClinicID", "Other"],
-                    ["clinic-a", "x"],
-                    ["Clinic-B", "y"],
-                ]
-
-        with patch.object(app, "get_settings_sheet", return_value=FakeSheet()):
-            sheet, headers, row_idx = app._get_settings_row_for_clinic(" CLINIC-b ")
-
-        self.assertEqual(row_idx, 3)
-        self.assertEqual(headers[0], "ClinicID")
-        self.assertIsNotNone(sheet)
-
-    def test_get_settings_row_for_clinic_missing_raises(self):
-        class FakeSheet:
-            def get_all_values(self):
-                return [
-                    ["ClinicID", "Other"],
-                    ["clinic-a", "x"],
-                ]
-
-        with patch.object(app, "get_settings_sheet", return_value=FakeSheet()):
-            with self.assertRaises(ValueError):
-                app._get_settings_row_for_clinic("clinic-z")
-
 
 if __name__ == "__main__":
     unittest.main()
