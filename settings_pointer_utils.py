@@ -20,9 +20,6 @@ def update_dataset_pointer_cells(
     """
     Update the 3 dataset pointer columns in one request to reduce partial-update risk.
     """
-    if row_idx < 2:
-        raise ValueError("row_idx must be >= 2 (row 1 is headers)")
-
     values = [[file_id, filename, updated_at]]
     rng = (
         f"{gspread.utils.rowcol_to_a1(row_idx, settings_col_index(headers, dataset_file_id_col))}:"
