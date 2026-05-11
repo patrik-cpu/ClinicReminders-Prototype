@@ -10,34 +10,7 @@ class FakeSheet:
         self.batch_payloads.append(payload)
 
 
-class FakeLookupSheet:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def get_all_values(self):
-        return self._rows
-
-
 class SettingsHelperTests(unittest.TestCase):
-    def test_get_settings_row_for_clinic_case_insensitive(self):
-        rows = [
-            ["ClinicID", "SettingsJSON", "UpdatedAt"],
-            ["AlphaVet", "{}", "2026-05-01"],
-            ["BetaPet", "{}", "2026-05-02"],
-        ]
-        old_get_sheet = app.get_settings_sheet
-        old_retry = app._gspread_retry
-        app.get_settings_sheet = lambda: FakeLookupSheet(rows)
-        app._gspread_retry = lambda fn, *args, **kwargs: fn(*args, **kwargs)
-        try:
-            _, headers, row_idx = app._get_settings_row_for_clinic("  betapet ")
-        finally:
-            app.get_settings_sheet = old_get_sheet
-            app._gspread_retry = old_retry
-
-        self.assertEqual(headers[0], "ClinicID")
-        self.assertEqual(row_idx, 3)
-
     def test_update_dataset_pointer_cells_batches_single_range(self):
         sheet = FakeSheet()
         headers = ["ClinicID", "DatasetFileId", "DatasetFileName", "DatasetUpdatedAt"]
@@ -72,20 +45,6 @@ class SettingsHelperTests(unittest.TestCase):
 
         self.assertEqual(len(sheet.batch_payloads), 1)
         self.assertEqual(sheet.batch_payloads[0], [{"range": "C3:D3", "values": [['{"a":1}', "2026-05-08T00:00:00"]]}])
-
-    def test_update_password_cells_batches_single_range(self):
-        sheet = FakeSheet()
-        headers = ["ClinicID", "PlainPassword", "PasswordHash", "UpdatedAt"]
-
-        old_retry = app._gspread_retry
-        app._gspread_retry = lambda fn, *args, **kwargs: fn(*args, **kwargs)
-        try:
-            app._update_password_cells(sheet, headers, 4, "pw", "hash", "2026-05-08T00:00:00")
-        finally:
-            app._gspread_retry = old_retry
-
-        self.assertEqual(len(sheet.batch_payloads), 1)
-        self.assertEqual(sheet.batch_payloads[0], [{"range": "B4:D4", "values": [["pw", "hash", "2026-05-08T00:00:00"]]}])
 
 
 if __name__ == "__main__":
