@@ -45,6 +45,14 @@ SHEET_COL_DATASET_FILE_ID = "DatasetFileId"
 SHEET_COL_DATASET_FILE_NAME = "DatasetFileName"
 SHEET_COL_DATASET_UPDATED_AT = "DatasetUpdatedAt"
 
+def reset_uploaded_data_state(clear_cache: bool = True):
+    """Single reset helper used by upload/reset flows."""
+    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
+        st.session_state.pop(key, None)
+    st.session_state.pop("file_uploader_main", None)
+    if clear_cache:
+        st.cache_data.clear()
+
 def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Drop duplicate columns after normalizing header text.
@@ -1718,14 +1726,9 @@ current_files = [f.name for f in files] if files else []
 if set(current_files) != set(st.session_state["last_uploaded_files"]):
     st.toast("🔄 File change detected — clearing cache and refreshing data...")
 
-    st.cache_data.clear()
     st.session_state["last_uploaded_files"] = current_files
     st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-
-    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
-        st.session_state.pop(key, None)
-
-    st.session_state.pop("file_uploader_main", None)
+    reset_uploaded_data_state(clear_cache=True)
 
     # optional but recommended
     load_shared_dataset_for_clinic()
@@ -1866,8 +1869,7 @@ if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_res
     # drive_trash_file(existing_file_id)
 
     # 3) Clear local state so UI resets immediately
-    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
-        st.session_state.pop(key, None)
+    reset_uploaded_data_state(clear_cache=False)
 
     st.session_state["shared_dataset_loaded"] = False
     st.session_state["shared_dataset_name"] = None
@@ -1875,7 +1877,6 @@ if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_res
 
     # Optional: clear uploader + caches
     st.cache_data.clear()
-    st.session_state.pop("file_uploader_main", None)
 
     st.success("✅ Clinic dataset reset. No shared dataset is published for this clinic now.")
     st.rerun()
