@@ -80,7 +80,7 @@ def _settings_col_index(headers, name: str) -> int:
 
 def _get_settings_row_for_clinic(clinic_id: str):
     sheet = get_settings_sheet()
-    all_vals = sheet.get_all_values()
+    all_vals = _gspread_retry(sheet.get_all_values)
     headers = all_vals[0]
     clinic_col = _settings_col_index(headers, "ClinicID")
     row_idx = None
@@ -88,6 +88,7 @@ def _get_settings_row_for_clinic(clinic_id: str):
         if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
             row_idx = i
             break
+
     if row_idx is None:
         raise ValueError("ClinicID not found in settings sheet")
     return sheet, headers, row_idx
@@ -852,17 +853,13 @@ def save_settings():
     if not clinic_id:
         return
 
-    sheet = get_settings_sheet()
-    all_vals = _gspread_retry(sheet.get_all_values)
-    headers = all_vals[0]
-    clinic_col = headers.index("ClinicID") + 1
-
-    # Find the existing row for this clinic (2-based index since row 1 is headers)
     row = None
-    for i, r in enumerate(all_vals[1:], start=2):
-        if r[clinic_col - 1].strip().lower() == clinic_id.lower():
-            row = i
-            break
+    headers = []
+    sheet = None
+    try:
+        sheet, headers, row = _get_settings_row_for_clinic(clinic_id)
+    except ValueError:
+        sheet = get_settings_sheet()
 
     # Build the JSON blob for settings
     settings_data = {
@@ -876,8 +873,7 @@ def save_settings():
 
     # Update existing row or append a new one
     if row:
-        sheet.update_cell(row, headers.index("SettingsJSON") + 1, settings_json)
-        sheet.update_cell(row, headers.index("UpdatedAt") + 1, updated_at)
+        _update_settings_cells(sheet, headers, row, settings_json, updated_at)
     else:
         sheet.append_row([clinic_id, "", settings_json, updated_at])
 # --------------------------------
