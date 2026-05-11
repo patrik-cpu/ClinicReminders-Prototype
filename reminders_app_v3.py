@@ -6,13 +6,14 @@ import re
 import json, os, time
 import streamlit.components.v1 as components
 import gspread
+from settings_pointer_utils import settings_col_index, update_dataset_pointer_cells
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import hashlib
 import numpy as np
 from gspread.exceptions import APIError
-import time, random
+import random
 
 #Saving data set
 from googleapiclient.discovery import build
@@ -75,26 +76,30 @@ def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
     
 def clear_clinic_dataset_pointer(clinic_id: str):
-    sheet = get_settings_sheet()
-    all_vals = sheet.get_all_values()
-    headers = all_vals[0]
+    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
 
-    clinic_col = headers.index("ClinicID") + 1
+    # Clear the dataset pointer cells
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID), "")
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_NAME), "")
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT), "")
+
+def _settings_col_index(headers, name: str) -> int:
+    return headers.index(name) + 1
+
+def _get_settings_row_for_clinic(clinic_id: str):
+    sheet = get_settings_sheet()
+    all_vals = _gspread_retry(sheet.get_all_values)
+    headers = all_vals[0]
+    clinic_col = _settings_col_index(headers, "ClinicID")
     row_idx = None
     for i, r in enumerate(all_vals[1:], start=2):
         if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
             row_idx = i
             break
+
     if row_idx is None:
         raise ValueError("ClinicID not found in settings sheet")
-
-    def col_index(name):
-        return headers.index(name) + 1
-
-    # Clear the dataset pointer cells
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_ID), "")
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_NAME), "")
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_UPDATED_AT), "")
+    return sheet, headers, row_idx
     
 def drive_trash_file(file_id: str):
     if not file_id:
@@ -675,27 +680,10 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
     return merged
 
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
-    sheet = get_settings_sheet()
-    all_vals = sheet.get_all_values()
-    headers = all_vals[0]
-
-    # Find row for this clinic
-    clinic_col = headers.index("ClinicID") + 1
-    row_idx = None
-    for i, r in enumerate(all_vals[1:], start=2):
-        if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
-            row_idx = i
-            break
-    if row_idx is None:
-        raise ValueError("ClinicID not found in settings sheet")
-
-    # Update the dataset pointer columns
-    def col_index(name):
-        return headers.index(name) + 1
-
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_ID), file_id)
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_NAME), filename)
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_UPDATED_AT), datetime.utcnow().isoformat())
+    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID), file_id)
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_NAME), filename)
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT), datetime.utcnow().isoformat())
 
 # ============================================================
 # ✅ Dataset Publishing (Refactor #1)
@@ -873,17 +861,13 @@ def save_settings():
     if not clinic_id:
         return
 
-    sheet = get_settings_sheet()
-    all_vals = _gspread_retry(sheet.get_all_values)
-    headers = all_vals[0]
-    clinic_col = headers.index("ClinicID") + 1
-
-    # Find the existing row for this clinic (2-based index since row 1 is headers)
     row = None
-    for i, r in enumerate(all_vals[1:], start=2):
-        if r[clinic_col - 1].strip().lower() == clinic_id.lower():
-            row = i
-            break
+    headers = []
+    sheet = None
+    try:
+        sheet, headers, row = _get_settings_row_for_clinic(clinic_id)
+    except ValueError:
+        sheet = get_settings_sheet()
 
     # Build the JSON blob for settings
     settings_data = {
@@ -897,8 +881,7 @@ def save_settings():
 
     # Update existing row or append a new one
     if row:
-        sheet.update_cell(row, headers.index("SettingsJSON") + 1, settings_json)
-        sheet.update_cell(row, headers.index("UpdatedAt") + 1, updated_at)
+        _update_settings_cells(sheet, headers, row, settings_json, updated_at)
     else:
         sheet.append_row([clinic_id, "", settings_json, updated_at])
 # --------------------------------
@@ -1533,6 +1516,103 @@ def normalize_item_name(name: str) -> str:
 # Vectorized interval mapping
 # -------------------------
 @st.cache_data(show_spinner=False)
+
+def format_due_dates_for_message(due_date_value: str) -> str:
+    raw = str(due_date_value or "").strip()
+    if not raw:
+        return "soon"
+    parts = [p.strip() for p in re.split(r"\s*[|,]\s*", raw) if p.strip()]
+    if len(parts) <= 1:
+        return format_due_date(raw)
+    parsed = []
+    for part in parts:
+        dt = pd.to_datetime(part, errors="coerce")
+        parsed.append((dt, part))
+    parsed.sort(key=lambda x: (pd.isna(x[0]), x[0] if not pd.isna(x[0]) else pd.Timestamp.max))
+    labels = [format_due_date(orig) for _, orig in parsed]
+    labels = [x for x in labels if x]
+    if not labels:
+        return raw
+    if len(labels) == 2:
+        return f"{labels[0]} and {labels[1]}"
+    return ", ".join(labels[:-1]) + f", and {labels[-1]}"
+
+def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str):
+    due_dates = sorted({str(x).strip() for x in cluster_df.get("DueDateFmt", []) if str(x).strip()})
+    animals = sorted({str(x).strip() for x in cluster_df.get("Animal Name", []) if str(x).strip()})
+
+    all_items = []
+    for val in cluster_df.get("MatchedItems", []):
+        if isinstance(val, list):
+            all_items.extend([str(x).strip() for x in val if str(x).strip()])
+        else:
+            s = str(val).strip()
+            if s:
+                all_items.append(s)
+
+    items_text = simplify_vaccine_text(format_items(sorted(set(all_items))))
+
+    n_animals = len(set(animals))
+    n_items = len(set(all_items))
+    is_grouped = (n_animals > 1) or (n_items > 1) or (len(due_dates) > 1)
+
+    qty_sum = pd.to_numeric(cluster_df.get("Qty", pd.Series(dtype=float)), errors="coerce").sum(min_count=1)
+    interval_min = pd.to_numeric(cluster_df.get("IntervalDays", pd.Series(dtype=float)), errors="coerce")
+    base_min = pd.to_numeric(cluster_df.get("BaseIntervalDays", pd.Series(dtype=float)), errors="coerce")
+
+    days_qty = int(interval_min.dropna().min()) if interval_min.notna().any() else ""
+    days_base = int(base_min.dropna().min()) if base_min.notna().any() else ""
+
+    return {
+        "Due Date": " | ".join(due_dates),
+        "Charge Date": cluster_df.get("ChargeDateFmt", pd.Series(dtype=str)).max(),
+        "Client Name": client_name,
+        "Animal Name": format_items(animals),
+        "Plan Item": items_text,
+        "Qty": "NA" if is_grouped else qty_sum,
+        "Days": days_base if is_grouped else days_qty,
+    }
+
+def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5) -> pd.DataFrame:
+    if due_df.empty:
+        return pd.DataFrame(columns=["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"])
+
+    out_rows = []
+    work = due_df.copy()
+    work["_DueDateTs"] = pd.to_datetime(work["DueDate"], errors="coerce")
+
+    for client_name, cdf in work.groupby("Client Name", dropna=False):
+        cdf = cdf.sort_values(["_DueDateTs", "ChargeDate"], ascending=[True, True]).reset_index(drop=True)
+        cluster = []
+        anchor = None
+
+        for _, row in cdf.iterrows():
+            due_ts = row.get("_DueDateTs")
+            if anchor is None:
+                anchor = due_ts
+                cluster = [row]
+                continue
+
+            same_cluster = pd.notna(due_ts) and pd.notna(anchor) and abs((due_ts - anchor).days) <= window_days
+            if same_cluster:
+                cluster.append(row)
+            else:
+                out_rows.append(_summarize_client_cluster(pd.DataFrame(cluster), client_name))
+                cluster = [row]
+                anchor = due_ts
+
+        if cluster:
+            out_rows.append(_summarize_client_cluster(pd.DataFrame(cluster), client_name))
+
+    grouped = pd.DataFrame(out_rows)
+    if grouped.empty:
+        return pd.DataFrame(columns=["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"])
+
+    grouped["Qty"] = grouped["Qty"].where(
+        grouped["Qty"].astype(str) == "NA",
+        pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
+    )
+    return grouped[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
 def map_intervals_vec(df, rules):
     df = df.copy()
     if "ItemNorm" not in df.columns:
@@ -1728,7 +1808,7 @@ if set(current_files) != set(st.session_state["last_uploaded_files"]):
 
     st.session_state["last_uploaded_files"] = current_files
     st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-    reset_uploaded_data_state(clear_cache=True)
+    _reset_uploaded_data_state(clear_cache=True)
 
     # optional but recommended
     load_shared_dataset_for_clinic()
@@ -1869,11 +1949,14 @@ if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_res
     # drive_trash_file(existing_file_id)
 
     # 3) Clear local state so UI resets immediately
-    reset_uploaded_data_state(clear_cache=True)
+    _reset_uploaded_data_state(clear_cache=False)
 
     st.session_state["shared_dataset_loaded"] = False
     st.session_state["shared_dataset_name"] = None
     st.session_state["shared_dataset_error"] = None
+
+    # Optional: clear uploader + caches
+    st.cache_data.clear()
 
     st.success("✅ Clinic dataset reset. No shared dataset is published for this clinic now.")
     st.rerun()
@@ -1932,7 +2015,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             animal_name = normalize_display_case(row.get("Animal Name", "")).strip() if row.get("Animal Name") else "your pet"
             plan_for_msg = normalize_display_case(row.get("Plan Item", "")).strip()
             user = st.session_state.get("user_name", "").strip()
-            due_date_fmt = format_due_date(str(row.get("Due Date", "")))
+            due_date_fmt = format_due_dates_for_message(str(row.get("Due Date", "")))
 
             template = (st.session_state.get("user_template", "") or DEFAULT_WA_TEMPLATE).strip()
 
@@ -2206,58 +2289,7 @@ if st.session_state.get("working_df") is not None:
     ].copy()
 
     if not due2.empty:
-        g = due2.groupby(["DueDateFmt", "Client Name"], dropna=False)
-
-        grouped = (
-            pd.DataFrame({
-                "Charge Date": g["ChargeDateFmt"].max(),
-                "Animal Name": g["Animal Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
-                "Plan Item": g["MatchedItems"].apply(
-                    lambda lists: simplify_vaccine_text(
-                        format_items(sorted(set(
-                            i.strip()
-                            for sublist in lists
-                            for i in (sublist if isinstance(sublist, list) else [sublist])
-                            if str(i).strip()
-                        )))
-                    )
-                ),
-
-                # detectors
-                "_n_animals": g["Animal Name"].nunique(dropna=True),
-                "_n_items": g["MatchedItems"].apply(
-                    lambda lists: len(set(
-                        i.strip()
-                        for sublist in lists
-                        for i in (sublist if isinstance(sublist, list) else [sublist])
-                        if str(i).strip()
-                    ))
-                ),
-
-                # raw aggregates
-                "_qty_sum": g["Qty"].sum(min_count=1),
-
-                "_days_qty": g["IntervalDays"].apply(
-                    lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
-                    if pd.to_numeric(x, errors="coerce").notna().any()
-                    else ""
-                ),
-
-                "_days_base": g["BaseIntervalDays"].apply(
-                    lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
-                    if pd.to_numeric(x, errors="coerce").notna().any()
-                    else ""
-                ),
-            })
-            .reset_index()
-            .rename(columns={"DueDateFmt": "Due Date"})
-        )
-
-        is_grouped = (grouped["_n_animals"] > 1) | (grouped["_n_items"] > 1)
-        grouped["Qty"]  = grouped["_qty_sum"].where(~is_grouped, "NA")
-        grouped["Days"] = grouped["_days_qty"].where(~is_grouped, grouped["_days_base"])
-
-        grouped = grouped[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
+        grouped = bundle_client_reminders_by_window(due2, window_days=5)
 
         # Filter out deleted reminders
         deleted = st.session_state.get("deleted_reminders", [])
@@ -2272,12 +2304,6 @@ if st.session_state.get("working_df") is not None:
                     axis=1
                 )
             ]
-
-        # only coerce Qty to int where it's not NA
-        grouped["Qty"] = grouped["Qty"].where(
-            grouped["Qty"].astype(str) == "NA",
-            pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
-        )
 
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
     else:
@@ -3907,9 +3933,7 @@ if st.session_state.get("clinic_id") == "Admin":
 
             if row:
                 # Update existing clinic row
-                sheet.update_cell(row, headers.index("PlainPassword") + 1, plain)
-                sheet.update_cell(row, headers.index("PasswordHash") + 1, hashed)
-                sheet.update_cell(row, headers.index("UpdatedAt") + 1, datetime.utcnow().isoformat())
+                _update_password_cells(sheet, headers, row, plain, hashed, datetime.utcnow().isoformat())
                 st.success(f"✅ Updated password for clinic '{new_clinic}'.")
             else:
                 # Add a new clinic row
