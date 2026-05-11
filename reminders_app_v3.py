@@ -6,6 +6,7 @@ import re
 import json, os, time
 import streamlit.components.v1 as components
 import gspread
+from settings_pointer_utils import settings_col_index, update_dataset_pointer_cells
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -66,8 +67,15 @@ def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.loc[:, ~norm_cols.duplicated()].copy()
     return df
     
+def clear_clinic_dataset_pointer(clinic_id: str):
+    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
 
-def _settings_col_index(headers, name):
+    # Clear the dataset pointer cells
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID), "")
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_NAME), "")
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT), "")
+
+def _settings_col_index(headers, name: str) -> int:
     return headers.index(name) + 1
 
 def _get_settings_row_for_clinic(clinic_id: str):
@@ -75,7 +83,6 @@ def _get_settings_row_for_clinic(clinic_id: str):
     all_vals = _gspread_retry(sheet.get_all_values)
     headers = all_vals[0]
     clinic_col = _settings_col_index(headers, "ClinicID")
-
     row_idx = None
     for i, r in enumerate(all_vals[1:], start=2):
         if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
@@ -84,43 +91,7 @@ def _get_settings_row_for_clinic(clinic_id: str):
 
     if row_idx is None:
         raise ValueError("ClinicID not found in settings sheet")
-
     return sheet, headers, row_idx
-
-def _update_dataset_pointer_cells(sheet, headers, row_idx: int, file_id: str, filename: str, updated_at: str):
-    start_col = _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID)
-    end_col = _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT)
-    range_a1 = f"{gspread.utils.rowcol_to_a1(row_idx, start_col)}:{gspread.utils.rowcol_to_a1(row_idx, end_col)}"
-    values = [[file_id, filename, updated_at]]
-    _gspread_retry(sheet.batch_update, [{"range": range_a1, "values": values}])
-
-def _update_settings_cells(sheet, headers, row_idx: int, settings_json: str, updated_at: str):
-    start_col = _settings_col_index(headers, "SettingsJSON")
-    end_col = _settings_col_index(headers, "UpdatedAt")
-    range_a1 = f"{gspread.utils.rowcol_to_a1(row_idx, start_col)}:{gspread.utils.rowcol_to_a1(row_idx, end_col)}"
-    values = [[settings_json, updated_at]]
-    _gspread_retry(sheet.batch_update, [{"range": range_a1, "values": values}])
-
-def _update_password_cells(sheet, headers, row_idx: int, plain_password: str, password_hash: str, updated_at: str):
-    start_col = _settings_col_index(headers, "PlainPassword")
-    end_col = _settings_col_index(headers, "UpdatedAt")
-    range_a1 = f"{gspread.utils.rowcol_to_a1(row_idx, start_col)}:{gspread.utils.rowcol_to_a1(row_idx, end_col)}"
-    values = [[plain_password, password_hash, updated_at]]
-    _gspread_retry(sheet.batch_update, [{"range": range_a1, "values": values}])
-
-def _reset_uploaded_data_state(clear_cache: bool = True):
-    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
-        st.session_state.pop(key, None)
-    st.session_state.pop("file_uploader_main", None)
-    if clear_cache:
-        st.cache_data.clear()
-
-# Backward-compatible alias to avoid NameError if older call-sites are present.
-def reset_uploaded_data_state(clear_cache: bool = True):
-    _reset_uploaded_data_state(clear_cache=clear_cache)
-def clear_clinic_dataset_pointer(clinic_id: str):
-    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-    _update_dataset_pointer_cells(sheet, headers, row_idx, "", "", "")
     
 def drive_trash_file(file_id: str):
     if not file_id:
@@ -702,7 +673,9 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
 
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-    _update_dataset_pointer_cells(sheet, headers, row_idx, file_id, filename, datetime.utcnow().isoformat())
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID), file_id)
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_NAME), filename)
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT), datetime.utcnow().isoformat())
 
 # ============================================================
 # ✅ Dataset Publishing (Refactor #1)
