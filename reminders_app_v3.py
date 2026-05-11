@@ -1701,14 +1701,9 @@ current_files = [f.name for f in files] if files else []
 if set(current_files) != set(st.session_state["last_uploaded_files"]):
     st.toast("🔄 File change detected — clearing cache and refreshing data...")
 
-    st.cache_data.clear()
     st.session_state["last_uploaded_files"] = current_files
     st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-
-    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
-        st.session_state.pop(key, None)
-
-    st.session_state.pop("file_uploader_main", None)
+    _reset_uploaded_data_state(clear_cache=True)
 
     # optional but recommended
     load_shared_dataset_for_clinic()
@@ -1849,8 +1844,7 @@ if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_res
     # drive_trash_file(existing_file_id)
 
     # 3) Clear local state so UI resets immediately
-    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
-        st.session_state.pop(key, None)
+    _reset_uploaded_data_state(clear_cache=False)
 
     st.session_state["shared_dataset_loaded"] = False
     st.session_state["shared_dataset_name"] = None
@@ -1858,7 +1852,6 @@ if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_res
 
     # Optional: clear uploader + caches
     st.cache_data.clear()
-    st.session_state.pop("file_uploader_main", None)
 
     st.success("✅ Clinic dataset reset. No shared dataset is published for this clinic now.")
     st.rerun()
@@ -3892,9 +3885,7 @@ if st.session_state.get("clinic_id") == "Admin":
 
             if row:
                 # Update existing clinic row
-                sheet.update_cell(row, headers.index("PlainPassword") + 1, plain)
-                sheet.update_cell(row, headers.index("PasswordHash") + 1, hashed)
-                sheet.update_cell(row, headers.index("UpdatedAt") + 1, datetime.utcnow().isoformat())
+                _update_password_cells(sheet, headers, row, plain, hashed, datetime.utcnow().isoformat())
                 st.success(f"✅ Updated password for clinic '{new_clinic}'.")
             else:
                 # Add a new clinic row
