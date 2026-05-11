@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import numpy as np
 from gspread.exceptions import APIError
-import time, random
+import random
 
 #Saving data set
 from googleapiclient.discovery import build
@@ -66,27 +66,57 @@ def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.loc[:, ~norm_cols.duplicated()].copy()
     return df
     
-def clear_clinic_dataset_pointer(clinic_id: str):
-    sheet = get_settings_sheet()
-    all_vals = sheet.get_all_values()
-    headers = all_vals[0]
 
-    clinic_col = headers.index("ClinicID") + 1
+def _settings_col_index(headers, name):
+    return headers.index(name) + 1
+
+def _get_settings_row_for_clinic(clinic_id: str):
+    sheet = get_settings_sheet()
+    all_vals = _gspread_retry(sheet.get_all_values)
+    headers = all_vals[0]
+    clinic_col = _settings_col_index(headers, "ClinicID")
+
     row_idx = None
     for i, r in enumerate(all_vals[1:], start=2):
         if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
             row_idx = i
             break
+
     if row_idx is None:
         raise ValueError("ClinicID not found in settings sheet")
 
-    def col_index(name):
-        return headers.index(name) + 1
+    return sheet, headers, row_idx
 
-    # Clear the dataset pointer cells
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_ID), "")
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_NAME), "")
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_UPDATED_AT), "")
+def _update_dataset_pointer_cells(sheet, headers, row_idx: int, file_id: str, filename: str, updated_at: str):
+    start_col = _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID)
+    end_col = _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT)
+    range_a1 = f"{gspread.utils.rowcol_to_a1(row_idx, start_col)}:{gspread.utils.rowcol_to_a1(row_idx, end_col)}"
+    values = [[file_id, filename, updated_at]]
+    _gspread_retry(sheet.batch_update, [{"range": range_a1, "values": values}])
+
+def _update_settings_cells(sheet, headers, row_idx: int, settings_json: str, updated_at: str):
+    start_col = _settings_col_index(headers, "SettingsJSON")
+    end_col = _settings_col_index(headers, "UpdatedAt")
+    range_a1 = f"{gspread.utils.rowcol_to_a1(row_idx, start_col)}:{gspread.utils.rowcol_to_a1(row_idx, end_col)}"
+    values = [[settings_json, updated_at]]
+    _gspread_retry(sheet.batch_update, [{"range": range_a1, "values": values}])
+
+def _update_password_cells(sheet, headers, row_idx: int, plain_password: str, password_hash: str, updated_at: str):
+    start_col = _settings_col_index(headers, "PlainPassword")
+    end_col = _settings_col_index(headers, "UpdatedAt")
+    range_a1 = f"{gspread.utils.rowcol_to_a1(row_idx, start_col)}:{gspread.utils.rowcol_to_a1(row_idx, end_col)}"
+    values = [[plain_password, password_hash, updated_at]]
+    _gspread_retry(sheet.batch_update, [{"range": range_a1, "values": values}])
+
+def _reset_uploaded_data_state(clear_cache: bool = True):
+    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
+        st.session_state.pop(key, None)
+    st.session_state.pop("file_uploader_main", None)
+    if clear_cache:
+        st.cache_data.clear()
+def clear_clinic_dataset_pointer(clinic_id: str):
+    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+    _update_dataset_pointer_cells(sheet, headers, row_idx, "", "", "")
     
 def drive_trash_file(file_id: str):
     if not file_id:
@@ -667,27 +697,8 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
     return merged
 
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
-    sheet = get_settings_sheet()
-    all_vals = sheet.get_all_values()
-    headers = all_vals[0]
-
-    # Find row for this clinic
-    clinic_col = headers.index("ClinicID") + 1
-    row_idx = None
-    for i, r in enumerate(all_vals[1:], start=2):
-        if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
-            row_idx = i
-            break
-    if row_idx is None:
-        raise ValueError("ClinicID not found in settings sheet")
-
-    # Update the dataset pointer columns
-    def col_index(name):
-        return headers.index(name) + 1
-
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_ID), file_id)
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_FILE_NAME), filename)
-    sheet.update_cell(row_idx, col_index(SHEET_COL_DATASET_UPDATED_AT), datetime.utcnow().isoformat())
+    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+    _update_dataset_pointer_cells(sheet, headers, row_idx, file_id, filename, datetime.utcnow().isoformat())
 
 # ============================================================
 # ✅ Dataset Publishing (Refactor #1)
@@ -865,17 +876,13 @@ def save_settings():
     if not clinic_id:
         return
 
-    sheet = get_settings_sheet()
-    all_vals = _gspread_retry(sheet.get_all_values)
-    headers = all_vals[0]
-    clinic_col = headers.index("ClinicID") + 1
-
-    # Find the existing row for this clinic (2-based index since row 1 is headers)
     row = None
-    for i, r in enumerate(all_vals[1:], start=2):
-        if r[clinic_col - 1].strip().lower() == clinic_id.lower():
-            row = i
-            break
+    headers = []
+    sheet = None
+    try:
+        sheet, headers, row = _get_settings_row_for_clinic(clinic_id)
+    except ValueError:
+        sheet = get_settings_sheet()
 
     # Build the JSON blob for settings
     settings_data = {
@@ -889,8 +896,7 @@ def save_settings():
 
     # Update existing row or append a new one
     if row:
-        sheet.update_cell(row, headers.index("SettingsJSON") + 1, settings_json)
-        sheet.update_cell(row, headers.index("UpdatedAt") + 1, updated_at)
+        _update_settings_cells(sheet, headers, row, settings_json, updated_at)
     else:
         sheet.append_row([clinic_id, "", settings_json, updated_at])
 # --------------------------------
@@ -1718,14 +1724,9 @@ current_files = [f.name for f in files] if files else []
 if set(current_files) != set(st.session_state["last_uploaded_files"]):
     st.toast("🔄 File change detected — clearing cache and refreshing data...")
 
-    st.cache_data.clear()
     st.session_state["last_uploaded_files"] = current_files
     st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-
-    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
-        st.session_state.pop(key, None)
-
-    st.session_state.pop("file_uploader_main", None)
+    _reset_uploaded_data_state(clear_cache=True)
 
     # optional but recommended
     load_shared_dataset_for_clinic()
@@ -1866,8 +1867,7 @@ if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_res
     # drive_trash_file(existing_file_id)
 
     # 3) Clear local state so UI resets immediately
-    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
-        st.session_state.pop(key, None)
+    _reset_uploaded_data_state(clear_cache=False)
 
     st.session_state["shared_dataset_loaded"] = False
     st.session_state["shared_dataset_name"] = None
@@ -1875,7 +1875,6 @@ if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_res
 
     # Optional: clear uploader + caches
     st.cache_data.clear()
-    st.session_state.pop("file_uploader_main", None)
 
     st.success("✅ Clinic dataset reset. No shared dataset is published for this clinic now.")
     st.rerun()
@@ -3909,9 +3908,7 @@ if st.session_state.get("clinic_id") == "Admin":
 
             if row:
                 # Update existing clinic row
-                sheet.update_cell(row, headers.index("PlainPassword") + 1, plain)
-                sheet.update_cell(row, headers.index("PasswordHash") + 1, hashed)
-                sheet.update_cell(row, headers.index("UpdatedAt") + 1, datetime.utcnow().isoformat())
+                _update_password_cells(sheet, headers, row, plain, hashed, datetime.utcnow().isoformat())
                 st.success(f"✅ Updated password for clinic '{new_clinic}'.")
             else:
                 # Add a new clinic row
