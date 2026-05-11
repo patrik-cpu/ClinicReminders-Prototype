@@ -46,6 +46,14 @@ SHEET_COL_DATASET_FILE_ID = "DatasetFileId"
 SHEET_COL_DATASET_FILE_NAME = "DatasetFileName"
 SHEET_COL_DATASET_UPDATED_AT = "DatasetUpdatedAt"
 
+def reset_uploaded_data_state(clear_cache: bool = True):
+    """Single reset helper used by upload/reset flows."""
+    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
+        st.session_state.pop(key, None)
+    st.session_state.pop("file_uploader_main", None)
+    if clear_cache:
+        st.cache_data.clear()
+
 def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Drop duplicate columns after normalizing header text.
