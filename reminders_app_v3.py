@@ -14,6 +14,7 @@ import hashlib
 import numpy as np
 from gspread.exceptions import APIError
 import random
+import html as html_lib
 
 try:
     from streamlit.runtime.scriptrunner import RerunException
@@ -399,8 +400,11 @@ def make_mask(df, include_words, exclude_words=None):
 
     return mask
 
+sidebar_account_slot = st.sidebar.container()
+sidebar_nav_slot = st.sidebar.container()
+
 # Sidebar "table of contents" — simplified navigation
-st.sidebar.markdown(
+sidebar_nav_slot.markdown(
     """
     <div style="font-size:15px; line-height:1.85;">
       <a href="#getting-started" style="text-decoration:none; display:block; font-weight:700; margin-bottom:0.75rem;">🚀 Getting Started</a>
@@ -412,7 +416,6 @@ st.sidebar.markdown(
       <a href="#search-terms" style="text-decoration:none; display:block;">📝 Search terms</a>
       <a href="#exclusions" style="text-decoration:none; display:block;">🚫 Exclusions</a>
       <div style="font-weight:700; margin:1rem 0 0.25rem;">Occasional tools</div>
-      <a href="#tutorial" style="text-decoration:none; display:block;">📖 User Guide</a>
       <a href="#factoids" style="text-decoration:none; display:block;">📊 Factoids</a>
       <a href="#feedback-section" style="text-decoration:none; display:block;">💬 Feedback</a>
     </div>
@@ -1512,6 +1515,12 @@ def authenticate_user(username, password):
                 return r
     return None
 
+def update_clinic_password(clinic_id: str, new_password: str):
+    """Update the password hash for the current clinic login."""
+    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+    password_col = _settings_col_index(headers, "PasswordHash")
+    _gspread_retry(sheet.update_cell, row_idx, password_col, hash_pw(new_password))
+
 def _to_blob(uploaded):
     # Deterministic blob for caching; avoids .read() side effects
     b = uploaded.getvalue()
@@ -1677,34 +1686,71 @@ if (
         rerun_app()
 
 if not st.session_state["logged_in"]:
-    st.sidebar.markdown("### 🔑 Clinic Login")
-    username = st.sidebar.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
-    password = st.sidebar.text_input("Password", type="password", value=DEV_AUTO_LOGIN_CREDENTIALS[1])
-    if st.sidebar.button("Login"):
-        user_row = authenticate_user(username, password)
-        if user_row:
-            st.session_state["clinic_id"] = username
-            st.session_state["logged_in"] = True
+    with sidebar_account_slot:
+        st.markdown("### 🔑 Clinic Login")
+        username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
+        password = st.text_input("Password", type="password", value=DEV_AUTO_LOGIN_CREDENTIALS[1])
+        if st.button("Login"):
+            user_row = authenticate_user(username, password)
+            if user_row:
+                st.session_state["clinic_id"] = username
+                st.session_state["logged_in"] = True
 
-            load_settings()
-            # ✅ Auto-load shared dataset from Drive into working_df
-            load_shared_dataset_for_clinic()
-                    
-            st.success(f"✅ Welcome, {username}!")
-            st.rerun()
-        else:
-            st.error("❌ Invalid username or password.")
+                load_settings()
+                # ✅ Auto-load shared dataset from Drive into working_df
+                load_shared_dataset_for_clinic()
+                        
+                st.success(f"✅ Welcome, {username}!")
+                st.rerun()
+            else:
+                st.error("❌ Invalid username or password.")
 else:
-    st.sidebar.success(f"Logged in as {st.session_state['clinic_id']}")
+    with sidebar_account_slot:
+        clinic_id = st.session_state.get("clinic_id", "")
+        clinic_label = html_lib.escape(str(clinic_id))
+        st.markdown(
+            f"""
+            <div style="
+                border:1px solid rgba(255,255,255,0.12);
+                border-radius:8px;
+                padding:0.75rem;
+                margin-bottom:0.9rem;
+                background:rgba(255,255,255,0.035);
+            ">
+              <div style="font-size:0.78rem; color:rgba(255,255,255,0.62); font-weight:700; text-transform:uppercase;">Clinic</div>
+              <div style="font-size:1rem; font-weight:700; color:white; word-break:break-word;">{clinic_label}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-# --- 🚪 Logout button ---
-if st.session_state.get("logged_in", False):
-    if st.sidebar.button("🚪 Logout"):
-        # Clear login state
-        for key in ["logged_in", "clinic_id"]:
-            st.session_state.pop(key, None)
-        st.success("You have been logged out.")
-        st.rerun()
+        with st.expander("⚙️ Account Settings", expanded=False):
+            st.caption("Change the password for this clinic login.")
+            with st.form("change_password_form"):
+                current_password = st.text_input("Current password", type="password")
+                new_password = st.text_input("New password", type="password")
+                confirm_password = st.text_input("Confirm new password", type="password")
+                submitted = st.form_submit_button("Change password")
+
+            if submitted:
+                if not current_password or not new_password or not confirm_password:
+                    st.error("Enter the current password and the new password twice.")
+                elif new_password != confirm_password:
+                    st.error("New passwords do not match.")
+                elif len(new_password) < 6:
+                    st.error("New password must be at least 6 characters.")
+                elif not authenticate_user(clinic_id, current_password):
+                    st.error("Current password is incorrect.")
+                else:
+                    update_clinic_password(clinic_id, new_password)
+                    st.success("Password updated.")
+
+        if st.button("Logout", use_container_width=True):
+            # Clear login state
+            for key in ["logged_in", "clinic_id"]:
+                st.session_state.pop(key, None)
+            st.success("You have been logged out.")
+            st.rerun()
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:
@@ -2868,20 +2914,6 @@ if st.session_state.get("working_df") is not None:
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
     else:
         st.info("No reminders in the selected week.")
-
-    st.markdown("<div id='tutorial' class='anchor-offset'></div>", unsafe_allow_html=True)
-    with st.expander("📖 User Guide", expanded=False):
-        st.info(
-            "### User Guide\n\n"
-            "ClinicReminders helps you find due reminders, prepare WhatsApp messages, and keep clients engaged.\n\n"
-            "### Daily workflow\n"
-            "**STEP 1:** Confirm the clinic dataset is loaded, or upload and publish a new file in **Data**.  \n"
-            "**STEP 2:** Use **Weekly Reminders** to choose a start date and look-ahead window.  \n"
-            "**STEP 3:** Click **WA** to prepare the WhatsApp message.  \n"
-            "**STEP 4:** Use **Search Terms**, **Exclusions**, and the **WhatsApp Template Editor** only when setup needs changing.  \n\n"
-            "Factoids and feedback are available further down for occasional review and support."
-        )
-
 
     # --------------------------------
     # Search
