@@ -52,7 +52,8 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders & Factoids Prototype v5.5")
+    st.title("ClinicReminders")
+    st.caption("Daily reminders first. Uploads, setup, Factoids, and feedback are still available when you need them.")
 st.markdown("---")
 
 # === Drive folder where canonical datasets live ===
@@ -397,24 +398,19 @@ def make_mask(df, include_words, exclude_words=None):
 # Sidebar "table of contents" — simplified navigation
 st.sidebar.markdown(
     """
-    <ul style="list-style-type:none; padding-left:0; line-height:1.8; font-size:16px;">
-      <li><a href="#tutorial" style="text-decoration:none;">📖 !Tutorial - Read</a></li>
-      <li><a href="#data-upload" style="text-decoration:none;">📂 Data Upload</a></li>
-      <li><a href="#reminders" style="text-decoration:none;">📅 Reminders</a></li>
-        <ul style="list-style-type:none; padding-left:1.2em; line-height:1.6;">
-          <li><a href="#weekly-reminders" style="text-decoration:none;">🔹 Weekly Reminders</a></li>
-          <li><a href="#search" style="text-decoration:none;">🔹 Search</a></li>
-          <li><a href="#search-terms" style="text-decoration:none;">🔹 Search Terms</a></li>
-          <li><a href="#exclusions" style="text-decoration:none;">🔹 Exclusions</a></li>
-        </ul>
-      <li><a href="#factoids" style="text-decoration:none;">📊 Factoids</a></li>
-        <ul style="list-style-type:none; padding-left:1.2em; line-height:1.6;">
-          <li><a href="#factoids-monthlycharts" style="text-decoration:none;">🔹 Monthly Charts</a></li>
-          <li><a href="#factoids-ataglance" style="text-decoration:none;">🔹 At a Glance</a></li>
-          <li><a href="#factoids-tables" style="text-decoration:none;">🔹 Tables</a></li>
-        </ul>
-      <li><a href="#feedback-section" style="text-decoration:none;">💬 Feedback</a></li>
-    </ul>
+    <div style="font-size:15px; line-height:1.85;">
+      <div style="font-weight:700; margin-bottom:0.25rem;">Daily workflow</div>
+      <a href="#reminders" style="text-decoration:none; display:block;">📅 Reminders</a>
+      <a href="#data-upload" style="text-decoration:none; display:block;">📂 Upload / publish data</a>
+      <div style="font-weight:700; margin:1rem 0 0.25rem;">Reminder setup</div>
+      <a href="#search" style="text-decoration:none; display:block;">🔍 Search reminders</a>
+      <a href="#search-terms" style="text-decoration:none; display:block;">📝 Search terms</a>
+      <a href="#exclusions" style="text-decoration:none; display:block;">🚫 Exclusions</a>
+      <div style="font-weight:700; margin:1rem 0 0.25rem;">Occasional tools</div>
+      <a href="#tutorial" style="text-decoration:none; display:block;">📖 Quick start</a>
+      <a href="#factoids" style="text-decoration:none; display:block;">📊 Factoids</a>
+      <a href="#feedback-section" style="text-decoration:none; display:block;">💬 Feedback</a>
+    </div>
     """,
     unsafe_allow_html=True,
 )
@@ -2004,21 +2000,17 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
 # Tutorial section
 # --------------------------------
 st.markdown("<div id='tutorial' class='anchor-offset'></div>", unsafe_allow_html=True)
-st.markdown("<h2 id='tutorial'>📖 Tutorial - Read me first!</h2>", unsafe_allow_html=True)
-st.info(
-    "### 🧭 READ THIS FIRST!\n\n"
-    "Welcome to the **ClinicReminders & Factoids Prototype** — this tool helps you understand your clinic data and keep your clients engaged.\n\n"
-    "### 💡 What it does\n"
-    "1️⃣ **Sets Reminders** for everything from Vaccines, Dentals, and Flea/Worm treatments to Librela, Solensia, and more.  \n"
-    "2️⃣ **Generates Factoids & Insights** — quick, visual summaries of your clinic’s activity, clients, and trends.\n\n"
-    "### 📋 How to use\n"
-    "**STEP 1:** Upload your clinic data file (Patrik has likely provided one).  \n"
-    "**STEP 2:** Go to **Weekly Reminders** — see which reminders are due in the week after your latest data date.  \n"
-    "**STEP 3:** Click the **WA button** to instantly prepare a WhatsApp reminder message for copy or direct send.  \n"
-    "**STEP 4:** Use **Search Terms** to control what triggers reminders — add new terms, edit intervals, or remove old ones.  \n"
-    "**STEP 5:** Explore **Factoids** for performance insights and interesting clinic trends.  \n\n"
-    "That’s all you need to get started — explore freely, and reach out to **Patrik** anytime for a full walk-through or advanced setup help."
-)
+with st.expander("📖 Quick start guide", expanded=False):
+    st.info(
+        "### 🧭 READ THIS FIRST!\n\n"
+        "Welcome to **ClinicReminders** — this tool helps you find due reminders, prepare WhatsApp messages, and keep clients engaged.\n\n"
+        "### 📋 Daily workflow\n"
+        "**STEP 1:** Confirm the clinic dataset is loaded, or upload and publish a new file.  \n"
+        "**STEP 2:** Use **Weekly Reminders** to see reminders due in the next 7-day window.  \n"
+        "**STEP 3:** Click **WA** to prepare the WhatsApp message.  \n"
+        "**STEP 4:** Use **Search Terms**, **Exclusions**, and the **WhatsApp Template Editor** only when setup needs changing.  \n\n"
+        "Factoids and feedback are available further down for occasional review and support."
+    )
 
 # --- Upload Data section ---
 st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
@@ -2042,7 +2034,8 @@ files = st.file_uploader(
     "Upload Sales Plan file(s)",
     type=["csv", "xls", "xlsx"],
     accept_multiple_files=True,
-    key="file_uploader_main"
+    key="file_uploader_main",
+    help="Upload one or more PMS export files. Other clinic users will not see this upload until you publish it."
 )
 
 # --------------------------------
@@ -2142,7 +2135,10 @@ if files:
             "If a shared dataset already exists, the app will merge and de-duplicate overlapping rows."
         )
 
-        if st.button("📌 Publish this upload to clinic"):
+        if st.button(
+            "📌 Publish this upload to clinic",
+            help="Make this processed upload the shared dataset for everyone using this clinic login."
+        ):
             clinic_id = st.session_state.get("clinic_id")
             if not clinic_id:
                 st.error("Not logged in.")
@@ -2178,9 +2174,17 @@ if files:
 # -------------------------------------
 st.markdown("### 🧨 Reset Clinic Dataset (Testing / Wrong Upload)")
 st.caption("This clears the shared dataset pointer for this clinic so the app behaves like no dataset is published.")
-confirm_reset = st.checkbox("I understand this will remove the shared dataset for my clinic", key="confirm_reset_dataset")
+confirm_reset = st.checkbox(
+    "I understand this will remove the shared dataset for my clinic",
+    key="confirm_reset_dataset",
+    help="Use this only when the wrong shared dataset was published for the clinic."
+)
 
-if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_reset):
+if st.button(
+    "🗑️ Reset shared dataset for clinic",
+    disabled=not confirm_reset,
+    help="Clear the shared dataset pointer so the clinic behaves like no dataset is published."
+):
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id:
         st.error("Not logged in.")
@@ -2351,6 +2355,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             value=prev_name,
             key=f"user_name_input_{key_prefix}",
             placeholder="e.g. Best Health Vet Clinic or Patrik from Best Health Vet Clinic",
+            help="Saved for the clinic and used in the [Your Name] placeholder."
         )
         
         # Auto-save to Google Sheets when the name changes
@@ -2363,7 +2368,12 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
 
-        st.text_area("Message:", key=msg_key, height=200)
+        st.text_area(
+            "Message:",
+            key=msg_key,
+            height=200,
+            help="Prepared when you click WA in the reminders table. You can edit it before opening WhatsApp."
+        )
         current_message = st.session_state.get(msg_key, "")
 
         components.html(
@@ -2449,6 +2459,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
     # --- WhatsApp Template Editor (unchanged) ---
     st.markdown("### 🧩 WhatsApp Template Editor")
+    st.caption("Setup tool: edit only when the standard WhatsApp wording needs to change.")
     if "wa_template" not in st.session_state or not st.session_state.get("wa_template"):
         st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE) or DEFAULT_WA_TEMPLATE
 
@@ -2537,7 +2548,7 @@ if st.session_state.get("working_df") is not None:
     st.markdown("<h2 id='reminders'>📅 Reminders</h2>", unsafe_allow_html=True)
     st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("#### 📅 Weekly Reminders")
-    st.info("💡 Pick a Start Date to see reminders for the next 7-day window. Click WA to prepare a message.")
+    st.info("💡 Daily workspace: pick a start date, review due reminders, then click WA to prepare a message.")
 
     prepared = get_prepared_df(df, st.session_state["rules"])
 
@@ -2553,7 +2564,11 @@ if st.session_state.get("working_df") is not None:
     latest_date = prepared["ChargeDate"].max()
     default_start = (latest_date + timedelta(days=1)).date() if pd.notna(latest_date) else date.today()
 
-    start_date = st.date_input("Start Date (7-day window)", value=default_start)
+    start_date = st.date_input(
+        "Start Date (7-day window)",
+        value=default_start,
+        help="Shows reminders due from this date through the next 6 days."
+    )
     end_date = start_date + timedelta(days=6)
 
     due2 = prepared[
@@ -2610,9 +2625,12 @@ if st.session_state.get("working_df") is not None:
     # --------------------------------
     st.markdown("---")
     st.markdown("<div id='search' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("#### 🔍 Search")
+    st.markdown("#### 🔍 Search Reminders")
     st.info("💡 Search by client, animal, or item to find upcoming reminders.")
-    search_term = st.text_input("Enter text to search (client, animal, or item)")
+    search_term = st.text_input(
+        "Enter text to search (client, animal, or item)",
+        help="Searches upcoming reminders by client name, animal name, or item text."
+    )
 
     if search_term:
         q = search_term.lower()
@@ -2696,19 +2714,22 @@ if st.session_state.get("working_df") is not None:
             with cols[1]:
                 new_values.setdefault(rule, {})["days"] = st.text_input(
                     "Days", value=str(settings["days"]),
-                    key=f"days_{safe_rule}_{ver}", label_visibility="collapsed"
+                    key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
+                    help="How many days after the charge date this item should become due again."
                 )
             with cols[2]:
                 st.checkbox(
                     "Use Qty", value=settings["use_qty"],
                     key=f"useqty_{safe_rule}_{ver}",
                     on_change=toggle_use_qty,
-                    args=(rule, f"useqty_{safe_rule}_{ver}",)
+                    args=(rule, f"useqty_{safe_rule}_{ver}",),
+                    help="When enabled, quantity multiplies the recurrence interval."
                 )
             with cols[3]:
                 new_values[rule]["visible_text"] = st.text_input(
                     "Visible Text", value=settings.get("visible_text",""),
-                    key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed"
+                    key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
+                    help="Optional friendly wording shown in tables and WhatsApp messages."
                 )
             with cols[4]:
                 if st.button("❌", key=f"del_{safe_rule}_{ver}"):
@@ -2722,7 +2743,7 @@ if st.session_state.get("working_df") is not None:
 
     colU, colR, colTip = st.columns([2,1,2])
     with colU:
-        if st.button("Update"):
+        if st.button("Update", help="Save changes to recurrence intervals and visible text."):
             updated = {}
             for rule, settings in st.session_state["rules"].items():
                 d = int(new_values.get(rule, {}).get("days", settings["days"]))
@@ -2739,7 +2760,7 @@ if st.session_state.get("working_df") is not None:
             st.rerun()
 
     with colR:
-        if st.button("Reset defaults"):
+        if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
             st.session_state["rules"] = DEFAULT_RULES.copy()
             st.session_state["exclusions"] = []
             st.session_state["form_version"] += 1
@@ -2761,13 +2782,29 @@ if st.session_state.get("working_df") is not None:
     row_id = st.session_state['new_rule_counter']
     c1, c2, c3, c4, c5 = st.columns([3,1,1,2,0.7], gap="small")
     with c1:
-        new_rule_name = st.text_input("Rule name", key=f"new_rule_name_{row_id}")
+        new_rule_name = st.text_input(
+            "Rule name",
+            key=f"new_rule_name_{row_id}",
+            help="Text to look for in the PMS item name, such as bravecto, rabies, or librela."
+        )
     with c2:
-        new_rule_days = st.text_input("Days", key=f"new_rule_days_{row_id}")
+        new_rule_days = st.text_input(
+            "Days",
+            key=f"new_rule_days_{row_id}",
+            help="Positive integer number of days until this item should be due again."
+        )
     with c3:
-        new_rule_use_qty = st.checkbox("Use Qty", key=f"new_rule_useqty_{row_id}")
+        new_rule_use_qty = st.checkbox(
+            "Use Qty",
+            key=f"new_rule_useqty_{row_id}",
+            help="Use when quantity should extend the reminder interval."
+        )
     with c4:
-        new_rule_visible = st.text_input("Visible Text (optional)", key=f"new_rule_vis_{row_id}")
+        new_rule_visible = st.text_input(
+            "Visible Text (optional)",
+            key=f"new_rule_vis_{row_id}",
+            help="Friendly wording to show users and clients, such as Bravecto Tablet."
+        )
     with c5:
         if st.button("➕ Add", key=f"add_{row_id}"):
             if new_rule_name and str(new_rule_days).isdigit():
@@ -2809,7 +2846,11 @@ if st.session_state.get("working_df") is not None:
     row_id = st.session_state['new_rule_counter']
     c1, c2 = st.columns([4,1], gap="small")
     with c1:
-        new_excl = st.text_input("Add New Exclusion Term", key=f"new_excl_{row_id}")
+        new_excl = st.text_input(
+            "Add New Exclusion Term",
+            key=f"new_excl_{row_id}",
+            help="Any reminder containing this text will be hidden from reminder tables."
+        )
     with c2:
         if st.button("➕ Add Exclusion", key=f"add_excl_{row_id}"):
             if new_excl and new_excl.strip():
@@ -2829,6 +2870,7 @@ if st.session_state.get("working_df") is not None:
 # --------------------------------
 st.markdown("<div id='factoids' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 📊 Factoids")
+st.caption("Occasional reporting area. Most reminder users can leave this locked and continue working above.")
 
 # --- Simple password gate — hides all content until unlocked
 if "factoids_unlocked" not in st.session_state:
@@ -4190,17 +4232,12 @@ if submitted_fb:
 #  👩‍⚕️ ADMIN TOOLS
 # --------------------------------
 
-st.markdown("---")
-st.markdown("## 🧩 Clinic Account Management (Admin Only)")
-
-# --------------------------------
-# Add or Reset Clinic Accounts
-# --------------------------------
-st.markdown("---")
-st.markdown("### 👩‍⚕️ Admin: Add or Reset Clinic Accounts")
-
 # Only show to a special admin account (for example, “Admin”)
 if st.session_state.get("clinic_id") == "Admin":
+    st.markdown("---")
+    st.markdown("## 🧩 Clinic Account Management (Admin Only)")
+    st.markdown("### 👩‍⚕️ Admin: Add or Reset Clinic Accounts")
+
     sheet = get_settings_sheet()
     st.info("Use this to add or update clinic login credentials. Plain passwords will be visible in the Sheet for convenience.")
 
