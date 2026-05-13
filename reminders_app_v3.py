@@ -1808,7 +1808,7 @@ if set(current_files) != set(st.session_state["last_uploaded_files"]):
 
     st.session_state["last_uploaded_files"] = current_files
     st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-    _reset_uploaded_data_state(clear_cache=True)
+    reset_uploaded_data_state(clear_cache=True)
 
     # optional but recommended
     load_shared_dataset_for_clinic()
@@ -1949,7 +1949,7 @@ if st.button("🗑️ Reset shared dataset for clinic", disabled=not confirm_res
     # drive_trash_file(existing_file_id)
 
     # 3) Clear local state so UI resets immediately
-    _reset_uploaded_data_state(clear_cache=False)
+    reset_uploaded_data_state(clear_cache=False)
 
     st.session_state["shared_dataset_loaded"] = False
     st.session_state["shared_dataset_name"] = None
