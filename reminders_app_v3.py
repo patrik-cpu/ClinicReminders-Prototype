@@ -430,6 +430,72 @@ st.markdown(
     .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; }
     h2[id] { scroll-margin-top: 80px; }
     .anchor-offset { position: relative; top: -100px; height: 0; }
+    .setup-panel {
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.75rem 0 1.25rem;
+        background: rgba(255,255,255,0.03);
+    }
+    .setup-panel h3 {
+        margin: 0 0 0.25rem !important;
+    }
+    .setup-panel p {
+        margin: 0 0 0.85rem;
+        color: rgba(255,255,255,0.68);
+    }
+    .setup-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(180px, 1fr));
+        gap: 0.75rem;
+    }
+    .setup-step {
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px;
+        padding: 0.8rem;
+        min-height: 150px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        background: rgba(255,255,255,0.035);
+    }
+    .setup-step.complete {
+        border-color: rgba(52, 211, 153, 0.45);
+        background: rgba(16, 185, 129, 0.10);
+    }
+    .setup-step.current {
+        border-color: rgba(59, 130, 246, 0.55);
+        background: rgba(59, 130, 246, 0.12);
+    }
+    .setup-status {
+        width: fit-content;
+        border-radius: 999px;
+        padding: 0.1rem 0.45rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+        background: rgba(255,255,255,0.10);
+    }
+    .setup-title {
+        font-weight: 700;
+        font-size: 1rem;
+    }
+    .setup-copy {
+        color: rgba(255,255,255,0.70);
+        font-size: 0.92rem;
+        line-height: 1.35;
+        flex: 1;
+    }
+    .setup-step a {
+        color: #60a5fa;
+        font-weight: 700;
+        text-decoration: none;
+    }
+    @media (max-width: 1100px) {
+        .setup-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+    }
+    @media (max-width: 700px) {
+        .setup-grid { grid-template-columns: 1fr; }
+    }
     </style>
     ''',
     unsafe_allow_html=True,
@@ -1658,6 +1724,62 @@ def render_dataset_date_range():
     else:
         st.caption("Dataset range: (dates not detected) - remember to 'Publish' data!")
 
+def render_setup_checklist():
+    df_w = st.session_state.get("working_df")
+    has_data = df_w is not None and not getattr(df_w, "empty", True)
+    has_shared_dataset = bool(st.session_state.get("shared_dataset_loaded") and st.session_state.get("shared_dataset_name"))
+    has_local_only_data = has_data and not has_shared_dataset
+    has_rules = bool(st.session_state.get("rules"))
+    reminders_ready = has_data and has_rules
+
+    def status(done: bool, current: bool = False):
+        if done:
+            return "complete", "Done"
+        if current:
+            return "current", "Next"
+        return "todo", "To do"
+
+    upload_class, upload_status = status(has_data, not has_data)
+    publish_class, publish_status = status(has_shared_dataset, has_local_only_data)
+    search_class, search_status = status(False, has_shared_dataset)
+    reminders_class, reminders_status = status(reminders_ready, has_shared_dataset)
+
+    st.markdown(
+        f"""
+        <section class="setup-panel">
+          <h3>Get Started</h3>
+          <p>Four quick checks before the clinic starts using reminders.</p>
+          <div class="setup-grid">
+            <div class="setup-step {upload_class}">
+              <div class="setup-status">{upload_status}</div>
+              <div class="setup-title">1. Upload data</div>
+              <div class="setup-copy">Upload a CSV, XLS, or XLSX sales plan export from your clinic system.</div>
+              <a href="#data-upload">Go to Data</a>
+            </div>
+            <div class="setup-step {publish_class}">
+              <div class="setup-status">{publish_status}</div>
+              <div class="setup-title">2. Publish it</div>
+              <div class="setup-copy">Publishing makes the dataset available to everyone using this clinic login.</div>
+              <a href="#data-upload">Publish clinic dataset</a>
+            </div>
+            <div class="setup-step {search_class}">
+              <div class="setup-status">{search_status}</div>
+              <div class="setup-title">3. Review search terms</div>
+              <div class="setup-copy">Defaults are loaded, but review them once so reminders match your clinic language.</div>
+              <a href="#search-terms">Open search terms</a>
+            </div>
+            <div class="setup-step {reminders_class}">
+              <div class="setup-status">{reminders_status}</div>
+              <div class="setup-title">4. Check reminders</div>
+              <div class="setup-copy">Pick a start date, confirm the output, then click WA to prepare messages.</div>
+              <a href="#reminders">Open reminders</a>
+            </div>
+          </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
 # --------------------------------
 # Session state init
 # --------------------------------
@@ -2031,10 +2153,18 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
 
 # --- Data section ---
+render_setup_checklist()
+
 st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 📂 Data")
 render_dataset_status()
 render_dataset_date_range()
+if (
+    st.session_state.get("working_df") is not None
+    and not getattr(st.session_state.get("working_df"), "empty", True)
+    and not st.session_state.get("shared_dataset_loaded")
+):
+    st.warning("Uploaded locally only. Click Publish to share this dataset with everyone using this clinic login.")
 
 datasets = []
 summary_rows = []
