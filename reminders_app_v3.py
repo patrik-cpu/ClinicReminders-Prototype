@@ -436,8 +436,9 @@ st.markdown(
     h2[id] { scroll-margin-top: 80px; }
     .anchor-offset { position: relative; top: -100px; height: 0; }
     section[data-testid="stSidebar"] div[data-testid="stButton"] button {
-        justify-content: flex-start;
-        text-align: left;
+        display: flex;
+        justify-content: flex-start !important;
+        text-align: left !important;
         border: 0 !important;
         background: transparent !important;
         padding: 0.18rem 0.25rem !important;
@@ -445,14 +446,21 @@ st.markdown(
         min-height: 2rem;
         width: 100%;
     }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button p {
+        width: 100%;
+        text-align: left !important;
+    }
     section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
         border: 0 !important;
         background: rgba(255,255,255,0.06) !important;
     }
     section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] button {
-        justify-content: center;
-        text-align: center;
+        justify-content: center !important;
+        text-align: center !important;
         min-height: 2.4rem;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] button p {
+        text-align: center !important;
     }
     .setup-panel {
         border: 1px solid rgba(255,255,255,0.12);
