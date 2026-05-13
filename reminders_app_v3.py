@@ -901,12 +901,14 @@ def load_settings():
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
         st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
+        st.session_state["client_group_days"] = int(settings.get("client_group_days", 1) or 1)
     else:
         # Defaults for new clinics
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
         st.session_state["user_name"] = ""
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
+        st.session_state["client_group_days"] = 1
 
 
 def save_settings():
@@ -929,6 +931,7 @@ def save_settings():
         "exclusions": st.session_state["exclusions"],
         "user_name": st.session_state["user_name"],
         "user_template": st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
+        "client_group_days": int(st.session_state.get("client_group_days", 1) or 1),
     }
     settings_json = json.dumps(settings_data)
     updated_at = datetime.utcnow().isoformat()
@@ -2435,6 +2438,7 @@ if st.session_state.get("working_df") is not None:
         value=st.session_state.get("client_group_days", 1),
         step=1,
         key="client_group_days",
+        on_change=save_settings,
         help="Group all reminders for the same client within this many days into one reminder row."
     )
 
