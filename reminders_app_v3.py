@@ -403,25 +403,26 @@ def make_mask(df, include_words, exclude_words=None):
 sidebar_nav_slot = st.sidebar.container()
 sidebar_account_slot = st.sidebar.container()
 
-# Sidebar "table of contents" — simplified navigation
-sidebar_nav_slot.markdown(
-    """
-    <div style="font-size:15px; line-height:1.85;">
-      <a href="#getting-started" style="text-decoration:none; display:block; font-weight:700; margin-bottom:0.75rem;">🚀 Getting Started</a>
-      <div style="font-weight:700; margin-bottom:0.25rem;">Daily workflow</div>
-      <a href="#reminders" style="text-decoration:none; display:block;">📅 Reminders</a>
-      <a href="#data-upload" style="text-decoration:none; display:block;">📂 Data</a>
-      <div style="font-weight:700; margin:1rem 0 0.25rem;">Reminder setup</div>
-      <a href="#search" style="text-decoration:none; display:block;">🔍 Search reminders</a>
-      <a href="#search-terms" style="text-decoration:none; display:block;">📝 Search terms</a>
-      <a href="#exclusions" style="text-decoration:none; display:block;">🚫 Exclusions</a>
-      <div style="font-weight:700; margin:1rem 0 0.25rem;">Occasional tools</div>
-      <a href="#factoids" style="text-decoration:none; display:block;">📊 Factoids</a>
-      <a href="#feedback-section" style="text-decoration:none; display:block;">💬 Feedback</a>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+if st.session_state.get("logged_in", False):
+    # Sidebar "table of contents" — simplified navigation
+    sidebar_nav_slot.markdown(
+        """
+        <div style="font-size:15px; line-height:1.85;">
+          <a href="#getting-started" style="text-decoration:none; display:block; font-weight:700; margin-bottom:0.75rem;">🚀 Getting Started</a>
+          <div style="font-weight:700; margin-bottom:0.25rem;">Daily workflow</div>
+          <a href="#reminders" style="text-decoration:none; display:block;">📅 Reminders</a>
+          <a href="#data-upload" style="text-decoration:none; display:block;">📂 Data</a>
+          <div style="font-weight:700; margin:1rem 0 0.25rem;">Reminder setup</div>
+          <a href="#search" style="text-decoration:none; display:block;">🔍 Search reminders</a>
+          <a href="#search-terms" style="text-decoration:none; display:block;">📝 Search terms</a>
+          <a href="#exclusions" style="text-decoration:none; display:block;">🚫 Exclusions</a>
+          <div style="font-weight:700; margin:1rem 0 0.25rem;">Occasional tools</div>
+          <a href="#factoids" style="text-decoration:none; display:block;">📊 Factoids</a>
+          <a href="#feedback-section" style="text-decoration:none; display:block;">💬 Feedback</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # --------------------------------
 # CSS Styling
@@ -434,6 +435,18 @@ st.markdown(
     .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; }
     h2[id] { scroll-margin-top: 80px; }
     .anchor-offset { position: relative; top: -100px; height: 0; }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button {
+        justify-content: flex-start;
+        text-align: left;
+        border: 0;
+        background: transparent;
+        padding-left: 0;
+        box-shadow: none;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
+        border: 0;
+        background: rgba(255,255,255,0.06);
+    }
     .setup-panel {
         border: 1px solid rgba(255,255,255,0.12);
         border-radius: 8px;
@@ -1515,6 +1528,15 @@ def authenticate_user(username, password):
                 return r
     return None
 
+def get_clinic_row(username):
+    """Return a clinic row by ClinicID without checking password."""
+    sheet = get_settings_sheet()
+    records = sheet.get_all_records()
+    for r in records:
+        if r["ClinicID"].strip().lower() == username.strip().lower():
+            return r
+    return None
+
 def update_clinic_password(clinic_id: str, new_password: str):
     """Update the password hash for the current clinic login."""
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
@@ -1677,7 +1699,7 @@ if (
     and not st.session_state["auto_login_attempted"]
 ):
     st.session_state["auto_login_attempted"] = True
-    user_row = authenticate_user(default_username, default_password)
+    user_row = get_clinic_row(default_username)
     if user_row:
         st.session_state["clinic_id"] = default_username
         st.session_state["logged_in"] = True
@@ -1689,7 +1711,7 @@ if not st.session_state["logged_in"]:
     with sidebar_account_slot:
         st.markdown("### 🔑 Clinic Login")
         username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
-        password = st.text_input("Password", type="password", value=DEV_AUTO_LOGIN_CREDENTIALS[1])
+        password = st.text_input("Password", type="password", value="")
         if st.button("Login"):
             user_row = authenticate_user(username, password)
             if user_row:
@@ -1718,7 +1740,12 @@ else:
             unsafe_allow_html=True,
         )
 
-        with st.expander("⚙️ Account Settings", expanded=False):
+        if "show_account_settings" not in st.session_state:
+            st.session_state["show_account_settings"] = False
+        if st.button("›  ⚙️ Account Settings", key="toggle_account_settings"):
+            st.session_state["show_account_settings"] = not st.session_state["show_account_settings"]
+
+        if st.session_state["show_account_settings"]:
             st.caption("Change the password for this clinic login.")
             with st.form("change_password_form"):
                 current_password = st.text_input("Current password", type="password")
@@ -1739,7 +1766,7 @@ else:
                     update_clinic_password(clinic_id, new_password)
                     st.success("Password updated.")
 
-        if st.button("Logout", use_container_width=True):
+        if st.button("Logout"):
             # Clear login state
             for key in ["logged_in", "clinic_id"]:
                 st.session_state.pop(key, None)
