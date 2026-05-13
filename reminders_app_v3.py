@@ -401,13 +401,13 @@ st.sidebar.markdown(
     <div style="font-size:15px; line-height:1.85;">
       <div style="font-weight:700; margin-bottom:0.25rem;">Daily workflow</div>
       <a href="#reminders" style="text-decoration:none; display:block;">📅 Reminders</a>
-      <a href="#data-upload" style="text-decoration:none; display:block;">📂 Upload / publish data</a>
+      <a href="#data-upload" style="text-decoration:none; display:block;">📂 Data</a>
       <div style="font-weight:700; margin:1rem 0 0.25rem;">Reminder setup</div>
       <a href="#search" style="text-decoration:none; display:block;">🔍 Search reminders</a>
       <a href="#search-terms" style="text-decoration:none; display:block;">📝 Search terms</a>
       <a href="#exclusions" style="text-decoration:none; display:block;">🚫 Exclusions</a>
       <div style="font-weight:700; margin:1rem 0 0.25rem;">Occasional tools</div>
-      <a href="#tutorial" style="text-decoration:none; display:block;">📖 Quick start</a>
+      <a href="#tutorial" style="text-decoration:none; display:block;">📖 User Guide</a>
       <a href="#factoids" style="text-decoration:none; display:block;">📊 Factoids</a>
       <a href="#feedback-section" style="text-decoration:none; display:block;">💬 Feedback</a>
     </div>
@@ -1573,12 +1573,13 @@ else:
     st.session_state.pop("bundle_key", None)
 
 # === What data is uploaded
-if st.session_state.get("shared_dataset_loaded"):
-    st.info(f"📌 Using shared clinic dataset: {st.session_state.get('shared_dataset_name','(unknown)')}")
-elif st.session_state.get("shared_dataset_error"):
-    st.warning(f"⚠️ Could not load shared dataset: {st.session_state['shared_dataset_error']}")
-else:
-    st.caption("No shared dataset published yet — upload a file to start. Remember to 'Publish' data!")
+def render_dataset_status():
+    if st.session_state.get("shared_dataset_loaded"):
+        st.info(f"📌 Using shared clinic dataset: {st.session_state.get('shared_dataset_name','(unknown)')}")
+    elif st.session_state.get("shared_dataset_error"):
+        st.warning(f"⚠️ Could not load shared dataset: {st.session_state['shared_dataset_error']}")
+    else:
+        st.caption("No shared dataset published yet — upload a file to start. Remember to 'Publish' data!")
 
 def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
     if df is None or df.empty:
@@ -1996,25 +1997,10 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
 
     return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
 
-# --------------------------------
-# Tutorial section
-# --------------------------------
-st.markdown("<div id='tutorial' class='anchor-offset'></div>", unsafe_allow_html=True)
-with st.expander("📖 Quick start guide", expanded=False):
-    st.info(
-        "### 🧭 READ THIS FIRST!\n\n"
-        "Welcome to **ClinicReminders** — this tool helps you find due reminders, prepare WhatsApp messages, and keep clients engaged.\n\n"
-        "### 📋 Daily workflow\n"
-        "**STEP 1:** Confirm the clinic dataset is loaded, or upload and publish a new file.  \n"
-        "**STEP 2:** Use **Weekly Reminders** to see reminders due in the next 7-day window.  \n"
-        "**STEP 3:** Click **WA** to prepare the WhatsApp message.  \n"
-        "**STEP 4:** Use **Search Terms**, **Exclusions**, and the **WhatsApp Template Editor** only when setup needs changing.  \n\n"
-        "Factoids and feedback are available further down for occasional review and support."
-    )
-
-# --- Upload Data section ---
+# --- Data section ---
 st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
-st.markdown("## 📂 Data Upload")
+st.markdown("## 📂 Data")
+render_dataset_status()
 
 datasets = []
 summary_rows = []
@@ -2618,6 +2604,19 @@ if st.session_state.get("working_df") is not None:
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
     else:
         st.info("No reminders in the selected week.")
+
+    st.markdown("<div id='tutorial' class='anchor-offset'></div>", unsafe_allow_html=True)
+    with st.expander("📖 User Guide", expanded=False):
+        st.info(
+            "### User Guide\n\n"
+            "ClinicReminders helps you find due reminders, prepare WhatsApp messages, and keep clients engaged.\n\n"
+            "### Daily workflow\n"
+            "**STEP 1:** Confirm the clinic dataset is loaded, or upload and publish a new file in **Data**.  \n"
+            "**STEP 2:** Use **Weekly Reminders** to see reminders due in the next 7-day window.  \n"
+            "**STEP 3:** Click **WA** to prepare the WhatsApp message.  \n"
+            "**STEP 4:** Use **Search Terms**, **Exclusions**, and the **WhatsApp Template Editor** only when setup needs changing.  \n\n"
+            "Factoids and feedback are available further down for occasional review and support."
+        )
 
 
     # --------------------------------
