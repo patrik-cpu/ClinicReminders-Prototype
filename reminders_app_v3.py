@@ -400,8 +400,8 @@ def make_mask(df, include_words, exclude_words=None):
 
     return mask
 
-sidebar_account_slot = st.sidebar.container()
 sidebar_nav_slot = st.sidebar.container()
+sidebar_account_slot = st.sidebar.container()
 
 # Sidebar "table of contents" — simplified navigation
 sidebar_nav_slot.markdown(
@@ -1710,15 +1710,9 @@ else:
         clinic_label = html_lib.escape(str(clinic_id))
         st.markdown(
             f"""
-            <div style="
-                border:1px solid rgba(255,255,255,0.12);
-                border-radius:8px;
-                padding:0.75rem;
-                margin-bottom:0.9rem;
-                background:rgba(255,255,255,0.035);
-            ">
-              <div style="font-size:0.78rem; color:rgba(255,255,255,0.62); font-weight:700; text-transform:uppercase;">Clinic</div>
-              <div style="font-size:1rem; font-weight:700; color:white; word-break:break-word;">{clinic_label}</div>
+            <div style="font-size:15px; line-height:1.5; margin-top:1.1rem;">
+              <div style="font-weight:700; margin-bottom:0.15rem;">Clinic</div>
+              <div style="color:rgba(255,255,255,0.82); word-break:break-word;">{clinic_label}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -2271,6 +2265,7 @@ st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_h
 st.markdown("## 📂 Data")
 render_dataset_status()
 render_dataset_date_range()
+st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
 if (
     st.session_state.get("working_df") is not None
     and not getattr(st.session_state.get("working_df"), "empty", True)
