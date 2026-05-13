@@ -898,6 +898,7 @@ def load_settings():
         st.session_state["user_name"] = settings.get("user_name", "")
         st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
         st.session_state["client_group_days"] = int(settings.get("client_group_days", 1) or 1)
+        st.session_state["reminder_window_days"] = int(settings.get("reminder_window_days", 7) or 7)
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
         st.session_state["wa_reminder_log"] = settings.get("wa_reminder_log", [])
     else:
@@ -907,6 +908,7 @@ def load_settings():
         st.session_state["user_name"] = ""
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
         st.session_state["client_group_days"] = 1
+        st.session_state["reminder_window_days"] = 7
         st.session_state["reminder_warning_days"] = 0
         st.session_state["wa_reminder_log"] = []
 
@@ -938,6 +940,7 @@ def save_settings():
         "user_name": st.session_state["user_name"],
         "user_template": st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
         "client_group_days": int(st.session_state.get("client_group_days", 1) or 1),
+        "reminder_window_days": int(st.session_state.get("reminder_window_days", 7) or 7),
         "reminder_warning_days": int(st.session_state.get("reminder_warning_days", 0) or 0),
         "wa_reminder_log": wa_reminder_log,
     }
@@ -2550,19 +2553,23 @@ if st.session_state.get("working_df") is not None:
     latest_date = prepared["ChargeDate"].max()
     default_start = (latest_date + timedelta(days=1)).date() if pd.notna(latest_date) else date.today()
 
-    start_date = st.date_input(
-        "Start Date (7-day window)",
-        value=default_start,
-        help="Shows reminders due from this date through the next 6 days."
-    )
-    end_date = start_date + timedelta(days=6)
-
-    due2 = prepared[
-        (pd.to_datetime(prepared["NextDueDate"]) >= pd.to_datetime(start_date)) &
-        (pd.to_datetime(prepared["NextDueDate"]) <= pd.to_datetime(end_date))
-    ].copy()
-
-    group_col, warning_col = st.columns(2)
+    start_col, window_col, group_col, warning_col = st.columns(4)
+    with start_col:
+        start_date = st.date_input(
+            "Start Date",
+            value=default_start,
+            help="First day to include in the reminder list."
+        )
+    with window_col:
+        reminder_window_days = st.number_input(
+            "Days to look ahead",
+            min_value=1,
+            value=st.session_state.get("reminder_window_days", 7),
+            step=1,
+            key="reminder_window_days",
+            on_change=save_settings,
+            help="How many days to include from the start date. Maximum 30."
+        )
     with group_col:
         group_days = st.number_input(
             "Number of days to group reminders for the same Client",
@@ -2583,6 +2590,17 @@ if st.session_state.get("working_df") is not None:
             on_change=save_settings,
             help="Show a warning when WA is clicked for a client who already had a reminder within this many days. Use 0 to turn warnings off."
         )
+
+    if reminder_window_days > 30:
+        st.warning("Max 30 days.")
+        reminder_window_days = 30
+
+    end_date = start_date + timedelta(days=reminder_window_days - 1)
+
+    due2 = prepared[
+        (pd.to_datetime(prepared["NextDueDate"]) >= pd.to_datetime(start_date)) &
+        (pd.to_datetime(prepared["NextDueDate"]) <= pd.to_datetime(end_date))
+    ].copy()
 
     if not due2.empty:
         grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=st.session_state.get("rules", {}))
@@ -2612,7 +2630,7 @@ if st.session_state.get("working_df") is not None:
             "ClinicReminders helps you find due reminders, prepare WhatsApp messages, and keep clients engaged.\n\n"
             "### Daily workflow\n"
             "**STEP 1:** Confirm the clinic dataset is loaded, or upload and publish a new file in **Data**.  \n"
-            "**STEP 2:** Use **Weekly Reminders** to see reminders due in the next 7-day window.  \n"
+            "**STEP 2:** Use **Weekly Reminders** to choose a start date and look-ahead window.  \n"
             "**STEP 3:** Click **WA** to prepare the WhatsApp message.  \n"
             "**STEP 4:** Use **Search Terms**, **Exclusions**, and the **WhatsApp Template Editor** only when setup needs changing.  \n\n"
             "Factoids and feedback are available further down for occasional review and support."
