@@ -118,13 +118,17 @@ def _row_range_a1(row_idx: int, first_col_idx: int, last_col_idx: int) -> str:
 
 
 def _update_dataset_pointer_cells(sheet, headers, row_idx, file_id, filename, updated_at):
-    first_idx = _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID)
-    last_idx = _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT)
-    payload = [{
-        "range": _row_range_a1(row_idx, first_idx, last_idx),
-        "values": [[file_id, filename, updated_at]],
-    }]
-    _gspread_retry(sheet.batch_update, payload)
+    update_dataset_pointer_cells(
+        sheet=sheet,
+        headers=headers,
+        row_idx=row_idx,
+        file_id=file_id,
+        filename=filename,
+        updated_at=updated_at,
+        dataset_file_id_col=SHEET_COL_DATASET_FILE_ID,
+        dataset_updated_at_col=SHEET_COL_DATASET_UPDATED_AT,
+        retry_fn=_gspread_retry,
+    )
 
 
 def _update_settings_cells(sheet, headers, row_idx, settings_json, updated_at):
@@ -493,6 +497,10 @@ SETTINGS_SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleap
 # === DEV AUTO-LOGIN ===
 DEV_AUTO_LOGIN = True
 DEV_AUTO_LOGIN_CREDENTIALS = ("PatTest", "pat123")
+AUTO_LOGIN_ALLOWED_USERNAME = "PatTest"
+
+def auto_login_allowed(username: str) -> bool:
+    return str(username or "").strip().lower() == AUTO_LOGIN_ALLOWED_USERNAME.lower()
 
 # === GOOGLE DRIVE CONFIG ===
 @st.cache_resource
@@ -901,6 +909,7 @@ def load_settings():
         st.session_state["reminder_window_days"] = int(settings.get("reminder_window_days", 7) or 7)
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
         st.session_state["wa_reminder_log"] = settings.get("wa_reminder_log", [])
+        st.session_state["deleted_reminders"] = settings.get("deleted_reminders", [])
     else:
         # Defaults for new clinics
         st.session_state["rules"] = DEFAULT_RULES.copy()
@@ -911,6 +920,7 @@ def load_settings():
         st.session_state["reminder_window_days"] = 7
         st.session_state["reminder_warning_days"] = 0
         st.session_state["wa_reminder_log"] = []
+        st.session_state["deleted_reminders"] = []
 
 
 def save_settings():
@@ -927,11 +937,20 @@ def save_settings():
     except ValueError:
         sheet = get_settings_sheet()
 
+    remote_settings = get_remote_settings(sheet=sheet, headers=headers, row=row)
     wa_reminder_log = merge_wa_reminder_logs(
-        get_remote_wa_reminder_log(sheet=sheet, headers=headers, row=row),
+        remote_settings.get("wa_reminder_log", []),
         st.session_state.get("wa_reminder_log", []),
     )
     st.session_state["wa_reminder_log"] = wa_reminder_log
+    if st.session_state.pop("_replace_deleted_reminders_once", False):
+        deleted_reminders = st.session_state.get("deleted_reminders", [])
+    else:
+        deleted_reminders = merge_deleted_reminders(
+            remote_settings.get("deleted_reminders", []),
+            st.session_state.get("deleted_reminders", []),
+        )
+        st.session_state["deleted_reminders"] = deleted_reminders
 
     # Build the JSON blob for settings
     settings_data = {
@@ -943,6 +962,7 @@ def save_settings():
         "reminder_window_days": int(st.session_state.get("reminder_window_days", 7) or 7),
         "reminder_warning_days": int(st.session_state.get("reminder_warning_days", 0) or 0),
         "wa_reminder_log": wa_reminder_log,
+        "deleted_reminders": deleted_reminders,
     }
     settings_json = json.dumps(settings_data)
     updated_at = datetime.utcnow().isoformat()
@@ -980,10 +1000,10 @@ def _days_ago_text(then: datetime, now: datetime) -> str:
         return "1 day ago"
     return f"{days} days ago"
 
-def get_remote_wa_reminder_log(sheet=None, headers=None, row=None) -> list:
+def get_remote_settings(sheet=None, headers=None, row=None) -> dict:
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id:
-        return []
+        return {}
 
     try:
         if not (sheet and headers and row):
@@ -991,11 +1011,13 @@ def get_remote_wa_reminder_log(sheet=None, headers=None, row=None) -> list:
         current_row = sheet.row_values(row)
         settings_idx = _settings_col_index(headers, "SettingsJSON") - 1
         if len(current_row) <= settings_idx or not current_row[settings_idx]:
-            return []
-        current_settings = json.loads(current_row[settings_idx])
-        return current_settings.get("wa_reminder_log", [])
+            return {}
+        return json.loads(current_row[settings_idx])
     except Exception:
-        return []
+        return {}
+
+def get_remote_wa_reminder_log(sheet=None, headers=None, row=None) -> list:
+    return get_remote_settings(sheet=sheet, headers=headers, row=row).get("wa_reminder_log", [])
 
 def merge_wa_reminder_logs(*logs):
     merged = {}
@@ -1018,6 +1040,21 @@ def merge_wa_reminder_logs(*logs):
         merged.values(),
         key=lambda entry: _parse_reminder_log_time(entry.get("RemindedAt", "")) or datetime.min,
     )[-1000:]
+
+def merge_deleted_reminders(*logs):
+    merged = {}
+    key_fields = ("Client Name", "Animal Name", "Plan Item", "Due Date")
+    for log in logs:
+        if not isinstance(log, list):
+            continue
+        for entry in log:
+            if not isinstance(entry, dict):
+                continue
+            key = tuple(str(entry.get(field, "")).strip().lower() for field in key_fields)
+            if not any(key):
+                continue
+            merged[key] = dict(entry)
+    return list(merged.values())[-1000:]
 
 def get_recent_reminder_warning(client_name: str, now: datetime | None = None) -> str | None:
     warning_days = int(st.session_state.get("reminder_warning_days", 0) or 0)
@@ -1511,9 +1548,17 @@ if "logged_in" not in st.session_state:
 if "auto_login_attempted" not in st.session_state:
     st.session_state["auto_login_attempted"] = False
 
-if get_script_run_ctx is not None and get_script_run_ctx() is not None and not st.session_state["logged_in"] and DEV_AUTO_LOGIN and not st.session_state["auto_login_attempted"]:
+default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
+
+if (
+    get_script_run_ctx is not None
+    and get_script_run_ctx() is not None
+    and not st.session_state["logged_in"]
+    and DEV_AUTO_LOGIN
+    and auto_login_allowed(default_username)
+    and not st.session_state["auto_login_attempted"]
+):
     st.session_state["auto_login_attempted"] = True
-    default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
     user_row = authenticate_user(default_username, default_password)
     if user_row:
         st.session_state["clinic_id"] = default_username
@@ -1615,21 +1660,6 @@ else:
     st.caption("Dataset range: (dates not detected) - remember to 'Publish' data!")
 
 # --------------------------------
-# 🗑️ Local hidden-reminders tracking
-# --------------------------------
-DELETED_REMINDERS_FILE = "deleted_reminders.json"
-
-def load_deleted_reminders():
-    if os.path.exists(DELETED_REMINDERS_FILE):
-        with open(DELETED_REMINDERS_FILE, "r") as f:
-            return json.load(f)
-    return []
-
-def save_deleted_reminders(deleted_list):
-    with open(DELETED_REMINDERS_FILE, "w") as f:
-        json.dump(deleted_list, f)
-
-# --------------------------------
 # Session state init
 # --------------------------------
 if "rules" not in st.session_state:
@@ -1638,7 +1668,7 @@ st.session_state.setdefault("weekly_message", "")
 st.session_state.setdefault("search_message", "")
 st.session_state.setdefault("new_rule_counter", 0)
 st.session_state.setdefault("form_version", 0)
-st.session_state.setdefault("deleted_reminders", load_deleted_reminders())
+st.session_state.setdefault("deleted_reminders", [])
 
 # --------------------------------
 # Helpers
@@ -2319,7 +2349,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 "DeletedAt": datetime.now().isoformat()
             }
             st.session_state.setdefault("deleted_reminders", []).append(rec)
-            save_deleted_reminders(st.session_state["deleted_reminders"])
+            save_settings()
             st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} hidden.")
             st.rerun()
 
@@ -2329,7 +2359,8 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         st.caption(f"🗑️ {num_deleted} reminders hidden (use Restore to bring them back)")
         if st.button("♻️ Restore Hidden Reminders"):
             st.session_state["deleted_reminders"] = []
-            save_deleted_reminders([])
+            st.session_state["_replace_deleted_reminders_once"] = True
+            save_settings()
             st.success("All hidden reminders restored.")
             st.rerun()
 
@@ -2762,19 +2793,28 @@ if st.session_state.get("working_df") is not None:
     with colU:
         if st.button("Update", help="Save changes to recurrence intervals and visible text."):
             updated = {}
+            invalid_rules = []
             for rule, settings in st.session_state["rules"].items():
-                d = int(new_values.get(rule, {}).get("days", settings["days"]))
+                days_raw = str(new_values.get(rule, {}).get("days", settings["days"])).strip()
+                if not days_raw.isdigit() or int(days_raw) <= 0:
+                    invalid_rules.append(rule)
+                    continue
+                d = int(days_raw)
                 vis = new_values.get(rule, {}).get("visible_text", settings.get("visible_text", ""))
                 if vis.strip() == "":
                     updated[rule] = {"days": d, "use_qty": settings["use_qty"]}
                 else:
                     updated[rule] = {"days": d, "use_qty": settings["use_qty"], "visible_text": vis.strip()}
-            st.session_state["rules"] = updated
-            save_settings()
-            # invalidate prepared cache because rules changed
-            st.session_state.pop("prepared_df", None)
-            st.session_state.pop("prepared_key", None)
-            st.rerun()
+
+            if invalid_rules:
+                st.error("Days must be a positive integer for: " + ", ".join(sorted(invalid_rules)))
+            else:
+                st.session_state["rules"] = updated
+                save_settings()
+                # invalidate prepared cache because rules changed
+                st.session_state.pop("prepared_df", None)
+                st.session_state.pop("prepared_key", None)
+                st.rerun()
 
     with colR:
         if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):

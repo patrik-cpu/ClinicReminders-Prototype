@@ -6,7 +6,7 @@ class FakeSheet:
     def __init__(self):
         self.batch_payloads = []
 
-    def batch_update(self, payload):
+    def batch_update(self, payload, value_input_option="RAW"):
         self.batch_payloads.append(payload)
 
 
