@@ -15,6 +15,19 @@ import numpy as np
 from gspread.exceptions import APIError
 import random
 
+try:
+    from streamlit.runtime.scriptrunner import RerunException
+except Exception:
+    RerunException = None
+
+def rerun_app():
+    if hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+    elif RerunException is not None:
+        raise RerunException()
+    else:
+        raise RuntimeError("This Streamlit environment does not support rerun.")
+
 #Saving data set
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -1337,7 +1350,7 @@ if not st.session_state["logged_in"] and DEV_AUTO_LOGIN and not st.session_state
         st.session_state["logged_in"] = True
         load_settings()
         load_shared_dataset_for_clinic()
-        st.experimental_rerun()
+        rerun_app()
 
 if not st.session_state["logged_in"]:
     st.sidebar.markdown("### 🔑 Clinic Login")
