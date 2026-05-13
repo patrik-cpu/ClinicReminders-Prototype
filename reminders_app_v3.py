@@ -902,6 +902,8 @@ def load_settings():
         st.session_state["user_name"] = settings.get("user_name", "")
         st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
         st.session_state["client_group_days"] = int(settings.get("client_group_days", 1) or 1)
+        st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
+        st.session_state["wa_reminder_log"] = settings.get("wa_reminder_log", [])
     else:
         # Defaults for new clinics
         st.session_state["rules"] = DEFAULT_RULES.copy()
@@ -909,6 +911,8 @@ def load_settings():
         st.session_state["user_name"] = ""
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
         st.session_state["client_group_days"] = 1
+        st.session_state["reminder_warning_days"] = 0
+        st.session_state["wa_reminder_log"] = []
 
 
 def save_settings():
@@ -925,6 +929,12 @@ def save_settings():
     except ValueError:
         sheet = get_settings_sheet()
 
+    wa_reminder_log = merge_wa_reminder_logs(
+        get_remote_wa_reminder_log(sheet=sheet, headers=headers, row=row),
+        st.session_state.get("wa_reminder_log", []),
+    )
+    st.session_state["wa_reminder_log"] = wa_reminder_log
+
     # Build the JSON blob for settings
     settings_data = {
         "rules": st.session_state["rules"],
@@ -932,6 +942,8 @@ def save_settings():
         "user_name": st.session_state["user_name"],
         "user_template": st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
         "client_group_days": int(st.session_state.get("client_group_days", 1) or 1),
+        "reminder_warning_days": int(st.session_state.get("reminder_warning_days", 0) or 0),
+        "wa_reminder_log": wa_reminder_log,
     }
     settings_json = json.dumps(settings_data)
     updated_at = datetime.utcnow().isoformat()
@@ -950,6 +962,116 @@ def save_settings():
             _gspread_retry(sheet.batch_update, payload)
     else:
         sheet.append_row([clinic_id, "", settings_json, updated_at])
+# --------------------------------
+
+def _reminder_client_key(client_name: str) -> str:
+    return _SPACE_RX.sub(" ", str(client_name or "").strip()).lower()
+
+def _parse_reminder_log_time(value):
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+def _days_ago_text(then: datetime, now: datetime) -> str:
+    days = max(0, (now.date() - then.date()).days)
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "1 day ago"
+    return f"{days} days ago"
+
+def get_remote_wa_reminder_log(sheet=None, headers=None, row=None) -> list:
+    clinic_id = st.session_state.get("clinic_id")
+    if not clinic_id:
+        return []
+
+    try:
+        if not (sheet and headers and row):
+            sheet, headers, row = _get_settings_row_for_clinic(clinic_id)
+        current_row = sheet.row_values(row)
+        settings_idx = _settings_col_index(headers, "SettingsJSON") - 1
+        if len(current_row) <= settings_idx or not current_row[settings_idx]:
+            return []
+        current_settings = json.loads(current_row[settings_idx])
+        return current_settings.get("wa_reminder_log", [])
+    except Exception:
+        return []
+
+def merge_wa_reminder_logs(*logs):
+    merged = {}
+    for log in logs:
+        if not isinstance(log, list):
+            continue
+        for entry in log:
+            if not isinstance(entry, dict):
+                continue
+            client_name = str(entry.get("Client Name", "")).strip()
+            reminded_at = str(entry.get("RemindedAt", "")).strip()
+            if not client_name or not reminded_at:
+                continue
+            merged[(client_name, reminded_at)] = {
+                "Client Name": client_name,
+                "RemindedAt": reminded_at,
+            }
+
+    return sorted(
+        merged.values(),
+        key=lambda entry: _parse_reminder_log_time(entry.get("RemindedAt", "")) or datetime.min,
+    )[-1000:]
+
+def get_recent_reminder_warning(client_name: str, now: datetime | None = None) -> str | None:
+    warning_days = int(st.session_state.get("reminder_warning_days", 0) or 0)
+    if warning_days <= 0:
+        return None
+
+    now = now or datetime.utcnow()
+    st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(
+        get_remote_wa_reminder_log(),
+        st.session_state.get("wa_reminder_log", []),
+    )
+    client_key = _reminder_client_key(client_name)
+    latest = None
+    for entry in st.session_state.get("wa_reminder_log", []):
+        if _reminder_client_key(entry.get("Client Name", "")) != client_key:
+            continue
+        reminded_at = _parse_reminder_log_time(entry.get("RemindedAt", ""))
+        if reminded_at and (latest is None or reminded_at > latest):
+            latest = reminded_at
+
+    if latest and now - latest <= timedelta(days=warning_days):
+        display_name = normalize_display_case(client_name)
+        return f"Reminder: {display_name} got a reminder {_days_ago_text(latest, now)}."
+    return None
+
+def record_wa_reminder_click(client_name: str, now: datetime | None = None):
+    now = now or datetime.utcnow()
+    log = list(st.session_state.get("wa_reminder_log", []))
+    log.append({
+        "Client Name": str(client_name or "").strip(),
+        "RemindedAt": now.isoformat(),
+    })
+    st.session_state["wa_reminder_log"] = log[-1000:]
+    save_settings()
+
+def show_recent_reminder_warning(message: str, key: str):
+    if hasattr(st, "dialog"):
+        @st.dialog("Reminder warning")
+        def _warning_dialog():
+            st.write(message)
+            if st.button("OK", key=key):
+                st.rerun()
+        _warning_dialog()
+    elif hasattr(st, "experimental_dialog"):
+        @st.experimental_dialog("Reminder warning")
+        def _warning_dialog():
+            st.write(message)
+            if st.button("OK", key=key):
+                st.rerun()
+        _warning_dialog()
+    else:
+        st.warning(message)
+
 # --------------------------------
 # PMS definitions
 # --------------------------------
@@ -2140,7 +2262,14 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
         # --- WA button (aligned to its column, full-width) ---
         if row_cols[7].button("WA", key=f"{key_prefix}_wa_{idx}", use_container_width=True):
-            first_name = normalize_display_case(row.get("Client Name", "")).split()[0].strip() if row.get("Client Name") else "there"
+            client_name = row.get("Client Name", "")
+            now = datetime.utcnow()
+            warning_message = get_recent_reminder_warning(client_name, now=now)
+            if warning_message:
+                show_recent_reminder_warning(warning_message, key=f"{key_prefix}_recent_reminder_ok_{idx}")
+            record_wa_reminder_click(client_name, now=now)
+
+            first_name = normalize_display_case(client_name).split()[0].strip() if client_name else "there"
             animal_name = normalize_display_case(row.get("Animal Name", "")).strip() if row.get("Animal Name") else "your pet"
             plan_for_msg = normalize_display_case(row.get("Plan Item", "")).strip()
             user = st.session_state.get("user_name", "").strip()
@@ -2432,15 +2561,27 @@ if st.session_state.get("working_df") is not None:
         (pd.to_datetime(prepared["NextDueDate"]) <= pd.to_datetime(end_date))
     ].copy()
 
-    group_days = st.number_input(
-        "Number of days to group reminders for the same Client",
-        min_value=1,
-        value=st.session_state.get("client_group_days", 1),
-        step=1,
-        key="client_group_days",
-        on_change=save_settings,
-        help="Group all reminders for the same client within this many days into one reminder row."
-    )
+    group_col, warning_col = st.columns(2)
+    with group_col:
+        group_days = st.number_input(
+            "Number of days to group reminders for the same Client",
+            min_value=1,
+            value=st.session_state.get("client_group_days", 1),
+            step=1,
+            key="client_group_days",
+            on_change=save_settings,
+            help="Group all reminders for the same client within this many days into one reminder row."
+        )
+    with warning_col:
+        st.number_input(
+            "Number of days for repeat-reminder warning",
+            min_value=0,
+            value=st.session_state.get("reminder_warning_days", 0),
+            step=1,
+            key="reminder_warning_days",
+            on_change=save_settings,
+            help="Show a warning when WA is clicked for a client who already had a reminder within this many days. Use 0 to turn warnings off."
+        )
 
     if not due2.empty:
         grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=st.session_state.get("rules", {}))
