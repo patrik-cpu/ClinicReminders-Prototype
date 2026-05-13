@@ -17,14 +17,16 @@ import random
 
 try:
     from streamlit.runtime.scriptrunner import RerunException
+    from streamlit.runtime.scriptrunner_utils.script_requests import RerunData
 except Exception:
     RerunException = None
+    RerunData = None
 
 def rerun_app():
     if hasattr(st, "experimental_rerun"):
         st.experimental_rerun()
-    elif RerunException is not None:
-        raise RerunException()
+    elif RerunException is not None and RerunData is not None:
+        raise RerunException(RerunData())
     else:
         raise RuntimeError("This Streamlit environment does not support rerun.")
 
