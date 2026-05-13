@@ -435,6 +435,31 @@ st.markdown(
     .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; }
     h2[id] { scroll-margin-top: 80px; }
     .anchor-offset { position: relative; top: -100px; height: 0; }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button {
+        display: flex !important;
+        justify-content: flex-start !important;
+        align-items: center !important;
+        text-align: left !important;
+        border: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        padding: 0.05rem 0 !important;
+        min-height: 1.85rem;
+        width: 100%;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
+        color: #60a5fa;
+        border: 0 !important;
+        background: transparent !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button div[data-testid="stMarkdownContainer"] {
+        width: 100%;
+        text-align: left !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button div[data-testid="stMarkdownContainer"] p {
+        margin: 0 !important;
+        text-align: left !important;
+    }
     section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] button {
         justify-content: center !important;
         text-align: center !important;
@@ -442,20 +467,6 @@ st.markdown(
     }
     section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] button p {
         text-align: center !important;
-    }
-    .sidebar-account-actions {
-        font-size: 15px;
-        line-height: 1.85;
-        margin-top: 0.55rem;
-    }
-    .sidebar-account-actions a {
-        display: block;
-        color: inherit;
-        text-decoration: none;
-        padding: 0.05rem 0;
-    }
-    .sidebar-account-actions a:hover {
-        color: #60a5fa;
     }
     .setup-panel {
         border: 1px solid rgba(255,255,255,0.12);
@@ -1698,12 +1709,6 @@ if "logged_in" not in st.session_state:
 if "auto_login_attempted" not in st.session_state:
     st.session_state["auto_login_attempted"] = False
 
-def get_query_param_value(name: str) -> str:
-    value = st.query_params.get(name, "")
-    if isinstance(value, list):
-        return str(value[0]) if value else ""
-    return str(value or "")
-
 default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
 
 if (
@@ -1722,20 +1727,6 @@ if (
         load_settings()
         load_shared_dataset_for_clinic()
         rerun_app()
-
-if st.session_state.get("logged_in", False) and get_query_param_value("logout") == "1":
-    for key in ["logged_in", "clinic_id"]:
-        st.session_state.pop(key, None)
-    st.query_params.clear()
-    st.success("You have been logged out.")
-    st.rerun()
-
-if st.session_state.get("logged_in", False):
-    account_param = get_query_param_value("account")
-    if account_param == "settings":
-        st.session_state["show_account_settings"] = True
-    elif account_param == "closed":
-        st.session_state["show_account_settings"] = False
 
 if not st.session_state["logged_in"]:
     with sidebar_account_slot:
@@ -1775,16 +1766,8 @@ else:
 
         if "show_account_settings" not in st.session_state:
             st.session_state["show_account_settings"] = False
-        account_href = "?account=closed" if st.session_state["show_account_settings"] else "?account=settings"
-        st.markdown(
-            f"""
-            <div class="sidebar-account-actions">
-              <a href="{account_href}">⚙️ Account Settings</a>
-              <a href="?logout=1">Logout</a>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        if st.button("⚙️ Account Settings", key="toggle_account_settings", use_container_width=True):
+            st.session_state["show_account_settings"] = not st.session_state["show_account_settings"]
 
         if st.session_state["show_account_settings"]:
             st.caption("Change the password for this clinic login.")
@@ -1806,6 +1789,12 @@ else:
                 else:
                     update_clinic_password(clinic_id, new_password)
                     st.success("Password updated.")
+
+        if st.button("Logout", use_container_width=True):
+            for key in ["logged_in", "clinic_id"]:
+                st.session_state.pop(key, None)
+            st.success("You have been logged out.")
+            st.rerun()
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:
