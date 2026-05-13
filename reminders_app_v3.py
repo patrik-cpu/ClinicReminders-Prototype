@@ -403,6 +403,7 @@ def make_mask(df, include_words, exclude_words=None):
 st.sidebar.markdown(
     """
     <div style="font-size:15px; line-height:1.85;">
+      <a href="#getting-started" style="text-decoration:none; display:block; font-weight:700; margin-bottom:0.75rem;">🚀 Getting Started</a>
       <div style="font-weight:700; margin-bottom:0.25rem;">Daily workflow</div>
       <a href="#reminders" style="text-decoration:none; display:block;">📅 Reminders</a>
       <a href="#data-upload" style="text-decoration:none; display:block;">📂 Data</a>
@@ -446,7 +447,7 @@ st.markdown(
     }
     .setup-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(180px, 1fr));
+        grid-template-columns: repeat(3, minmax(180px, 1fr));
         gap: 0.75rem;
     }
     .setup-step {
@@ -466,6 +467,10 @@ st.markdown(
     .setup-step.current {
         border-color: rgba(59, 130, 246, 0.55);
         background: rgba(59, 130, 246, 0.12);
+    }
+    .setup-step.optional {
+        border-color: rgba(245, 158, 11, 0.35);
+        background: rgba(245, 158, 11, 0.08);
     }
     .setup-status {
         width: fit-content;
@@ -495,6 +500,38 @@ st.markdown(
     }
     @media (max-width: 700px) {
         .setup-grid { grid-template-columns: 1fr; }
+    }
+    .template-helper {
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.75rem 0;
+        background: rgba(255,255,255,0.035);
+    }
+    .template-helper h4 {
+        margin: 0 0 0.35rem !important;
+    }
+    .template-helper p {
+        color: rgba(255,255,255,0.72);
+        margin: 0 0 0.65rem;
+    }
+    .placeholder-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(120px, 1fr));
+        gap: 0.5rem;
+    }
+    .placeholder-chip {
+        border: 1px solid rgba(96,165,250,0.35);
+        border-radius: 8px;
+        padding: 0.55rem;
+        background: rgba(59,130,246,0.10);
+        font-size: 0.9rem;
+    }
+    .placeholder-chip code {
+        display: block;
+        margin-bottom: 0.25rem;
+        color: #bfdbfe;
+        font-weight: 700;
     }
     </style>
     ''',
@@ -976,6 +1013,8 @@ def load_settings():
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
         st.session_state["wa_reminder_log"] = settings.get("wa_reminder_log", [])
         st.session_state["deleted_reminders"] = settings.get("deleted_reminders", [])
+        st.session_state["search_terms_reviewed"] = bool(settings.get("search_terms_reviewed", False))
+        st.session_state["wa_template_reviewed"] = bool(settings.get("wa_template_reviewed", False))
     else:
         # Defaults for new clinics
         st.session_state["rules"] = DEFAULT_RULES.copy()
@@ -987,6 +1026,8 @@ def load_settings():
         st.session_state["reminder_warning_days"] = 0
         st.session_state["wa_reminder_log"] = []
         st.session_state["deleted_reminders"] = []
+        st.session_state["search_terms_reviewed"] = False
+        st.session_state["wa_template_reviewed"] = False
 
 
 def save_settings():
@@ -1029,6 +1070,8 @@ def save_settings():
         "reminder_warning_days": int(st.session_state.get("reminder_warning_days", 0) or 0),
         "wa_reminder_log": wa_reminder_log,
         "deleted_reminders": deleted_reminders,
+        "search_terms_reviewed": bool(st.session_state.get("search_terms_reviewed", False)),
+        "wa_template_reviewed": bool(st.session_state.get("wa_template_reviewed", False)),
     }
     settings_json = json.dumps(settings_data)
     updated_at = datetime.utcnow().isoformat()
@@ -1730,19 +1773,27 @@ def render_setup_checklist():
     has_shared_dataset = bool(st.session_state.get("shared_dataset_loaded") and st.session_state.get("shared_dataset_name"))
     has_local_only_data = has_data and not has_shared_dataset
     has_rules = bool(st.session_state.get("rules"))
-    reminders_ready = has_data and has_rules
+    search_terms_reviewed = bool(st.session_state.get("search_terms_reviewed", False))
+    has_sender_name = bool(str(st.session_state.get("user_name", "")).strip())
+    template_is_custom = (st.session_state.get("user_template", DEFAULT_WA_TEMPLATE) or DEFAULT_WA_TEMPLATE) != DEFAULT_WA_TEMPLATE
+    template_reviewed = bool(st.session_state.get("wa_template_reviewed", False) or template_is_custom)
+    reminders_ready = has_data and has_rules and has_sender_name
 
-    def status(done: bool, current: bool = False):
+    def status(done: bool, current: bool = False, optional: bool = False):
         if done:
             return "complete", "Done"
         if current:
             return "current", "Next"
+        if optional:
+            return "optional", "Optional"
         return "todo", "To do"
 
     upload_class, upload_status = status(has_data, not has_data)
     publish_class, publish_status = status(has_shared_dataset, has_local_only_data)
-    search_class, search_status = status(False, has_shared_dataset)
-    reminders_class, reminders_status = status(reminders_ready, has_shared_dataset)
+    search_class, search_status = status(search_terms_reviewed, has_shared_dataset and not search_terms_reviewed)
+    name_class, name_status = status(has_sender_name, has_shared_dataset and search_terms_reviewed and not has_sender_name)
+    template_class, template_status = status(template_reviewed, has_shared_dataset and has_sender_name and not template_reviewed, optional=True)
+    reminders_class, reminders_status = status(reminders_ready, has_shared_dataset and has_sender_name)
 
     st.markdown(
         f"""
@@ -1768,9 +1819,21 @@ def render_setup_checklist():
               <div class="setup-copy">Defaults are loaded, but review them once so reminders match your clinic language.</div>
               <a href="#search-terms">Open search terms</a>
             </div>
+            <div class="setup-step {name_class}">
+              <div class="setup-status">{name_status}</div>
+              <div class="setup-title">4. Set sender name</div>
+              <div class="setup-copy">This fills [Your Name] in WhatsApp messages. Example: Mary from Bob's Test Vet Clinic.</div>
+              <a href="#whatsapp-composer">Set WhatsApp name</a>
+            </div>
+            <div class="setup-step {template_class}">
+              <div class="setup-status">{template_status}</div>
+              <div class="setup-title">5. Review template</div>
+              <div class="setup-copy">Use the default wording, or edit it if your clinic needs a different tone or language.</div>
+              <a href="#wa-template-editor">Open template editor</a>
+            </div>
             <div class="setup-step {reminders_class}">
               <div class="setup-status">{reminders_status}</div>
-              <div class="setup-title">4. Check reminders</div>
+              <div class="setup-title">6. Check reminders</div>
               <div class="setup-copy">Pick a start date, confirm the output, then click WA to prepare messages.</div>
               <a href="#reminders">Open reminders</a>
             </div>
@@ -1790,6 +1853,8 @@ st.session_state.setdefault("search_message", "")
 st.session_state.setdefault("new_rule_counter", 0)
 st.session_state.setdefault("form_version", 0)
 st.session_state.setdefault("deleted_reminders", [])
+st.session_state.setdefault("search_terms_reviewed", False)
+st.session_state.setdefault("wa_template_reviewed", False)
 
 # --------------------------------
 # Helpers
@@ -2153,6 +2218,7 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
 
 # --- Data section ---
+st.markdown("<div id='getting-started' class='anchor-offset'></div>", unsafe_allow_html=True)
 render_setup_checklist()
 
 st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
@@ -2496,16 +2562,18 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.rerun()
 
     # --- WhatsApp Composer section (after the table + restore) ---
+    st.markdown("<div id='whatsapp-composer' class='anchor-offset'></div>", unsafe_allow_html=True)
     comp_main, comp_tip = st.columns([4, 1])
     with comp_main:
         st.write("### WhatsApp Composer")
+        st.caption("Set this once so prepared messages sound like they are coming from your clinic.")
 
         prev_name = st.session_state.get("user_name", "")
         new_name = st.text_input(
             "Your name / clinic (appears in WhatsApp messages):",
             value=prev_name,
             key=f"user_name_input_{key_prefix}",
-            placeholder="e.g. Best Health Vet Clinic or Patrik from Best Health Vet Clinic",
+            placeholder="e.g. Mary from Bob's Test Vet Clinic",
             help="Saved for the clinic and used in the [Your Name] placeholder."
         )
         
@@ -2608,9 +2676,10 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
 
 
-    # --- WhatsApp Template Editor (unchanged) ---
+    # --- WhatsApp Template Editor ---
+    st.markdown("<div id='wa-template-editor' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("### 🧩 WhatsApp Template Editor")
-    st.caption("Setup tool: edit only when the standard WhatsApp wording needs to change.")
+    st.caption("Setup tool: keep the default message, or edit it when your clinic needs different wording.")
     if "wa_template" not in st.session_state or not st.session_state.get("wa_template"):
         st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE) or DEFAULT_WA_TEMPLATE
 
@@ -2626,34 +2695,49 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         key=editor_key,
         help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
     )
-    st.info(
-        "### 🧩 How to Customize Your WhatsApp Message Template\n\n"
-        "**1️⃣ Edit your message below** – you can freely rewrite it to match your clinic’s tone or language.\n\n"
-        "**2️⃣ Use dynamic placeholders (square brackets)** to make messages automatically fill with client and pet details:\n"
-        "- `[Client Name]` → Inserts the client’s first name  \n"
-        "- `[Your Name]` → Inserts your name or clinic name (set above)  \n"
-        "- `[Pet Name]` → Inserts the patient’s name(s)  \n"
-        "- `[Item]` → Inserts what’s due (e.g., *Rabies Vaccine*, *Dental Exam*)  \n"
-        "- `[Due Date]` → Inserts the formatted due date (e.g., *5th of September, 2025*)\n\n"
-        "**3️⃣ Example:**  \n"
-        "_Hi [Client Name], this is [Your Name] reminding you that [Pet Name] is due for their [Item] on the [Due Date]._  \n\n"
-        "**4️⃣ Click ‘✅ Update Template’ to save**, or **‘🗑️ Reset Template’** to return to the default message."
+    st.markdown(
+        """
+        <div class="template-helper">
+          <h4>Template basics</h4>
+          <p>Write the message once. When you click WA, the app fills in the bracketed placeholders automatically.</p>
+          <div class="placeholder-grid">
+            <div class="placeholder-chip"><code>[Client Name]</code>Client first name</div>
+            <div class="placeholder-chip"><code>[Your Name]</code>Your saved sender name</div>
+            <div class="placeholder-chip"><code>[Pet Name]</code>Patient name or names</div>
+            <div class="placeholder-chip"><code>[Item]</code>Reminder item</div>
+            <div class="placeholder-chip"><code>[Due Date]</code>Formatted due date</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Example: Hi [Client Name], this is [Your Name] reminding you that [Pet Name] is due for their [Item] on the [Due Date]."
     )
 
-    col_update, col_reset = st.columns([1, 1])
+    col_update, col_review, col_reset = st.columns([1, 1, 1])
     with col_update:
         if st.button("✅ Update Template", key=f"update_template_{key_prefix}"):
             new_template = st.session_state.get(editor_key, "").strip()
             if new_template:
                 st.session_state["wa_template"] = new_template
                 st.session_state["user_template"] = new_template
+                st.session_state["wa_template_reviewed"] = True
                 save_settings()
                 st.success("Template updated successfully!")
                 st.rerun()
+    with col_review:
+        if st.session_state.get("wa_template_reviewed"):
+            st.success("Template reviewed.")
+        elif st.button("Mark template reviewed", key=f"review_template_{key_prefix}", help="Marks setup step 5 complete without changing the default wording."):
+            st.session_state["wa_template_reviewed"] = True
+            save_settings()
+            st.rerun()
     with col_reset:
         if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}"):
             st.session_state["wa_template"] = DEFAULT_WA_TEMPLATE
             st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
+            st.session_state["wa_template_reviewed"] = False
             save_settings()
             st.session_state[ver_key] += 1
             st.success("Template reset to default!")
@@ -2869,6 +2953,15 @@ if st.session_state.get("working_df") is not None:
         "Example: *bravecto* → **Bravecto Tablet**, *rabies* → **Rabies Vaccine**.\n\n"
         "**5️⃣ You can also delete outdated terms or add new ones at the bottom of the section.**"
     )
+    if st.session_state.get("search_terms_reviewed"):
+        st.success("Search terms marked as reviewed for this clinic.")
+    elif st.button(
+        "Mark search terms reviewed",
+        help="Marks setup step 3 complete for everyone using this clinic login."
+    ):
+        st.session_state["search_terms_reviewed"] = True
+        save_settings()
+        st.rerun()
 
     cols = st.columns([3,1,1,2,0.7])
     with cols[0]: st.markdown("**Rule**")
@@ -2941,6 +3034,7 @@ if st.session_state.get("working_df") is not None:
                 st.error("Days must be a positive integer for: " + ", ".join(sorted(invalid_rules)))
             else:
                 st.session_state["rules"] = updated
+                st.session_state["search_terms_reviewed"] = True
                 save_settings()
                 # invalidate prepared cache because rules changed
                 st.session_state.pop("prepared_df", None)
@@ -2951,6 +3045,7 @@ if st.session_state.get("working_df") is not None:
         if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
             st.session_state["rules"] = DEFAULT_RULES.copy()
             st.session_state["exclusions"] = []
+            st.session_state["search_terms_reviewed"] = False
             st.session_state["form_version"] += 1
             save_settings()
             st.session_state.pop("prepared_df", None)
