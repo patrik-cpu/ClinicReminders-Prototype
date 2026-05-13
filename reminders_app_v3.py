@@ -1579,7 +1579,8 @@ def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5
 
     out_rows = []
     work = due_df.copy()
-    work["_DueDateTs"] = pd.to_datetime(work["DueDate"], errors="coerce")
+    due_col = "DueDate" if "DueDate" in work.columns else "NextDueDate"
+    work["_DueDateTs"] = pd.to_datetime(work[due_col], errors="coerce")
 
     for client_name, cdf in work.groupby("Client Name", dropna=False):
         cdf = cdf.sort_values(["_DueDateTs", "ChargeDate"], ascending=[True, True]).reset_index(drop=True)
