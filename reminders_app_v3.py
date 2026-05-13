@@ -18,9 +18,11 @@ import random
 try:
     from streamlit.runtime.scriptrunner import RerunException
     from streamlit.runtime.scriptrunner_utils.script_requests import RerunData
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
 except Exception:
     RerunException = None
     RerunData = None
+    get_script_run_ctx = None
 
 def rerun_app():
     if hasattr(st, "experimental_rerun"):
@@ -100,6 +102,39 @@ def clear_clinic_dataset_pointer(clinic_id: str):
 
 def _settings_col_index(headers, name: str) -> int:
     return headers.index(name) + 1
+
+
+def _column_number_to_letter(col_num: int) -> str:
+    letters = ""
+    while col_num > 0:
+        col_num, remainder = divmod(col_num - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
+
+
+def _row_range_a1(row_idx: int, first_col_idx: int, last_col_idx: int) -> str:
+    return f"{_column_number_to_letter(first_col_idx)}{row_idx}:{_column_number_to_letter(last_col_idx)}{row_idx}"
+
+
+def _update_dataset_pointer_cells(sheet, headers, row_idx, file_id, filename, updated_at):
+    first_idx = _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID)
+    last_idx = _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT)
+    payload = [{
+        "range": _row_range_a1(row_idx, first_idx, last_idx),
+        "values": [[file_id, filename, updated_at]],
+    }]
+    _gspread_retry(sheet.batch_update, payload)
+
+
+def _update_settings_cells(sheet, headers, row_idx, settings_json, updated_at):
+    first_idx = _settings_col_index(headers, "SettingsJSON")
+    last_idx = _settings_col_index(headers, "UpdatedAt")
+    payload = [{
+        "range": _row_range_a1(row_idx, first_idx, last_idx),
+        "values": [[settings_json, updated_at]],
+    }]
+    _gspread_retry(sheet.batch_update, payload)
+
 
 def _get_settings_row_for_clinic(clinic_id: str):
     sheet = get_settings_sheet()
@@ -900,7 +935,16 @@ def save_settings():
 
     # Update existing row or append a new one
     if row:
-        _update_settings_cells(sheet, headers, row, settings_json, updated_at)
+        if callable(globals().get("_update_settings_cells", None)):
+            _update_settings_cells(sheet, headers, row, settings_json, updated_at)
+        else:
+            first_idx = _settings_col_index(headers, "SettingsJSON")
+            last_idx = _settings_col_index(headers, "UpdatedAt")
+            payload = [{
+                "range": _row_range_a1(row, first_idx, last_idx),
+                "values": [[settings_json, updated_at]],
+            }]
+            _gspread_retry(sheet.batch_update, payload)
     else:
         sheet.append_row([clinic_id, "", settings_json, updated_at])
 # --------------------------------
@@ -1343,7 +1387,7 @@ if "logged_in" not in st.session_state:
 if "auto_login_attempted" not in st.session_state:
     st.session_state["auto_login_attempted"] = False
 
-if not st.session_state["logged_in"] and DEV_AUTO_LOGIN and not st.session_state["auto_login_attempted"]:
+if get_script_run_ctx is not None and get_script_run_ctx() is not None and not st.session_state["logged_in"] and DEV_AUTO_LOGIN and not st.session_state["auto_login_attempted"]:
     st.session_state["auto_login_attempted"] = True
     default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
     user_row = authenticate_user(default_username, default_password)
@@ -1518,14 +1562,13 @@ def format_items(item_list):
 
 def format_due_date(date_str: str) -> str:
     try:
-        dt = pd.to_datetime(date_str, format="%d %b %Y", errors="coerce")
+        dt = pd.to_datetime(date_str, errors="coerce")
         if pd.isna(dt):
-            return date_str
-        day = dt.day
-        suffix = "th" if 10 <= day % 100 <= 20 else {1:"st",2:"nd",3:"rd"}.get(day%10,"th")
-        return f"{day}{suffix} of {dt.strftime('%B')}, {dt.year}"
+            return str(date_str or "")
+        return f"{dt.strftime('%b')} {dt.day}, {dt.year}"
     except Exception:
-        return date_str
+        return str(date_str or "")
+
 
 def get_visible_plan_item(item_name: str, rules: dict) -> str:
     if not isinstance(item_name, str):
@@ -1575,16 +1618,33 @@ def build_grouped_reminder_summary(details: list[dict]) -> str:
     if not details:
         return ""
 
-    phrases = []
+    animal_map: dict[str, dict[str, list[str]]] = {}
     for det in details:
         animal = normalize_display_case(str(det.get("Animal Name", "")).strip()) or "your pet"
         item = normalize_display_case(str(det.get("Plan Item", "")).strip()) or "treatment"
-        due = format_due_date(str(det.get("Due Date", "")).strip())
-        phrases.append(f"{animal} is due their {item} on {due}")
+        due = str(det.get("Due Date", "")).strip()
+        animal_map.setdefault(animal, {}).setdefault(due, []).append(item)
 
-    if len(phrases) == 1:
-        return phrases[0]
-    return ", and ".join(phrases[:-1]) + f", and {phrases[-1]}"
+    animal_phrases = []
+    for animal in sorted(animal_map, key=lambda x: x.lower()):
+        date_groups = animal_map[animal]
+        sorted_dates = sorted(
+            date_groups.keys(),
+            key=lambda x: pd.to_datetime(x, errors="coerce") if str(x).strip() else pd.Timestamp.max,
+        )
+
+        due_phrases = []
+        for due in sorted_dates:
+            items = format_items(sorted(set(date_groups[due])))
+            due_fmt = format_due_date(due)
+            due_phrases.append(f"their {items} on {due_fmt}")
+
+        if len(due_phrases) == 1:
+            animal_phrases.append(f"{animal} is due {due_phrases[0]}")
+        else:
+            animal_phrases.append(f"{animal} is due {', and '.join(due_phrases)}")
+
+    return ". ".join(animal_phrases)
 
 
 def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str, rules: dict | None = None):
