@@ -1648,16 +1648,15 @@ def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Ti
         return None, None
     return dmin, dmax
 
-# Show dataset date range (shared or locally uploaded)
-df_w = st.session_state.get("working_df")
-df_w = drop_duplicate_columns(df_w) if df_w is not None else None
+def render_dataset_date_range():
+    df_w = st.session_state.get("working_df")
+    df_w = drop_duplicate_columns(df_w) if df_w is not None else None
 
-dmin, dmax = get_dataset_date_range(df_w)
-
-if dmin is not None and dmax is not None:
-    st.caption(f"Dataset range: {dmin:%d %b %Y} → {dmax:%d %b %Y} - remember to 'Publish' data!")
-else:
-    st.caption("Dataset range: (dates not detected) - remember to 'Publish' data!")
+    dmin, dmax = get_dataset_date_range(df_w)
+    if dmin is not None and dmax is not None:
+        st.caption(f"Dataset range: {dmin:%d %b %Y} → {dmax:%d %b %Y} - remember to 'Publish' data!")
+    else:
+        st.caption("Dataset range: (dates not detected) - remember to 'Publish' data!")
 
 # --------------------------------
 # Session state init
@@ -2035,6 +2034,7 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
 st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
 st.markdown("## 📂 Data")
 render_dataset_status()
+render_dataset_date_range()
 
 datasets = []
 summary_rows = []
