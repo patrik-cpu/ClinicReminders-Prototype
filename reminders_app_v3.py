@@ -438,14 +438,21 @@ st.markdown(
     section[data-testid="stSidebar"] div[data-testid="stButton"] button {
         justify-content: flex-start;
         text-align: left;
-        border: 0;
-        background: transparent;
-        padding-left: 0;
-        box-shadow: none;
+        border: 0 !important;
+        background: transparent !important;
+        padding: 0.18rem 0.25rem !important;
+        box-shadow: none !important;
+        min-height: 2rem;
+        width: 100%;
     }
     section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
-        border: 0;
-        background: rgba(255,255,255,0.06);
+        border: 0 !important;
+        background: rgba(255,255,255,0.06) !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] button {
+        justify-content: center;
+        text-align: center;
+        min-height: 2.4rem;
     }
     .setup-panel {
         border: 1px solid rgba(255,255,255,0.12);
@@ -1710,9 +1717,12 @@ if (
 if not st.session_state["logged_in"]:
     with sidebar_account_slot:
         st.markdown("### 🔑 Clinic Login")
-        username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
-        password = st.text_input("Password", type="password", value="")
-        if st.button("Login"):
+        with st.form("clinic_login_form"):
+            username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
+            password = st.text_input("Password", type="password", value="")
+            login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
+
+        if login_submitted:
             user_row = authenticate_user(username, password)
             if user_row:
                 st.session_state["clinic_id"] = username
@@ -1742,7 +1752,7 @@ else:
 
         if "show_account_settings" not in st.session_state:
             st.session_state["show_account_settings"] = False
-        if st.button("›  ⚙️ Account Settings", key="toggle_account_settings"):
+        if st.button("⚙️ Account Settings", key="toggle_account_settings", use_container_width=True):
             st.session_state["show_account_settings"] = not st.session_state["show_account_settings"]
 
         if st.session_state["show_account_settings"]:
@@ -1766,7 +1776,7 @@ else:
                     update_clinic_password(clinic_id, new_password)
                     st.success("Password updated.")
 
-        if st.button("Logout"):
+        if st.button("Logout", use_container_width=True):
             # Clear login state
             for key in ["logged_in", "clinic_id"]:
                 st.session_state.pop(key, None)
