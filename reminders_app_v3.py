@@ -444,6 +444,10 @@ import hashlib
 SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ← your ClinicReminders_Settings_Master Sheet ID
 SETTINGS_SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
+# === DEV AUTO-LOGIN ===
+DEV_AUTO_LOGIN = True
+DEV_AUTO_LOGIN_CREDENTIALS = ("PatTest", "pat123")
+
 # === GOOGLE DRIVE CONFIG ===
 @st.cache_resource
 def get_drive_service():
@@ -1321,10 +1325,24 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
+if "auto_login_attempted" not in st.session_state:
+    st.session_state["auto_login_attempted"] = False
+
+if not st.session_state["logged_in"] and DEV_AUTO_LOGIN and not st.session_state["auto_login_attempted"]:
+    st.session_state["auto_login_attempted"] = True
+    default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
+    user_row = authenticate_user(default_username, default_password)
+    if user_row:
+        st.session_state["clinic_id"] = default_username
+        st.session_state["logged_in"] = True
+        load_settings()
+        load_shared_dataset_for_clinic()
+        st.experimental_rerun()
+
 if not st.session_state["logged_in"]:
     st.sidebar.markdown("### 🔑 Clinic Login")
-    username = st.sidebar.text_input("Clinic ID / Username")
-    password = st.sidebar.text_input("Password", type="password")
+    username = st.sidebar.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
+    password = st.sidebar.text_input("Password", type="password", value=DEV_AUTO_LOGIN_CREDENTIALS[1])
     if st.sidebar.button("Login"):
         user_row = authenticate_user(username, password)
         if user_row:
