@@ -38,7 +38,7 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from google.oauth2.service_account import Credentials
 from googleapiclient.errors import HttpError
 from io import BytesIO
-PREPARED_SCHEMA_VERSION = 2
+PREPARED_SCHEMA_VERSION = 3
 DRIVE_SCOPE = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
@@ -1956,7 +1956,7 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
         return pd.DataFrame(columns=[
             "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
             "MatchedItems", "Qty", "IntervalDays", "BaseIntervalDays",
-            "NextDueDate", "NextDueDateBase", "ChargeDate"
+            "NextDueDate", "NextDueDateBase", "NextDueDateTs", "ChargeDate"
         ])
 
     df = df.copy()
@@ -1982,9 +1982,10 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 
     df["NextDueDate"]      = df["ChargeDate"] + pd.to_timedelta(days_qty, unit="D")
     df["NextDueDateBase"]  = df["ChargeDate"] + pd.to_timedelta(days_base, unit="D")
+    df["NextDueDateTs"]    = pd.to_datetime(df["NextDueDate"], errors="coerce")
 
     df["ChargeDateFmt"] = pd.to_datetime(df["ChargeDate"]).dt.strftime("%d %b %Y")
-    df["DueDateFmt"]    = pd.to_datetime(df["NextDueDate"]).dt.strftime("%d %b %Y")
+    df["DueDateFmt"]    = df["NextDueDateTs"].dt.strftime("%d %b %Y")
 
     df["MatchedItems"] = df["MatchedItems"].apply(
         lambda v: [str(x).strip() for x in v] if isinstance(v, list) else ([str(v)] if pd.notna(v) else [])
@@ -2628,10 +2629,12 @@ if st.session_state.get("working_df") is not None:
 
     end_date = start_date + timedelta(days=reminder_window_days - 1)
 
-    due2 = prepared[
-        (pd.to_datetime(prepared["NextDueDate"]) >= pd.to_datetime(start_date)) &
-        (pd.to_datetime(prepared["NextDueDate"]) <= pd.to_datetime(end_date))
-    ].copy()
+    due_ts = prepared.get("NextDueDateTs")
+    if due_ts is None:
+        due_ts = pd.to_datetime(prepared["NextDueDate"], errors="coerce")
+    start_ts = pd.Timestamp(start_date)
+    end_ts = pd.Timestamp(end_date)
+    due2 = prepared[(due_ts >= start_ts) & (due_ts <= end_ts)].copy()
 
     if not due2.empty:
         grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=st.session_state.get("rules", {}))
@@ -2640,15 +2643,13 @@ if st.session_state.get("working_df") is not None:
         deleted = st.session_state.get("deleted_reminders", [])
         if deleted:
             deleted_keys = {
-                (d["Client Name"], d["Animal Name"], d["Plan Item"], d["Due Date"])
+                tuple(str(d.get(field, "")) for field in ("Client Name", "Animal Name", "Plan Item", "Due Date"))
                 for d in deleted
             }
-            grouped = grouped[
-                ~grouped.apply(
-                    lambda r: (r["Client Name"], r["Animal Name"], r["Plan Item"], r["Due Date"]) in deleted_keys,
-                    axis=1
-                )
-            ]
+            grouped_keys = pd.MultiIndex.from_frame(
+                grouped[["Client Name", "Animal Name", "Plan Item", "Due Date"]].astype(str)
+            )
+            grouped = grouped[~grouped_keys.isin(deleted_keys)]
 
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
     else:
