@@ -1570,7 +1570,24 @@ def format_due_dates_for_message(due_date_value: str) -> str:
         return f"{labels[0]} and {labels[1]}"
     return ", ".join(labels[:-1]) + f", and {labels[-1]}"
 
-def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str):
+
+def build_grouped_reminder_summary(details: list[dict]) -> str:
+    if not details:
+        return ""
+
+    phrases = []
+    for det in details:
+        animal = normalize_display_case(str(det.get("Animal Name", "")).strip()) or "your pet"
+        item = normalize_display_case(str(det.get("Plan Item", "")).strip()) or "treatment"
+        due = format_due_date(str(det.get("Due Date", "")).strip())
+        phrases.append(f"{animal} is due their {item} on {due}")
+
+    if len(phrases) == 1:
+        return phrases[0]
+    return ", and ".join(phrases[:-1]) + f", and {phrases[-1]}"
+
+
+def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str, rules: dict | None = None):
     due_dates = sorted({str(x).strip() for x in cluster_df.get("DueDateFmt", []) if str(x).strip()})
     animals = sorted({str(x).strip() for x in cluster_df.get("Animal Name", []) if str(x).strip()})
 
@@ -1585,9 +1602,23 @@ def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str):
 
     items_text = simplify_vaccine_text(format_items(sorted(set(all_items))))
 
+    reminder_details = []
+    for _, row in cluster_df.iterrows():
+        animal = str(row.get("Animal Name", "")).strip() or "your pet"
+        item_name = str(row.get("Item Name", "")).strip()
+        if not item_name and isinstance(row.get("MatchedItems"), list):
+            item_name = format_items([str(x).strip() for x in row.get("MatchedItems", []) if str(x).strip()])
+        item_name = simplify_vaccine_text(item_name or "treatment")
+        due_value = str(row.get("DueDateFmt") or row.get("NextDueDate") or row.get("Due Date") or "").strip()
+        reminder_details.append({
+            "Animal Name": animal,
+            "Plan Item": item_name,
+            "Due Date": due_value,
+        })
+
     n_animals = len(set(animals))
     n_items = len(set(all_items))
-    is_grouped = (n_animals > 1) or (n_items > 1) or (len(due_dates) > 1)
+    is_grouped = len(cluster_df) > 1 or (n_animals > 1) or (n_items > 1) or (len(due_dates) > 1)
 
     qty_sum = pd.to_numeric(cluster_df.get("Qty", pd.Series(dtype=float)), errors="coerce").sum(min_count=1)
     interval_min = pd.to_numeric(cluster_df.get("IntervalDays", pd.Series(dtype=float)), errors="coerce")
@@ -1603,12 +1634,13 @@ def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str):
         "Animal Name": format_items(animals),
         "Plan Item": items_text,
         "Qty": "NA" if is_grouped else qty_sum,
-        "Days": days_base if is_grouped else days_qty,
+        "Days": "NA" if is_grouped else days_qty,
+        "ReminderDetails": reminder_details,
     }
 
-def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5) -> pd.DataFrame:
+def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5, rules: dict | None = None) -> pd.DataFrame:
     if due_df.empty:
-        return pd.DataFrame(columns=["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"])
+        return pd.DataFrame(columns=["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "ReminderDetails"])
 
     out_rows = []
     work = due_df.copy()
@@ -1631,12 +1663,12 @@ def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5
             if same_cluster:
                 cluster.append(row)
             else:
-                out_rows.append(_summarize_client_cluster(pd.DataFrame(cluster), client_name))
+                out_rows.append(_summarize_client_cluster(pd.DataFrame(cluster), client_name, rules))
                 cluster = [row]
                 anchor = due_ts
 
         if cluster:
-            out_rows.append(_summarize_client_cluster(pd.DataFrame(cluster), client_name))
+            out_rows.append(_summarize_client_cluster(pd.DataFrame(cluster), client_name, rules))
 
     grouped = pd.DataFrame(out_rows)
     if grouped.empty:
@@ -1646,7 +1678,7 @@ def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5
         grouped["Qty"].astype(str) == "NA",
         pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
     )
-    return grouped[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
+    return grouped[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "ReminderDetails"]]
 def map_intervals_vec(df, rules):
     df = df.copy()
     if "ItemNorm" not in df.columns:
@@ -2060,9 +2092,24 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             message = template
             message = replace_case_insensitive(message, "[Client Name]", first_name)
             message = replace_case_insensitive(message, "[Your Name]", user or "our clinic")
-            message = replace_case_insensitive(message, "[Pet Name]", animal_name)
-            message = replace_case_insensitive(message, "[Item]", plan_for_msg)
-            message = replace_case_insensitive(message, "[Due Date]", due_date_fmt)
+
+            reminder_details = row.get("ReminderDetails") or []
+            grouped_summary = build_grouped_reminder_summary(reminder_details) if len(reminder_details) > 1 else ""
+
+            if grouped_summary and "[ReminderSummary]" in message:
+                message = replace_case_insensitive(message, "[ReminderSummary]", grouped_summary)
+            elif grouped_summary:
+                # Try to replace a common template clause if found
+                pattern = re.compile(r"\[Pet Name\].*?\[Due Date\]", flags=re.IGNORECASE | re.DOTALL)
+                if pattern.search(message):
+                    message = pattern.sub(grouped_summary, message)
+                else:
+                    message = f"Hi {first_name}, this is {user or 'our clinic'}. Just reminding you that {grouped_summary}."
+
+            if not grouped_summary:
+                message = replace_case_insensitive(message, "[Pet Name]", animal_name)
+                message = replace_case_insensitive(message, "[Item]", plan_for_msg)
+                message = replace_case_insensitive(message, "[Due Date]", due_date_fmt)
 
             # Grammar fix: "<Names> is" -> "are" when multiple pets listed
             has_multiple_pets = bool(re.search(r"(?:\s+(?:and|&)\s+|,)", animal_name, flags=re.IGNORECASE))
@@ -2322,8 +2369,17 @@ if st.session_state.get("working_df") is not None:
         (pd.to_datetime(prepared["NextDueDate"]) <= pd.to_datetime(end_date))
     ].copy()
 
+    group_days = st.number_input(
+        "Number of days to group reminders for the same Client",
+        min_value=1,
+        value=st.session_state.get("client_group_days", 1),
+        step=1,
+        key="client_group_days",
+        help="Group all reminders for the same client within this many days into one reminder row."
+    )
+
     if not due2.empty:
-        grouped = bundle_client_reminders_by_window(due2, window_days=5)
+        grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=st.session_state.get("rules", {}))
 
         # Filter out deleted reminders
         deleted = st.session_state.get("deleted_reminders", [])
