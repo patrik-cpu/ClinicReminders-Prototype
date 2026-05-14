@@ -1195,20 +1195,30 @@ def save_settings():
         )
         st.session_state["deleted_reminders"] = deleted_reminders
 
+    def int_setting_for_save(key: str, default: int) -> int:
+        value = st.session_state[key] if key in st.session_state else remote_settings.get(key, default)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def setting_for_save(key: str, default):
+        return st.session_state[key] if key in st.session_state else remote_settings.get(key, default)
+
     # Build the JSON blob for settings
     settings_data = {
-        "rules": st.session_state["rules"],
-        "exclusions": st.session_state["exclusions"],
-        "user_name": st.session_state["user_name"],
-        "user_template": st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
-        "client_group_days": int(st.session_state.get("client_group_days", 1) or 1),
-        "reminder_window_days": int(st.session_state.get("reminder_window_days", 7) or 7),
-        "reminder_warning_days": int(st.session_state.get("reminder_warning_days", 0) or 0),
+        "rules": setting_for_save("rules", DEFAULT_RULES.copy()),
+        "exclusions": setting_for_save("exclusions", []),
+        "user_name": setting_for_save("user_name", ""),
+        "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
+        "client_group_days": max(1, int_setting_for_save("client_group_days", 1)),
+        "reminder_window_days": max(1, int_setting_for_save("reminder_window_days", 7)),
+        "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", 0)),
         "wa_reminder_log": wa_reminder_log,
         "deleted_reminders": deleted_reminders,
-        "search_terms_reviewed": bool(st.session_state.get("search_terms_reviewed", False)),
-        "wa_template_reviewed": bool(st.session_state.get("wa_template_reviewed", False)),
-        "country": st.session_state.get("user_country", ""),
+        "search_terms_reviewed": bool(setting_for_save("search_terms_reviewed", False)),
+        "wa_template_reviewed": bool(setting_for_save("wa_template_reviewed", False)),
+        "country": setting_for_save("user_country", remote_settings.get("country", "")),
     }
     settings_json = json.dumps(settings_data)
     updated_at = datetime.utcnow().isoformat()
