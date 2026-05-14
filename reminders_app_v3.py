@@ -15,6 +15,7 @@ import numpy as np
 from gspread.exceptions import APIError
 import random
 import html as html_lib
+from zoneinfo import ZoneInfo
 
 try:
     from streamlit.runtime.scriptrunner import RerunException
@@ -64,6 +65,42 @@ DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive folder UR
 SHEET_COL_DATASET_FILE_ID = "DatasetFileId"
 SHEET_COL_DATASET_FILE_NAME = "DatasetFileName"
 SHEET_COL_DATASET_UPDATED_AT = "DatasetUpdatedAt"
+GST_TZ = ZoneInfo("Asia/Dubai")
+WA_TRACKER_WORKSHEET = "WA button tracker"
+USER_TRACKER_WORKSHEET = "User tracker"
+WA_TRACKER_HEADERS = [
+    "DateTimeGST",
+    "ClinicID",
+    "ClientName",
+    "AnimalNames",
+    "Items",
+    "DueDate",
+    "MessageCreated",
+    "Source",
+]
+USER_TRACKER_HEADERS = [
+    "ClinicID",
+    "Country",
+    "CreatedAtGST",
+    "LastUpdatedAtGST",
+    "LastLoginAtGST",
+    "AccountStatus",
+    "LastEvent",
+]
+COUNTRY_OPTIONS = [
+    "United Arab Emirates", "Saudi Arabia", "Qatar", "Bahrain", "Kuwait", "Oman",
+    "United Kingdom", "Ireland", "United States", "Canada", "Australia", "New Zealand",
+    "South Africa", "India", "Pakistan", "Philippines", "Sri Lanka", "Nepal",
+    "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Argentina", "Armenia",
+    "Austria", "Azerbaijan", "Bangladesh", "Belgium", "Brazil", "Bulgaria", "Chile",
+    "China", "Colombia", "Croatia", "Cyprus", "Czechia", "Denmark", "Egypt", "Estonia",
+    "Finland", "France", "Georgia", "Germany", "Ghana", "Greece", "Hong Kong", "Hungary",
+    "Indonesia", "Iran", "Iraq", "Israel", "Italy", "Japan", "Jordan", "Kenya",
+    "Lebanon", "Malaysia", "Malta", "Mexico", "Morocco", "Netherlands", "Nigeria",
+    "Norway", "Poland", "Portugal", "Romania", "Russia", "Serbia", "Singapore",
+    "South Korea", "Spain", "Sweden", "Switzerland", "Thailand", "Turkey", "Ukraine",
+    "Vietnam", "Zimbabwe", "Other",
+]
 
 def reset_uploaded_data_state(clear_cache: bool = True):
     """Single reset helper used by upload/reset flows."""
@@ -118,6 +155,17 @@ def _row_range_a1(row_idx: int, first_col_idx: int, last_col_idx: int) -> str:
     return f"{_column_number_to_letter(first_col_idx)}{row_idx}:{_column_number_to_letter(last_col_idx)}{row_idx}"
 
 
+def gst_now(now: datetime | None = None) -> datetime:
+    now = now or datetime.utcnow()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=ZoneInfo("UTC"))
+    return now.astimezone(GST_TZ)
+
+
+def gst_now_iso(now: datetime | None = None) -> str:
+    return gst_now(now).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _update_dataset_pointer_cells(sheet, headers, row_idx, file_id, filename, updated_at):
     update_dataset_pointer_cells(
         sheet=sheet,
@@ -140,6 +188,23 @@ def _update_settings_cells(sheet, headers, row_idx, settings_json, updated_at):
         "values": [[settings_json, updated_at]],
     }]
     _gspread_retry(sheet.batch_update, payload)
+
+
+def _update_password_cells(sheet, headers, row_idx, plain_password, password_hash, updated_at):
+    updates = []
+    for col_name, value in (
+        ("PlainPassword", plain_password),
+        ("PasswordHash", password_hash),
+        ("UpdatedAt", updated_at),
+    ):
+        if col_name in headers:
+            col_idx = _settings_col_index(headers, col_name)
+            updates.append({
+                "range": _row_range_a1(row_idx, col_idx, col_idx),
+                "values": [[value]],
+            })
+    if updates:
+        _gspread_retry(sheet.batch_update, updates)
 
 
 def _get_settings_row_for_clinic(clinic_id: str):
@@ -665,8 +730,8 @@ SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ← your C
 SETTINGS_SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
 # === DEV AUTO-LOGIN ===
-DEV_AUTO_LOGIN = True
-DEV_AUTO_LOGIN_CREDENTIALS = ("PatTest", "pat123")
+DEV_AUTO_LOGIN = False
+DEV_AUTO_LOGIN_CREDENTIALS = ("", "")
 AUTO_LOGIN_ALLOWED_USERNAME = "PatTest"
 
 def auto_login_allowed(username: str) -> bool:
@@ -1082,6 +1147,7 @@ def load_settings():
         st.session_state["deleted_reminders"] = settings.get("deleted_reminders", [])
         st.session_state["search_terms_reviewed"] = bool(settings.get("search_terms_reviewed", False))
         st.session_state["wa_template_reviewed"] = bool(settings.get("wa_template_reviewed", False))
+        st.session_state["user_country"] = settings.get("country", "")
     else:
         # Defaults for new clinics
         st.session_state["rules"] = DEFAULT_RULES.copy()
@@ -1095,6 +1161,7 @@ def load_settings():
         st.session_state["deleted_reminders"] = []
         st.session_state["search_terms_reviewed"] = False
         st.session_state["wa_template_reviewed"] = False
+        st.session_state["user_country"] = ""
 
 
 def save_settings():
@@ -1139,6 +1206,7 @@ def save_settings():
         "deleted_reminders": deleted_reminders,
         "search_terms_reviewed": bool(st.session_state.get("search_terms_reviewed", False)),
         "wa_template_reviewed": bool(st.session_state.get("wa_template_reviewed", False)),
+        "country": st.session_state.get("user_country", ""),
     }
     settings_json = json.dumps(settings_data)
     updated_at = datetime.utcnow().isoformat()
@@ -1157,6 +1225,7 @@ def save_settings():
             _gspread_retry(sheet.batch_update, payload)
     else:
         sheet.append_row([clinic_id, "", settings_json, updated_at])
+    upsert_user_tracker(clinic_id, country=st.session_state.get("user_country", ""), event="settings_saved")
 # --------------------------------
 
 def _reminder_client_key(client_name: str) -> str:
@@ -1265,6 +1334,24 @@ def record_wa_reminder_click(client_name: str, now: datetime | None = None):
     })
     st.session_state["wa_reminder_log"] = log[-1000:]
     save_settings()
+
+
+def record_wa_button_tracker(row, message: str, source: str, now: datetime | None = None):
+    append_tracker_row(
+        WA_TRACKER_WORKSHEET,
+        WA_TRACKER_HEADERS,
+        [
+            gst_now_iso(now),
+            str(st.session_state.get("clinic_id", "")).strip(),
+            normalize_display_case(row.get("Client Name", "")),
+            normalize_display_case(row.get("Animal Name", "")),
+            normalize_display_case(row.get("Plan Item", "")),
+            str(row.get("Due Date", "")).strip(),
+            str(message or "").strip(),
+            source,
+        ],
+    )
+
 
 def show_recent_reminder_warning(message: str, key: str):
     if hasattr(st, "dialog"):
@@ -1552,8 +1639,8 @@ def process_file(file_bytes, filename):
     
 # === GOOGLE SHEETS CONNECTION ===
 @st.cache_resource
-def get_settings_sheet():
-    """Connect to the shared ClinicReminders_Settings_Master sheet."""
+def get_settings_spreadsheet():
+    """Connect to the shared ClinicReminders settings spreadsheet."""
     try:
         creds_dict = st.secrets["gcp_service_account"]
     except Exception:
@@ -1561,7 +1648,36 @@ def get_settings_sheet():
             creds_dict = json.load(f)
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SETTINGS_SCOPE)
     client = gspread.authorize(creds)
-    return client.open_by_key(SETTINGS_SHEET_ID).sheet1
+    return client.open_by_key(SETTINGS_SHEET_ID)
+
+
+@st.cache_resource
+def get_settings_sheet():
+    """Connect to the shared ClinicReminders_Settings_Master sheet."""
+    return get_settings_spreadsheet().sheet1
+
+
+def get_or_create_tracker_sheet(title: str, headers: list[str]):
+    spreadsheet = get_settings_spreadsheet()
+    try:
+        worksheet = spreadsheet.worksheet(title)
+    except Exception:
+        worksheet = spreadsheet.add_worksheet(title=title, rows=1000, cols=max(len(headers), 8))
+
+    first_row = worksheet.row_values(1)
+    if first_row[:len(headers)] != headers:
+        end_col = _column_number_to_letter(len(headers))
+        _gspread_retry(worksheet.update, values=[headers], range_name=f"A1:{end_col}1")
+    return worksheet
+
+
+def append_tracker_row(title: str, headers: list[str], row_values: list[str]):
+    try:
+        worksheet = get_or_create_tracker_sheet(title, headers)
+        _gspread_retry(worksheet.append_row, row_values, value_input_option="USER_ENTERED")
+        return True
+    except Exception:
+        return False
 
 
 # === LOGIN HELPER FUNCTIONS ===
@@ -1587,6 +1703,97 @@ def get_clinic_row(username):
         if r["ClinicID"].strip().lower() == username.strip().lower():
             return r
     return None
+
+
+def default_settings_for_country(country: str = "") -> dict:
+    return {
+        "rules": DEFAULT_RULES.copy(),
+        "exclusions": [],
+        "user_name": "",
+        "user_template": DEFAULT_WA_TEMPLATE,
+        "client_group_days": 1,
+        "reminder_window_days": 7,
+        "reminder_warning_days": 0,
+        "wa_reminder_log": [],
+        "deleted_reminders": [],
+        "search_terms_reviewed": False,
+        "wa_template_reviewed": False,
+        "country": country,
+    }
+
+
+def upsert_user_tracker(clinic_id: str, country: str = "", event: str = "updated", now: datetime | None = None):
+    clinic_id = str(clinic_id or "").strip()
+    if not clinic_id:
+        return
+
+    timestamp = gst_now_iso(now)
+    country = str(country or "").strip()
+    try:
+        sheet = get_or_create_tracker_sheet(USER_TRACKER_WORKSHEET, USER_TRACKER_HEADERS)
+        rows = _gspread_retry(sheet.get_all_values) or []
+        headers = rows[0] if rows else USER_TRACKER_HEADERS
+        clinic_ix = headers.index("ClinicID")
+        row_idx = None
+        for i, row in enumerate(rows[1:], start=2):
+            if len(row) > clinic_ix and str(row[clinic_ix]).strip().lower() == clinic_id.lower():
+                row_idx = i
+                break
+
+        existing = {}
+        if row_idx and len(rows) >= row_idx:
+            existing = {
+                header: rows[row_idx - 1][idx] if idx < len(rows[row_idx - 1]) else ""
+                for idx, header in enumerate(headers)
+            }
+
+        created_at = existing.get("CreatedAtGST") or timestamp
+        last_login = timestamp if event == "login" else existing.get("LastLoginAtGST", "")
+        values_by_header = {
+            "ClinicID": clinic_id,
+            "Country": country or existing.get("Country", ""),
+            "CreatedAtGST": created_at,
+            "LastUpdatedAtGST": timestamp,
+            "LastLoginAtGST": last_login,
+            "AccountStatus": existing.get("AccountStatus") or "active",
+            "LastEvent": event,
+        }
+        row_values = [values_by_header.get(header, "") for header in USER_TRACKER_HEADERS]
+
+        if row_idx:
+            end_col = _column_number_to_letter(len(USER_TRACKER_HEADERS))
+            _gspread_retry(sheet.update, values=[row_values], range_name=f"A{row_idx}:{end_col}{row_idx}")
+        else:
+            _gspread_retry(sheet.append_row, row_values, value_input_option="USER_ENTERED")
+    except Exception:
+        return
+
+
+def create_clinic_account(clinic_id: str, country: str, password: str):
+    clinic_id = str(clinic_id or "").strip()
+    country = str(country or "").strip()
+    if get_clinic_row(clinic_id):
+        raise ValueError("That clinic name is already registered.")
+
+    sheet = get_settings_sheet()
+    all_vals = _gspread_retry(sheet.get_all_values)
+    headers = all_vals[0] if all_vals else ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+    settings_json = json.dumps(default_settings_for_country(country))
+    row_values = [""] * len(headers)
+    values_by_header = {
+        "ClinicID": clinic_id,
+        "PlainPassword": "",
+        "PasswordHash": hash_pw(password),
+        "SettingsJSON": settings_json,
+        "UpdatedAt": datetime.utcnow().isoformat(),
+    }
+    for header, value in values_by_header.items():
+        if header in headers:
+            row_values[headers.index(header)] = value
+
+    _gspread_retry(sheet.append_row, row_values, value_input_option="USER_ENTERED")
+    upsert_user_tracker(clinic_id, country=country, event="created")
+
 
 def update_clinic_password(clinic_id: str, new_password: str):
     """Update the password hash for the current clinic login."""
@@ -1775,11 +1982,51 @@ if not st.session_state["logged_in"]:
                 load_settings()
                 # ✅ Auto-load shared dataset from Drive into working_df
                 load_shared_dataset_for_clinic()
-                        
+                upsert_user_tracker(
+                    username,
+                    country=st.session_state.get("user_country", ""),
+                    event="login",
+                )
+
                 st.success(f"✅ Welcome, {username}!")
                 st.rerun()
             else:
                 st.error("❌ Invalid username or password.")
+
+        if "show_create_account" not in st.session_state:
+            st.session_state["show_create_account"] = False
+        if st.button("Create Account", key="toggle_create_account", use_container_width=True):
+            st.session_state["show_create_account"] = not st.session_state["show_create_account"]
+
+        if st.session_state["show_create_account"]:
+            st.markdown("### Create Account")
+            with st.form("create_account_form"):
+                new_clinic = st.text_input("Clinic Name (username)").strip()
+                country = st.selectbox("Country", COUNTRY_OPTIONS)
+                new_password = st.text_input("Set password", type="password")
+                confirm_password = st.text_input("Confirm password", type="password")
+                create_submitted = st.form_submit_button("Create Account", type="primary", use_container_width=True)
+
+            if create_submitted:
+                if not new_clinic or not new_password or not confirm_password:
+                    st.error("Enter a clinic name and password twice.")
+                elif len(new_password) < 6:
+                    st.error("Password must be at least 6 characters.")
+                elif new_password != confirm_password:
+                    st.error("Passwords do not match.")
+                else:
+                    try:
+                        create_clinic_account(new_clinic, country, new_password)
+                        st.session_state["clinic_id"] = new_clinic
+                        st.session_state["logged_in"] = True
+                        load_settings()
+                        st.session_state["user_country"] = country
+                        st.success(f"✅ Account created. Welcome, {new_clinic}!")
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
+                    except Exception:
+                        st.error("Could not create account. Please try again or contact support.")
 else:
     with sidebar_account_slot:
         clinic_id = st.session_state.get("clinic_id", "")
@@ -1809,6 +2056,11 @@ else:
                         st.error("Current password is incorrect.")
                     else:
                         update_clinic_password(clinic_id, new_password)
+                        upsert_user_tracker(
+                            clinic_id,
+                            country=st.session_state.get("user_country", ""),
+                            event="password_changed",
+                        )
                         st.success("Password updated.")
 
             if st.button("Logout", key="sidebar_logout", use_container_width=True):
@@ -2642,6 +2894,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 message, _ = pattern.subn(r"\1 are", message, count=1)
 
             st.session_state[msg_key] = message
+            record_wa_button_tracker(row, message, source=key_prefix, now=now)
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
@@ -4647,10 +4900,12 @@ if st.session_state.get("clinic_id") == "Admin":
             if row:
                 # Update existing clinic row
                 _update_password_cells(sheet, headers, row, plain, hashed, datetime.utcnow().isoformat())
+                upsert_user_tracker(new_clinic, event="admin_password_update")
                 st.success(f"✅ Updated password for clinic '{new_clinic}'.")
             else:
                 # Add a new clinic row
                 sheet.append_row([new_clinic, plain, hashed, "{}", datetime.utcnow().isoformat()])
+                upsert_user_tracker(new_clinic, event="admin_created")
                 st.success(f"✅ Added new clinic '{new_clinic}'.")
 
 else:
