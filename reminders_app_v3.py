@@ -435,8 +435,11 @@ st.markdown(
     .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; }
     h2[id] { scroll-margin-top: 80px; }
     .anchor-offset { position: relative; top: -100px; height: 0; }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] {
+        width: 100% !important;
+    }
     section[data-testid="stSidebar"] div[data-testid="stButton"] button {
-        display: flex !important;
+        display: block !important;
         justify-content: flex-start !important;
         align-items: center !important;
         text-align: left !important;
@@ -445,7 +448,7 @@ st.markdown(
         box-shadow: none !important;
         padding: 0.05rem 0 !important;
         min-height: 1.85rem;
-        width: 100%;
+        width: 100% !important;
     }
     section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
         color: #60a5fa;
@@ -453,12 +456,16 @@ st.markdown(
         background: transparent !important;
     }
     section[data-testid="stSidebar"] div[data-testid="stButton"] button div[data-testid="stMarkdownContainer"] {
-        width: 100%;
+        display: block !important;
+        width: 100% !important;
         text-align: left !important;
     }
     section[data-testid="stSidebar"] div[data-testid="stButton"] button div[data-testid="stMarkdownContainer"] p {
         margin: 0 !important;
         text-align: left !important;
+    }
+    .st-key-sidebar_account_actions {
+        margin-top: 0.25rem;
     }
     section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] button {
         justify-content: center !important;
@@ -1766,35 +1773,36 @@ else:
 
         if "show_account_settings" not in st.session_state:
             st.session_state["show_account_settings"] = False
-        if st.button("⚙️ Account Settings", key="toggle_account_settings", use_container_width=True):
-            st.session_state["show_account_settings"] = not st.session_state["show_account_settings"]
+        with st.container(key="sidebar_account_actions"):
+            if st.button("⚙️ Account Settings", key="toggle_account_settings", use_container_width=True):
+                st.session_state["show_account_settings"] = not st.session_state["show_account_settings"]
 
-        if st.session_state["show_account_settings"]:
-            st.caption("Change the password for this clinic login.")
-            with st.form("change_password_form"):
-                current_password = st.text_input("Current password", type="password")
-                new_password = st.text_input("New password", type="password")
-                confirm_password = st.text_input("Confirm new password", type="password")
-                submitted = st.form_submit_button("Change password")
+            if st.session_state["show_account_settings"]:
+                st.caption("Change the password for this clinic login.")
+                with st.form("change_password_form"):
+                    current_password = st.text_input("Current password", type="password")
+                    new_password = st.text_input("New password", type="password")
+                    confirm_password = st.text_input("Confirm new password", type="password")
+                    submitted = st.form_submit_button("Change password")
 
-            if submitted:
-                if not current_password or not new_password or not confirm_password:
-                    st.error("Enter the current password and the new password twice.")
-                elif new_password != confirm_password:
-                    st.error("New passwords do not match.")
-                elif len(new_password) < 6:
-                    st.error("New password must be at least 6 characters.")
-                elif not authenticate_user(clinic_id, current_password):
-                    st.error("Current password is incorrect.")
-                else:
-                    update_clinic_password(clinic_id, new_password)
-                    st.success("Password updated.")
+                if submitted:
+                    if not current_password or not new_password or not confirm_password:
+                        st.error("Enter the current password and the new password twice.")
+                    elif new_password != confirm_password:
+                        st.error("New passwords do not match.")
+                    elif len(new_password) < 6:
+                        st.error("New password must be at least 6 characters.")
+                    elif not authenticate_user(clinic_id, current_password):
+                        st.error("Current password is incorrect.")
+                    else:
+                        update_clinic_password(clinic_id, new_password)
+                        st.success("Password updated.")
 
-        if st.button("Logout", use_container_width=True):
-            for key in ["logged_in", "clinic_id"]:
-                st.session_state.pop(key, None)
-            st.success("You have been logged out.")
-            st.rerun()
+            if st.button("Logout", key="sidebar_logout", use_container_width=True):
+                for key in ["logged_in", "clinic_id"]:
+                    st.session_state.pop(key, None)
+                st.success("You have been logged out.")
+                st.rerun()
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:
