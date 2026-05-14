@@ -516,7 +516,7 @@ st.markdown(
         --cr-surface: #ffffff;
         --cr-surface-muted: #eef3f8;
         --cr-sidebar-bg: #edf2f7;
-        --cr-sidebar-account-bg: #e5ebf2;
+        --cr-sidebar-account-bg: #edf2f7;
         --cr-text: #172033;
         --cr-muted: #5f6b7a;
         --cr-border: #d8e0ea;
@@ -536,7 +536,7 @@ st.markdown(
         --cr-surface: #ffffff;
         --cr-surface-muted: #eef3f8;
         --cr-sidebar-bg: #edf2f7;
-        --cr-sidebar-account-bg: #e5ebf2;
+        --cr-sidebar-account-bg: #edf2f7;
         --cr-text: #172033;
         --cr-muted: #5f6b7a;
         --cr-border: #d8e0ea;
@@ -574,6 +574,12 @@ st.markdown(
     .stApp, [data-testid="stAppViewContainer"] {
         background: var(--cr-app-bg) !important;
         color: var(--cr-text);
+    }
+    header[data-testid="stHeader"],
+    [data-testid="stHeader"],
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"] {
+        background: var(--cr-app-bg) !important;
     }
     section[data-testid="stSidebar"] {
         background: var(--cr-sidebar-bg) !important;
@@ -637,7 +643,7 @@ st.markdown(
         left: 1rem;
         max-height: 70vh;
         overflow-y: auto;
-        padding-top: 0.25rem;
+        padding: 0.25rem 0;
         position: fixed;
         width: 14rem;
         z-index: 100;
