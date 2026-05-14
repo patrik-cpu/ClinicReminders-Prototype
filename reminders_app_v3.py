@@ -657,6 +657,9 @@ st.markdown(
     section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] button p {
         text-align: center !important;
     }
+    div[data-testid="InputInstructions"] {
+        display: none !important;
+    }
     .setup-panel {
         border: 1px solid var(--cr-border);
         border-radius: 8px;
@@ -2356,9 +2359,9 @@ def render_dataset_status():
     if st.session_state.get("shared_dataset_loaded"):
         st.info(f"📌 Using shared clinic dataset: {st.session_state.get('shared_dataset_name','(unknown)')}")
     elif st.session_state.get("shared_dataset_error"):
-        st.warning(f"⚠️ Could not load shared dataset: {st.session_state['shared_dataset_error']}")
+        st.warning(f"⚠️ Could not load clinic data: {st.session_state['shared_dataset_error']}")
     else:
-        st.caption("No shared dataset saved yet — upload a file to start.")
+        st.caption("No clinic data saved yet — upload a file to start.")
 
 def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
     if df is None or df.empty:
@@ -2393,7 +2396,6 @@ def render_setup_checklist():
     df_w = st.session_state.get("working_df")
     has_data = df_w is not None and not getattr(df_w, "empty", True)
     has_shared_dataset = bool(st.session_state.get("shared_dataset_loaded") and st.session_state.get("shared_dataset_name"))
-    has_local_only_data = has_data and not has_shared_dataset
     has_rules = bool(st.session_state.get("rules"))
     search_terms_reviewed = bool(st.session_state.get("search_terms_reviewed", False))
     has_sender_name = bool(str(st.session_state.get("user_name", "")).strip())
@@ -2411,7 +2413,6 @@ def render_setup_checklist():
         return "todo", "To do"
 
     upload_class, upload_status = status(has_data, not has_data)
-    publish_class, publish_status = status(has_shared_dataset, has_local_only_data)
     search_class, search_status = status(search_terms_reviewed, has_shared_dataset and not search_terms_reviewed)
     name_class, name_status = status(has_sender_name, has_shared_dataset and search_terms_reviewed and not has_sender_name)
     template_class, template_status = status(template_reviewed, has_shared_dataset and has_sender_name and not template_reviewed, optional=True)
@@ -2421,7 +2422,7 @@ def render_setup_checklist():
         f"""
         <section class="setup-panel">
           <h3>Get Started</h3>
-          <p>Four quick checks before the clinic starts using reminders.</p>
+          <p>Five quick checks before the clinic starts using reminders.</p>
           <div class="setup-grid">
             <div class="setup-step {upload_class}">
               <div class="setup-status">{upload_status}</div>
@@ -2429,33 +2430,27 @@ def render_setup_checklist():
               <div class="setup-copy">Upload a CSV, XLS, or XLSX sales plan export. One year of data is ideal so yearly reminders can be found reliably.</div>
               <a href="#data-upload">Go to Data</a>
             </div>
-            <div class="setup-step {publish_class}">
-              <div class="setup-status">{publish_status}</div>
-              <div class="setup-title">2. Save clinic dataset</div>
-              <div class="setup-copy">Valid uploads are saved automatically. Overlapping dates ask for confirmation first.</div>
-              <a href="#data-upload">Open data upload</a>
-            </div>
             <div class="setup-step {search_class}">
               <div class="setup-status">{search_status}</div>
-              <div class="setup-title">3. Review search terms</div>
+              <div class="setup-title">2. Review search terms</div>
               <div class="setup-copy">Defaults are loaded, but review them once so reminders match your clinic language.</div>
               <a href="#search-terms">Open search terms</a>
             </div>
             <div class="setup-step {name_class}">
               <div class="setup-status">{name_status}</div>
-              <div class="setup-title">4. Set sender name</div>
+              <div class="setup-title">3. Set sender name</div>
               <div class="setup-copy">This fills [Your Name] in WhatsApp messages. Example: Mary from Bob's Test Vet Clinic.</div>
               <a href="#whatsapp-composer">Set WhatsApp name</a>
             </div>
             <div class="setup-step {template_class}">
               <div class="setup-status">{template_status}</div>
-              <div class="setup-title">5. Review template</div>
+              <div class="setup-title">4. Review template</div>
               <div class="setup-copy">Use the default wording, or edit it if your clinic needs a different tone or language.</div>
               <a href="#wa-template-editor">Open template editor</a>
             </div>
             <div class="setup-step {reminders_class}">
               <div class="setup-status">{reminders_status}</div>
-              <div class="setup-title">6. Check reminders</div>
+              <div class="setup-title">5. Check reminders</div>
               <div class="setup-copy">Pick a start date, confirm the output, then click WA to prepare messages.</div>
               <a href="#reminders">Open reminders</a>
             </div>
@@ -2892,8 +2887,7 @@ if set(current_files) != set(st.session_state["last_uploaded_files"]):
     # optional but recommended
     load_shared_dataset_for_clinic()
 
-    if not current_files:
-        st.rerun()
+    st.rerun()
 
 
 # --------------------------------
@@ -3042,20 +3036,19 @@ if files:
                 save_uploaded_dataset(replace_overlapping_dates=False)
 
 # -------------------------------------
-# Reset Clinic Dataset
+# Clear Clinic Data
 # -------------------------------------
-st.markdown("### 🧨 Reset Clinic Dataset (Testing / Wrong Upload)")
-st.caption("This clears the shared dataset pointer for this clinic so the app behaves like no dataset is published.")
+st.markdown("#### Clear Clinic Data")
 confirm_reset = st.checkbox(
-    "I understand this will remove the shared dataset for my clinic",
+    "I understand this will remove clinic data for my clinic",
     key="confirm_reset_dataset",
-    help="Use this only when the wrong shared dataset was published for the clinic."
+    help="Use this only when the wrong clinic data was saved."
 )
 
 if st.button(
-    "🗑️ Reset shared dataset for clinic",
+    "Clear clinic data",
     disabled=not confirm_reset,
-    help="Clear the shared dataset pointer so the clinic behaves like no dataset is published."
+    help="Clear clinic data so the clinic behaves like no data is saved."
 ):
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id:
@@ -3085,7 +3078,7 @@ if st.button(
     # Optional: clear uploader + caches
     st.cache_data.clear()
 
-    st.success("✅ Clinic dataset reset. No shared dataset is published for this clinic now.")
+    st.success("✅ Clinic data cleared. No clinic data is saved for this clinic now.")
     st.rerun()
 
 # --------------------------------
