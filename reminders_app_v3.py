@@ -1344,10 +1344,13 @@ def save_settings():
         sheet = get_settings_sheet()
 
     remote_settings = get_remote_settings(sheet=sheet, headers=headers, row=row)
-    wa_reminder_log = merge_wa_reminder_logs(
-        remote_settings.get("wa_reminder_log", []),
-        st.session_state.get("wa_reminder_log", []),
-    )
+    if st.session_state.pop("_replace_wa_reminder_log_once", False):
+        wa_reminder_log = st.session_state.get("wa_reminder_log", [])
+    else:
+        wa_reminder_log = merge_wa_reminder_logs(
+            remote_settings.get("wa_reminder_log", []),
+            st.session_state.get("wa_reminder_log", []),
+        )
     st.session_state["wa_reminder_log"] = wa_reminder_log
     if st.session_state.pop("_replace_deleted_reminders_once", False):
         deleted_reminders = st.session_state.get("deleted_reminders", [])
@@ -1451,10 +1454,10 @@ def merge_wa_reminder_logs(*logs):
             reminded_at = str(entry.get("RemindedAt", "")).strip()
             if not client_name or not reminded_at:
                 continue
-            merged[(client_name, reminded_at)] = {
-                "Client Name": client_name,
-                "RemindedAt": reminded_at,
-            }
+            merged_entry = dict(entry)
+            merged_entry["Client Name"] = client_name
+            merged_entry["RemindedAt"] = reminded_at
+            merged[(client_name, reminded_at)] = merged_entry
 
     return sorted(
         merged.values(),
@@ -1462,6 +1465,8 @@ def merge_wa_reminder_logs(*logs):
     )[-1000:]
 
 HIDDEN_REMINDER_KEY_FIELDS = ("Client Name", "Animal Name", "Plan Item", "Due Date")
+REMINDER_ACTION_SENT = "sent"
+REMINDER_ACTION_DECLINED = "declined"
 
 
 def hidden_reminder_key(row) -> tuple[str, ...]:
@@ -1484,6 +1489,43 @@ def merge_deleted_reminders(*logs):
                 continue
             merged[key] = dict(entry)
     return list(merged.values())[-1000:]
+
+
+def get_hidden_reminder_record(row) -> dict | None:
+    target_key = hidden_reminder_key(row)
+    if not any(target_key):
+        return None
+    for entry in st.session_state.get("deleted_reminders", []):
+        if isinstance(entry, dict) and hidden_reminder_key(entry) == target_key:
+            return entry
+    return None
+
+
+def upsert_hidden_reminder(row, action: str, message: str = "", now: datetime | None = None) -> dict:
+    now = now or datetime.utcnow()
+    rec = {
+        "Due Date": row.get("Due Date", ""),
+        "Charge Date": row.get("Charge Date", ""),
+        "Client Name": row.get("Client Name", ""),
+        "Animal Name": row.get("Animal Name", ""),
+        "Plan Item": row.get("Plan Item", ""),
+        "Qty": row.get("Qty", ""),
+        "Days": row.get("Days", ""),
+        "Action": action,
+        "DeletedAt": now.isoformat(),
+        "ActionedAt": now.isoformat(),
+    }
+    if message:
+        rec["MessageCreated"] = str(message or "").strip()
+
+    target_key = hidden_reminder_key(rec)
+    reminders = [
+        existing for existing in st.session_state.get("deleted_reminders", [])
+        if not (isinstance(existing, dict) and hidden_reminder_key(existing) == target_key)
+    ]
+    reminders.append(rec)
+    st.session_state["deleted_reminders"] = reminders[-1000:]
+    return rec
 
 
 def filter_hidden_reminders(reminders_df: pd.DataFrame) -> pd.DataFrame:
@@ -1523,15 +1565,30 @@ def get_recent_reminder_warning(client_name: str, now: datetime | None = None) -
         return f"Reminder: {display_name} got a reminder {_days_ago_text(latest, now)}."
     return None
 
-def record_wa_reminder_click(client_name: str, now: datetime | None = None):
+def record_wa_reminder_click(client_name: str, now: datetime | None = None, row=None, save: bool = True):
     now = now or datetime.utcnow()
-    log = list(st.session_state.get("wa_reminder_log", []))
-    log.append({
+    entry = {
         "Client Name": str(client_name or "").strip(),
         "RemindedAt": now.isoformat(),
-    })
+    }
+    if row is not None:
+        entry["ReminderKey"] = list(hidden_reminder_key(row))
+    log = list(st.session_state.get("wa_reminder_log", []))
+    log.append(entry)
     st.session_state["wa_reminder_log"] = log[-1000:]
-    save_settings()
+    if save:
+        save_settings()
+
+
+def remove_wa_reminder_click_for_row(row):
+    target_key = list(hidden_reminder_key(row))
+    if not any(target_key):
+        return
+    st.session_state["wa_reminder_log"] = [
+        entry for entry in st.session_state.get("wa_reminder_log", [])
+        if not (isinstance(entry, dict) and entry.get("ReminderKey") == target_key)
+    ]
+    st.session_state["_replace_wa_reminder_log_once"] = True
 
 
 def record_wa_button_tracker(row, message: str, source: str, now: datetime | None = None):
@@ -3112,28 +3169,90 @@ def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
         st.info("All rows excluded by exclusion list.")
         return
+    num_deleted = len(st.session_state.get("deleted_reminders", []))
+    if num_deleted:
+        reveal_key = f"{key_prefix}_reveal_hidden_reminders"
+        reveal_hidden = st.checkbox(
+            "Reveal Hidden Reminders",
+            key=reveal_key,
+            help="Show reminders already marked as sent or declined so you can change their status.",
+        )
+        if not reveal_hidden:
+            df = filter_hidden_reminders(df)
+    else:
+        reveal_hidden = False
+    if df.empty:
+        st.info("All rows are hidden.")
+        return
     render_table_with_buttons(df, key_prefix, msg_key)
 
+
+def build_whatsapp_message_for_row(row) -> str:
+    client_name = row.get("Client Name", "")
+    first_name = normalize_display_case(client_name).split()[0].strip() if client_name else "there"
+    animal_name = normalize_display_case(row.get("Animal Name", "")).strip() if row.get("Animal Name") else "your pet"
+    plan_for_msg = normalize_display_case(row.get("Plan Item", "")).strip()
+    user = st.session_state.get("user_name", "").strip()
+    due_date_fmt = format_due_dates_for_message(str(row.get("Due Date", "")))
+
+    template = (st.session_state.get("user_template", "") or DEFAULT_WA_TEMPLATE).strip()
+
+    def replace_case_insensitive(text, placeholder, value):
+        pattern = re.compile(re.escape(placeholder), re.IGNORECASE)
+        return pattern.sub(value, text)
+
+    message = template
+    message = replace_case_insensitive(message, "[Client Name]", first_name)
+    message = replace_case_insensitive(message, "[Your Name]", user or "our clinic")
+
+    reminder_details = row.get("ReminderDetails") or []
+    grouped_summary = build_grouped_reminder_summary(reminder_details) if len(reminder_details) > 1 else ""
+
+    if grouped_summary and "[ReminderSummary]" in message:
+        message = replace_case_insensitive(message, "[ReminderSummary]", grouped_summary)
+    elif grouped_summary:
+        # Try to replace a common template clause if found
+        pattern = re.compile(r"\[Pet Name\].*?\[Due Date\]", flags=re.IGNORECASE | re.DOTALL)
+        if pattern.search(message):
+            message = pattern.sub(grouped_summary, message)
+        else:
+            message = f"Hi {first_name}, this is {user or 'our clinic'}. Just reminding you that {grouped_summary}."
+
+    if not grouped_summary:
+        message = replace_case_insensitive(message, "[Pet Name]", animal_name)
+        message = replace_case_insensitive(message, "[Item]", plan_for_msg)
+        message = replace_case_insensitive(message, "[Due Date]", due_date_fmt)
+
+    # Grammar fix: "<Names> is" -> "are" when multiple pets listed
+    has_multiple_pets = bool(re.search(r"(?:\s+(?:and|&)\s+|,)", animal_name, flags=re.IGNORECASE))
+    if has_multiple_pets:
+        pattern = re.compile(rf"({re.escape(animal_name)})\s+is\b", flags=re.IGNORECASE)
+        message, _ = pattern.subn(r"\1 are", message, count=1)
+
+    return message
+
+
 def render_table_with_buttons(df, key_prefix, msg_key):
-    # Make the WA and Hide columns the same width for clean alignment
-    col_widths = [2, 2, 5, 3, 4, 1, 1, 2, 2]
-    headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Hide"]
+    col_widths = [2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
+    headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Sent", "Decline"]
 
     # --- Header row ---
     header_cols = st.columns(col_widths)
     for c, head in zip(header_cols, headers):
-        align = "center" if head in ["WA", "Hide"] else "left"
+        align = "center" if head in ["WA", "Sent", "Decline"] else "left"
         c.markdown(f"<div style='text-align:{align}; font-weight:600;'>{head}</div>", unsafe_allow_html=True)
 
     # --- Table rows ---
     for idx, row in df.iterrows():
-        # Values for the non-action columns (everything except WA & Hide)
-        vals = {h: str(row.get(h, "")) for h in headers[:-2]}
+        # Values for the non-action columns
+        vals = {h: str(row.get(h, "")) for h in headers[:-3]}
+        hidden_record = get_hidden_reminder_record(row)
+        hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
 
         row_cols = st.columns(col_widths, gap="small")
 
         # Print ONLY data columns (not the action columns)
-        for j, h in enumerate(headers[:-2]):  # up to "Days"
+        for j, h in enumerate(headers[:-3]):  # up to "Days"
             val = vals[h]
             if h in ["Client Name", "Animal Name", "Plan Item"]:
                 val = normalize_display_case(val)
@@ -3146,68 +3265,37 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             warning_message = get_recent_reminder_warning(client_name, now=now)
             if warning_message:
                 show_recent_reminder_warning(warning_message, key=f"{key_prefix}_recent_reminder_ok_{idx}")
-            record_wa_reminder_click(client_name, now=now)
-
-            first_name = normalize_display_case(client_name).split()[0].strip() if client_name else "there"
             animal_name = normalize_display_case(row.get("Animal Name", "")).strip() if row.get("Animal Name") else "your pet"
-            plan_for_msg = normalize_display_case(row.get("Plan Item", "")).strip()
-            user = st.session_state.get("user_name", "").strip()
-            due_date_fmt = format_due_dates_for_message(str(row.get("Due Date", "")))
-
-            template = (st.session_state.get("user_template", "") or DEFAULT_WA_TEMPLATE).strip()
-
-            def replace_case_insensitive(text, placeholder, value):
-                pattern = re.compile(re.escape(placeholder), re.IGNORECASE)
-                return pattern.sub(value, text)
-
-            message = template
-            message = replace_case_insensitive(message, "[Client Name]", first_name)
-            message = replace_case_insensitive(message, "[Your Name]", user or "our clinic")
-
-            reminder_details = row.get("ReminderDetails") or []
-            grouped_summary = build_grouped_reminder_summary(reminder_details) if len(reminder_details) > 1 else ""
-
-            if grouped_summary and "[ReminderSummary]" in message:
-                message = replace_case_insensitive(message, "[ReminderSummary]", grouped_summary)
-            elif grouped_summary:
-                # Try to replace a common template clause if found
-                pattern = re.compile(r"\[Pet Name\].*?\[Due Date\]", flags=re.IGNORECASE | re.DOTALL)
-                if pattern.search(message):
-                    message = pattern.sub(grouped_summary, message)
-                else:
-                    message = f"Hi {first_name}, this is {user or 'our clinic'}. Just reminding you that {grouped_summary}."
-
-            if not grouped_summary:
-                message = replace_case_insensitive(message, "[Pet Name]", animal_name)
-                message = replace_case_insensitive(message, "[Item]", plan_for_msg)
-                message = replace_case_insensitive(message, "[Due Date]", due_date_fmt)
-
-            # Grammar fix: "<Names> is" -> "are" when multiple pets listed
-            has_multiple_pets = bool(re.search(r"(?:\s+(?:and|&)\s+|,)", animal_name, flags=re.IGNORECASE))
-            if has_multiple_pets:
-                pattern = re.compile(rf"({re.escape(animal_name)})\s+is\b", flags=re.IGNORECASE)
-                message, _ = pattern.subn(r"\1 are", message, count=1)
-
+            message = build_whatsapp_message_for_row(row)
             st.session_state[msg_key] = message
-            record_wa_button_tracker(row, message, source=key_prefix, now=now)
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
-        # --- Hide button (❌), aligned to its column, full-width) ---
-        if row_cols[8].button("❌", key=f"{key_prefix}_hide_{idx}", use_container_width=True):
-            rec = {
-                "Due Date": row.get("Due Date", ""),
-                "Charge Date": row.get("Charge Date", ""),
-                "Client Name": row.get("Client Name", ""),
-                "Animal Name": row.get("Animal Name", ""),
-                "Plan Item": row.get("Plan Item", ""),
-                "Qty": row.get("Qty", ""),
-                "Days": row.get("Days", ""),
-                "DeletedAt": datetime.now().isoformat()
-            }
-            st.session_state.setdefault("deleted_reminders", []).append(rec)
+        sent_label = "✅ Sent" if hidden_action == REMINDER_ACTION_SENT else "☑ Sent"
+        decline_label = "❌ Decline" if hidden_action == REMINDER_ACTION_DECLINED else "✕ Decline"
+
+        if row_cols[8].button(sent_label, key=f"{key_prefix}_sent_{idx}", use_container_width=True):
+            client_name = row.get("Client Name", "")
+            now = datetime.utcnow()
+            warning_message = get_recent_reminder_warning(client_name, now=now)
+            if warning_message:
+                show_recent_reminder_warning(warning_message, key=f"{key_prefix}_recent_sent_ok_{idx}")
+            message = build_whatsapp_message_for_row(row)
+            st.session_state[msg_key] = message
+            if hidden_action != REMINDER_ACTION_SENT:
+                record_wa_reminder_click(client_name, now=now, row=row, save=False)
+                record_wa_button_tracker(row, message, source=f"{key_prefix}_sent", now=now)
+            rec = upsert_hidden_reminder(row, REMINDER_ACTION_SENT, message=message, now=now)
             save_settings()
-            st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} hidden.")
+            st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} marked sent.")
+            st.rerun()
+
+        if row_cols[9].button(decline_label, key=f"{key_prefix}_decline_{idx}", use_container_width=True):
+            if hidden_action == REMINDER_ACTION_SENT:
+                remove_wa_reminder_click_for_row(row)
+            rec = upsert_hidden_reminder(row, REMINDER_ACTION_DECLINED, now=datetime.utcnow())
+            save_settings()
+            st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} declined.")
             st.rerun()
 
     # --- Hidden count + Restore button (directly under the table) ---
@@ -3512,7 +3600,6 @@ if st.session_state.get("working_df") is not None:
 
     if not due2.empty:
         grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=st.session_state.get("rules", {}))
-        grouped = filter_hidden_reminders(grouped)
 
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
     else:
@@ -3569,7 +3656,6 @@ if st.session_state.get("working_df") is not None:
                 .rename(columns={"DueDateFmt": "Due Date"})
             )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
 
-            grouped_search = filter_hidden_reminders(grouped_search)
             render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
         else:
             st.info("No matches found.")
