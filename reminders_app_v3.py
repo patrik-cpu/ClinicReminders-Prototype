@@ -404,9 +404,14 @@ sidebar_nav_slot = st.sidebar.container()
 sidebar_account_slot = st.sidebar.container()
 
 if st.session_state.get("logged_in", False):
+    clinic_label = html_lib.escape(str(st.session_state.get("clinic_id", "")))
     # Sidebar "table of contents" — simplified navigation
     sidebar_nav_slot.markdown(
-        """
+        f"""
+        <div style="font-size:15px; line-height:1.5; margin-bottom:1.1rem;">
+          <div style="font-weight:700; margin-bottom:0.15rem;">Clinic</div>
+          <div style="color:rgba(255,255,255,0.82); word-break:break-word;">{clinic_label}</div>
+        </div>
         <div style="font-size:15px; line-height:1.85;">
           <a href="#getting-started" style="text-decoration:none; display:block; font-weight:700; margin-bottom:0.75rem;">🚀 Getting Started</a>
           <div style="font-weight:700; margin-bottom:0.25rem;">Daily workflow</div>
@@ -465,24 +470,25 @@ st.markdown(
         text-align: left !important;
     }
     .st-key-sidebar_account_actions {
-        margin-top: 0.25rem;
+        background: rgb(38, 39, 48);
+        bottom: 1rem;
+        left: 1rem;
+        max-height: 70vh;
+        overflow-y: auto;
+        padding-top: 0.25rem;
+        position: fixed;
+        width: 14rem;
+        z-index: 100;
     }
-    .sidebar-account-actions {
-        font-size: 15px;
-        line-height: 1.85;
-        margin-top: 0.25rem;
-        text-align: left;
+    .st-key-sidebar_account_actions div[data-testid="stButton"] button {
+        display: flex !important;
+        justify-content: center !important;
+        text-align: center !important;
     }
-    .sidebar-account-actions a {
-        color: rgba(255,255,255,0.92);
-        display: block;
-        padding: 0.05rem 0;
-        text-align: left;
-        text-decoration: none;
-    }
-    .sidebar-account-actions a:hover {
-        color: #60a5fa;
-        text-decoration: none;
+    .st-key-sidebar_account_actions div[data-testid="stButton"] button div[data-testid="stMarkdownContainer"],
+    .st-key-sidebar_account_actions div[data-testid="stButton"] button div[data-testid="stMarkdownContainer"] p {
+        text-align: center !important;
+        width: 100% !important;
     }
     section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] button {
         justify-content: center !important;
@@ -1752,19 +1758,6 @@ if (
         load_shared_dataset_for_clinic()
         rerun_app()
 
-sidebar_action = st.query_params.get("sidebar_action")
-if isinstance(sidebar_action, list):
-    sidebar_action = sidebar_action[0] if sidebar_action else None
-if sidebar_action:
-    st.query_params.pop("sidebar_action", None)
-    if sidebar_action == "account_settings" and st.session_state.get("logged_in", False):
-        st.session_state["show_account_settings"] = not st.session_state.get("show_account_settings", False)
-    elif sidebar_action == "logout" and st.session_state.get("logged_in", False):
-        for key in ["logged_in", "clinic_id"]:
-            st.session_state.pop(key, None)
-        st.success("You have been logged out.")
-        rerun_app()
-
 if not st.session_state["logged_in"]:
     with sidebar_account_slot:
         st.markdown("### 🔑 Clinic Login")
@@ -1790,29 +1783,12 @@ if not st.session_state["logged_in"]:
 else:
     with sidebar_account_slot:
         clinic_id = st.session_state.get("clinic_id", "")
-        clinic_label = html_lib.escape(str(clinic_id))
-        st.markdown(
-            f"""
-            <div style="font-size:15px; line-height:1.5; margin-top:1.1rem;">
-              <div style="font-weight:700; margin-bottom:0.15rem;">Clinic</div>
-              <div style="color:rgba(255,255,255,0.82); word-break:break-word;">{clinic_label}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
         if "show_account_settings" not in st.session_state:
             st.session_state["show_account_settings"] = False
         with st.container(key="sidebar_account_actions"):
-            st.markdown(
-                """
-                <div class="sidebar-account-actions">
-                  <a href="?sidebar_action=account_settings" target="_self">⚙️ Account Settings</a>
-                  <a href="?sidebar_action=logout" target="_self">Logout</a>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            if st.button("⚙️ Account Settings", key="toggle_account_settings", use_container_width=True):
+                st.session_state["show_account_settings"] = not st.session_state["show_account_settings"]
 
             if st.session_state["show_account_settings"]:
                 st.caption("Change the password for this clinic login.")
@@ -1834,6 +1810,12 @@ else:
                     else:
                         update_clinic_password(clinic_id, new_password)
                         st.success("Password updated.")
+
+            if st.button("Logout", key="sidebar_logout", use_container_width=True):
+                for key in ["logged_in", "clinic_id"]:
+                    st.session_state.pop(key, None)
+                st.success("You have been logged out.")
+                st.rerun()
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:
