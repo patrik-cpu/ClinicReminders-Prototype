@@ -531,28 +531,6 @@ st.markdown(
         --cr-step-optional-bg: #fff7df;
         --cr-step-optional-border: #f4c95d;
     }
-    @media (prefers-color-scheme: dark) {
-        :root {
-            --cr-app-bg: #0e1117;
-            --cr-surface: #161b22;
-            --cr-surface-muted: rgba(255,255,255,0.035);
-            --cr-sidebar-bg: #262730;
-            --cr-sidebar-account-bg: #262730;
-            --cr-text: #f8fafc;
-            --cr-muted: rgba(255,255,255,0.72);
-            --cr-border: rgba(255,255,255,0.12);
-            --cr-link: #60a5fa;
-            --cr-link-hover: #93c5fd;
-            --cr-chip-bg: rgba(255,255,255,0.10);
-            --cr-step-bg: rgba(255,255,255,0.035);
-            --cr-step-complete-bg: rgba(16, 185, 129, 0.10);
-            --cr-step-complete-border: rgba(52, 211, 153, 0.45);
-            --cr-step-current-bg: rgba(59, 130, 246, 0.12);
-            --cr-step-current-border: rgba(59, 130, 246, 0.55);
-            --cr-step-optional-bg: rgba(245, 158, 11, 0.08);
-            --cr-step-optional-border: rgba(245, 158, 11, 0.35);
-        }
-    }
     [data-theme="light"], [data-baseweb-theme="light"] {
         --cr-app-bg: #f6f8fb;
         --cr-surface: #ffffff;
