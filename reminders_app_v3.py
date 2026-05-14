@@ -3233,24 +3233,44 @@ def build_whatsapp_message_for_row(row) -> str:
 
 
 def render_reminder_action_button_styles(sent_key: str, decline_key: str, hidden_action: str):
-    sent_opacity = "0.35" if hidden_action == REMINDER_ACTION_DECLINED else "1"
-    decline_opacity = "0.35" if hidden_action == REMINDER_ACTION_SENT else "1"
+    sent_is_selected = hidden_action == REMINDER_ACTION_SENT
+    decline_is_selected = hidden_action == REMINDER_ACTION_DECLINED
+    sent_opacity = "0.18" if decline_is_selected else "1"
+    decline_opacity = "0.18" if sent_is_selected else "1"
+    sent_bg = "#dcfce7" if sent_is_selected else "#ffffff"
+    decline_bg = "#fee2e2" if decline_is_selected else "#ffffff"
+    sent_border = "#15803d" if sent_is_selected else "#d1d5db"
+    decline_border = "#b91c1c" if decline_is_selected else "#d1d5db"
+    sent_shadow = "0 0 0 2px rgba(21, 128, 61, 0.18)" if sent_is_selected else "none"
+    decline_shadow = "0 0 0 2px rgba(185, 28, 28, 0.18)" if decline_is_selected else "none"
     st.markdown(
         f"""
         <style>
           .st-key-{sent_key} div[data-testid="stButton"] button,
           .st-key-{sent_key} button {{
+            background: {sent_bg} !important;
+            border-color: {sent_border} !important;
+            box-shadow: {sent_shadow} !important;
             color: #15803d !important;
-            font-size: 1.35rem !important;
-            font-weight: 800 !important;
+            font-size: 2rem !important;
+            font-weight: 900 !important;
+            line-height: 1 !important;
+            min-height: 2.9rem !important;
             opacity: {sent_opacity};
+            text-shadow: 0.025em 0 currentColor, -0.025em 0 currentColor;
           }}
           .st-key-{decline_key} div[data-testid="stButton"] button,
           .st-key-{decline_key} button {{
+            background: {decline_bg} !important;
+            border-color: {decline_border} !important;
+            box-shadow: {decline_shadow} !important;
             color: #b91c1c !important;
-            font-size: 1.35rem !important;
-            font-weight: 800 !important;
+            font-size: 2rem !important;
+            font-weight: 900 !important;
+            line-height: 1 !important;
+            min-height: 2.9rem !important;
             opacity: {decline_opacity};
+            text-shadow: 0.025em 0 currentColor, -0.025em 0 currentColor;
           }}
         </style>
         """,
@@ -3300,7 +3320,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
-        if row_cols[8].button("✓", key=sent_key, use_container_width=True, help="Mark as sent"):
+        if row_cols[8].button("✔", key=sent_key, use_container_width=True, help="Mark as sent"):
             client_name = row.get("Client Name", "")
             now = datetime.utcnow()
             warning_message = get_recent_reminder_warning(client_name, now=now)
@@ -3316,7 +3336,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} marked sent.")
             st.rerun()
 
-        if row_cols[9].button("×", key=decline_key, use_container_width=True, help="Decline reminder"):
+        if row_cols[9].button("✖", key=decline_key, use_container_width=True, help="Decline reminder"):
             if hidden_action == REMINDER_ACTION_SENT:
                 remove_wa_reminder_click_for_row(row)
             rec = upsert_hidden_reminder(row, REMINDER_ACTION_DECLINED, now=datetime.utcnow())
