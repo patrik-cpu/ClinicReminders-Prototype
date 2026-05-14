@@ -3232,6 +3232,32 @@ def build_whatsapp_message_for_row(row) -> str:
     return message
 
 
+def render_reminder_action_button_styles(sent_key: str, decline_key: str, hidden_action: str):
+    sent_opacity = "0.35" if hidden_action == REMINDER_ACTION_DECLINED else "1"
+    decline_opacity = "0.35" if hidden_action == REMINDER_ACTION_SENT else "1"
+    st.markdown(
+        f"""
+        <style>
+          .st-key-{sent_key} div[data-testid="stButton"] button,
+          .st-key-{sent_key} button {{
+            color: #15803d !important;
+            font-size: 1.35rem !important;
+            font-weight: 800 !important;
+            opacity: {sent_opacity};
+          }}
+          .st-key-{decline_key} div[data-testid="stButton"] button,
+          .st-key-{decline_key} button {{
+            color: #b91c1c !important;
+            font-size: 1.35rem !important;
+            font-weight: 800 !important;
+            opacity: {decline_opacity};
+          }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_table_with_buttons(df, key_prefix, msg_key):
     col_widths = [2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
     headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Sent", "Decline"]
@@ -3248,6 +3274,9 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         vals = {h: str(row.get(h, "")) for h in headers[:-3]}
         hidden_record = get_hidden_reminder_record(row)
         hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
+        sent_key = f"{key_prefix}_sent_{idx}"
+        decline_key = f"{key_prefix}_decline_{idx}"
+        render_reminder_action_button_styles(sent_key, decline_key, hidden_action)
 
         row_cols = st.columns(col_widths, gap="small")
 
@@ -3271,10 +3300,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
             st.markdown(f"**Preview:** {st.session_state[msg_key]}")
 
-        sent_label = "✅ Sent" if hidden_action == REMINDER_ACTION_SENT else "☑ Sent"
-        decline_label = "❌ Decline" if hidden_action == REMINDER_ACTION_DECLINED else "✕ Decline"
-
-        if row_cols[8].button(sent_label, key=f"{key_prefix}_sent_{idx}", use_container_width=True):
+        if row_cols[8].button("✓", key=sent_key, use_container_width=True, help="Mark as sent"):
             client_name = row.get("Client Name", "")
             now = datetime.utcnow()
             warning_message = get_recent_reminder_warning(client_name, now=now)
@@ -3290,7 +3316,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} marked sent.")
             st.rerun()
 
-        if row_cols[9].button(decline_label, key=f"{key_prefix}_decline_{idx}", use_container_width=True):
+        if row_cols[9].button("×", key=decline_key, use_container_width=True, help="Decline reminder"):
             if hidden_action == REMINDER_ACTION_SENT:
                 remove_wa_reminder_click_for_row(row)
             rec = upsert_hidden_reminder(row, REMINDER_ACTION_DECLINED, now=datetime.utcnow())
