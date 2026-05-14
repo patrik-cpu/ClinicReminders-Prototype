@@ -112,6 +112,15 @@ def reset_uploaded_data_state(clear_cache: bool = True):
     if clear_cache:
         st.cache_data.clear()
 
+def has_unpublished_local_upload(working_df, shared_dataset_loaded: bool, current_files) -> bool:
+    """Return True only when the current uploader selection backs local data."""
+    return (
+        working_df is not None
+        and not getattr(working_df, "empty", True)
+        and bool(current_files)
+        and not shared_dataset_loaded
+    )
+
 def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Drop duplicate columns after normalizing header text.
@@ -475,9 +484,9 @@ if st.session_state.get("logged_in", False):
     # Sidebar "table of contents" — simplified navigation
     sidebar_nav_slot.markdown(
         f"""
-        <div style="font-size:15px; line-height:1.5; margin-bottom:1.1rem;">
+        <div class="sidebar-clinic-block">
           <div style="font-weight:700; margin-bottom:0.15rem;">Clinic</div>
-          <div style="color:rgba(255,255,255,0.82); word-break:break-word;">{clinic_label}</div>
+          <div class="sidebar-clinic-name">{clinic_label}</div>
         </div>
         <div style="font-size:15px; line-height:1.85;">
           <a href="#getting-started" style="text-decoration:none; display:block; font-weight:700; margin-bottom:0.75rem;">🚀 Getting Started</a>
@@ -502,11 +511,118 @@ if st.session_state.get("logged_in", False):
 st.markdown(
     '''
     <style>
+    :root {
+        --cr-app-bg: #f6f8fb;
+        --cr-surface: #ffffff;
+        --cr-surface-muted: #eef3f8;
+        --cr-sidebar-bg: #edf2f7;
+        --cr-sidebar-account-bg: #e5ebf2;
+        --cr-text: #172033;
+        --cr-muted: #5f6b7a;
+        --cr-border: #d8e0ea;
+        --cr-link: #2563eb;
+        --cr-link-hover: #1d4ed8;
+        --cr-chip-bg: rgba(23, 32, 51, 0.06);
+        --cr-step-bg: #ffffff;
+        --cr-step-complete-bg: #e8f7f1;
+        --cr-step-complete-border: #7bdcb5;
+        --cr-step-current-bg: #eaf2ff;
+        --cr-step-current-border: #8bb8ff;
+        --cr-step-optional-bg: #fff7df;
+        --cr-step-optional-border: #f4c95d;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --cr-app-bg: #0e1117;
+            --cr-surface: #161b22;
+            --cr-surface-muted: rgba(255,255,255,0.035);
+            --cr-sidebar-bg: #262730;
+            --cr-sidebar-account-bg: #262730;
+            --cr-text: #f8fafc;
+            --cr-muted: rgba(255,255,255,0.72);
+            --cr-border: rgba(255,255,255,0.12);
+            --cr-link: #60a5fa;
+            --cr-link-hover: #93c5fd;
+            --cr-chip-bg: rgba(255,255,255,0.10);
+            --cr-step-bg: rgba(255,255,255,0.035);
+            --cr-step-complete-bg: rgba(16, 185, 129, 0.10);
+            --cr-step-complete-border: rgba(52, 211, 153, 0.45);
+            --cr-step-current-bg: rgba(59, 130, 246, 0.12);
+            --cr-step-current-border: rgba(59, 130, 246, 0.55);
+            --cr-step-optional-bg: rgba(245, 158, 11, 0.08);
+            --cr-step-optional-border: rgba(245, 158, 11, 0.35);
+        }
+    }
+    [data-theme="light"], [data-baseweb-theme="light"] {
+        --cr-app-bg: #f6f8fb;
+        --cr-surface: #ffffff;
+        --cr-surface-muted: #eef3f8;
+        --cr-sidebar-bg: #edf2f7;
+        --cr-sidebar-account-bg: #e5ebf2;
+        --cr-text: #172033;
+        --cr-muted: #5f6b7a;
+        --cr-border: #d8e0ea;
+        --cr-link: #2563eb;
+        --cr-link-hover: #1d4ed8;
+        --cr-chip-bg: rgba(23, 32, 51, 0.06);
+        --cr-step-bg: #ffffff;
+        --cr-step-complete-bg: #e8f7f1;
+        --cr-step-complete-border: #7bdcb5;
+        --cr-step-current-bg: #eaf2ff;
+        --cr-step-current-border: #8bb8ff;
+        --cr-step-optional-bg: #fff7df;
+        --cr-step-optional-border: #f4c95d;
+    }
+    [data-theme="dark"], [data-baseweb-theme="dark"] {
+        --cr-app-bg: #0e1117;
+        --cr-surface: #161b22;
+        --cr-surface-muted: rgba(255,255,255,0.035);
+        --cr-sidebar-bg: #262730;
+        --cr-sidebar-account-bg: #262730;
+        --cr-text: #f8fafc;
+        --cr-muted: rgba(255,255,255,0.72);
+        --cr-border: rgba(255,255,255,0.12);
+        --cr-link: #60a5fa;
+        --cr-link-hover: #93c5fd;
+        --cr-chip-bg: rgba(255,255,255,0.10);
+        --cr-step-bg: rgba(255,255,255,0.035);
+        --cr-step-complete-bg: rgba(16, 185, 129, 0.10);
+        --cr-step-complete-border: rgba(52, 211, 153, 0.45);
+        --cr-step-current-bg: rgba(59, 130, 246, 0.12);
+        --cr-step-current-border: rgba(59, 130, 246, 0.55);
+        --cr-step-optional-bg: rgba(245, 158, 11, 0.08);
+        --cr-step-optional-border: rgba(245, 158, 11, 0.35);
+    }
+    .stApp, [data-testid="stAppViewContainer"] {
+        background: var(--cr-app-bg) !important;
+        color: var(--cr-text);
+    }
+    section[data-testid="stSidebar"] {
+        background: var(--cr-sidebar-bg) !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+        background: var(--cr-sidebar-bg) !important;
+    }
     .block-container h1, .block-container h2, .block-container h3 { margin-top: 0.2rem; }
     div[data-testid="stButton"] { min-height: 0px !important; height: auto !important; }
     .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; }
     h2[id] { scroll-margin-top: 80px; }
     .anchor-offset { position: relative; top: -100px; height: 0; }
+    .sidebar-clinic-block {
+        font-size: 15px;
+        line-height: 1.5;
+        margin-bottom: 1.1rem;
+    }
+    .sidebar-clinic-name {
+        color: var(--cr-muted);
+        word-break: break-word;
+    }
+    section[data-testid="stSidebar"] a {
+        color: var(--cr-link) !important;
+    }
+    section[data-testid="stSidebar"] a:hover {
+        color: var(--cr-link-hover) !important;
+    }
     section[data-testid="stSidebar"] div[data-testid="stButton"] {
         width: 100% !important;
     }
@@ -523,7 +639,7 @@ st.markdown(
         width: 100% !important;
     }
     section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
-        color: #60a5fa;
+        color: var(--cr-link);
         border: 0 !important;
         background: transparent !important;
     }
@@ -537,7 +653,8 @@ st.markdown(
         text-align: left !important;
     }
     .st-key-sidebar_account_actions {
-        background: rgb(38, 39, 48);
+        background: var(--cr-sidebar-account-bg);
+        border-top: 1px solid var(--cr-border);
         bottom: 1rem;
         left: 1rem;
         max-height: 70vh;
@@ -566,18 +683,18 @@ st.markdown(
         text-align: center !important;
     }
     .setup-panel {
-        border: 1px solid rgba(255,255,255,0.12);
+        border: 1px solid var(--cr-border);
         border-radius: 8px;
         padding: 1rem;
         margin: 0.75rem 0 1.25rem;
-        background: rgba(255,255,255,0.03);
+        background: var(--cr-surface);
     }
     .setup-panel h3 {
         margin: 0 0 0.25rem !important;
     }
     .setup-panel p {
         margin: 0 0 0.85rem;
-        color: rgba(255,255,255,0.68);
+        color: var(--cr-muted);
     }
     .setup-grid {
         display: grid;
@@ -585,26 +702,26 @@ st.markdown(
         gap: 0.75rem;
     }
     .setup-step {
-        border: 1px solid rgba(255,255,255,0.12);
+        border: 1px solid var(--cr-border);
         border-radius: 8px;
         padding: 0.8rem;
         min-height: 150px;
         display: flex;
         flex-direction: column;
         gap: 0.45rem;
-        background: rgba(255,255,255,0.035);
+        background: var(--cr-step-bg);
     }
     .setup-step.complete {
-        border-color: rgba(52, 211, 153, 0.45);
-        background: rgba(16, 185, 129, 0.10);
+        border-color: var(--cr-step-complete-border);
+        background: var(--cr-step-complete-bg);
     }
     .setup-step.current {
-        border-color: rgba(59, 130, 246, 0.55);
-        background: rgba(59, 130, 246, 0.12);
+        border-color: var(--cr-step-current-border);
+        background: var(--cr-step-current-bg);
     }
     .setup-step.optional {
-        border-color: rgba(245, 158, 11, 0.35);
-        background: rgba(245, 158, 11, 0.08);
+        border-color: var(--cr-step-optional-border);
+        background: var(--cr-step-optional-bg);
     }
     .setup-status {
         width: fit-content;
@@ -612,20 +729,21 @@ st.markdown(
         padding: 0.1rem 0.45rem;
         font-size: 0.78rem;
         font-weight: 700;
-        background: rgba(255,255,255,0.10);
+        background: var(--cr-chip-bg);
+        color: var(--cr-text);
     }
     .setup-title {
         font-weight: 700;
         font-size: 1rem;
     }
     .setup-copy {
-        color: rgba(255,255,255,0.70);
+        color: var(--cr-muted);
         font-size: 0.92rem;
         line-height: 1.35;
         flex: 1;
     }
     .setup-step a {
-        color: #60a5fa;
+        color: var(--cr-link);
         font-weight: 700;
         text-decoration: none;
     }
@@ -636,17 +754,17 @@ st.markdown(
         .setup-grid { grid-template-columns: 1fr; }
     }
     .template-helper {
-        border: 1px solid rgba(255,255,255,0.12);
+        border: 1px solid var(--cr-border);
         border-radius: 8px;
         padding: 1rem;
         margin: 0.75rem 0;
-        background: rgba(255,255,255,0.035);
+        background: var(--cr-surface);
     }
     .template-helper h4 {
         margin: 0 0 0.35rem !important;
     }
     .template-helper p {
-        color: rgba(255,255,255,0.72);
+        color: var(--cr-muted);
         margin: 0 0 0.65rem;
     }
     .placeholder-grid {
@@ -655,16 +773,16 @@ st.markdown(
         gap: 0.5rem;
     }
     .placeholder-chip {
-        border: 1px solid rgba(96,165,250,0.35);
+        border: 1px solid var(--cr-step-current-border);
         border-radius: 8px;
         padding: 0.55rem;
-        background: rgba(59,130,246,0.10);
+        background: var(--cr-step-current-bg);
         font-size: 0.9rem;
     }
     .placeholder-chip code {
         display: block;
         margin-bottom: 0.25rem;
-        color: #bfdbfe;
+        color: var(--cr-link);
         font-weight: 700;
     }
     </style>
@@ -2688,12 +2806,6 @@ st.markdown("## 📂 Data")
 render_dataset_status()
 render_dataset_date_range()
 st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
-if (
-    st.session_state.get("working_df") is not None
-    and not getattr(st.session_state.get("working_df"), "empty", True)
-    and not st.session_state.get("shared_dataset_loaded")
-):
-    st.warning("Uploaded locally only. Click Publish to share this dataset with everyone using this clinic login.")
 
 datasets = []
 summary_rows = []
@@ -2735,6 +2847,9 @@ if set(current_files) != set(st.session_state["last_uploaded_files"]):
 
     # optional but recommended
     load_shared_dataset_for_clinic()
+
+    if not current_files:
+        st.rerun()
 
 
 # --------------------------------
@@ -2805,6 +2920,13 @@ if files:
         except Exception as e:
             st.warning(f"⚠️ PMS mismatch or undetected files. Reminders cannot be generated. ({e})")
             st.session_state.pop("working_df", None)
+
+    if has_unpublished_local_upload(
+        st.session_state.get("working_df"),
+        st.session_state.get("shared_dataset_loaded"),
+        current_files,
+    ):
+        st.warning("Uploaded locally only. Click Publish to share this dataset with everyone using this clinic login.")
 
     # ============================
     # ✅ Publish dataset for clinic
@@ -3919,7 +4041,7 @@ if st.session_state["factoids_unlocked"]:
             # Chart 1: Revenue & Transactions (bars only — current + ghost)
             # ---------------------------
             st.markdown(
-                "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💰 Revenue & Transactions</h4>",
+                "<h4 style='font-size:17px;font-weight:700;color:var(--cr-muted);margin-top:1rem;margin-bottom:0.4rem;'>💰 Revenue & Transactions</h4>",
                 unsafe_allow_html=True
             )
             
@@ -4001,7 +4123,7 @@ if st.session_state["factoids_unlocked"]:
             # Chart 2: Clients & Patients (bars only — current + ghost)
             # ---------------------------
             st.markdown(
-                "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>👥 Clients & Patients</h4>",
+                "<h4 style='font-size:17px;font-weight:700;color:var(--cr-muted);margin-top:1rem;margin-bottom:0.4rem;'>👥 Clients & Patients</h4>",
                 unsafe_allow_html=True
             )
             
@@ -4084,7 +4206,7 @@ if st.session_state["factoids_unlocked"]:
         # Chart 3: 💵 Revenue Breakdown by Month
         # ============================
         st.markdown(
-            "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>💵 Revenue Breakdown by Month</h4>",
+            "<h4 style='font-size:17px;font-weight:700;color:var(--cr-muted);margin-top:1rem;margin-bottom:0.4rem;'>💵 Revenue Breakdown by Month</h4>",
             unsafe_allow_html=True
         )
 
@@ -4179,7 +4301,7 @@ if st.session_state["factoids_unlocked"]:
         # Chart 4: ⭐ Patient Breakdown %'s
         # ============================
         st.markdown(
-            "<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
+            "<h4 style='font-size:17px;font-weight:700;color:var(--cr-muted);margin-top:1rem;margin-bottom:0.4rem;'>⭐ Patient Breakdown %'s</h4>",
             unsafe_allow_html=True
         )
 
@@ -4592,10 +4714,10 @@ if st.session_state["factoids_unlocked"]:
             # Card Renderer
             # -------------------------
             CARD_STYLE = """<div style='background-color:{bg};
-                border:1px solid #94a3b8;padding:16px;border-radius:10px;text-align:center;
+                border:1px solid var(--cr-border);padding:16px;border-radius:8px;text-align:center;
                 margin-bottom:12px;min-height:120px;display:flex;flex-direction:column;justify-content:center;'>
-                <div style='font-size:13px;color:#334155;font-weight:600;'>{label}</div>
-                <div style='font-size:{fs}px;font-weight:700;color:#0f172a;margin-top:6px;'>{val}</div></div>"""
+                <div style='font-size:13px;color:var(--cr-muted);font-weight:600;'>{label}</div>
+                <div style='font-size:{fs}px;font-weight:700;color:var(--cr-text);margin-top:6px;'>{val}</div></div>"""
         
             def _fs(v: str) -> int:
                 return 16 if len(v) > 25 else (20 if len(v) > 18 else 22)
@@ -4605,13 +4727,13 @@ if st.session_state["factoids_unlocked"]:
                 if not show:
                     return
                 st.markdown(
-                    f"<h4 style='font-size:17px;font-weight:700;color:#475569;margin-top:1rem;margin-bottom:0.4rem;'>{title} – {period_label}</h4>",
+                    f"<h4 style='font-size:17px;font-weight:700;color:var(--cr-muted);margin-top:1rem;margin-bottom:0.4rem;'>{title} – {period_label}</h4>",
                     unsafe_allow_html=True
                 )
                 cols = st.columns(5)
                 for i, k in enumerate(show):
                     v  = metrics[k]
-                    fs = _fs(v); bg = "#f1f5f9"
+                    fs = _fs(v); bg = "var(--cr-surface)"
                     cols[i % 5].markdown(CARD_STYLE.format(bg=bg, label=k, val=v, fs=fs), unsafe_allow_html=True)
                     if (i+1) % 5 == 0 and (i+1) < len(show):
                         cols = st.columns(5)
