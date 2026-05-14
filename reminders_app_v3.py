@@ -661,10 +661,13 @@ st.markdown(
         display: none !important;
     }
     .dataset-range {
-        color: var(--cr-link);
+        background: #dbeafe;
+        border-radius: 6px;
+        color: #0757b8;
         font-size: 0.98rem;
-        font-weight: 700;
+        font-weight: 600;
         margin: 0.35rem 0 0.85rem;
+        padding: 0.85rem 1rem;
     }
     .setup-panel {
         border: 1px solid var(--cr-border);
