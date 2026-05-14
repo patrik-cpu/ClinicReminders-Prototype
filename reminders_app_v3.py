@@ -660,6 +660,12 @@ st.markdown(
     div[data-testid="InputInstructions"] {
         display: none !important;
     }
+    .dataset-range {
+        color: var(--cr-link);
+        font-size: 0.98rem;
+        font-weight: 700;
+        margin: 0.35rem 0 0.85rem;
+    }
     .setup-panel {
         border: 1px solid var(--cr-border);
         border-radius: 8px;
@@ -2356,11 +2362,9 @@ else:
 
 # === What data is uploaded
 def render_dataset_status():
-    if st.session_state.get("shared_dataset_loaded"):
-        st.info(f"📌 Using shared clinic dataset: {st.session_state.get('shared_dataset_name','(unknown)')}")
-    elif st.session_state.get("shared_dataset_error"):
+    if st.session_state.get("shared_dataset_error"):
         st.warning(f"⚠️ Could not load clinic data: {st.session_state['shared_dataset_error']}")
-    else:
+    elif not st.session_state.get("shared_dataset_loaded"):
         st.caption("No clinic data saved yet — upload a file to start.")
 
 def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
@@ -2388,9 +2392,12 @@ def render_dataset_date_range():
 
     dmin, dmax = get_dataset_date_range(df_w)
     if dmin is not None and dmax is not None:
-        st.caption(f"Dataset range: {dmin:%d %b %Y} → {dmax:%d %b %Y}")
+        st.markdown(
+            f"<div class='dataset-range'>Date Range: {dmin:%d %b %Y} → {dmax:%d %b %Y}</div>",
+            unsafe_allow_html=True,
+        )
     else:
-        st.caption("Dataset range: (dates not detected)")
+        st.markdown("<div class='dataset-range'>Date Range: dates not detected</div>", unsafe_allow_html=True)
 
 def render_setup_checklist():
     df_w = st.session_state.get("working_df")
