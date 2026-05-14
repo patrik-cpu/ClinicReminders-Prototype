@@ -53,7 +53,7 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders")
+    st.title("ClinicReminders 6.0")
     st.caption("Daily reminders first. Uploads, setup, Factoids, and feedback are still available when you need them.")
 st.markdown("---")
 
