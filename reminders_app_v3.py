@@ -3232,32 +3232,44 @@ def build_whatsapp_message_for_row(row) -> str:
     return message
 
 
-def render_reminder_action_button_styles(sent_key: str, decline_key: str, hidden_action: str):
+def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key: str, hidden_action: str):
     sent_is_selected = hidden_action == REMINDER_ACTION_SENT
     decline_is_selected = hidden_action == REMINDER_ACTION_DECLINED
-    sent_opacity = "0.18" if decline_is_selected else "1"
-    decline_opacity = "0.18" if sent_is_selected else "1"
+    sent_opacity = "0.12" if decline_is_selected else "1"
+    decline_opacity = "0.12" if sent_is_selected else "1"
     sent_bg = "#dcfce7" if sent_is_selected else "#ffffff"
     decline_bg = "#fee2e2" if decline_is_selected else "#ffffff"
     sent_border = "#15803d" if sent_is_selected else "#d1d5db"
     decline_border = "#b91c1c" if decline_is_selected else "#d1d5db"
-    sent_shadow = "0 0 0 2px rgba(21, 128, 61, 0.18)" if sent_is_selected else "none"
-    decline_shadow = "0 0 0 2px rgba(185, 28, 28, 0.18)" if decline_is_selected else "none"
+    sent_shadow = "0 0 0 3px rgba(21, 128, 61, 0.22)" if sent_is_selected else "none"
+    decline_shadow = "0 0 0 3px rgba(185, 28, 28, 0.22)" if decline_is_selected else "none"
     st.markdown(
         f"""
         <style>
+          .st-key-{wa_key} button {{
+            min-height: 3.8rem !important;
+          }}
+          .st-key-{wa_key} button p {{
+            font-size: 1rem !important;
+            line-height: 1 !important;
+          }}
           .st-key-{sent_key} div[data-testid="stButton"] button,
           .st-key-{sent_key} button {{
             background: {sent_bg} !important;
             border-color: {sent_border} !important;
             box-shadow: {sent_shadow} !important;
             color: #15803d !important;
-            font-size: 2rem !important;
+            line-height: 1 !important;
+            min-height: 3.8rem !important;
+            opacity: {sent_opacity};
+          }}
+          .st-key-{sent_key} button p {{
+            color: #15803d !important;
+            font-size: 3.2rem !important;
             font-weight: 900 !important;
             line-height: 1 !important;
-            min-height: 2.9rem !important;
             opacity: {sent_opacity};
-            text-shadow: 0.025em 0 currentColor, -0.025em 0 currentColor;
+            text-shadow: 0.035em 0 currentColor, -0.035em 0 currentColor;
           }}
           .st-key-{decline_key} div[data-testid="stButton"] button,
           .st-key-{decline_key} button {{
@@ -3265,12 +3277,17 @@ def render_reminder_action_button_styles(sent_key: str, decline_key: str, hidden
             border-color: {decline_border} !important;
             box-shadow: {decline_shadow} !important;
             color: #b91c1c !important;
-            font-size: 2rem !important;
+            line-height: 1 !important;
+            min-height: 3.8rem !important;
+            opacity: {decline_opacity};
+          }}
+          .st-key-{decline_key} button p {{
+            color: #b91c1c !important;
+            font-size: 3.2rem !important;
             font-weight: 900 !important;
             line-height: 1 !important;
-            min-height: 2.9rem !important;
             opacity: {decline_opacity};
-            text-shadow: 0.025em 0 currentColor, -0.025em 0 currentColor;
+            text-shadow: 0.035em 0 currentColor, -0.035em 0 currentColor;
           }}
         </style>
         """,
@@ -3294,9 +3311,10 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         vals = {h: str(row.get(h, "")) for h in headers[:-3]}
         hidden_record = get_hidden_reminder_record(row)
         hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
+        wa_key = f"{key_prefix}_wa_{idx}"
         sent_key = f"{key_prefix}_sent_{idx}"
         decline_key = f"{key_prefix}_decline_{idx}"
-        render_reminder_action_button_styles(sent_key, decline_key, hidden_action)
+        render_reminder_action_button_styles(wa_key, sent_key, decline_key, hidden_action)
 
         row_cols = st.columns(col_widths, gap="small")
 
@@ -3308,7 +3326,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             row_cols[j].markdown(val)
 
         # --- WA button (aligned to its column, full-width) ---
-        if row_cols[7].button("WA", key=f"{key_prefix}_wa_{idx}", use_container_width=True):
+        if row_cols[7].button("WA", key=wa_key, use_container_width=True):
             client_name = row.get("Client Name", "")
             now = datetime.utcnow()
             warning_message = get_recent_reminder_warning(client_name, now=now)
