@@ -112,15 +112,6 @@ def reset_uploaded_data_state(clear_cache: bool = True):
     if clear_cache:
         st.cache_data.clear()
 
-def has_unpublished_local_upload(working_df, shared_dataset_loaded: bool, current_files) -> bool:
-    """Return True only when the current uploader selection backs local data."""
-    return (
-        working_df is not None
-        and not getattr(working_df, "empty", True)
-        and bool(current_files)
-        and not shared_dataset_loaded
-    )
-
 def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Drop duplicate columns after normalizing header text.
@@ -1168,17 +1159,73 @@ def load_existing_shared_df(file_id: str, filename: str) -> pd.DataFrame | None:
 
     return df_existing
 
+def dataset_date_bounds(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    if df is None or getattr(df, "empty", True) or "ChargeDate" not in df.columns:
+        return None, None
+
+    dates = pd.to_datetime(df["ChargeDate"], errors="coerce").dt.normalize()
+    dmin = dates.min()
+    dmax = dates.max()
+    if pd.isna(dmin) or pd.isna(dmax):
+        return None, None
+    return dmin, dmax
+
+def format_date_bound(d: pd.Timestamp | None) -> str:
+    return d.strftime("%d %b %Y") if d is not None and pd.notna(d) else "-"
+
+def date_ranges_overlap(
+    first_min: pd.Timestamp | None,
+    first_max: pd.Timestamp | None,
+    second_min: pd.Timestamp | None,
+    second_max: pd.Timestamp | None,
+) -> bool:
+    if any(d is None or pd.isna(d) for d in [first_min, first_max, second_min, second_max]):
+        return False
+    return first_min <= second_max and second_min <= first_max
+
+def merge_dataset_update(
+    existing_df: pd.DataFrame | None,
+    new_df: pd.DataFrame,
+    replace_overlapping_dates: bool = False,
+) -> pd.DataFrame:
+    if existing_df is None or getattr(existing_df, "empty", True):
+        return new_df
+
+    existing = existing_df.copy()
+    new = new_df.copy()
+
+    if replace_overlapping_dates:
+        new_min, new_max = dataset_date_bounds(new)
+        if new_min is not None and new_max is not None and "ChargeDate" in existing.columns:
+            existing_dates = pd.to_datetime(existing["ChargeDate"], errors="coerce").dt.normalize()
+            keep_existing = existing_dates.isna() | (existing_dates < new_min) | (existing_dates > new_max)
+            existing = existing.loc[keep_existing].copy()
+
+    merged = pd.concat([existing, new], ignore_index=True, sort=False)
+    if "ChargeDate" in merged.columns:
+        merged["_sort_charge_date"] = pd.to_datetime(merged["ChargeDate"], errors="coerce")
+        merged = (
+            merged.sort_values("_sort_charge_date", kind="mergesort")
+            .drop(columns=["_sort_charge_date"])
+            .reset_index(drop=True)
+        )
+    return merged
+
 
 def publish_dataset_for_clinic(
     clinic_id: str,
     new_df: pd.DataFrame,
     datasets_folder_id: str,
+    replace_overlapping_dates: bool = False,
+    existing_file_id: str | None = None,
+    existing_name: str | None = None,
+    existing_df: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, str, str]:
     """
-    Publish upload for the whole clinic:
+    Save an upload for the whole clinic:
       1) fetch existing dataset pointer from settings sheet
       2) load existing shared dataset from Drive (if any)
-      3) merge + dedupe (uses your existing merge_dedupe)
+      3) append new dates, or replace the uploaded date range when confirmed
       4) upload merged CSV to Drive (new file each publish)
       5) update dataset pointer columns in settings sheet
 
@@ -1186,22 +1233,24 @@ def publish_dataset_for_clinic(
       (merged_df, new_file_id, out_name)
     """
     # 1) Get current pointer (if any)
-    existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+    if existing_file_id is None or existing_name is None:
+        existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
 
     # 2) Load existing dataset if present
-    existing_df = None
-    try:
-        existing_df = load_existing_shared_df(existing_file_id, existing_name)
-    except Exception as e:
-        # show signal but still allow publish
-        st.warning(f"Could not load existing shared dataset; publishing upload as new. ({e})")
-        existing_df = None
+    if existing_df is None:
+        try:
+            existing_df = load_existing_shared_df(existing_file_id, existing_name)
+        except Exception as e:
+            # show signal but still allow publish
+            st.warning(f"Could not load existing shared dataset; saving upload as new. ({e})")
+            existing_df = None
 
-    # 3) Merge + de-dupe
-    if existing_df is not None and not existing_df.empty:
-        merged_df = merge_dedupe(existing_df, new_df)
-    else:
-        merged_df = new_df
+    # 3) Merge according to the clinic update rule
+    merged_df = merge_dataset_update(
+        existing_df=existing_df,
+        new_df=new_df,
+        replace_overlapping_dates=replace_overlapping_dates,
+    )
 
     # 4) Upload merged dataset to Drive
     out_name  = f"{clinic_id}_shared_dataset.csv"
@@ -2005,6 +2054,15 @@ def _to_blob(uploaded):
     b = uploaded.getvalue()
     return {"name": uploaded.name, "bytes": b}
 
+def upload_fingerprint(file_blobs) -> str:
+    h = hashlib.sha256()
+    for fb in file_blobs:
+        h.update(str(fb["name"]).encode("utf-8"))
+        h.update(b"\0")
+        h.update(fb["bytes"])
+        h.update(b"\0")
+    return h.hexdigest()
+
 @st.cache_data(show_spinner=False)
 def summarize_uploads(file_blobs):
     datasets, summary_rows = [], []
@@ -2300,7 +2358,7 @@ def render_dataset_status():
     elif st.session_state.get("shared_dataset_error"):
         st.warning(f"⚠️ Could not load shared dataset: {st.session_state['shared_dataset_error']}")
     else:
-        st.caption("No shared dataset published yet — upload a file to start. Remember to 'Publish' data!")
+        st.caption("No shared dataset saved yet — upload a file to start.")
 
 def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
     if df is None or df.empty:
@@ -2327,9 +2385,9 @@ def render_dataset_date_range():
 
     dmin, dmax = get_dataset_date_range(df_w)
     if dmin is not None and dmax is not None:
-        st.caption(f"Dataset range: {dmin:%d %b %Y} → {dmax:%d %b %Y} - remember to 'Publish' data!")
+        st.caption(f"Dataset range: {dmin:%d %b %Y} → {dmax:%d %b %Y}")
     else:
-        st.caption("Dataset range: (dates not detected) - remember to 'Publish' data!")
+        st.caption("Dataset range: (dates not detected)")
 
 def render_setup_checklist():
     df_w = st.session_state.get("working_df")
@@ -2373,9 +2431,9 @@ def render_setup_checklist():
             </div>
             <div class="setup-step {publish_class}">
               <div class="setup-status">{publish_status}</div>
-              <div class="setup-title">2. Publish it</div>
-              <div class="setup-copy">Publishing makes the dataset available to everyone using this clinic login.</div>
-              <a href="#data-upload">Publish clinic dataset</a>
+              <div class="setup-title">2. Save clinic dataset</div>
+              <div class="setup-copy">Valid uploads are saved automatically. Overlapping dates ask for confirmation first.</div>
+              <a href="#data-upload">Open data upload</a>
             </div>
             <div class="setup-step {search_class}">
               <div class="setup-status">{search_status}</div>
@@ -2790,6 +2848,8 @@ st.markdown("## 📂 Data")
 render_dataset_status()
 render_dataset_date_range()
 st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
+if st.session_state.get("dataset_save_notice"):
+    st.success(st.session_state.pop("dataset_save_notice"))
 
 datasets = []
 summary_rows = []
@@ -2810,7 +2870,7 @@ files = st.file_uploader(
     type=["csv", "xls", "xlsx"],
     accept_multiple_files=True,
     key="file_uploader_main",
-    help="Upload one or more PMS export files. Other clinic users will not see this upload until you publish it."
+    help="Upload one or more PMS export files. Valid uploads are saved for everyone using this clinic login."
 )
 
 # --------------------------------
@@ -2841,134 +2901,145 @@ if set(current_files) != set(st.session_state["last_uploaded_files"]):
 # --------------------------------
 if files:
     file_blobs = tuple(_to_blob(f) for f in files)
-    # ✅ Use cached dataset loader (faster after first run)
-    try:
-        datasets, summary_rows = load_persistent_dataset(file_blobs)
-    except UploadValidationError as e:
-        st.toast("Upload needs different columns.")
-        st.warning(
-            "This upload does not look like a supported sales export. "
-            + str(e)
-            + " Please upload a file with client, patient, item, amount/quantity, and date columns."
-        )
-        st.stop()
-    except Exception:
-        st.toast("Upload could not be read.")
-        st.warning(
-            "This file could not be read as a supported clinic sales export. "
-            "Please check that it is a CSV, XLS, or XLSX export with client, patient, item, amount/quantity, and date columns."
-        )
-        st.stop()
+    current_upload_key = upload_fingerprint(file_blobs)
 
-    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
-
-    all_pms = {p for p, _ in datasets}
-    rules_dict = st.session_state.get("rules", {})
-    rules_fp = hashlib.md5(json.dumps(rules_dict, sort_keys=True).encode()).hexdigest()
-
-    # --- Case 1: All files from same PMS ---
-    if len(all_pms) == 1 and "Undetected" not in all_pms:
-        working_df = pd.concat([df for _, df in datasets], ignore_index=True)
-        st.session_state["working_df"] = sanitize_working_df(working_df)
-
-        # ✅ Immediately rebuild Factoids bundle after new upload
-        df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
-            st.session_state["working_df"], rules_fp
-        )
-        st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
-        st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
-
-        st.success(f"All files detected as {list(all_pms)[0]} — merging datasets.")
-
-    # --- Case 2: Mixed PMS or undetected but schema-compatible ---
+    if st.session_state.get("last_saved_upload_key") == current_upload_key:
+        st.info("This upload has already been saved for this clinic.")
     else:
+        # ✅ Use cached dataset loader (faster after first run)
         try:
-            cand = pd.concat([df for _, df in datasets], ignore_index=True, sort=False)
-            required_cols = ["ChargeDate", "Client Name", "Animal Name", "Item Name", "Qty", "Amount"]
-
-            if all(c in cand.columns for c in required_cols):
-                working_df = cand
-                st.session_state["working_df"] = sanitize_working_df(working_df)
-
-                # ✅ Rebuild Factoids bundle even if PMS undetected
-                df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
-                    st.session_state["working_df"], rules_fp
-                )
-                st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
-                st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
-
-                st.success("Files merged into canonical schema.")
-            else:
-                st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
-
-        except Exception as e:
-            st.warning(f"⚠️ PMS mismatch or undetected files. Reminders cannot be generated. ({e})")
-            st.session_state.pop("working_df", None)
-
-    if has_unpublished_local_upload(
-        st.session_state.get("working_df"),
-        st.session_state.get("shared_dataset_loaded"),
-        current_files,
-    ):
-        st.warning("Uploaded locally only. Click Publish to share this dataset with everyone using this clinic login.")
-
-    # ============================
-    # ✅ Publish dataset for clinic
-    # ============================
-
-    # Optional debug button (instead of calling on every rerun)
-    # if st.button("Test Drive folder access (debug)"):
-    #    drive_check_folder_access(DATASETS_FOLDER_ID)
-
-    if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
-        df_preview = st.session_state["working_df"]
-        min_d = pd.to_datetime(df_preview.get("ChargeDate"), errors="coerce").min()
-        max_d = pd.to_datetime(df_preview.get("ChargeDate"), errors="coerce").max()
-        st.caption(
-            f"Current upload date range: "
-            f"{min_d.strftime('%d %b %Y') if pd.notna(min_d) else '-'} → "
-            f"{max_d.strftime('%d %b %Y') if pd.notna(max_d) else '-'}"
-        )
-
-        st.markdown("### ✅ Publish dataset for the whole clinic")
-        st.info(
-            "This will update your shared clinic dataset.\n\n"
-            "If a shared dataset already exists, the app will merge and de-duplicate overlapping rows."
-        )
-
-        if st.button(
-            "📌 Publish this upload to clinic",
-            help="Make this processed upload the shared dataset for everyone using this clinic login."
-        ):
-            clinic_id = st.session_state.get("clinic_id")
-            if not clinic_id:
-                st.error("Not logged in.")
-                st.stop()
-
-            new_df = st.session_state["working_df"].copy()
-            new_df = new_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
-            new_df = ensure_min_canonical_schema(new_df)
-            
-            merged_df, new_file_id, out_name = publish_dataset_for_clinic(
-                clinic_id=clinic_id,
-                new_df=new_df,
-                datasets_folder_id=DATASETS_FOLDER_ID,
+            datasets, summary_rows = load_persistent_dataset(file_blobs)
+        except UploadValidationError as e:
+            st.toast("Upload needs different columns.")
+            st.warning(
+                "This upload does not look like a supported sales export. "
+                + str(e)
+                + " Please upload a file with client, patient, item, amount/quantity, and date columns."
             )
+            st.stop()
+        except Exception:
+            st.toast("Upload could not be read.")
+            st.warning(
+                "This file could not be read as a supported clinic sales export. "
+                "Please check that it is a CSV, XLS, or XLSX export with client, patient, item, amount/quantity, and date columns."
+            )
+            st.stop()
 
-            st.session_state["working_df"] = sanitize_working_df(merged_df)
-            st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-            st.session_state["shared_dataset_loaded"] = True
-            st.session_state["shared_dataset_name"] = out_name
+        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
-            # rebuild bundle immediately for this session
+        all_pms = {p for p, _ in datasets}
+        rules_dict = st.session_state.get("rules", {})
+        rules_fp = hashlib.md5(json.dumps(rules_dict, sort_keys=True).encode()).hexdigest()
+
+        # --- Case 1: All files from same PMS ---
+        if len(all_pms) == 1 and "Undetected" not in all_pms:
+            working_df = pd.concat([df for _, df in datasets], ignore_index=True)
+            st.session_state["working_df"] = sanitize_working_df(working_df)
+            st.success(f"All files detected as {list(all_pms)[0]} — ready to save.")
+
+        # --- Case 2: Mixed PMS or undetected but schema-compatible ---
+        else:
+            try:
+                cand = pd.concat([df for _, df in datasets], ignore_index=True, sort=False)
+                required_cols = ["ChargeDate", "Client Name", "Animal Name", "Item Name", "Qty", "Amount"]
+
+                if all(c in cand.columns for c in required_cols):
+                    working_df = cand
+                    st.session_state["working_df"] = sanitize_working_df(working_df)
+                    st.success("Files merged into canonical schema — ready to save.")
+                else:
+                    st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
+
+            except Exception as e:
+                st.warning(f"⚠️ PMS mismatch or undetected files. Reminders cannot be generated. ({e})")
+                st.session_state.pop("working_df", None)
+
+        if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
             df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
                 st.session_state["working_df"], rules_fp
             )
             st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
             st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
 
-            st.success("✅ Published! All clinic users will now load this dataset automatically.")
-            st.rerun()
+            new_df = st.session_state["working_df"].copy()
+            new_df = new_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
+            new_df = ensure_min_canonical_schema(new_df)
+            upload_min, upload_max = dataset_date_bounds(new_df)
+            st.caption(
+                f"Current upload date range: "
+                f"{format_date_bound(upload_min)} → {format_date_bound(upload_max)}"
+            )
+
+            clinic_id = st.session_state.get("clinic_id")
+            if not clinic_id:
+                st.error("Not logged in.")
+                st.stop()
+
+            existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+            existing_df = None
+            if existing_file_id:
+                try:
+                    existing_df = load_existing_shared_df(existing_file_id, existing_name)
+                except Exception as e:
+                    st.error(
+                        "Could not load the existing clinic dataset, so this upload was not saved. "
+                        f"Please try again before replacing clinic data. ({e})"
+                    )
+                    st.stop()
+
+            existing_min, existing_max = dataset_date_bounds(existing_df)
+            overlaps_existing = date_ranges_overlap(upload_min, upload_max, existing_min, existing_max)
+
+            def save_uploaded_dataset(replace_overlapping_dates: bool):
+                merged_df, new_file_id, out_name = publish_dataset_for_clinic(
+                    clinic_id=clinic_id,
+                    new_df=new_df,
+                    datasets_folder_id=DATASETS_FOLDER_ID,
+                    replace_overlapping_dates=replace_overlapping_dates,
+                    existing_file_id=existing_file_id,
+                    existing_name=existing_name,
+                    existing_df=existing_df,
+                )
+
+                st.session_state["working_df"] = sanitize_working_df(merged_df)
+                st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
+                st.session_state["shared_dataset_loaded"] = True
+                st.session_state["shared_dataset_name"] = out_name
+                st.session_state["last_saved_upload_key"] = current_upload_key
+                st.session_state["dataset_save_notice"] = (
+                    "✅ Dataset saved for this clinic. Other users with this login will load it automatically."
+                )
+                st.session_state.pop("pending_overlap_upload_key", None)
+
+                df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
+                    st.session_state["working_df"], rules_fp
+                )
+                st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
+                st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
+
+                st.rerun()
+
+            if overlaps_existing:
+                overlap_min = max(upload_min, existing_min)
+                overlap_max = min(upload_max, existing_max)
+                st.session_state["pending_overlap_upload_key"] = current_upload_key
+                st.warning(
+                    "This upload overlaps existing clinic data "
+                    f"from {format_date_bound(overlap_min)} to {format_date_bound(overlap_max)}. "
+                    "Replace existing rows in the uploaded date range and save?"
+                )
+                c_confirm, c_cancel = st.columns([1, 3])
+                if c_confirm.button(
+                    "Replace and save",
+                    key=f"confirm_overlap_{current_upload_key[:12]}",
+                    help="Remove existing clinic rows in this upload's date range, then save the uploaded rows.",
+                ):
+                    save_uploaded_dataset(replace_overlapping_dates=True)
+                if c_cancel.button("Cancel upload", key=f"cancel_overlap_{current_upload_key[:12]}"):
+                    st.session_state.pop("pending_overlap_upload_key", None)
+                    st.info("Upload not saved.")
+            else:
+                save_uploaded_dataset(replace_overlapping_dates=False)
 
 # -------------------------------------
 # Reset Clinic Dataset
