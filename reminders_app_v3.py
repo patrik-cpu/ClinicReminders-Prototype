@@ -1298,20 +1298,43 @@ def merge_wa_reminder_logs(*logs):
         key=lambda entry: _parse_reminder_log_time(entry.get("RemindedAt", "")) or datetime.min,
     )[-1000:]
 
+HIDDEN_REMINDER_KEY_FIELDS = ("Client Name", "Animal Name", "Plan Item", "Due Date")
+
+
+def hidden_reminder_key(row) -> tuple[str, ...]:
+    return tuple(
+        _SPACE_RX.sub(" ", str(row.get(field, "") or "").strip()).lower()
+        for field in HIDDEN_REMINDER_KEY_FIELDS
+    )
+
+
 def merge_deleted_reminders(*logs):
     merged = {}
-    key_fields = ("Client Name", "Animal Name", "Plan Item", "Due Date")
     for log in logs:
         if not isinstance(log, list):
             continue
         for entry in log:
             if not isinstance(entry, dict):
                 continue
-            key = tuple(str(entry.get(field, "")).strip().lower() for field in key_fields)
+            key = hidden_reminder_key(entry)
             if not any(key):
                 continue
             merged[key] = dict(entry)
     return list(merged.values())[-1000:]
+
+
+def filter_hidden_reminders(reminders_df: pd.DataFrame) -> pd.DataFrame:
+    deleted = st.session_state.get("deleted_reminders", [])
+    if reminders_df.empty or not deleted:
+        return reminders_df
+
+    deleted_keys = {hidden_reminder_key(d) for d in deleted if isinstance(d, dict)}
+    if not deleted_keys:
+        return reminders_df
+
+    keep_mask = reminders_df.apply(lambda row: hidden_reminder_key(row) not in deleted_keys, axis=1)
+    return reminders_df.loc[keep_mask].copy()
+
 
 def get_recent_reminder_warning(client_name: str, now: datetime | None = None) -> str | None:
     warning_days = int(st.session_state.get("reminder_warning_days", 0) or 0)
@@ -3309,18 +3332,7 @@ if st.session_state.get("working_df") is not None:
 
     if not due2.empty:
         grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=st.session_state.get("rules", {}))
-
-        # Filter out deleted reminders
-        deleted = st.session_state.get("deleted_reminders", [])
-        if deleted:
-            deleted_keys = {
-                tuple(str(d.get(field, "")) for field in ("Client Name", "Animal Name", "Plan Item", "Due Date"))
-                for d in deleted
-            }
-            grouped_keys = pd.MultiIndex.from_frame(
-                grouped[["Client Name", "Animal Name", "Plan Item", "Due Date"]].astype(str)
-            )
-            grouped = grouped[~grouped_keys.isin(deleted_keys)]
+        grouped = filter_hidden_reminders(grouped)
 
         render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
     else:
@@ -3377,6 +3389,7 @@ if st.session_state.get("working_df") is not None:
                 .rename(columns={"DueDateFmt": "Due Date"})
             )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
 
+            grouped_search = filter_hidden_reminders(grouped_search)
             render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
         else:
             st.info("No matches found.")
