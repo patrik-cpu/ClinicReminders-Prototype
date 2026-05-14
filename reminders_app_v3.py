@@ -71,10 +71,12 @@ USER_TRACKER_WORKSHEET = "User tracker"
 WA_TRACKER_HEADERS = [
     "DateTimeGST",
     "ClinicID",
+    "YourNameClinic",
     "ClientName",
     "AnimalNames",
     "Items",
     "DueDate",
+    "ChargeDate",
     "MessageCreated",
     "Source",
 ]
@@ -1343,10 +1345,12 @@ def record_wa_button_tracker(row, message: str, source: str, now: datetime | Non
         [
             gst_now_iso(now),
             str(st.session_state.get("clinic_id", "")).strip(),
+            str(st.session_state.get("user_name", "")).strip(),
             normalize_display_case(row.get("Client Name", "")),
             normalize_display_case(row.get("Animal Name", "")),
             normalize_display_case(row.get("Plan Item", "")),
             str(row.get("Due Date", "")).strip(),
+            str(row.get("Charge Date", "")).strip(),
             str(message or "").strip(),
             source,
         ],
@@ -2938,7 +2942,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             "Your name / clinic (appears in WhatsApp messages):",
             value=prev_name,
             key=f"user_name_input_{key_prefix}",
-            placeholder="e.g. Mary from Bob's Test Vet Clinic",
+            placeholder="e.g. Mary from Neighbourhood Veterinary Clinic",
             help="Saved for the clinic and used in the [Your Name] placeholder."
         )
         
