@@ -54,7 +54,7 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 title_col, tut_col = st.columns([4,1])
 with title_col:
     st.title("ClinicReminders 6.0")
-    st.caption("Daily reminders first. Uploads, setup, Factoids, and feedback are still available when you need them.")
+    st.caption("Turn clinic sales data into clear follow-up reminders, then prepare WhatsApp messages in a few clicks.")
 st.markdown("---")
 
 # === Drive folder where canonical datasets live ===
@@ -1915,7 +1915,7 @@ def render_setup_checklist():
             <div class="setup-step {upload_class}">
               <div class="setup-status">{upload_status}</div>
               <div class="setup-title">1. Upload data</div>
-              <div class="setup-copy">Upload a CSV, XLS, or XLSX sales plan export from your clinic system.</div>
+              <div class="setup-copy">Upload a CSV, XLS, or XLSX sales plan export. One year of data is ideal so yearly reminders can be found reliably.</div>
               <a href="#data-upload">Go to Data</a>
             </div>
             <div class="setup-step {publish_class}">
