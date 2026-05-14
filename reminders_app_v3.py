@@ -467,6 +467,23 @@ st.markdown(
     .st-key-sidebar_account_actions {
         margin-top: 0.25rem;
     }
+    .sidebar-account-actions {
+        font-size: 15px;
+        line-height: 1.85;
+        margin-top: 0.25rem;
+        text-align: left;
+    }
+    .sidebar-account-actions a {
+        color: rgba(255,255,255,0.92);
+        display: block;
+        padding: 0.05rem 0;
+        text-align: left;
+        text-decoration: none;
+    }
+    .sidebar-account-actions a:hover {
+        color: #60a5fa;
+        text-decoration: none;
+    }
     section[data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] button {
         justify-content: center !important;
         text-align: center !important;
@@ -1735,6 +1752,19 @@ if (
         load_shared_dataset_for_clinic()
         rerun_app()
 
+sidebar_action = st.query_params.get("sidebar_action")
+if isinstance(sidebar_action, list):
+    sidebar_action = sidebar_action[0] if sidebar_action else None
+if sidebar_action:
+    st.query_params.pop("sidebar_action", None)
+    if sidebar_action == "account_settings" and st.session_state.get("logged_in", False):
+        st.session_state["show_account_settings"] = not st.session_state.get("show_account_settings", False)
+    elif sidebar_action == "logout" and st.session_state.get("logged_in", False):
+        for key in ["logged_in", "clinic_id"]:
+            st.session_state.pop(key, None)
+        st.success("You have been logged out.")
+        rerun_app()
+
 if not st.session_state["logged_in"]:
     with sidebar_account_slot:
         st.markdown("### 🔑 Clinic Login")
@@ -1774,8 +1804,15 @@ else:
         if "show_account_settings" not in st.session_state:
             st.session_state["show_account_settings"] = False
         with st.container(key="sidebar_account_actions"):
-            if st.button("⚙️ Account Settings", key="toggle_account_settings", use_container_width=True):
-                st.session_state["show_account_settings"] = not st.session_state["show_account_settings"]
+            st.markdown(
+                """
+                <div class="sidebar-account-actions">
+                  <a href="?sidebar_action=account_settings" target="_self">⚙️ Account Settings</a>
+                  <a href="?sidebar_action=logout" target="_self">Logout</a>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
             if st.session_state["show_account_settings"]:
                 st.caption("Change the password for this clinic login.")
@@ -1797,12 +1834,6 @@ else:
                     else:
                         update_clinic_password(clinic_id, new_password)
                         st.success("Password updated.")
-
-            if st.button("Logout", key="sidebar_logout", use_container_width=True):
-                for key in ["logged_in", "clinic_id"]:
-                    st.session_state.pop(key, None)
-                st.success("You have been logged out.")
-                st.rerun()
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:
