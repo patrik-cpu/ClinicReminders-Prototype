@@ -1457,7 +1457,7 @@ def normalize_columns(cols):
 def detect_pms(df: pd.DataFrame) -> str:
     normalized_cols = set(normalize_columns(df.columns))
     v_keys = {"plan item amount"}
-    v_date_keys = {"planitem performed", "plan item performed"}
+    v_date_keys = {"planitem performed", "plan item performed", "datetime"}
     if v_keys.issubset(normalized_cols) and len(v_date_keys.intersection(normalized_cols)) > 0:
         return "VETport"
     x_keys = {"date", "animal name", "amount", "item name"}
@@ -1505,7 +1505,66 @@ def parse_dates(series: pd.Series) -> pd.Series:
             return parsed.dt.normalize()
     parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
     return parsed.dt.normalize()
-    
+
+
+class UploadValidationError(ValueError):
+    pass
+
+
+REQUIRED_UPLOAD_COLUMNS = ["ChargeDate", "Client Name", "Animal Name", "Item Name"]
+DATE_COLUMN_CANDIDATES = [
+    "ChargeDate", "DateTime", "Date Time", "Date", "Invoice Date",
+    "Planitem Performed", "PlanItem Performed", "Plan Item Performed",
+    "planitem performed",
+]
+VETPORT_ALIAS_COLUMNS = {
+    "DateTime": "Planitem Performed",
+    "Date Time": "Planitem Performed",
+    "Patient Name": "Patient Name",
+    "Animal Name": "Patient Name",
+    "Item Name": "Plan Item Name",
+    "Plan Item Name": "Plan Item Name",
+    "Item Qty": "Plan Item Quantity",
+    "Qty": "Plan Item Quantity",
+    "Quantity": "Plan Item Quantity",
+    "Plan Item Quantity": "Plan Item Quantity",
+    "Item ID": "Plan Item ID",
+    "Plan Item ID": "Plan Item ID",
+}
+
+
+def find_column_ci(columns, candidates):
+    normalized = {str(c).strip().lower(): c for c in columns}
+    for candidate in candidates:
+        match = normalized.get(str(candidate).strip().lower())
+        if match is not None:
+            return match
+    return None
+
+
+def apply_vetport_alias_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    for source, target in VETPORT_ALIAS_COLUMNS.items():
+        source_col = find_column_ci(df.columns, [source])
+        target_col = find_column_ci(df.columns, [target])
+        if source_col is not None and target_col is None:
+            df[target] = df[source_col]
+    return df
+
+
+def validate_upload_dataframe(df: pd.DataFrame, filename: str):
+    missing = [col for col in REQUIRED_UPLOAD_COLUMNS if col not in df.columns]
+    if missing:
+        raise UploadValidationError(
+            f"{filename} is missing required column(s): {', '.join(missing)}."
+        )
+    if "ChargeDate" not in df.columns or pd.to_datetime(df["ChargeDate"], errors="coerce").notna().sum() == 0:
+        raise UploadValidationError(
+            f"{filename} needs a readable date column such as DateTime, Date, Invoice Date, or Planitem Performed."
+        )
+    if df.empty:
+        raise UploadValidationError(f"{filename} does not contain any usable rows.")
+
 # --------------------------------
 # File processing (decoupled from rules)
 # --------------------------------
@@ -1557,6 +1616,7 @@ def process_file(file_bytes, filename):
 
     # --- 5️⃣ Vetport: FORCE PatrikEdit format BEFORE proceeding further ---
     if pms_name == "VETport":
+        df = apply_vetport_alias_columns(df)
         df = normalize_vetport_to_patrikedit(df)
 
 
@@ -1622,10 +1682,9 @@ def process_file(file_bytes, filename):
 
     # --- 🔟 Ensure ChargeDate exists and is parsed correctly ---
     if "ChargeDate" not in df.columns:
-        for cand in ["Planitem Performed", "PlanItem Performed", "planitem performed"]:
-            if cand in df.columns:
-                df["ChargeDate"] = df[cand]
-                break
+        date_fallback = find_column_ci(df.columns, DATE_COLUMN_CANDIDATES)
+        if date_fallback:
+            df["ChargeDate"] = df[date_fallback]
     
     # Keep raw date strings for debugging
     if "ChargeDate" in df.columns:
@@ -1634,6 +1693,7 @@ def process_file(file_bytes, filename):
         df["ChargeDate"] = pd.NaT
 
     # --- 11️⃣ Add lowercase helper columns for search and reminders ---
+    validate_upload_dataframe(df, filename)
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
     df["_item_lower"] = df["Item Name"].astype(str).str.lower()
@@ -1816,8 +1876,10 @@ def summarize_uploads(file_blobs):
     for fb in file_blobs:
         df, pms_name, amount_col = process_file(fb["bytes"], fb["name"])
         pms_name = pms_name or "Undetected"
-        from_date = pd.to_datetime(df.get("ChargeDate")).min()
-        to_date   = pd.to_datetime(df.get("ChargeDate")).max()
+        validate_upload_dataframe(df, fb["name"])
+        charge_dates = pd.to_datetime(df["ChargeDate"], errors="coerce")
+        from_date = charge_dates.min()
+        to_date = charge_dates.max()
         summary_rows.append({
             "File name": fb["name"],
             "PMS": pms_name,
@@ -2648,7 +2710,23 @@ if set(current_files) != set(st.session_state["last_uploaded_files"]):
 if files:
     file_blobs = tuple(_to_blob(f) for f in files)
     # ✅ Use cached dataset loader (faster after first run)
-    datasets, summary_rows = load_persistent_dataset(file_blobs)
+    try:
+        datasets, summary_rows = load_persistent_dataset(file_blobs)
+    except UploadValidationError as e:
+        st.toast("Upload needs different columns.")
+        st.warning(
+            "This upload does not look like a supported sales export. "
+            + str(e)
+            + " Please upload a file with client, patient, item, amount/quantity, and date columns."
+        )
+        st.stop()
+    except Exception:
+        st.toast("Upload could not be read.")
+        st.warning(
+            "This file could not be read as a supported clinic sales export. "
+            "Please check that it is a CSV, XLS, or XLSX export with client, patient, item, amount/quantity, and date columns."
+        )
+        st.stop()
 
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
