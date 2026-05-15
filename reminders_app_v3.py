@@ -809,7 +809,7 @@ st.markdown(
         border-radius: 6px;
         color: #126b3d;
         margin: 0.35rem 0 0.85rem;
-        padding: 0.85rem 1rem;
+        padding: 0.85rem 1rem 1.15rem;
     }
     .dataset-summary-title {
         color: #0f5130;
@@ -861,10 +861,11 @@ st.markdown(
         border: 0 !important;
         box-shadow: none !important;
         color: #e11d48 !important;
-        font-size: 1.15rem !important;
+        font-size: 1.45rem !important;
         font-weight: 800 !important;
-        min-height: 1.6rem !important;
-        padding: 0 !important;
+        line-height: 1 !important;
+        min-height: 1.9rem !important;
+        padding: 0.05rem 0.25rem !important;
     }
     .dataset-check-grid {
         display: grid;
@@ -1631,15 +1632,44 @@ def max_missing_days_between_uploads(rows: list[dict]) -> int:
             current_end = end
     return max(0, max_gap)
 
+def date_ranges_cover_window(
+    rows: list[dict],
+    required_start: pd.Timestamp,
+    required_end: pd.Timestamp,
+) -> bool:
+    ranges = []
+    for row in rows:
+        start = parse_history_date(row.get("from"))
+        end = parse_history_date(row.get("to"))
+        if start is None or end is None:
+            continue
+        ranges.append((start, end))
+    if not ranges:
+        return False
+
+    ranges.sort(key=lambda item: item[0])
+    covered_until = required_start - pd.Timedelta(days=1)
+    for start, end in ranges:
+        if end < required_start:
+            continue
+        if start > covered_until + pd.Timedelta(days=1):
+            return False
+        if end > covered_until:
+            covered_until = end
+        if covered_until >= required_end:
+            return True
+    return False
+
 def dataset_summary_checks(rows: list[dict]) -> list[dict]:
     normalized_rows = normalize_dataset_upload_history(rows)
     pms_values = [str(row.get("pms", "")).strip() for row in normalized_rows if str(row.get("pms", "")).strip()]
     unsupported_pms = {"", "-", "unknown", "undetected", "csv"}
     supported_pms = bool(pms_values) and all(pms.lower() not in unsupported_pms for pms in pms_values)
     same_pms = len({pms.lower() for pms in pms_values}) <= 1
-    min_date, max_date = dataset_history_date_bounds(normalized_rows)
     today = pd.Timestamp(date.today())
-    covers_last_year = bool(min_date is not None and max_date is not None and min_date <= today - pd.Timedelta(days=365) and max_date >= today - pd.Timedelta(days=1))
+    impact_start = today - pd.Timedelta(days=365)
+    impact_end = today - pd.Timedelta(days=30)
+    has_impact_window = date_ranges_cover_window(normalized_rows, impact_start, impact_end)
     max_gap = max_missing_days_between_uploads(normalized_rows)
     no_large_gaps = max_gap < 3
     return [
@@ -1648,8 +1678,12 @@ def dataset_summary_checks(rows: list[dict]) -> list[dict]:
             "text": "Same supported PMS" if supported_pms and same_pms else "CSV PMS types need attention",
         },
         {
-            "good": covers_last_year,
-            "text": "At least 365 days back from today" if covers_last_year else "Less than 365 days back from today",
+            "good": has_impact_window,
+            "text": (
+                "Most impactful (previous 30-365) days present"
+                if has_impact_window
+                else "Most impactful (previous 30-365) days not present"
+            ),
         },
         {
             "good": no_large_gaps,
