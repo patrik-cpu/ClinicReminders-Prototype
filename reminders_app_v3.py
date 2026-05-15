@@ -1350,7 +1350,7 @@ def load_settings():
         st.session_state["user_name"] = settings.get("user_name", "")
         st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
         st.session_state["client_group_days"] = max(0, int(settings.get("client_group_days", 1) or 0))
-        st.session_state["reminder_window_days"] = int(settings.get("reminder_window_days", 7) or 7)
+        st.session_state["reminder_window_days"] = max(0, int(settings.get("reminder_window_days", 0) or 0))
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
         st.session_state["wa_reminder_log"] = settings.get("wa_reminder_log", [])
         st.session_state["deleted_reminders"] = settings.get("deleted_reminders", [])
@@ -1367,7 +1367,7 @@ def load_settings():
         st.session_state["user_name"] = ""
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
         st.session_state["client_group_days"] = 1
-        st.session_state["reminder_window_days"] = 7
+        st.session_state["reminder_window_days"] = 0
         st.session_state["reminder_warning_days"] = 0
         st.session_state["wa_reminder_log"] = []
         st.session_state["deleted_reminders"] = []
@@ -1428,7 +1428,7 @@ def save_settings():
         "user_name": setting_for_save("user_name", ""),
         "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
         "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
-        "reminder_window_days": max(1, int_setting_for_save("reminder_window_days", 7)),
+        "reminder_window_days": max(0, int_setting_for_save("reminder_window_days", 0)),
         "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", 0)),
         "wa_reminder_log": wa_reminder_log,
         "deleted_reminders": deleted_reminders,
@@ -2187,7 +2187,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "user_name": "",
         "user_template": DEFAULT_WA_TEMPLATE,
         "client_group_days": 1,
-        "reminder_window_days": 7,
+        "reminder_window_days": 0,
         "reminder_warning_days": 0,
         "wa_reminder_log": [],
         "deleted_reminders": [],
@@ -4325,12 +4325,12 @@ if st.session_state.get("working_df") is not None:
     with window_col:
         reminder_window_days = st.number_input(
             "Days to look ahead",
-            min_value=1,
-            value=st.session_state.get("reminder_window_days", 7),
+            min_value=0,
+            value=st.session_state.get("reminder_window_days", 0),
             step=1,
             key="reminder_window_days",
             on_change=save_settings,
-            help="How many days to include from the start date. Maximum 30."
+            help="0 = selected day only. 1 = selected day plus tomorrow. Maximum 30."
         )
     with group_col:
         group_days = st.number_input(
@@ -4364,7 +4364,7 @@ if st.session_state.get("working_df") is not None:
         st.warning("Max 30 days.")
         reminder_window_days = 30
 
-    end_date = start_date + timedelta(days=reminder_window_days - 1)
+    end_date = start_date + timedelta(days=reminder_window_days)
 
     reminder_ts = prepared.get("ReminderDateTs")
     if reminder_ts is None:
