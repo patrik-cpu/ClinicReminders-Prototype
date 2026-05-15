@@ -98,6 +98,7 @@ with title_col:
             display: grid;
             grid-template-columns: 146px 1fr;
             grid-template-rows: auto auto;
+            position: relative;
         }
         .cr-brand-pulse {
             grid-row: 1 / 3;
@@ -119,6 +120,17 @@ with title_col:
             align-self: start;
             font-size: 3.35rem;
             font-weight: 800;
+            position: relative;
+        }
+        .cr-brand-word.reminders::before {
+            background: #29D272;
+            border-radius: 999px;
+            content: "";
+            height: 7px;
+            left: 0;
+            position: absolute;
+            right: -1.6rem;
+            top: -0.36rem;
         }
         .cr-brand-subtitle {
             color: #5f6f67;
@@ -131,7 +143,7 @@ with title_col:
             <div class="cr-brand-logo" aria-label="Clinic Reminders">
                 <svg class="cr-brand-pulse" viewBox="0 0 210 150" role="img" aria-hidden="true">
                     <path
-                        d="M10 82 H68 L86 36 L105 122 L128 18 L142 138 L163 48 L182 92 L196 44"
+                        d="M10 82 H68 L86 36 L105 122 L128 18 L142 138 L163 48 L182 92 L196 44 H210"
                         fill="none"
                         stroke="#29D272"
                         stroke-width="9"
