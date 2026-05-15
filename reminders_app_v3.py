@@ -2121,38 +2121,32 @@ def get_query_param(name: str) -> str:
     return str(value or "")
 
 
-def render_remember_login_bridge(token_to_store: str = "", clear: bool = False):
-    components.html(
-        f"""
-        <script>
-          const KEY = "clinic_reminders_remember_login";
-          const tokenToStore = {json.dumps(token_to_store)};
-          const shouldClear = {json.dumps(bool(clear))};
-          const params = new URLSearchParams(window.parent.location.search);
-          if (shouldClear) {{
-            window.parent.localStorage.removeItem(KEY);
-            if (params.has("remember")) {{
-              params.delete("remember");
-              const query = params.toString();
-              window.parent.history.replaceState(null, "", window.parent.location.pathname + (query ? "?" + query : ""));
-            }}
-          }} else if (tokenToStore) {{
-            window.parent.localStorage.setItem(KEY, tokenToStore);
-            if (params.get("remember") !== tokenToStore) {{
-              params.set("remember", tokenToStore);
-              window.parent.history.replaceState(null, "", window.parent.location.pathname + "?" + params.toString());
-            }}
-          }} else if (!params.has("remember")) {{
-            const stored = window.parent.localStorage.getItem(KEY);
-            if (stored) {{
-              params.set("remember", stored);
-              window.parent.location.replace(window.parent.location.pathname + "?" + params.toString());
-            }}
-          }}
-        </script>
-        """,
-        height=0,
-    )
+def set_query_param(name: str, value: str):
+    try:
+        st.query_params[name] = value
+    except Exception:
+        params = st.experimental_get_query_params()
+        params[name] = [value]
+        st.experimental_set_query_params(**params)
+
+
+def clear_query_param(name: str):
+    try:
+        if name in st.query_params:
+            del st.query_params[name]
+    except Exception:
+        params = st.experimental_get_query_params()
+        params.pop(name, None)
+        st.experimental_set_query_params(**params)
+
+
+def set_remember_login_token(token: str):
+    if token:
+        set_query_param("remember", token)
+
+
+def clear_remember_login_token():
+    clear_query_param("remember")
 
 
 def default_settings_for_country(country: str = "") -> dict:
@@ -2424,11 +2418,8 @@ if remember_token and not st.session_state["logged_in"]:
             event="remembered_login",
         )
         rerun_app()
-
-if st.session_state.get("logged_in") and st.session_state.get("_remember_login_token"):
-    render_remember_login_bridge(st.session_state.pop("_remember_login_token"))
-elif not st.session_state.get("logged_in"):
-    render_remember_login_bridge()
+    else:
+        clear_remember_login_token()
 
 default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
 
@@ -2462,7 +2453,7 @@ if not st.session_state["logged_in"]:
             if user_row:
                 st.session_state["clinic_id"] = username
                 st.session_state["logged_in"] = True
-                st.session_state["_remember_login_token"] = create_remember_login_token(username, user_row)
+                set_remember_login_token(create_remember_login_token(username, user_row))
 
                 load_settings()
                 # ✅ Auto-load shared dataset from Drive into working_df
@@ -2504,7 +2495,7 @@ if not st.session_state["logged_in"]:
                         create_clinic_account(new_clinic, country, new_password)
                         st.session_state["clinic_id"] = new_clinic
                         st.session_state["logged_in"] = True
-                        st.session_state["_remember_login_token"] = create_remember_login_token(new_clinic)
+                        set_remember_login_token(create_remember_login_token(new_clinic))
                         load_settings()
                         st.session_state["user_country"] = country
                         st.success(f"✅ Account created. Welcome, {new_clinic}!")
@@ -2542,6 +2533,7 @@ else:
                         st.error("Current password is incorrect.")
                     else:
                         update_clinic_password(clinic_id, new_password)
+                        set_remember_login_token(create_remember_login_token(clinic_id))
                         upsert_user_tracker(
                             clinic_id,
                             country=st.session_state.get("user_country", ""),
@@ -2550,7 +2542,7 @@ else:
                         st.success("Password updated.")
 
             if st.button("Logout", key="sidebar_logout", use_container_width=True):
-                render_remember_login_bridge(clear=True)
+                clear_remember_login_token()
                 for key in ["logged_in", "clinic_id"]:
                     st.session_state.pop(key, None)
                 st.success("You have been logged out.")
