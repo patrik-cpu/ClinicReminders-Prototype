@@ -4027,7 +4027,7 @@ def render_actioned_reminders_tab(key_prefix: str):
         "Undo",
     ]
     labels = {**REMINDER_TABLE_HEADER_LABELS, "Actioned Date": "Actioned Date", "Actioned By": "Actioned By"}
-    col_widths = [2, 3, 2, 2, 2, 4, 3, 4, 1.5, 1.8]
+    col_widths = [2, 3, 2.3, 2, 2, 4, 3, 4, 1.5, 1.8]
     safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
     st.markdown(
         f"""
@@ -4103,7 +4103,7 @@ def render_actioned_reminders_tab(key_prefix: str):
 
 def render_table_with_buttons(df, key_prefix, msg_key):
     df = sort_reminder_table(df, key_prefix)
-    col_widths = [2, 2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
+    col_widths = [2.3, 2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
     headers = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WhatsApp", "Sent", "Decline"]
     safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
     st.markdown(
