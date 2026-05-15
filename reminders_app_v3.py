@@ -4426,19 +4426,7 @@ if st.session_state.get("working_df") is not None:
     with search_terms_tab:
         # Rules editor (unchanged UI; behavior preserved)
         st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
-        st.markdown("#### 📝 Search Terms")
-        st.info(
-            "### 🧩 How to Manage Search Terms\n\n"
-            "**1️⃣ View and edit all existing Search Terms** — each term represents a product or service that generates a reminder (e.g., *Rabies*, *Bravecto*, *Dental*).\n\n"
-            "**2️⃣ Set optional early reminder dates** — Reminder 1 and Reminder 2 are days after the billed date when reminders should appear.  \n"
-            "Example: Bravecto due at 90 days, with reminders at 80 and 85 days.\n\n"
-            "**3️⃣ Set Reminder 3 (Due Date)** — this is the exact due date shown in the WhatsApp message and used as the default reminder date when Reminder 1 and 2 are blank.\n\n"
-            "**4️⃣ Choose whether to use the ‘Qty’ column** — if checked, Reminder 3 (Due Date) multiplies by quantity.  \n"
-            "Example: *2× Bravecto* = due in 180 days.\n\n"
-            "**5️⃣ Edit the ‘Message Text’** — this is what appears inside the WhatsApp message instead of the raw product name.  \n"
-            "Example: *bravecto* → **Bravecto Tablet**, *rabies* → **Rabies Vaccine**.\n\n"
-            "**6️⃣ You can also delete outdated terms or add new ones at the bottom of the section.**"
-        )
+        st.markdown("## 📝 Search Terms")
     
         def column_header(label, help_text):
             safe_label = html_lib.escape(label)
@@ -4570,7 +4558,7 @@ if st.session_state.get("working_df") is not None:
             invalidate_reminder_rule_cache()
             st.rerun()
     
-        st.write("### Add New Search Term")
+        st.write("## Add New Search Term")
         st.info("💡 Add a new **Search Term** (e.g., Cardisure), set optional reminder dates, the due date, whether to use quantity, and optional message text.")
         row_id = st.session_state['new_rule_counter']
         c1, c2, c3, c4, c5, c6, c7 = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
@@ -4645,10 +4633,9 @@ if st.session_state.get("working_df") is not None:
         # Exclusions
         # --------------------------------
         st.markdown("<div id='exclusions' class='anchor-offset'></div>", unsafe_allow_html=True)
-        st.markdown("#### 🚫 Exclusions")
-        st.info("💡 Add clients or item terms here to automatically hide matching reminders.")
+        st.markdown("## 🚫 Exclusions")
     
-        st.markdown("##### Client Exclusions")
+        st.markdown("### Client Exclusions")
         st.caption("Exclude all reminders for an exact client name.")
         st.session_state.setdefault("client_exclusions", [])
         if st.session_state["client_exclusions"]:
@@ -4693,7 +4680,7 @@ if st.session_state.get("working_df") is not None:
                 else:
                     st.error("Enter a valid client name")
     
-        st.markdown("##### Item Exclusions")
+        st.markdown("### Item Exclusions")
         st.caption("Exclude reminders whose item text contains a term.")
         if st.session_state["exclusions"]:
             for term in sorted(st.session_state["exclusions"]):
