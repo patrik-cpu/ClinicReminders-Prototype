@@ -2632,7 +2632,7 @@ if (
 if not st.session_state["logged_in"]:
     login_col, _ = st.columns([0.36, 0.64])
     with login_col:
-        st.markdown("### 🔑 Clinic Login")
+        st.markdown("### Clinic Login")
         with st.form("clinic_login_form"):
             username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
             password = st.text_input("Password", type="password", value="")
@@ -2707,6 +2707,7 @@ else:
                 clear_remember_login_token()
                 for key in ["logged_in", "clinic_id"]:
                     st.session_state.pop(key, None)
+                st.session_state["show_create_account"] = False
                 st.success("You have been logged out.")
                 st.rerun()
 
