@@ -1565,6 +1565,7 @@ def get_hidden_reminder_record(row) -> dict | None:
 
 def upsert_hidden_reminder(row, action: str, message: str = "", now: datetime | None = None) -> dict:
     now = now or datetime.utcnow()
+    actioned_by = str(st.session_state.get("user_name", "") or "").strip()
     rec = {
         "Reminder Date": row.get("Reminder Date", ""),
         "Due Date": row.get("Due Date", ""),
@@ -1577,6 +1578,7 @@ def upsert_hidden_reminder(row, action: str, message: str = "", now: datetime | 
         "Action": action,
         "DeletedAt": now.isoformat(),
         "ActionedAt": now.isoformat(),
+        "Actioned By": actioned_by,
     }
     if message:
         rec["MessageCreated"] = str(message or "").strip()
@@ -1602,6 +1604,17 @@ def filter_hidden_reminders(reminders_df: pd.DataFrame) -> pd.DataFrame:
 
     keep_mask = reminders_df.apply(lambda row: hidden_reminder_key(row) not in deleted_keys, axis=1)
     return reminders_df.loc[keep_mask].copy()
+
+
+def remove_actioned_reminder(row) -> None:
+    target_key = hidden_reminder_key(row)
+    if not any(target_key):
+        return
+    st.session_state["deleted_reminders"] = [
+        entry for entry in st.session_state.get("deleted_reminders", [])
+        if not (isinstance(entry, dict) and hidden_reminder_key(entry) == target_key)
+    ]
+    st.session_state["_replace_deleted_reminders_once"] = True
 
 
 def get_recent_reminder_warning(client_name: str, now: datetime | None = None, sync_remote: bool = False) -> str | None:
@@ -3480,24 +3493,20 @@ def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
         st.info("All rows excluded by exclusion list.")
         return
-    num_deleted = len(st.session_state.get("deleted_reminders", []))
-    if num_deleted:
-        reveal_key = f"{key_prefix}_reveal_hidden_reminders"
-        reveal_hidden = st.checkbox(
-            "Reveal Hidden Reminders",
-            key=reveal_key,
-            help="Show reminders already marked as sent or declined so you can change their status.",
-        )
-        if not reveal_hidden:
-            df = filter_hidden_reminders(df)
-    else:
-        reveal_hidden = False
-    if df.empty:
-        st.info("All rows are hidden.")
-        return
+
     show_pending_recent_reminder_warning()
     show_pending_reminder_action_status()
-    render_table_with_buttons(df, key_prefix, msg_key)
+
+    active_tab, actioned_tab = st.tabs(["Active Reminders", "Actioned Reminders"])
+    with active_tab:
+        active_df = filter_hidden_reminders(df)
+        if active_df.empty:
+            st.info("All reminders have been actioned.")
+        else:
+            render_table_with_buttons(active_df, key_prefix, msg_key)
+
+    with actioned_tab:
+        render_actioned_reminders_tab(key_prefix)
 
 
 def build_whatsapp_message_for_row(row) -> str:
@@ -3613,6 +3622,18 @@ def decline_reminder_action(row_data: dict, key_prefix: str):
     save_settings()
     st.session_state["_pending_reminder_action_status"] = {
         "message": f"Reminder for {normalize_display_case(rec['Animal Name'])} declined.",
+    }
+
+
+def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
+    hidden_record = get_hidden_reminder_record(row_data) or row_data
+    hidden_action = str(hidden_record.get("Action", "")).strip().lower()
+    if hidden_action == REMINDER_ACTION_SENT:
+        remove_wa_reminder_click_for_row(row_data)
+    remove_actioned_reminder(row_data)
+    save_settings()
+    st.session_state["_pending_reminder_action_status"] = {
+        "message": f"Reminder for {normalize_display_case(row_data.get('Animal Name', ''))} returned to Active Reminders.",
     }
 
 
@@ -3766,6 +3787,132 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
         """,
         unsafe_allow_html=True,
     )
+
+
+def get_actioned_reminder_datetime(row) -> datetime | None:
+    if not isinstance(row, dict):
+        return None
+    return _parse_reminder_log_time(row.get("ActionedAt", "") or row.get("DeletedAt", ""))
+
+
+def format_actioned_reminder_date(row) -> str:
+    actioned_at = get_actioned_reminder_datetime(row)
+    if not actioned_at:
+        return ""
+    return actioned_at.strftime("%d %b %Y")
+
+
+def actioned_reminder_period_start(period: str, now: datetime | None = None) -> datetime | None:
+    now = now or datetime.utcnow()
+    today_start = datetime.combine(now.date(), datetime.min.time())
+    if period == "Daily":
+        return today_start
+    if period == "Weekly":
+        return today_start - timedelta(days=6)
+    if period == "Monthly":
+        return today_start - timedelta(days=29)
+    return None
+
+
+def get_actioned_reminders_for_period(period: str) -> list[dict]:
+    period_start = actioned_reminder_period_start(period)
+    rows = []
+    for entry in st.session_state.get("deleted_reminders", []):
+        if not isinstance(entry, dict):
+            continue
+        action = str(entry.get("Action", "")).strip().lower()
+        if action not in {REMINDER_ACTION_SENT, REMINDER_ACTION_DECLINED}:
+            continue
+        actioned_at = get_actioned_reminder_datetime(entry)
+        if period_start and (not actioned_at or actioned_at < period_start):
+            continue
+        rows.append(dict(entry))
+    return sorted(
+        rows,
+        key=lambda row: get_actioned_reminder_datetime(row) or datetime.min,
+        reverse=True,
+    )
+
+
+def render_actioned_reminders_tab(key_prefix: str):
+    options = ["Daily", "Weekly", "Monthly", "All"]
+    filter_key = f"{key_prefix}_actioned_period"
+    current = st.session_state.get(filter_key, "Daily")
+    if current not in options:
+        current = "Daily"
+
+    if hasattr(st, "segmented_control"):
+        selected_period = st.segmented_control(
+            "Actioned reminder period",
+            options,
+            selection_mode="single",
+            default=current,
+            key=filter_key,
+            label_visibility="collapsed",
+        )
+    else:
+        selected_period = st.radio(
+            "Actioned reminder period",
+            options,
+            index=options.index(current),
+            horizontal=True,
+            key=filter_key,
+            label_visibility="collapsed",
+        )
+    selected_period = selected_period or "Daily"
+
+    rows = get_actioned_reminders_for_period(selected_period)
+    if not rows:
+        st.info(f"No actioned reminders for {selected_period.lower()}.")
+        return
+
+    headers = [
+        "Reminder Date",
+        "Due Date",
+        "Charge Date",
+        "Client Name",
+        "Animal Name",
+        "Plan Item",
+        "Actioned Date",
+        "Action",
+        "Actioned By",
+        "Remove",
+    ]
+    labels = {**REMINDER_TABLE_HEADER_LABELS, "Actioned Date": "Actioned Date", "Actioned By": "Actioned By"}
+    col_widths = [2, 2, 2, 4, 3, 4, 2, 1.5, 3, 1.8]
+
+    header_cols = st.columns(col_widths)
+    for col, head in zip(header_cols, headers):
+        align = "center" if head == "Remove" else "left"
+        col.markdown(
+            f"<div style='text-align:{align}; font-weight:600;'>{labels.get(head, head)}</div>",
+            unsafe_allow_html=True,
+        )
+
+    for idx, row_data in enumerate(rows):
+        row_cols = st.columns(col_widths, gap="small")
+        for col_idx, head in enumerate(headers[:-1]):
+            if head == "Actioned Date":
+                value = format_actioned_reminder_date(row_data)
+            elif head == "Action":
+                action = str(row_data.get("Action", "")).strip().lower()
+                value = "Declined" if action == REMINDER_ACTION_DECLINED else "Sent"
+            elif head == "Actioned By":
+                value = str(row_data.get("Actioned By", "") or "").strip()
+            else:
+                value = str(row_data.get(head, "") or "")
+                if head in ["Client Name", "Animal Name", "Plan Item"]:
+                    value = normalize_display_case(value)
+            row_cols[col_idx].markdown(value)
+
+        row_cols[-1].button(
+            "Remove",
+            key=f"{key_prefix}_actioned_remove_{idx}",
+            use_container_width=True,
+            help="Return this reminder to Active Reminders",
+            on_click=remove_actioned_reminder_action,
+            args=(row_data, key_prefix),
+        )
 
 
 def render_table_with_buttons(df, key_prefix, msg_key):
