@@ -1467,6 +1467,16 @@ def merge_wa_reminder_logs(*logs):
 HIDDEN_REMINDER_KEY_FIELDS = ("Client Name", "Animal Name", "Plan Item", "Due Date")
 REMINDER_ACTION_SENT = "sent"
 REMINDER_ACTION_DECLINED = "declined"
+WHATSAPP_ICON_MASK_DATA_URI = (
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E"
+    "%3Cpath d='M9 57l4.2-15.2A24.2 24.2 0 0 1 10 29.8C10 16.7 20.7 6 33.8 6"
+    "S57.5 16.7 57.5 29.8 46.9 53.5 33.8 53.5c-4 0-7.9-1-11.3-2.9L9 57z"
+    "M24.6 18.3c-.6-1.4-1.1-1.4-1.7-1.4h-1.4c-.5 0-1.3.2-2 1-.7.8-2.6 2.6-2.6 6.2"
+    "s2.7 7.2 3.1 7.7c.4.5 5.2 8.3 12.9 11.3 6.4 2.5 7.7 2 9.1 1.9 1.4-.1 4.5-1.8 5.1-3.6"
+    ".6-1.8.6-3.3.4-3.6-.2-.3-.7-.5-1.5-.9l-5.4-2.7c-.8-.4-1.4-.6-2 .4-.6.9-2.3 2.7-2.8 3.3"
+    "-.5.6-1 .7-1.8.2-.8-.4-3.5-1.3-6.7-4.1-2.5-2.2-4.1-5-4.6-5.8-.5-.8-.1-1.3.3-1.7"
+    ".4-.4.8-1 1.2-1.5.4-.5.5-.9.8-1.5.3-.6.1-1.1-.1-1.5l-2.4-5.8z'/%3E%3C/svg%3E"
+)
 
 
 def hidden_reminder_key(row) -> tuple[str, ...]:
@@ -1541,16 +1551,17 @@ def filter_hidden_reminders(reminders_df: pd.DataFrame) -> pd.DataFrame:
     return reminders_df.loc[keep_mask].copy()
 
 
-def get_recent_reminder_warning(client_name: str, now: datetime | None = None) -> str | None:
+def get_recent_reminder_warning(client_name: str, now: datetime | None = None, sync_remote: bool = False) -> str | None:
     warning_days = int(st.session_state.get("reminder_warning_days", 0) or 0)
     if warning_days <= 0:
         return None
 
     now = now or datetime.utcnow()
-    st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(
-        get_remote_wa_reminder_log(),
-        st.session_state.get("wa_reminder_log", []),
-    )
+    if sync_remote:
+        st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(
+            get_remote_wa_reminder_log(),
+            st.session_state.get("wa_reminder_log", []),
+        )
     client_key = _reminder_client_key(client_name)
     latest = None
     for entry in st.session_state.get("wa_reminder_log", []):
@@ -1615,15 +1626,13 @@ def show_recent_reminder_warning(message: str, key: str):
         @st.dialog("Reminder warning")
         def _warning_dialog():
             st.write(message)
-            if st.button("OK", key=key):
-                st.rerun()
+            st.button("OK", key=key)
         _warning_dialog()
     elif hasattr(st, "experimental_dialog"):
         @st.experimental_dialog("Reminder warning")
         def _warning_dialog():
             st.write(message)
-            if st.button("OK", key=key):
-                st.rerun()
+            st.button("OK", key=key)
         _warning_dialog()
     else:
         st.warning(message)
@@ -3184,6 +3193,8 @@ def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
         st.info("All rows are hidden.")
         return
+    show_pending_recent_reminder_warning()
+    show_pending_reminder_action_status()
     render_table_with_buttons(df, key_prefix, msg_key)
 
 
@@ -3236,6 +3247,83 @@ def hide_revealed_reminders_after_action(key_prefix: str):
     st.session_state[f"{key_prefix}_reveal_hidden_reminders"] = False
 
 
+def queue_recent_reminder_warning(message: str | None, key: str):
+    if message:
+        st.session_state["_pending_recent_reminder_warning"] = {
+            "message": message,
+            "key": key,
+        }
+
+
+def show_pending_recent_reminder_warning():
+    pending = st.session_state.pop("_pending_recent_reminder_warning", None)
+    if isinstance(pending, dict):
+        show_recent_reminder_warning(
+            str(pending.get("message", "")),
+            key=str(pending.get("key", "recent_reminder_ok")),
+        )
+
+
+def prepare_whatsapp_action(row_data: dict, key_prefix: str, msg_key: str, idx):
+    client_name = row_data.get("Client Name", "")
+    now = datetime.utcnow()
+    warning_message = get_recent_reminder_warning(client_name, now=now)
+    queue_recent_reminder_warning(warning_message, key=f"{key_prefix}_recent_reminder_ok_{idx}")
+
+    animal_name = normalize_display_case(row_data.get("Animal Name", "")).strip() if row_data.get("Animal Name") else "your pet"
+    message = build_whatsapp_message_for_row(row_data)
+    st.session_state[msg_key] = message
+    st.session_state["_pending_reminder_action_status"] = {
+        "message": f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.",
+        "preview": message,
+    }
+
+
+def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx):
+    client_name = row_data.get("Client Name", "")
+    now = datetime.utcnow()
+    hidden_record = get_hidden_reminder_record(row_data)
+    hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
+
+    warning_message = get_recent_reminder_warning(client_name, now=now)
+    queue_recent_reminder_warning(warning_message, key=f"{key_prefix}_recent_sent_ok_{idx}")
+
+    message = build_whatsapp_message_for_row(row_data)
+    st.session_state[msg_key] = message
+    if hidden_action != REMINDER_ACTION_SENT:
+        record_wa_reminder_click(client_name, now=now, row=row_data, save=False)
+        record_wa_button_tracker(row_data, message, source=f"{key_prefix}_sent", now=now)
+    rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
+    hide_revealed_reminders_after_action(key_prefix)
+    save_settings()
+    st.session_state["_pending_reminder_action_status"] = {
+        "message": f"Reminder for {normalize_display_case(rec['Animal Name'])} marked sent.",
+    }
+
+
+def decline_reminder_action(row_data: dict, key_prefix: str):
+    hidden_record = get_hidden_reminder_record(row_data)
+    hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
+    if hidden_action == REMINDER_ACTION_SENT:
+        remove_wa_reminder_click_for_row(row_data)
+    rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=datetime.utcnow())
+    hide_revealed_reminders_after_action(key_prefix)
+    save_settings()
+    st.session_state["_pending_reminder_action_status"] = {
+        "message": f"Reminder for {normalize_display_case(rec['Animal Name'])} declined.",
+    }
+
+
+def show_pending_reminder_action_status():
+    pending = st.session_state.pop("_pending_reminder_action_status", None)
+    if not isinstance(pending, dict):
+        return
+    st.success(str(pending.get("message", "")))
+    preview = str(pending.get("preview", "")).strip()
+    if preview:
+        st.markdown(f"**Preview:** {preview}")
+
+
 def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key: str, hidden_action: str):
     sent_is_selected = hidden_action == REMINDER_ACTION_SENT
     decline_is_selected = hidden_action == REMINDER_ACTION_DECLINED
@@ -3251,13 +3339,21 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
         f"""
         <style>
           .st-key-{wa_key} button {{
-            min-height: 2.6rem !important;
+            min-height: 2.45rem !important;
           }}
           .st-key-{wa_key} button p {{
-            color: #15803d !important;
-            font-size: 1.65rem !important;
-            font-weight: 800 !important;
+            font-size: 0 !important;
             line-height: 1 !important;
+          }}
+          .st-key-{wa_key} button::before {{
+            background: #128c7e;
+            content: "";
+            display: block;
+            height: 1.55rem;
+            margin: 0 auto;
+            -webkit-mask: url("{WHATSAPP_ICON_MASK_DATA_URI}") center / contain no-repeat;
+            mask: url("{WHATSAPP_ICON_MASK_DATA_URI}") center / contain no-repeat;
+            width: 1.55rem;
           }}
           .st-key-{sent_key} div[data-testid="stButton"] button,
           .st-key-{sent_key} button {{
@@ -3266,12 +3362,12 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
             box-shadow: {sent_shadow} !important;
             color: #15803d !important;
             line-height: 1 !important;
-            min-height: 2.6rem !important;
+            min-height: 2.45rem !important;
             opacity: {sent_opacity};
           }}
           .st-key-{sent_key} button p {{
             color: #15803d !important;
-            font-size: 2.05rem !important;
+            font-size: 1.7rem !important;
             font-weight: 900 !important;
             line-height: 1 !important;
             opacity: {sent_opacity};
@@ -3284,12 +3380,12 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
             box-shadow: {decline_shadow} !important;
             color: #b91c1c !important;
             line-height: 1 !important;
-            min-height: 2.6rem !important;
+            min-height: 2.45rem !important;
             opacity: {decline_opacity};
           }}
           .st-key-{decline_key} button p {{
             color: #b91c1c !important;
-            font-size: 2.05rem !important;
+            font-size: 1.7rem !important;
             font-weight: 900 !important;
             line-height: 1 !important;
             opacity: {decline_opacity};
@@ -3314,8 +3410,9 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     # --- Table rows ---
     for idx, row in df.iterrows():
         # Values for the non-action columns
+        row_data = row.to_dict()
         vals = {h: str(row.get(h, "")) for h in headers[:-3]}
-        hidden_record = get_hidden_reminder_record(row)
+        hidden_record = get_hidden_reminder_record(row_data)
         hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
         wa_key = f"{key_prefix}_wa_{idx}"
         sent_key = f"{key_prefix}_sent_{idx}"
@@ -3332,43 +3429,32 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             row_cols[j].markdown(val)
 
         # --- WA button (aligned to its column, full-width) ---
-        if row_cols[7].button("☎", key=wa_key, use_container_width=True, help="Prepare WhatsApp message"):
-            client_name = row.get("Client Name", "")
-            now = datetime.utcnow()
-            warning_message = get_recent_reminder_warning(client_name, now=now)
-            if warning_message:
-                show_recent_reminder_warning(warning_message, key=f"{key_prefix}_recent_reminder_ok_{idx}")
-            animal_name = normalize_display_case(row.get("Animal Name", "")).strip() if row.get("Animal Name") else "your pet"
-            message = build_whatsapp_message_for_row(row)
-            st.session_state[msg_key] = message
-            st.success(f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.")
-            st.markdown(f"**Preview:** {st.session_state[msg_key]}")
+        row_cols[7].button(
+            "WhatsApp",
+            key=wa_key,
+            use_container_width=True,
+            help="Prepare WhatsApp message",
+            on_click=prepare_whatsapp_action,
+            args=(row_data, key_prefix, msg_key, idx),
+        )
 
-        if row_cols[8].button("✔", key=sent_key, use_container_width=True, help="Mark as sent"):
-            client_name = row.get("Client Name", "")
-            now = datetime.utcnow()
-            warning_message = get_recent_reminder_warning(client_name, now=now)
-            if warning_message:
-                show_recent_reminder_warning(warning_message, key=f"{key_prefix}_recent_sent_ok_{idx}")
-            message = build_whatsapp_message_for_row(row)
-            st.session_state[msg_key] = message
-            if hidden_action != REMINDER_ACTION_SENT:
-                record_wa_reminder_click(client_name, now=now, row=row, save=False)
-                record_wa_button_tracker(row, message, source=f"{key_prefix}_sent", now=now)
-            rec = upsert_hidden_reminder(row, REMINDER_ACTION_SENT, message=message, now=now)
-            hide_revealed_reminders_after_action(key_prefix)
-            save_settings()
-            st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} marked sent.")
-            st.rerun()
+        row_cols[8].button(
+            "✔",
+            key=sent_key,
+            use_container_width=True,
+            help="Mark as sent",
+            on_click=mark_reminder_sent_action,
+            args=(row_data, key_prefix, msg_key, idx),
+        )
 
-        if row_cols[9].button("✖", key=decline_key, use_container_width=True, help="Decline reminder"):
-            if hidden_action == REMINDER_ACTION_SENT:
-                remove_wa_reminder_click_for_row(row)
-            rec = upsert_hidden_reminder(row, REMINDER_ACTION_DECLINED, now=datetime.utcnow())
-            hide_revealed_reminders_after_action(key_prefix)
-            save_settings()
-            st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} declined.")
-            st.rerun()
+        row_cols[9].button(
+            "✖",
+            key=decline_key,
+            use_container_width=True,
+            help="Decline reminder",
+            on_click=decline_reminder_action,
+            args=(row_data, key_prefix),
+        )
 
     # --- Hidden count + Restore button (directly under the table) ---
     num_deleted = len(st.session_state.get("deleted_reminders", []))
