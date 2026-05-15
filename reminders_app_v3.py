@@ -3096,22 +3096,26 @@ def render_setup_checklist():
         happened_at = _parse_reminder_log_time(timestamp)
         return bool(happened_at and happened_at > reset_at)
 
+    def action_after_reset(action_name: str) -> bool:
+        for entry in st.session_state.get("deleted_reminders", []):
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("Action", "")).strip().lower() == action_name and happened_after_reset(entry.get("ActionedAt", "") or entry.get("DeletedAt", "")):
+                return True
+        return False
+
     def sent_after_reset() -> bool:
         for entry in st.session_state.get("wa_reminder_log", []):
             if isinstance(entry, dict) and happened_after_reset(entry.get("RemindedAt", "")):
                 return True
-        for entry in st.session_state.get("deleted_reminders", []):
-            if not isinstance(entry, dict):
-                continue
-            if str(entry.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT and happened_after_reset(entry.get("ActionedAt", "") or entry.get("DeletedAt", "")):
-                return True
-        return False
+        return action_after_reset(REMINDER_ACTION_SENT)
 
     upload_done = has_data and happened_after_reset(st.session_state.get("shared_dataset_updated_at", ""))
     search_done = search_term_added and happened_after_reset(st.session_state.get("search_term_added_at", ""))
     name_done = has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", ""))
     template_done = template_updated and happened_after_reset(st.session_state.get("wa_template_updated_at", ""))
     reminder_done = sent_after_reset()
+    decline_done = action_after_reset(REMINDER_ACTION_DECLINED)
 
     def status(done: bool):
         if done:
@@ -3123,6 +3127,7 @@ def render_setup_checklist():
     name_class, name_status = status(name_done)
     template_class, template_status = status(template_done)
     reminders_class, reminders_status = status(reminder_done)
+    decline_class, decline_status = status(decline_done)
 
     try:
         setup_panel = st.container(border=True)
@@ -3131,7 +3136,7 @@ def render_setup_checklist():
 
     with setup_panel:
         st.markdown(
-            '<p class="setup-intro">Five quick checks before you start using reminders.</p>',
+            '<p class="setup-intro">Six quick checks before you start using reminders.</p>',
             unsafe_allow_html=True,
         )
         reset_col, _ = st.columns([0.55, 5], gap="small")
@@ -3173,6 +3178,12 @@ def render_setup_checklist():
               <div class="setup-status">{reminders_status}</div>
               <div class="setup-title">5. Send your first reminder</div>
               <div class="setup-copy">Open Reminders, prepare a WhatsApp message, then mark it Sent once the client has been contacted.</div>
+              <a class="setup-link" href="?setup_target=reminders">Go to Reminders</a>
+            </div>
+            <div class="setup-step {decline_class}">
+              <div class="setup-status">{decline_status}</div>
+              <div class="setup-title">6. Decline your first reminder</div>
+              <div class="setup-copy">Tick the red X to decline sending this reminder while still marking it actioned.</div>
               <a class="setup-link" href="?setup_target=reminders">Go to Reminders</a>
             </div>
           </div>
