@@ -3612,13 +3612,8 @@ def prepare_whatsapp_action(row_data: dict, key_prefix: str, msg_key: str, idx):
     warning_message = get_recent_reminder_warning(client_name, now=now)
     queue_recent_reminder_warning(warning_message, key=f"{key_prefix}_recent_reminder_ok_{idx}")
 
-    animal_name = normalize_display_case(row_data.get("Animal Name", "")).strip() if row_data.get("Animal Name") else "your pet"
     message = build_whatsapp_message_for_row(row_data)
     st.session_state[msg_key] = message
-    st.session_state["_pending_reminder_action_status"] = {
-        "message": f"WhatsApp message prepared for {animal_name}.",
-        "preview": message,
-    }
     st.session_state["_scroll_to_whatsapp_composer"] = True
 
 
