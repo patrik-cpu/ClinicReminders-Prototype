@@ -3834,6 +3834,59 @@ def get_actioned_reminders_for_period(period: str) -> list[dict]:
     )
 
 
+ACTIONED_REMINDER_SORTABLE_COLUMNS = (
+    "Actioned Date",
+    "Actioned By",
+    "Reminder Date",
+    "Due Date",
+    "Charge Date",
+    "Client Name",
+    "Animal Name",
+    "Plan Item",
+    "Action",
+)
+
+
+def set_actioned_reminder_sort(key_prefix: str, column: str):
+    state_key = f"{key_prefix}_actioned_reminder_sort"
+    current = st.session_state.get(state_key)
+    ascending = column != "Actioned Date"
+    if isinstance(current, dict) and current.get("column") == column:
+        ascending = not bool(current.get("ascending", True))
+    st.session_state[state_key] = {"column": column, "ascending": ascending}
+
+
+def get_actioned_reminder_sort(key_prefix: str) -> dict:
+    current = st.session_state.get(f"{key_prefix}_actioned_reminder_sort")
+    if isinstance(current, dict) and current.get("column") in ACTIONED_REMINDER_SORTABLE_COLUMNS:
+        return {"column": current["column"], "ascending": bool(current.get("ascending", True))}
+    return {"column": "Actioned Date", "ascending": False}
+
+
+def actioned_reminder_sort_value(row: dict, column: str, ascending: bool):
+    missing_date = datetime.max if ascending else datetime.min
+    if column == "Actioned Date":
+        return get_actioned_reminder_datetime(row) or missing_date
+    if column in {"Reminder Date", "Due Date", "Charge Date"}:
+        parsed_date = parse_reminder_sort_date(row.get(column, ""))
+        if pd.isna(parsed_date):
+            return missing_date
+        return parsed_date.to_pydatetime()
+    if column == "Action":
+        action = str(row.get("Action", "")).strip().lower()
+        return "declined" if action == REMINDER_ACTION_DECLINED else "sent"
+    return normalize_display_case(str(row.get(column, "") or "")).casefold()
+
+
+def sort_actioned_reminders(rows: list[dict], key_prefix: str) -> list[dict]:
+    sort_state = get_actioned_reminder_sort(key_prefix)
+    return sorted(
+        rows,
+        key=lambda row: actioned_reminder_sort_value(row, sort_state["column"], sort_state["ascending"]),
+        reverse=not sort_state["ascending"],
+    )
+
+
 def render_actioned_reminders_tab(key_prefix: str):
     options = ["Daily", "Weekly", "Monthly", "All"]
     filter_key = f"{key_prefix}_actioned_period"
@@ -3865,6 +3918,7 @@ def render_actioned_reminders_tab(key_prefix: str):
     if not rows:
         st.info(f"No actioned reminders for {selected_period.lower()}.")
         return
+    rows = sort_actioned_reminders(rows, key_prefix)
 
     headers = [
         "Actioned Date",
@@ -3880,14 +3934,54 @@ def render_actioned_reminders_tab(key_prefix: str):
     ]
     labels = {**REMINDER_TABLE_HEADER_LABELS, "Actioned Date": "Actioned Date", "Actioned By": "Actioned By"}
     col_widths = [2, 3, 2, 2, 2, 4, 3, 4, 1.5, 1.8]
+    safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
+    st.markdown(
+        f"""
+        <style>
+          [class*="st-key-{safe_key_prefix}_actioned_sort_"] button {{
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            color: inherit !important;
+            font-weight: 600 !important;
+            justify-content: flex-start !important;
+            min-height: 1.6rem !important;
+            padding: 0 !important;
+            text-align: left !important;
+          }}
+          [class*="st-key-{safe_key_prefix}_actioned_sort_"] button:hover {{
+            color: var(--cr-link) !important;
+          }}
+          [class*="st-key-{safe_key_prefix}_actioned_sort_"] button p {{
+            font-weight: 600 !important;
+            margin: 0 !important;
+            text-align: left !important;
+          }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
+    sort_state = get_actioned_reminder_sort(key_prefix)
     header_cols = st.columns(col_widths)
-    for col, head in zip(header_cols, headers):
+    for idx, (col, head) in enumerate(zip(header_cols, headers)):
         align = "center" if head == "Remove" else "left"
-        col.markdown(
-            f"<div style='text-align:{align}; font-weight:600;'>{labels.get(head, head)}</div>",
-            unsafe_allow_html=True,
-        )
+        label = labels.get(head, head)
+        if head in ACTIONED_REMINDER_SORTABLE_COLUMNS:
+            if sort_state["column"] == head:
+                label = f"{label} {'^' if sort_state['ascending'] else 'v'}"
+            col.button(
+                label,
+                key=f"{key_prefix}_actioned_sort_{idx}",
+                help=f"Sort by {labels.get(head, head)}",
+                on_click=set_actioned_reminder_sort,
+                args=(key_prefix, head),
+            )
+        else:
+            col.markdown(
+                f"<div style='text-align:{align}; font-weight:600;'>{label}</div>",
+                unsafe_allow_html=True,
+            )
 
     for idx, row_data in enumerate(rows):
         row_cols = st.columns(col_widths, gap="small")
