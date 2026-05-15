@@ -4063,7 +4063,7 @@ def render_actioned_reminders_tab(key_prefix: str):
         label = labels.get(head, head)
         if head in ACTIONED_REMINDER_SORTABLE_COLUMNS:
             if sort_state["column"] == head:
-                label = f"{label} {'^' if sort_state['ascending'] else 'v'}"
+                label = f"{label} {'↑' if sort_state['ascending'] else '↓'}"
             button_col, help_col = col.columns([0.82, 0.18], gap="small")
             button_col.button(
                 label,
@@ -4141,7 +4141,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         label = REMINDER_TABLE_HEADER_LABELS.get(head, head)
         if head in REMINDER_TABLE_SORTABLE_COLUMNS:
             if sort_state["column"] == head:
-                label = f"{label} {'^' if sort_state['ascending'] else 'v'}"
+                label = f"{label} {'↑' if sort_state['ascending'] else '↓'}"
             button_col, help_col = c.columns([0.82, 0.18], gap="small")
             button_col.button(
                 label,
@@ -4406,8 +4406,8 @@ if st.session_state.get("working_df") is not None:
     applied_rules = get_applied_reminder_rules()
 
     with reminders_page_tab:
-        st.markdown("<h2 id='reminders'>📅 Reminders</h2>", unsafe_allow_html=True)
         st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
+        st.markdown("## 📅 Reminders")
     
         prepared = get_prepared_df(df, applied_rules)
     
