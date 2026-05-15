@@ -2734,7 +2734,6 @@ def render_setup_checklist():
     st.markdown(
         f"""
         <section class="setup-panel">
-          <h3>Get Started</h3>
           <p>Five quick checks before the clinic starts using reminders.</p>
           <div class="setup-grid">
             <div class="setup-step {upload_class}">
@@ -3221,6 +3220,7 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
 # --- Data section ---
 with get_started_tab:
     st.markdown("<div id='getting-started' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("## ✅ Get Started")
     render_setup_checklist()
     
 with data_tab:
