@@ -866,6 +866,7 @@ st.markdown(
     .field-examples {
         color: var(--cr-muted);
         font-size: 0.95rem;
+        font-style: italic;
         line-height: 1.45;
         margin-top: 0.45rem;
     }
@@ -5237,7 +5238,7 @@ if st.session_state.get("working_df") is not None:
                 label_visibility="collapsed",
                 help="Use when quantity should extend the reminder interval."
             )
-            field_examples("&#9744; Unticked", "&#9745; Ticked")
+            field_examples("&#9744;", "&#9745;")
         with c7:
             new_rule_visible = st.text_input(
                 "Message Text (optional)",
