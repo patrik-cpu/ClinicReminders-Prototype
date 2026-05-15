@@ -472,6 +472,20 @@ def update_cached_settings_row_fields(clinic_id: str, values_by_header: dict[str
     cached["row_values"] = row_values
 
 
+def get_fresh_settings_row_values(clinic_id: str) -> tuple[object, list[str], int, list[str]]:
+    """Read the clinic row directly from Sheets and refresh the session cache."""
+    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+    row_values = list(_gspread_retry(sheet.row_values, row_idx))
+    clinic_key = str(clinic_id or "").strip().lower()
+    st.session_state["_settings_row_cache"] = {
+        "clinic_key": clinic_key,
+        "headers": list(headers),
+        "row_idx": row_idx,
+        "row_values": list(row_values),
+    }
+    return sheet, list(headers), row_idx, row_values
+
+
 def _copy_settings_dict(settings: dict | None) -> dict:
     try:
         return json.loads(json.dumps(settings or {}))
@@ -938,7 +952,17 @@ st.markdown(
         border-radius: 6px;
         color: #126b3d;
         margin: 0.35rem 0 0.85rem;
-        padding: 1rem;
+        padding: 0.9rem 1rem 0.35rem;
+    }
+    .st-key-dataset_summary_box [data-testid="stVerticalBlock"] {
+        gap: 0.35rem !important;
+    }
+    .st-key-dataset_summary_box [data-testid="stHorizontalBlock"]:last-child {
+        margin-bottom: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    .st-key-dataset_summary_box [data-testid="stMarkdownContainer"] p {
+        margin-bottom: 0 !important;
     }
     .dataset-summary-title {
         color: #0f5130;
@@ -1435,8 +1459,7 @@ def load_shared_dataset_for_clinic():
 
     rec = None
     try:
-        sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-        row_values = get_cached_settings_row_values(clinic_id) or _gspread_retry(sheet.row_values, row_idx)
+        sheet, headers, row_idx, row_values = get_fresh_settings_row_values(clinic_id)
         rec = {
             header: row_values[idx] if idx < len(row_values) else ""
             for idx, header in enumerate(headers)
@@ -1450,6 +1473,12 @@ def load_shared_dataset_for_clinic():
 
     file_id = str(rec.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
     if not file_id:
+        if normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", [])):
+            st.session_state["shared_dataset_loaded"] = False
+            st.session_state["shared_dataset_error"] = (
+                "Clinic data is listed as saved, but the saved dataset file is not linked yet. "
+                "Please re-upload the file from this tab."
+            )
         return  # no shared dataset published yet
 
     try:

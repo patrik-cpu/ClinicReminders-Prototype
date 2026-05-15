@@ -132,6 +132,63 @@ class DatasetUpdateTests(unittest.TestCase):
 
         load_shared.assert_called_once()
 
+    def test_shared_dataset_load_uses_fresh_pointer_row(self):
+        headers = [
+            "ClinicID",
+            "PlainPassword",
+            "SettingsJSON",
+            "UpdatedAt",
+            self.app.SHEET_COL_DATASET_FILE_ID,
+            self.app.SHEET_COL_DATASET_FILE_NAME,
+            self.app.SHEET_COL_DATASET_UPDATED_AT,
+        ]
+        state = self.app.st.session_state
+        state["clinic_id"] = "Clinic With Saved Data"
+        state["_settings_row_cache"] = {
+            "clinic_key": "clinic with saved data",
+            "headers": headers,
+            "row_idx": 2,
+            "row_values": ["Clinic With Saved Data", "", "{}", "", "", "", ""],
+        }
+
+        test_case = self
+
+        class FakeSheet:
+            def row_values(self, row_idx):
+                test_case.assertEqual(row_idx, 2)
+                return [
+                    "Clinic With Saved Data",
+                    "",
+                    "{}",
+                    "",
+                    "fresh-drive-file-id",
+                    "clinic_shared_dataset.csv",
+                    "2026-05-15T16:00:00",
+                ]
+
+        loaded_df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01"]),
+                "Client Name": ["Client"],
+                "Animal Name": ["Patient"],
+                "Item Name": ["Item"],
+                "Qty": [1],
+                "Amount": [10],
+            }
+        )
+
+        with (
+            patch.object(self.app, "get_settings_sheet", return_value=FakeSheet()),
+            patch.object(self.app, "drive_download_bytes", return_value=b"csv") as download,
+            patch.object(self.app, "process_file", return_value=(loaded_df, "Canonical CSV", "Amount")),
+        ):
+            self.app.load_shared_dataset_for_clinic()
+
+        download.assert_called_once_with("fresh-drive-file-id")
+        self.assertIn("working_df", state)
+        self.assertEqual(len(state["working_df"]), 1)
+        self.assertEqual(state["_settings_row_cache"]["row_values"][4], "fresh-drive-file-id")
+
 
 if __name__ == "__main__":
     unittest.main()
