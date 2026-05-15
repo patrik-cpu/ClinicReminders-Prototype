@@ -3145,31 +3145,31 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
         else:
             date_range = "Dates not detected"
         row_html.append(
-            f"""
-            <div class="dataset-summary-row">
-              <div class="dataset-summary-value">{html_lib.escape(row.get("file_name", ""))}</div>
-              <div class="dataset-summary-value">{html_lib.escape(f"{int(row.get('rows') or 0):,}")}</div>
-              <div class="dataset-summary-value">{html_lib.escape(date_range)}</div>
-              <div class="dataset-summary-value">{html_lib.escape(row.get("status", "Saved"))}</div>
-            </div>
-            """
+            (
+                '<div class="dataset-summary-row">'
+                f'<div class="dataset-summary-value">{html_lib.escape(row.get("file_name", ""))}</div>'
+                f'<div class="dataset-summary-value">{html_lib.escape(f"{int(row.get("rows") or 0):,}")}</div>'
+                f'<div class="dataset-summary-value">{html_lib.escape(date_range)}</div>'
+                f'<div class="dataset-summary-value">{html_lib.escape(row.get("status", "Saved"))}</div>'
+                '</div>'
+            )
         )
 
     st.markdown(
-        f"""
-        <div class="dataset-summary">
-          <div class="dataset-summary-title">{html_lib.escape(title)}</div>
-          <div class="dataset-summary-table">
-            <div class="dataset-summary-header">
-              <div class="dataset-summary-label">CSV</div>
-              <div class="dataset-summary-label">Rows</div>
-              <div class="dataset-summary-label">Date range</div>
-              <div class="dataset-summary-label">Status</div>
-            </div>
-            {''.join(row_html)}
-          </div>
-        </div>
-        """,
+        (
+            '<div class="dataset-summary">'
+            f'<div class="dataset-summary-title">{html_lib.escape(title)}</div>'
+            '<div class="dataset-summary-table">'
+            '<div class="dataset-summary-header">'
+            '<div class="dataset-summary-label">CSV</div>'
+            '<div class="dataset-summary-label">Rows</div>'
+            '<div class="dataset-summary-label">Date range</div>'
+            '<div class="dataset-summary-label">Status</div>'
+            '</div>'
+            f'{"".join(row_html)}'
+            '</div>'
+            '</div>'
+        ),
         unsafe_allow_html=True,
     )
 
