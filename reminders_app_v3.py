@@ -809,7 +809,7 @@ st.markdown(
         border-radius: 6px;
         color: #126b3d;
         margin: 0.35rem 0 0.85rem;
-        padding: 0.85rem 1rem 1.15rem;
+        padding: 1rem;
     }
     .dataset-summary-title {
         color: #0f5130;
