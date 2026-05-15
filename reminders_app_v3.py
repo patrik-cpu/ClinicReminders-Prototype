@@ -2638,6 +2638,7 @@ if "logged_in" not in st.session_state:
 
 if "auto_login_attempted" not in st.session_state:
     st.session_state["auto_login_attempted"] = False
+st.session_state.setdefault("show_top_change_password", False)
 
 remember_token = get_query_param("remember")
 if remember_token and not st.session_state["logged_in"]:
@@ -2645,6 +2646,7 @@ if remember_token and not st.session_state["logged_in"]:
     if remembered_clinic_id:
         st.session_state["clinic_id"] = remembered_clinic_id
         st.session_state["logged_in"] = True
+        st.session_state["show_top_change_password"] = False
         reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
         load_settings()
         load_shared_dataset_for_clinic()
@@ -2672,6 +2674,7 @@ if (
     if user_row:
         st.session_state["clinic_id"] = default_username
         st.session_state["logged_in"] = True
+        st.session_state["show_top_change_password"] = False
         reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
         load_settings()
         load_shared_dataset_for_clinic()
@@ -2691,6 +2694,7 @@ if not st.session_state["logged_in"]:
             if user_row:
                 st.session_state["clinic_id"] = username
                 st.session_state["logged_in"] = True
+                st.session_state["show_top_change_password"] = False
                 set_remember_login_token(create_remember_login_token(username, user_row))
 
                 reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
@@ -2734,6 +2738,7 @@ if not st.session_state["logged_in"]:
                         create_clinic_account(new_clinic, country, new_password)
                         st.session_state["clinic_id"] = new_clinic
                         st.session_state["logged_in"] = True
+                        st.session_state["show_top_change_password"] = False
                         set_remember_login_token(create_remember_login_token(new_clinic))
                         reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
                         load_settings()
@@ -2749,13 +2754,14 @@ else:
     with top_account_slot.container():
         with st.popover("Account", use_container_width=False):
             if st.button("Change password", key="top_account_show_change_password", use_container_width=True):
-                st.session_state["show_top_change_password"] = True
+                st.session_state["show_top_change_password"] = not st.session_state.get("show_top_change_password", False)
 
             if st.button("Logout", key="top_account_logout", use_container_width=True):
                 clear_remember_login_token()
                 for key in ["logged_in", "clinic_id"]:
                     st.session_state.pop(key, None)
                 st.session_state["show_create_account"] = False
+                st.session_state["show_top_change_password"] = False
                 st.success("You have been logged out.")
                 st.rerun()
 
