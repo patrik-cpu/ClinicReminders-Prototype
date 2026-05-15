@@ -11,6 +11,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import hashlib
+import base64
+import hmac
 import numpy as np
 from gspread.exceptions import APIError
 import random
@@ -2065,6 +2067,94 @@ def get_clinic_row(username):
     return None
 
 
+def _remember_login_signature(clinic_id: str, expires_at: int, password_hash: str) -> str:
+    payload = f"{clinic_id.strip().lower()}|{expires_at}|{password_hash}"
+    return hmac.new(
+        str(SETTINGS_SHEET_ID).encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def create_remember_login_token(clinic_id: str, user_row: dict | None = None, days: int = 14) -> str:
+    clinic_id = str(clinic_id or "").strip()
+    user_row = user_row or get_clinic_row(clinic_id)
+    password_hash = str((user_row or {}).get("PasswordHash", "")).strip()
+    if not clinic_id or not password_hash:
+        return ""
+
+    expires_at = int(time.time() + days * 24 * 60 * 60)
+    signature = _remember_login_signature(clinic_id, expires_at, password_hash)
+    raw = json.dumps({"clinic_id": clinic_id, "expires_at": expires_at, "signature": signature}, separators=(",", ":"))
+    return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
+
+
+def validate_remember_login_token(token: str) -> str | None:
+    try:
+        raw = base64.urlsafe_b64decode(str(token or "").encode("ascii")).decode("utf-8")
+        payload = json.loads(raw)
+    except Exception:
+        return None
+
+    clinic_id = str(payload.get("clinic_id", "")).strip()
+    expires_at = int(payload.get("expires_at", 0) or 0)
+    signature = str(payload.get("signature", "")).strip()
+    if not clinic_id or not signature or expires_at < int(time.time()):
+        return None
+
+    user_row = get_clinic_row(clinic_id)
+    password_hash = str((user_row or {}).get("PasswordHash", "")).strip()
+    if not password_hash:
+        return None
+
+    expected = _remember_login_signature(clinic_id, expires_at, password_hash)
+    return clinic_id if hmac.compare_digest(signature, expected) else None
+
+
+def get_query_param(name: str) -> str:
+    try:
+        value = st.query_params.get(name, "")
+    except Exception:
+        value = (st.experimental_get_query_params().get(name, [""]) or [""])[0]
+    if isinstance(value, list):
+        return str(value[0]) if value else ""
+    return str(value or "")
+
+
+def render_remember_login_bridge(token_to_store: str = "", clear: bool = False):
+    components.html(
+        f"""
+        <script>
+          const KEY = "clinic_reminders_remember_login";
+          const tokenToStore = {json.dumps(token_to_store)};
+          const shouldClear = {json.dumps(bool(clear))};
+          const params = new URLSearchParams(window.parent.location.search);
+          if (shouldClear) {{
+            window.parent.localStorage.removeItem(KEY);
+            if (params.has("remember")) {{
+              params.delete("remember");
+              const query = params.toString();
+              window.parent.history.replaceState(null, "", window.parent.location.pathname + (query ? "?" + query : ""));
+            }}
+          }} else if (tokenToStore) {{
+            window.parent.localStorage.setItem(KEY, tokenToStore);
+            if (params.get("remember") !== tokenToStore) {{
+              params.set("remember", tokenToStore);
+              window.parent.history.replaceState(null, "", window.parent.location.pathname + "?" + params.toString());
+            }}
+          }} else if (!params.has("remember")) {{
+            const stored = window.parent.localStorage.getItem(KEY);
+            if (stored) {{
+              params.set("remember", stored);
+              window.parent.location.replace(window.parent.location.pathname + "?" + params.toString());
+            }}
+          }}
+        </script>
+        """,
+        height=0,
+    )
+
+
 def default_settings_for_country(country: str = "") -> dict:
     return {
         "rules": DEFAULT_RULES.copy(),
@@ -2320,6 +2410,26 @@ if "logged_in" not in st.session_state:
 if "auto_login_attempted" not in st.session_state:
     st.session_state["auto_login_attempted"] = False
 
+remember_token = get_query_param("remember")
+if remember_token and not st.session_state["logged_in"]:
+    remembered_clinic_id = validate_remember_login_token(remember_token)
+    if remembered_clinic_id:
+        st.session_state["clinic_id"] = remembered_clinic_id
+        st.session_state["logged_in"] = True
+        load_settings()
+        load_shared_dataset_for_clinic()
+        upsert_user_tracker(
+            remembered_clinic_id,
+            country=st.session_state.get("user_country", ""),
+            event="remembered_login",
+        )
+        rerun_app()
+
+if st.session_state.get("logged_in") and st.session_state.get("_remember_login_token"):
+    render_remember_login_bridge(st.session_state.pop("_remember_login_token"))
+elif not st.session_state.get("logged_in"):
+    render_remember_login_bridge()
+
 default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
 
 if (
@@ -2352,6 +2462,7 @@ if not st.session_state["logged_in"]:
             if user_row:
                 st.session_state["clinic_id"] = username
                 st.session_state["logged_in"] = True
+                st.session_state["_remember_login_token"] = create_remember_login_token(username, user_row)
 
                 load_settings()
                 # ✅ Auto-load shared dataset from Drive into working_df
@@ -2393,6 +2504,7 @@ if not st.session_state["logged_in"]:
                         create_clinic_account(new_clinic, country, new_password)
                         st.session_state["clinic_id"] = new_clinic
                         st.session_state["logged_in"] = True
+                        st.session_state["_remember_login_token"] = create_remember_login_token(new_clinic)
                         load_settings()
                         st.session_state["user_country"] = country
                         st.success(f"✅ Account created. Welcome, {new_clinic}!")
@@ -2438,6 +2550,7 @@ else:
                         st.success("Password updated.")
 
             if st.button("Logout", key="sidebar_logout", use_container_width=True):
+                render_remember_login_bridge(clear=True)
                 for key in ["logged_in", "clinic_id"]:
                     st.session_state.pop(key, None)
                 st.success("You have been logged out.")
