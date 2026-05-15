@@ -892,8 +892,9 @@ st.markdown(
         border: 0 !important;
         box-shadow: none !important;
         color: #d92d20 !important;
-        min-height: 1.75rem !important;
-        padding: 0 0.25rem !important;
+        min-height: 2rem !important;
+        min-width: 2rem !important;
+        padding: 0 0.35rem !important;
     }
     [class*="st-key-del_client_excl_"] button:hover,
     [class*="st-key-del_patient_excl_"] button:hover,
@@ -905,7 +906,7 @@ st.markdown(
     [class*="st-key-del_patient_excl_"] button p,
     [class*="st-key-del_excl_"] button p {
         color: #d92d20 !important;
-        font-size: 1.1rem !important;
+        font-size: 1.55rem !important;
         font-weight: 700 !important;
         line-height: 1 !important;
         margin: 0 !important;
