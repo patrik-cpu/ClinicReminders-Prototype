@@ -5009,7 +5009,7 @@ if st.session_state.get("working_df") is not None:
             for client_name in sorted(st.session_state["client_exclusions"]):
                 safe_client = re.sub(r'[^a-zA-Z0-9_-]', '_', client_name)
                 with st.container():
-                    cols = st.columns([6,1], gap="small")
+                    cols = st.columns([1.4, 0.18, 6], gap="small")
                     with cols[0]:
                         st.markdown(f"<div style='padding-top:8px;'>{client_name}</div>", unsafe_allow_html=True)
                     with cols[1]:
@@ -5073,7 +5073,7 @@ if st.session_state.get("working_df") is not None:
                     continue
                 safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"{client_name}_{patient_name}_{exclusion_idx}")
                 with st.container():
-                    cols = st.columns([6,1], gap="small")
+                    cols = st.columns([1.4, 0.18, 6], gap="small")
                     with cols[0]:
                         st.markdown(f"<div style='padding-top:8px;'>{client_name} - {patient_name}</div>", unsafe_allow_html=True)
                     with cols[1]:
@@ -5138,7 +5138,7 @@ if st.session_state.get("working_df") is not None:
             for term in sorted(st.session_state["exclusions"]):
                 safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
                 with st.container():
-                    cols = st.columns([6,1], gap="small")
+                    cols = st.columns([1.4, 0.18, 6], gap="small")
                     with cols[0]:
                         st.markdown(f"<div style='padding-top:8px;'>{term}</div>", unsafe_allow_html=True)
                     with cols[1]:
