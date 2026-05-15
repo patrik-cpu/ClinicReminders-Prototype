@@ -42,7 +42,7 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from google.oauth2.service_account import Credentials
 from googleapiclient.errors import HttpError
 from io import BytesIO
-PREPARED_SCHEMA_VERSION = 4
+PREPARED_SCHEMA_VERSION = 5
 DRIVE_SCOPE = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
@@ -3092,6 +3092,7 @@ def map_intervals_vec(df, rules):
     interval_base = pd.Series(pd.NA, index=df.index, dtype="Float64")
     reminder_1 = pd.Series(pd.NA, index=df.index, dtype="Float64")
     reminder_2 = pd.Series(pd.NA, index=df.index, dtype="Float64")
+    overdue_reminder = pd.Series(pd.NA, index=df.index, dtype="Float64")
 
     matched = np.empty(n, dtype=object)
     matched[:] = [[] for _ in range(n)]
@@ -3109,12 +3110,16 @@ def map_intervals_vec(df, rules):
         interval_base = interval_base.where(~mask, pd.concat([interval_base[mask], base_cand], axis=1).min(axis=1))
         reminder_1_days = _positive_int_or_na(settings.get("reminder_1"))
         reminder_2_days = _positive_int_or_na(settings.get("reminder_2"))
+        overdue_reminder_days = _positive_int_or_na(settings.get("overdue_reminder"))
         if pd.notna(reminder_1_days):
             reminder_1_cand = pd.Series(int(reminder_1_days), index=df.index)[mask]
             reminder_1 = reminder_1.where(~mask, pd.concat([reminder_1[mask], reminder_1_cand], axis=1).min(axis=1))
         if pd.notna(reminder_2_days):
             reminder_2_cand = pd.Series(int(reminder_2_days), index=df.index)[mask]
             reminder_2 = reminder_2.where(~mask, pd.concat([reminder_2[mask], reminder_2_cand], axis=1).min(axis=1))
+        if pd.notna(overdue_reminder_days):
+            overdue_cand = pd.Series(int(overdue_reminder_days), index=df.index)[mask]
+            overdue_reminder = overdue_reminder.where(~mask, pd.concat([overdue_reminder[mask], overdue_cand], axis=1).min(axis=1))
 
         # Qty interval uses qty only if rule says so
         if settings.get("use_qty"):
@@ -3138,6 +3143,7 @@ def map_intervals_vec(df, rules):
     df["BaseIntervalDays"] = interval_base
     df["Reminder1Days"] = reminder_1
     df["Reminder2Days"] = reminder_2
+    df["OverdueReminderDays"] = overdue_reminder
     return df
 
 
@@ -3149,7 +3155,7 @@ def expand_reminder_dates(df: pd.DataFrame) -> pd.DataFrame:
     for _, row in df.iterrows():
         interval_days = pd.to_numeric(pd.Series([row.get("IntervalDays")]), errors="coerce").iloc[0]
         reminder_days = []
-        for field in ("Reminder1Days", "Reminder2Days"):
+        for field in ("Reminder1Days", "Reminder2Days", "OverdueReminderDays"):
             value = pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
             if pd.notna(value) and int(value) > 0:
                 reminder_days.append(int(value))
@@ -3178,7 +3184,7 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=[
             "ReminderDateFmt", "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
-            "MatchedItems", "Qty", "IntervalDays", "BaseIntervalDays", "Reminder1Days", "Reminder2Days",
+            "MatchedItems", "Qty", "IntervalDays", "BaseIntervalDays", "Reminder1Days", "Reminder2Days", "OverdueReminderDays",
             "NextDueDate", "NextDueDateBase", "NextDueDateTs", "ReminderDate", "ReminderDateTs", "ChargeDate"
         ])
 
@@ -3217,7 +3223,7 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     # ✅ hard guarantee column exists even if something upstream changes
     if "BaseIntervalDays" not in df.columns:
         df["BaseIntervalDays"] = pd.NA
-    for col in ["Reminder1Days", "Reminder2Days"]:
+    for col in ["Reminder1Days", "Reminder2Days", "OverdueReminderDays"]:
         if col not in df.columns:
             df[col] = pd.NA
 
@@ -4576,7 +4582,11 @@ if st.session_state.get("working_df") is not None:
             elif days_raw.isdigit() and int(days_raw) > 0:
                 st.session_state["rules"][rule][field] = int(days_raw)
             else:
-                label = "Reminder 1" if field == "reminder_1" else "Reminder 2"
+                label = {
+                    "reminder_1": "Reminder 1",
+                    "reminder_2": "Reminder 2",
+                    "overdue_reminder": "Overdue Reminder",
+                }.get(field, "Reminder")
                 st.session_state["_search_terms_autosave_error"] = f"{label} must be blank or a positive integer for: {rule}"
                 return
             save_settings()
@@ -4598,14 +4608,16 @@ if st.session_state.get("working_df") is not None:
     
         st.markdown("### Add New Search Term")
         row_id = st.session_state['new_rule_counter']
-        header_cols = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
+        rule_col_widths = [3, 1, 1, 1.35, 1.35, 0.7, 2, 0.7]
+        header_cols = st.columns(rule_col_widths, gap="small")
         with header_cols[0]: column_header("Search Term", "The product or service text to match in uploaded item names, such as bravecto, rabies, or librela.")
         with header_cols[1]: column_header("Reminder 1", "Optional early reminder date, counted in days after the billed date.")
         with header_cols[2]: column_header("Reminder 2", "Optional second early reminder date, counted in days after the billed date.")
         with header_cols[3]: column_header("Reminder 3 (Due Date)", "The main due date, counted in days after the billed date.")
-        with header_cols[4]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
-        with header_cols[5]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
-        c1, c2, c3, c4, c5, c6, c7 = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
+        with header_cols[4]: column_header("Overdue Reminder", "Optional overdue reminder date, counted in days after the billed date. Example: due at 90, overdue at 100.")
+        with header_cols[5]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
+        with header_cols[6]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
+        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(rule_col_widths, gap="small")
         with c1:
             new_rule_name = st.text_input(
                 "Search Term",
@@ -4635,20 +4647,27 @@ if st.session_state.get("working_df") is not None:
                 help="Positive integer number of days until this item should be due again."
             )
         with c5:
+            new_rule_overdue = st.text_input(
+                "Overdue Reminder",
+                key=f"new_rule_overdue_{row_id}",
+                label_visibility="collapsed",
+                help="Optional overdue reminder date, counted in days after the billed date."
+            )
+        with c6:
             new_rule_use_qty = st.checkbox(
                 "Use Qty",
                 key=f"new_rule_useqty_{row_id}",
                 label_visibility="collapsed",
                 help="Use when quantity should extend the reminder interval."
             )
-        with c6:
+        with c7:
             new_rule_visible = st.text_input(
                 "Message Text (optional)",
                 key=f"new_rule_vis_{row_id}",
                 label_visibility="collapsed",
                 help="Friendly wording to show users and clients, such as Bravecto Tablet."
             )
-        with c7:
+        with c8:
             if st.button("➕ Add", key=f"add_{row_id}"):
                 safe_rule = str(new_rule_name or "").strip().lower()
                 if safe_rule and str(new_rule_days).isdigit() and int(new_rule_days) > 0:
@@ -4657,6 +4676,7 @@ if st.session_state.get("working_df") is not None:
                     for raw_value, field, label in [
                         (new_rule_reminder_1, "reminder_1", "Reminder 1"),
                         (new_rule_reminder_2, "reminder_2", "Reminder 2"),
+                        (new_rule_overdue, "overdue_reminder", "Overdue Reminder"),
                     ]:
                         raw_value = str(raw_value or "").strip()
                         if raw_value:
@@ -4685,14 +4705,15 @@ if st.session_state.get("working_df") is not None:
         st.divider()
         st.markdown("### Current Search Terms")
 
-        cols = st.columns([3,1,1,1.4,1,2,0.7])
+        cols = st.columns(rule_col_widths)
         with cols[0]: column_header("Search Term", "The product or service text matched against uploaded item names.")
         with cols[1]: column_header("Reminder 1", "Optional early reminder date, counted in days after the billed date.")
         with cols[2]: column_header("Reminder 2", "Optional second early reminder date, counted in days after the billed date.")
         with cols[3]: column_header("Reminder 3 (Due Date)", "The main due date, counted in days after the billed date.")
-        with cols[4]: column_header("Use Qty", "When enabled, quantity extends the due date.")
-        with cols[5]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
-        with cols[6]: column_header("Delete", "Remove this search term from matching.")
+        with cols[4]: column_header("Overdue Reminder", "Optional extra reminder after the due date, counted in days after the billed date.")
+        with cols[5]: column_header("Use Qty", "When enabled, quantity extends the due date.")
+        with cols[6]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
+        with cols[7]: column_header("Delete", "Remove this search term from matching.")
     
         to_delete = []
     
@@ -4705,7 +4726,7 @@ if st.session_state.get("working_df") is not None:
             ver = st.session_state["form_version"]
             safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
             with st.container():
-                cols = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
+                cols = st.columns(rule_col_widths, gap="small")
                 with cols[0]:
                     st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
                 with cols[1]:
@@ -4733,6 +4754,14 @@ if st.session_state.get("working_df") is not None:
                         help="Exact due date in days after the billed date. If Reminder 1 and 2 are blank, the reminder appears on this due date."
                     )
                 with cols[4]:
+                    st.text_input(
+                        "Overdue Reminder", value=str(settings.get("overdue_reminder", "") or ""),
+                        key=f"overdue_reminder_{safe_rule}_{ver}", label_visibility="collapsed",
+                        on_change=save_rule_reminder_day,
+                        args=(rule, "overdue_reminder", f"overdue_reminder_{safe_rule}_{ver}",),
+                        help="Optional overdue reminder date, counted in days after the billed date."
+                    )
+                with cols[5]:
                     st.checkbox(
                         "Use Qty", value=settings["use_qty"],
                         key=f"useqty_{safe_rule}_{ver}",
@@ -4740,7 +4769,7 @@ if st.session_state.get("working_df") is not None:
                         on_change=toggle_use_qty,
                         args=(rule, f"useqty_{safe_rule}_{ver}",),
                     )
-                with cols[5]:
+                with cols[6]:
                     st.text_input(
                         "Message Text", value=settings.get("visible_text",""),
                         key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
@@ -4748,7 +4777,7 @@ if st.session_state.get("working_df") is not None:
                         args=(rule, f"vis_{safe_rule}_{ver}",),
                         help="Optional friendly wording shown in tables and WhatsApp messages."
                     )
-                with cols[6]:
+                with cols[7]:
                     if st.button("❌", key=f"del_{safe_rule}_{ver}"):
                         to_delete.append(rule)
     

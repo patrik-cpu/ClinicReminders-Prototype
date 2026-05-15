@@ -66,6 +66,33 @@ class ReminderGroupingTests(unittest.TestCase):
         self.assertNotIn("Alpha", " ".join(grouped["Animal Name"].astype(str)))
         self.assertIn("Bravo", " ".join(grouped["Animal Name"].astype(str)))
 
+    def test_overdue_reminder_adds_extra_reminder_without_changing_due_date(self):
+        df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01"]),
+                "Client Name": ["A Client"],
+                "Animal Name": ["A Patient"],
+                "Item Name": ["Overdue Item"],
+                "Qty": [1],
+                "Amount": [100],
+            }
+        )
+        rules = {
+            "overdue item": {
+                "days": 90,
+                "overdue_reminder": 100,
+                "use_qty": False,
+                "visible_text": "Overdue Item",
+            }
+        }
+
+        prepared = self.app.ensure_reminder_columns(df, rules)
+        expanded = self.app.expand_reminder_dates(prepared)
+
+        self.assertEqual(sorted(expanded["ReminderDays"].astype(int)), [90, 100])
+        self.assertEqual(set(expanded["DueDateFmt"]), {"01 Apr 2025"})
+        self.assertEqual(set(expanded["ReminderDateFmt"]), {"01 Apr 2025", "11 Apr 2025"})
+
 
 if __name__ == "__main__":
     unittest.main()
