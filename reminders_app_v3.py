@@ -1426,6 +1426,9 @@ import hashlib
 SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ← your ClinicReminders_Settings_Master Sheet ID
 SETTINGS_SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 REMEMBER_LOGIN_DAYS = 3650
+PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
+PASSWORD_HASH_ITERATIONS = 260_000
+PASSWORD_SALT_BYTES = 16
 
 # === DEV AUTO-LOGIN ===
 DEV_AUTO_LOGIN = False
@@ -3504,8 +3507,47 @@ def ensure_tracking_sheets():
 
 # === LOGIN HELPER FUNCTIONS ===
 def hash_pw(pw: str):
-    """Return MD5 hash of a password."""
-    return hashlib.md5(pw.encode()).hexdigest()
+    """Return the legacy MD5 hash used by older clinic rows."""
+    return hashlib.md5(str(pw or "").encode("utf-8")).hexdigest()
+
+
+def password_hash_for_storage(password: str) -> str:
+    """Return a salted password hash for new/changed clinic passwords."""
+    salt = base64.urlsafe_b64encode(os.urandom(PASSWORD_SALT_BYTES)).decode("ascii").rstrip("=")
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        str(password or "").encode("utf-8"),
+        salt.encode("utf-8"),
+        PASSWORD_HASH_ITERATIONS,
+    )
+    digest_b64 = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return f"{PASSWORD_HASH_ALGORITHM}${PASSWORD_HASH_ITERATIONS}${salt}${digest_b64}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    stored_hash = str(stored_hash or "").strip()
+    if not stored_hash:
+        return False
+
+    parts = stored_hash.split("$")
+    if len(parts) == 4 and parts[0] == PASSWORD_HASH_ALGORITHM:
+        try:
+            iterations = int(parts[1])
+            salt = parts[2]
+            expected = parts[3]
+        except (TypeError, ValueError):
+            return False
+        digest = hashlib.pbkdf2_hmac(
+            "sha256",
+            str(password or "").encode("utf-8"),
+            salt.encode("utf-8"),
+            iterations,
+        )
+        digest_b64 = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+        return hmac.compare_digest(digest_b64, expected)
+
+    return hmac.compare_digest(stored_hash, hash_pw(password))
+
 
 def authenticate_user(username, password):
     """Check username/password pair against the sheet."""
@@ -3513,7 +3555,7 @@ def authenticate_user(username, password):
     records = sheet.get_all_records()
     for r in records:
         if r["ClinicID"].strip().lower() == username.strip().lower():
-            if r["PasswordHash"] == hash_pw(password):
+            if verify_password(password, r.get("PasswordHash", "")):
                 return r
     return None
 
@@ -3528,6 +3570,15 @@ def get_clinic_row(username):
 
 
 def _remember_login_signature(clinic_id: str, expires_at: int, password_hash: str) -> str:
+    payload = f"{clinic_id.strip().lower()}|{expires_at}"
+    return hmac.new(
+        str(password_hash or "").encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _legacy_remember_login_signature(clinic_id: str, expires_at: int, password_hash: str) -> str:
     payload = f"{clinic_id.strip().lower()}|{expires_at}|{password_hash}"
     return hmac.new(
         str(SETTINGS_SHEET_ID).encode("utf-8"),
@@ -3568,7 +3619,10 @@ def validate_remember_login_token(token: str) -> str | None:
         return None
 
     expected = _remember_login_signature(clinic_id, expires_at, password_hash)
-    return clinic_id if hmac.compare_digest(signature, expected) else None
+    legacy_expected = _legacy_remember_login_signature(clinic_id, expires_at, password_hash)
+    if hmac.compare_digest(signature, expected) or hmac.compare_digest(signature, legacy_expected):
+        return clinic_id
+    return None
 
 
 def get_query_param(name: str) -> str:
@@ -3691,11 +3745,12 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
     all_vals = _gspread_retry(sheet.get_all_values)
     headers = all_vals[0] if all_vals else ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
     settings_json = json.dumps(default_settings_for_country(country))
+    password_hash = password_hash_for_storage(password)
     row_values = [""] * len(headers)
     values_by_header = {
         "ClinicID": clinic_id,
         "PlainPassword": "",
-        "PasswordHash": hash_pw(password),
+        "PasswordHash": password_hash,
         "SettingsJSON": settings_json,
         "UpdatedAt": datetime.utcnow().isoformat(),
     }
@@ -3705,12 +3760,13 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
 
     _gspread_retry(sheet.append_row, row_values, value_input_option="USER_ENTERED")
     upsert_user_tracker(clinic_id, country=country, event="created")
+    return password_hash
 
 
 def update_clinic_password(clinic_id: str, new_password: str):
     """Update the password hash for the current clinic login."""
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-    password_hash = hash_pw(new_password)
+    password_hash = password_hash_for_storage(new_password)
     updated_at = datetime.utcnow().isoformat()
     if callable(globals().get("_update_password_cells", None)):
         _update_password_cells(sheet, headers, row_idx, "", password_hash, updated_at)
@@ -3725,6 +3781,7 @@ def update_clinic_password(clinic_id: str, new_password: str):
             "UpdatedAt": updated_at,
         },
     )
+    return password_hash
 
 def _to_blob(uploaded):
     # Deterministic blob for caching; avoids .read() side effects
@@ -3984,11 +4041,11 @@ if not st.session_state["logged_in"]:
                     st.error("Passwords do not match.")
                 else:
                     try:
-                        create_clinic_account(new_clinic, country, new_password)
+                        password_hash = create_clinic_account(new_clinic, country, new_password)
                         st.session_state["clinic_id"] = new_clinic
                         st.session_state["logged_in"] = True
                         st.session_state["show_top_change_password"] = False
-                        set_remember_login_token(create_remember_login_token(new_clinic, {"PasswordHash": hash_pw(new_password)}))
+                        set_remember_login_token(create_remember_login_token(new_clinic, {"PasswordHash": password_hash}))
                         reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
                         load_settings()
                         st.session_state["user_country"] = country
@@ -4029,8 +4086,8 @@ else:
                     elif not authenticate_user(clinic_id, current_password):
                         st.error("Current password is incorrect.")
                     else:
-                        update_clinic_password(clinic_id, new_password)
-                        set_remember_login_token(create_remember_login_token(clinic_id, {"PasswordHash": hash_pw(new_password)}))
+                        password_hash = update_clinic_password(clinic_id, new_password)
+                        set_remember_login_token(create_remember_login_token(clinic_id, {"PasswordHash": password_hash}))
                         upsert_user_tracker(
                             clinic_id,
                             country=st.session_state.get("user_country", ""),
@@ -8264,7 +8321,7 @@ if False and st.session_state.get("clinic_id") == "Admin":
     st.markdown("### 👩‍⚕️ Admin: Add or Reset Clinic Accounts")
 
     sheet = get_settings_sheet()
-    st.info("Use this to add or update clinic login credentials. Plain passwords will be visible in the Sheet for convenience.")
+    st.info("Use this to add or update clinic login credentials. Passwords are stored as salted hashes.")
 
     with st.form("add_clinic_form"):
         new_clinic = st.text_input("Clinic ID (e.g., HappyVet)").strip()
@@ -8275,8 +8332,7 @@ if False and st.session_state.get("clinic_id") == "Admin":
         if not new_clinic or not new_pw:
             st.error("Please enter both Clinic ID and Password.")
         else:
-            plain = new_pw
-            hashed = hash_pw(new_pw)
+            hashed = password_hash_for_storage(new_pw)
             all_vals = sheet.get_all_values()
             headers = all_vals[0]
             clinic_col = headers.index("ClinicID") + 1
@@ -8290,12 +8346,12 @@ if False and st.session_state.get("clinic_id") == "Admin":
 
             if row:
                 # Update existing clinic row
-                _update_password_cells(sheet, headers, row, plain, hashed, datetime.utcnow().isoformat())
+                _update_password_cells(sheet, headers, row, "", hashed, datetime.utcnow().isoformat())
                 upsert_user_tracker(new_clinic, event="admin_password_update")
                 st.success(f"✅ Updated password for clinic '{new_clinic}'.")
             else:
                 # Add a new clinic row
-                sheet.append_row([new_clinic, plain, hashed, "{}", datetime.utcnow().isoformat()])
+                sheet.append_row([new_clinic, "", hashed, "{}", datetime.utcnow().isoformat()])
                 upsert_user_tracker(new_clinic, event="admin_created")
                 st.success(f"✅ Added new clinic '{new_clinic}'.")
 
