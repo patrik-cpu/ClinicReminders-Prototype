@@ -130,6 +130,36 @@ class ReminderGroupingTests(unittest.TestCase):
         for key in stale_keys:
             self.assertNotIn(key, self.app.st.session_state)
 
+    def test_clear_account_session_state_clears_critical_clinic_state(self):
+        state = self.app.st.session_state
+        previous_uploader_version = state.get("file_uploader_reset_version", 0)
+        seeded_keys = {
+            "logged_in": True,
+            "clinic_id": "Old Clinic",
+            "working_df": pd.DataFrame({"old": [1]}),
+            "rules": {"old rule": {"days": 30}},
+            "dataset_upload_history": [{"file_name": "old.csv"}],
+            "wa_reminder_log": [{"client": "Old"}],
+            "deleted_reminders": [{"client": "Old"}],
+            "last_uploaded_files": ["old.csv"],
+            "last_saved_upload_key": "abc",
+            "pending_overlap_upload_key": "abc",
+            "_settings_row_cache": {"clinic_key": "old clinic"},
+            "_remote_settings_cache": {"clinic_key": "old clinic", "settings": {}},
+        }
+        for key, value in seeded_keys.items():
+            state[key] = value
+
+        self.app.clear_account_session_state()
+
+        self.assertFalse(state["logged_in"])
+        self.assertFalse(state["show_create_account"])
+        self.assertFalse(state["show_top_change_password"])
+        self.assertGreater(state["file_uploader_reset_version"], previous_uploader_version)
+        for key in seeded_keys:
+            if key != "logged_in":
+                self.assertNotIn(key, state)
+
 
 if __name__ == "__main__":
     unittest.main()

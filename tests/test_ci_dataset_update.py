@@ -2,6 +2,7 @@ import contextlib
 import importlib
 import io
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -48,6 +49,73 @@ class DatasetUpdateTests(unittest.TestCase):
         merged = self.app.merge_dataset_update(existing, new, replace_overlapping_dates=False)
 
         self.assertEqual(list(merged["Client Name"]), ["Jan", "Feb"])
+
+    def test_history_row_count_accepts_float_string(self):
+        self.assertEqual(self.app.parse_history_int("56,123.0"), 56123)
+
+    def test_history_row_count_prefers_nonzero_alias(self):
+        history = [{"file_name": "sales.csv", "rows": 0, "Rows": "56,123.0"}]
+
+        normalized = self.app.normalize_dataset_upload_history(history)
+
+        self.assertEqual(normalized[0]["rows"], 56123)
+
+    def test_repairs_zero_history_row_count_from_dataframe(self):
+        history = [
+            {
+                "file_name": "sales.csv",
+                "pms": "VetPORT",
+                "rows": 0,
+                "from": "2025-01-01",
+                "to": "2025-01-31",
+                "status": "Saved",
+            }
+        ]
+        df = pd.DataFrame({"ChargeDate": pd.to_datetime(["2025-01-01", "2025-01-15", "2025-02-01"])})
+
+        repaired, changed = self.app.repair_history_row_counts_from_df(history, df)
+
+        self.assertTrue(changed)
+        self.assertEqual(repaired[0]["rows"], 2)
+
+    def test_repairs_single_zero_history_row_count_even_when_dates_do_not_match(self):
+        history = [
+            {
+                "file_name": "sales.csv",
+                "pms": "VetPORT",
+                "rows": 0,
+                "from": "2025-01-01",
+                "to": "2025-01-31",
+                "status": "Saved",
+            }
+        ]
+        df = pd.DataFrame({"ChargeDate": pd.to_datetime(["2025-02-01", "2025-02-15", "2025-03-01"])})
+
+        repaired, changed = self.app.repair_history_row_counts_from_df(history, df)
+
+        self.assertTrue(changed)
+        self.assertEqual(repaired[0]["rows"], 3)
+
+    def test_repairs_single_zero_history_row_count_without_charge_date_column(self):
+        history = [{"file_name": "sales.csv", "pms": "VetPORT", "rows": 0}]
+        df = pd.DataFrame({"Client Name": ["A", "B", "C", "D"]})
+
+        repaired, changed = self.app.repair_history_row_counts_from_df(history, df)
+
+        self.assertTrue(changed)
+        self.assertEqual(repaired[0]["rows"], 4)
+
+    def test_ensure_shared_dataset_loads_when_logged_session_lacks_dataframe(self):
+        state = self.app.st.session_state
+        state["clinic_id"] = "Clinic With Saved Data"
+        state.pop("working_df", None)
+        state.pop("_shared_dataset_load_attempted_for", None)
+
+        with patch.object(self.app, "load_shared_dataset_for_clinic") as load_shared:
+            self.app.ensure_shared_dataset_loaded_for_session()
+
+        load_shared.assert_called_once()
+        self.assertEqual(state["_shared_dataset_load_attempted_for"], "Clinic With Saved Data")
 
 
 if __name__ == "__main__":

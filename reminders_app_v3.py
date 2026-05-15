@@ -43,6 +43,9 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.errors import HttpError
 from io import BytesIO
 PREPARED_SCHEMA_VERSION = 5
+SESSION_BUNDLE_SCHEMA_VERSION = 1
+PRECOMPUTE_ANALYTICS_BUNDLE = False
+UPLOAD_SUMMARY_SCHEMA_VERSION = 2
 DRIVE_SCOPE = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
@@ -252,6 +255,72 @@ def reset_uploaded_data_state(clear_cache: bool = True, reset_uploader: bool = F
     if clear_cache:
         st.cache_data.clear()
 
+
+ACCOUNT_SCOPED_SESSION_KEYS = [
+    "clinic_id",
+    "rules",
+    "applied_rules",
+    "exclusions",
+    "client_exclusions",
+    "patient_exclusions",
+    "user_name",
+    "user_template",
+    "wa_template",
+    "client_group_days",
+    "reminder_window_days",
+    "reminder_warning_days",
+    "wa_reminder_log",
+    "deleted_reminders",
+    "dataset_upload_history",
+    "user_country",
+    "get_started_reset_at",
+    "search_terms_reviewed",
+    "search_term_added",
+    "search_term_added_at",
+    "user_name_updated_at",
+    "wa_template_reviewed",
+    "wa_template_updated",
+    "wa_template_updated_at",
+    "data_version",
+    "last_saved_upload_key",
+    "pending_overlap_upload_key",
+    "_shared_dataset_load_attempted_for",
+    "_row_count_repair_load_attempted_for",
+    "last_uploaded_files",
+    "confirm_reset_dataset",
+    "form_version",
+    "new_rule_counter",
+    "search_criteria_changed",
+    "_search_criteria_refreshed",
+    "_search_terms_autosave_error",
+    "_pending_recent_reminder_warning",
+    "_pending_reminder_action_status",
+    "_replace_deleted_reminders_once",
+    "_replace_wa_reminder_log_once",
+    "_deleted_reminder_remove_keys_once",
+    "_wa_reminder_remove_keys_once",
+    "_replace_search_settings_once",
+    "_scroll_to_whatsapp_composer",
+    "_settings_row_cache",
+    "_remote_settings_cache",
+    "_tracker_sheet_cache",
+    "_hidden_reminders_index_cache",
+    "llm_payload",
+    "llm_zip_bytes",
+    "llm_built_at",
+]
+
+
+def clear_account_session_state():
+    """Clear clinic-specific session state when a user leaves an account."""
+    reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
+    for key in ACCOUNT_SCOPED_SESSION_KEYS:
+        st.session_state.pop(key, None)
+    st.session_state["logged_in"] = False
+    st.session_state["show_create_account"] = False
+    st.session_state["show_top_change_password"] = False
+
+
 def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Drop duplicate columns after normalizing header text.
@@ -275,11 +344,15 @@ def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     
 def clear_clinic_dataset_pointer(clinic_id: str):
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-
-    # Clear the dataset pointer cells
-    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID), "")
-    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_NAME), "")
-    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT), "")
+    _update_dataset_pointer_cells(sheet, headers, row_idx, "", "", "")
+    update_cached_settings_row_fields(
+        clinic_id,
+        {
+            SHEET_COL_DATASET_FILE_ID: "",
+            SHEET_COL_DATASET_FILE_NAME: "",
+            SHEET_COL_DATASET_UPDATED_AT: "",
+        },
+    )
 
 def _settings_col_index(headers, name: str) -> int:
     return headers.index(name) + 1
@@ -350,19 +423,75 @@ def _update_password_cells(sheet, headers, row_idx, plain_password, password_has
 
 
 def _get_settings_row_for_clinic(clinic_id: str):
+    clinic_key = str(clinic_id or "").strip().lower()
+    cached = st.session_state.get("_settings_row_cache")
+    if isinstance(cached, dict) and cached.get("clinic_key") == clinic_key:
+        return get_settings_sheet(), list(cached.get("headers", [])), int(cached.get("row_idx"))
+
     sheet = get_settings_sheet()
     all_vals = _gspread_retry(sheet.get_all_values)
     headers = all_vals[0]
     clinic_col = _settings_col_index(headers, "ClinicID")
     row_idx = None
     for i, r in enumerate(all_vals[1:], start=2):
-        if r[clinic_col - 1].strip().lower() == clinic_id.strip().lower():
+        if len(r) >= clinic_col and r[clinic_col - 1].strip().lower() == clinic_key:
             row_idx = i
             break
 
     if row_idx is None:
         raise ValueError("ClinicID not found in settings sheet")
+    st.session_state["_settings_row_cache"] = {
+        "clinic_key": clinic_key,
+        "headers": list(headers),
+        "row_idx": row_idx,
+        "row_values": list(all_vals[row_idx - 1]) if len(all_vals) >= row_idx else [],
+    }
     return sheet, headers, row_idx
+
+
+def get_cached_settings_row_values(clinic_id: str) -> list[str] | None:
+    cached = st.session_state.get("_settings_row_cache")
+    clinic_key = str(clinic_id or "").strip().lower()
+    if isinstance(cached, dict) and cached.get("clinic_key") == clinic_key and "row_values" in cached:
+        return list(cached.get("row_values") or [])
+    return None
+
+
+def update_cached_settings_row_fields(clinic_id: str, values_by_header: dict[str, str]) -> None:
+    cached = st.session_state.get("_settings_row_cache")
+    clinic_key = str(clinic_id or "").strip().lower()
+    if not isinstance(cached, dict) or cached.get("clinic_key") != clinic_key:
+        return
+    headers = list(cached.get("headers") or [])
+    row_values = list(cached.get("row_values") or [])
+    if len(row_values) < len(headers):
+        row_values.extend([""] * (len(headers) - len(row_values)))
+    for header, value in values_by_header.items():
+        if header in headers:
+            row_values[headers.index(header)] = value
+    cached["row_values"] = row_values
+
+
+def _copy_settings_dict(settings: dict | None) -> dict:
+    try:
+        return json.loads(json.dumps(settings or {}))
+    except Exception:
+        return dict(settings or {})
+
+
+def cache_remote_settings(clinic_id: str, settings: dict | None) -> None:
+    st.session_state["_remote_settings_cache"] = {
+        "clinic_key": str(clinic_id or "").strip().lower(),
+        "settings": _copy_settings_dict(settings),
+    }
+
+
+def get_cached_remote_settings(clinic_id: str) -> dict:
+    cached = st.session_state.get("_remote_settings_cache")
+    clinic_key = str(clinic_id or "").strip().lower()
+    if isinstance(cached, dict) and cached.get("clinic_key") == clinic_key:
+        return _copy_settings_dict(cached.get("settings", {}))
+    return {}
     
 def drive_trash_file(file_id: str):
     if not file_id:
@@ -1170,6 +1299,7 @@ import hashlib
 # === CONFIGURATION ===
 SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ← your ClinicReminders_Settings_Master Sheet ID
 SETTINGS_SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+REMEMBER_LOGIN_DAYS = 3650
 
 # === DEV AUTO-LOGIN ===
 DEV_AUTO_LOGIN = False
@@ -1285,10 +1415,18 @@ def load_shared_dataset_for_clinic():
     if not clinic_id:
         return
 
-    sheet = get_settings_sheet()
-    records = sheet.get_all_records()
-
-    rec = next((r for r in records if str(r.get("ClinicID", "")).strip().lower() == clinic_id.strip().lower()), None)
+    rec = None
+    try:
+        sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+        row_values = get_cached_settings_row_values(clinic_id) or _gspread_retry(sheet.row_values, row_idx)
+        rec = {
+            header: row_values[idx] if idx < len(row_values) else ""
+            for idx, header in enumerate(headers)
+        }
+    except Exception:
+        sheet = get_settings_sheet()
+        records = sheet.get_all_records()
+        rec = next((r for r in records if str(r.get("ClinicID", "")).strip().lower() == clinic_id.strip().lower()), None)
     if not rec:
         return
 
@@ -1313,6 +1451,17 @@ def load_shared_dataset_for_clinic():
     except Exception as e:
         st.session_state["shared_dataset_loaded"] = False
         st.session_state["shared_dataset_error"] = str(e)
+
+
+def ensure_shared_dataset_loaded_for_session():
+    clinic_id = st.session_state.get("clinic_id")
+    if not clinic_id or st.session_state.get("working_df") is not None:
+        return
+    attempted_for = st.session_state.get("_shared_dataset_load_attempted_for")
+    if attempted_for == clinic_id:
+        return
+    st.session_state["_shared_dataset_load_attempted_for"] = clinic_id
+    load_shared_dataset_for_clinic()
 
 def drive_upsert_csv_bytes(
     file_bytes: bytes,
@@ -1419,9 +1568,15 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
     updated_at = datetime.utcnow().isoformat()
-    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID), file_id)
-    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_NAME), filename)
-    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT), updated_at)
+    _update_dataset_pointer_cells(sheet, headers, row_idx, file_id, filename, updated_at)
+    update_cached_settings_row_fields(
+        clinic_id,
+        {
+            SHEET_COL_DATASET_FILE_ID: file_id,
+            SHEET_COL_DATASET_FILE_NAME: filename,
+            SHEET_COL_DATASET_UPDATED_AT: updated_at,
+        },
+    )
     return updated_at
 
 # ============================================================
@@ -1458,34 +1613,22 @@ def _gspread_retry(fn, *args, **kwargs):
 
 def get_existing_dataset_pointer(clinic_id: str) -> tuple[str, str]:
     """
-    Returns (existing_file_id, existing_filename) using a light-weight read:
-    - sheet.get_all_values() (still whole sheet) but avoids get_all_records() overhead
-    - and does NOT parse into dicts
-    If you want to go further, see section (3) below to read only 3 columns.
+    Returns (existing_file_id, existing_filename) using a single row read.
     """
-    sheet = get_settings_sheet()
-    all_vals = _gspread_retry(sheet.get_all_values)
-
-    if not all_vals or len(all_vals) < 2:
-        return "", ""
-
-    headers = all_vals[0]
-    # Defensive: handle missing headers gracefully
     try:
+        sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+        current_row = _gspread_retry(sheet.row_values, row_idx)
         clinic_ix = headers.index("ClinicID")
         fileid_ix = headers.index(SHEET_COL_DATASET_FILE_ID)
         fname_ix  = headers.index(SHEET_COL_DATASET_FILE_NAME)
-    except ValueError:
+    except (ValueError, IndexError):
         return "", ""
 
-    cid = clinic_id.strip().lower()
-    for r in all_vals[1:]:
-        if len(r) <= max(clinic_ix, fileid_ix, fname_ix):
-            continue
-        if str(r[clinic_ix]).strip().lower() == cid:
-            return str(r[fileid_ix]).strip(), str(r[fname_ix]).strip()
-
-    return "", ""
+    if len(current_row) <= max(clinic_ix, fileid_ix, fname_ix):
+        return "", ""
+    if str(current_row[clinic_ix]).strip().lower() != str(clinic_id or "").strip().lower():
+        return "", ""
+    return str(current_row[fileid_ix]).strip(), str(current_row[fname_ix]).strip()
 
 def load_existing_shared_df(file_id: str, filename: str) -> pd.DataFrame | None:
     """
@@ -1531,10 +1674,36 @@ def parse_history_date(value) -> pd.Timestamp | None:
     return parsed.normalize()
 
 def parse_history_int(value) -> int:
+    if value in (None, ""):
+        return 0
     try:
-        return int(str(value or 0).replace(",", ""))
+        if pd.isna(value):
+            return 0
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(float(str(value).strip().replace(",", "")))
     except (TypeError, ValueError):
         return 0
+
+
+def parse_history_row_count(entry: dict) -> int:
+    if not isinstance(entry, dict):
+        return 0
+    candidates = [
+        parse_history_int(entry.get(key))
+        for key in ("rows", "Rows", "row_count", "RowCount", "Row Count")
+        if key in entry
+    ]
+    for count in candidates:
+        if count > 0:
+            return count
+    return candidates[0] if candidates else 0
+
 
 def format_pms_display_name(value) -> str:
     name = str(value or "").strip()
@@ -1563,7 +1732,7 @@ def normalize_dataset_upload_history(history) -> list[dict]:
         rows.append({
             "file_name": file_name,
             "pms": format_pms_display_name(entry.get("pms") or entry.get("PMS") or "-"),
-            "rows": parse_history_int(entry.get("rows") or entry.get("Rows") or 0),
+            "rows": parse_history_row_count(entry),
             "from": from_date.strftime("%Y-%m-%d") if from_date is not None else "",
             "to": to_date.strftime("%Y-%m-%d") if to_date is not None else "",
             "status": str(entry.get("status") or entry.get("Status") or "Saved").strip() or "Saved",
@@ -1802,15 +1971,25 @@ def load_settings():
         st.warning("Please log in first.")
         return
 
-    sheet = get_settings_sheet()
-    records = sheet.get_all_records()
-    rec = next((r for r in records if r["ClinicID"].strip().lower() == clinic_id.lower()), None)
+    rec = None
+    try:
+        sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+        row_values = get_cached_settings_row_values(clinic_id) or _gspread_retry(sheet.row_values, row_idx)
+        rec = {
+            header: row_values[idx] if idx < len(row_values) else ""
+            for idx, header in enumerate(headers)
+        }
+    except Exception:
+        sheet = get_settings_sheet()
+        records = sheet.get_all_records()
+        rec = next((r for r in records if r["ClinicID"].strip().lower() == clinic_id.lower()), None)
 
     if rec and rec["SettingsJSON"]:
         try:
             settings = json.loads(rec["SettingsJSON"])
         except Exception:
             settings = {}
+        cache_remote_settings(clinic_id, settings)
         st.session_state["rules"] = settings.get("rules", DEFAULT_RULES.copy())
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["client_exclusions"] = settings.get("client_exclusions", [])
@@ -1838,6 +2017,8 @@ def load_settings():
         st.session_state["user_country"] = settings.get("country", "")
     else:
         # Defaults for new clinics
+        settings = default_settings_for_country("")
+        cache_remote_settings(clinic_id, settings)
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
         st.session_state["client_exclusions"] = []
@@ -1861,7 +2042,142 @@ def load_settings():
         st.session_state["user_country"] = ""
 
 
-def save_settings():
+_SETTING_MISSING = object()
+
+
+def _settings_copy(value):
+    try:
+        return json.loads(json.dumps(value))
+    except Exception:
+        return value
+
+
+def _settings_equal(left, right) -> bool:
+    try:
+        return json.dumps(left, sort_keys=True, default=str) == json.dumps(right, sort_keys=True, default=str)
+    except Exception:
+        return left == right
+
+
+def _merged_scalar_setting(key: str, default, base_settings: dict, remote_settings: dict):
+    if key not in st.session_state:
+        return _settings_copy(remote_settings.get(key, default))
+    local_value = st.session_state[key]
+    base_value = base_settings.get(key, _SETTING_MISSING)
+    remote_value = remote_settings.get(key, _SETTING_MISSING)
+    if (
+        base_value is not _SETTING_MISSING
+        and remote_value is not _SETTING_MISSING
+        and _settings_equal(local_value, base_value)
+        and not _settings_equal(remote_value, base_value)
+    ):
+        return _settings_copy(remote_value)
+    if (
+        base_value is not _SETTING_MISSING
+        and remote_value is _SETTING_MISSING
+        and _settings_equal(local_value, base_value)
+    ):
+        return _settings_copy(default)
+    return _settings_copy(local_value)
+
+
+def merge_rule_settings_for_save(base_rules, remote_rules, local_rules) -> dict:
+    base_rules = base_rules if isinstance(base_rules, dict) else {}
+    remote_rules = remote_rules if isinstance(remote_rules, dict) else {}
+    local_rules = local_rules if isinstance(local_rules, dict) else {}
+    merged = {}
+
+    for rule in sorted(set(base_rules) | set(remote_rules) | set(local_rules)):
+        base_present = rule in base_rules
+        remote_present = rule in remote_rules
+        local_present = rule in local_rules
+        base_value = base_rules.get(rule, _SETTING_MISSING)
+        remote_value = remote_rules.get(rule, _SETTING_MISSING)
+        local_value = local_rules.get(rule, _SETTING_MISSING)
+
+        if not local_present:
+            if not base_present and remote_present:
+                merged[rule] = _settings_copy(remote_value)
+            continue
+        if not remote_present:
+            if base_present and _settings_equal(local_value, base_value):
+                continue
+            merged[rule] = _settings_copy(local_value)
+            continue
+        if not base_present:
+            merged[rule] = _settings_copy(local_value if not _settings_equal(local_value, remote_value) else remote_value)
+            continue
+        if _settings_equal(local_value, base_value) and not _settings_equal(remote_value, base_value):
+            merged[rule] = _settings_copy(remote_value)
+        else:
+            merged[rule] = _settings_copy(local_value)
+    return merged
+
+
+def _text_list_key(value) -> str:
+    return _SPACE_RX.sub(" ", str(value or "").strip()).lower()
+
+
+def _patient_exclusion_key(value) -> str:
+    if not isinstance(value, dict):
+        return ""
+    client = _text_list_key(value.get("client", ""))
+    patient = _text_list_key(value.get("patient", ""))
+    return f"{client}|{patient}" if client or patient else ""
+
+
+def merge_keyed_list_setting_for_save(base_list, remote_list, local_list, key_fn) -> list:
+    base_items = base_list if isinstance(base_list, list) else []
+    remote_items = remote_list if isinstance(remote_list, list) else []
+    local_items = local_list if isinstance(local_list, list) else []
+
+    def keyed(items):
+        order = []
+        values = {}
+        for item in items:
+            key = key_fn(item)
+            if not key:
+                continue
+            if key not in values:
+                order.append(key)
+            values[key] = item
+        return order, values
+
+    _, base_map = keyed(base_items)
+    remote_order, remote_map = keyed(remote_items)
+    local_order, local_map = keyed(local_items)
+
+    result_order = list(remote_order)
+    result = {key: _settings_copy(value) for key, value in remote_map.items()}
+
+    for key in base_map:
+        if key not in local_map:
+            result.pop(key, None)
+            if key in result_order:
+                result_order.remove(key)
+
+    for key in local_order:
+        local_value = local_map[key]
+        if key in base_map and key not in remote_map and _settings_equal(local_value, base_map[key]):
+            result.pop(key, None)
+            if key in result_order:
+                result_order.remove(key)
+            continue
+        if (
+            key in base_map
+            and key in remote_map
+            and _settings_equal(local_value, base_map[key])
+            and not _settings_equal(remote_map[key], base_map[key])
+        ):
+            continue
+        if key not in result_order:
+            result_order.append(key)
+        result[key] = _settings_copy(local_value)
+
+    return [result[key] for key in result_order if key in result]
+
+
+def save_settings(track_user: bool = True, refresh_remote: bool = True):
     """Save current clinic’s settings back to the Google Sheet."""
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id:
@@ -1875,40 +2191,102 @@ def save_settings():
     except ValueError:
         sheet = get_settings_sheet()
 
-    remote_settings = get_remote_settings(sheet=sheet, headers=headers, row=row)
-    if st.session_state.pop("_replace_wa_reminder_log_once", False):
+    base_settings = get_cached_remote_settings(clinic_id)
+    remote_settings = (
+        get_remote_settings(sheet=sheet, headers=headers, row=row)
+        if refresh_remote
+        else base_settings
+    )
+    if not remote_settings and base_settings:
+        remote_settings = base_settings
+
+    wa_remove_keys = {
+        tuple(key)
+        for key in st.session_state.pop("_wa_reminder_remove_keys_once", [])
+        if isinstance(key, (list, tuple)) and any(key)
+    }
+    replace_wa_log = st.session_state.pop("_replace_wa_reminder_log_once", False)
+    if replace_wa_log and not wa_remove_keys:
         wa_reminder_log = st.session_state.get("wa_reminder_log", [])
     else:
         wa_reminder_log = merge_wa_reminder_logs(
             remote_settings.get("wa_reminder_log", []),
             st.session_state.get("wa_reminder_log", []),
         )
+        if wa_remove_keys:
+            wa_reminder_log = [
+                entry for entry in wa_reminder_log
+                if tuple(entry.get("ReminderKey", [])) not in wa_remove_keys
+            ]
     st.session_state["wa_reminder_log"] = wa_reminder_log
-    if st.session_state.pop("_replace_deleted_reminders_once", False):
+
+    deleted_remove_keys = {
+        tuple(key)
+        for key in st.session_state.pop("_deleted_reminder_remove_keys_once", [])
+        if isinstance(key, (list, tuple)) and any(key)
+    }
+    replace_deleted_reminders = st.session_state.pop("_replace_deleted_reminders_once", False)
+    if replace_deleted_reminders and not deleted_remove_keys:
         deleted_reminders = st.session_state.get("deleted_reminders", [])
     else:
         deleted_reminders = merge_deleted_reminders(
             remote_settings.get("deleted_reminders", []),
             st.session_state.get("deleted_reminders", []),
         )
+        if deleted_remove_keys:
+            deleted_reminders = [
+                entry for entry in deleted_reminders
+                if hidden_reminder_key(entry) not in deleted_remove_keys
+            ]
         st.session_state["deleted_reminders"] = deleted_reminders
 
     def int_setting_for_save(key: str, default: int) -> int:
-        value = st.session_state[key] if key in st.session_state else remote_settings.get(key, default)
+        value = _merged_scalar_setting(key, default, base_settings, remote_settings)
         try:
             return int(value)
         except (TypeError, ValueError):
             return default
 
     def setting_for_save(key: str, default):
-        return st.session_state[key] if key in st.session_state else remote_settings.get(key, default)
+        return _merged_scalar_setting(key, default, base_settings, remote_settings)
+
+    replace_search_settings = st.session_state.pop("_replace_search_settings_once", False)
+    if replace_search_settings:
+        rules_for_save = setting_for_save("rules", DEFAULT_RULES.copy())
+        exclusions_for_save = setting_for_save("exclusions", [])
+        client_exclusions_for_save = setting_for_save("client_exclusions", [])
+        patient_exclusions_for_save = setting_for_save("patient_exclusions", [])
+    else:
+        rules_for_save = merge_rule_settings_for_save(
+            base_settings.get("rules", {}),
+            remote_settings.get("rules", {}),
+            setting_for_save("rules", DEFAULT_RULES.copy()),
+        )
+        exclusions_for_save = merge_keyed_list_setting_for_save(
+            base_settings.get("exclusions", []),
+            remote_settings.get("exclusions", []),
+            setting_for_save("exclusions", []),
+            _text_list_key,
+        )
+        client_exclusions_for_save = merge_keyed_list_setting_for_save(
+            base_settings.get("client_exclusions", []),
+            remote_settings.get("client_exclusions", []),
+            setting_for_save("client_exclusions", []),
+            _text_list_key,
+        )
+        patient_exclusions_for_save = merge_keyed_list_setting_for_save(
+            base_settings.get("patient_exclusions", []),
+            remote_settings.get("patient_exclusions", []),
+            setting_for_save("patient_exclusions", []),
+            _patient_exclusion_key,
+        )
 
     # Build the JSON blob for settings
     settings_data = {
-        "rules": setting_for_save("rules", DEFAULT_RULES.copy()),
-        "exclusions": setting_for_save("exclusions", []),
-        "client_exclusions": setting_for_save("client_exclusions", []),
-        "patient_exclusions": setting_for_save("patient_exclusions", []),
+        "rules": rules_for_save,
+        "exclusions": exclusions_for_save,
+        "client_exclusions": client_exclusions_for_save,
+        "patient_exclusions": patient_exclusions_for_save,
         "user_name": setting_for_save("user_name", ""),
         "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
         "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
@@ -1944,7 +2322,20 @@ def save_settings():
             _gspread_retry(sheet.batch_update, payload)
     else:
         sheet.append_row([clinic_id, "", settings_json, updated_at])
-    upsert_user_tracker(clinic_id, country=st.session_state.get("user_country", ""), event="settings_saved")
+    update_cached_settings_row_fields(
+        clinic_id,
+        {
+            "SettingsJSON": settings_json,
+            "UpdatedAt": updated_at,
+        },
+    )
+    cache_remote_settings(clinic_id, settings_data)
+    if track_user:
+        upsert_user_tracker(clinic_id, country=st.session_state.get("user_country", ""), event="settings_saved")
+
+
+def save_settings_quietly():
+    save_settings(track_user=False, refresh_remote=True)
 # --------------------------------
 
 def _reminder_client_key(client_name: str) -> str:
@@ -1972,11 +2363,13 @@ def get_remote_settings(sheet=None, headers=None, row=None) -> dict:
     try:
         if not (sheet and headers and row):
             sheet, headers, row = _get_settings_row_for_clinic(clinic_id)
-        current_row = sheet.row_values(row)
+        current_row = _gspread_retry(sheet.row_values, row)
         settings_idx = _settings_col_index(headers, "SettingsJSON") - 1
         if len(current_row) <= settings_idx or not current_row[settings_idx]:
             return {}
-        return json.loads(current_row[settings_idx])
+        settings = json.loads(current_row[settings_idx])
+        cache_remote_settings(clinic_id, settings)
+        return settings
     except Exception:
         return {}
 
@@ -2003,11 +2396,12 @@ def merge_wa_reminder_logs(*logs):
     return sorted(
         merged.values(),
         key=lambda entry: _parse_reminder_log_time(entry.get("RemindedAt", "")) or datetime.min,
-    )[-1000:]
+    )[-MAX_SETTINGS_LOG_ENTRIES:]
 
 HIDDEN_REMINDER_KEY_FIELDS = ("Client Name", "Animal Name", "Plan Item", "Due Date", "Reminder Date")
 REMINDER_ACTION_SENT = "sent"
 REMINDER_ACTION_DECLINED = "declined"
+MAX_SETTINGS_LOG_ENTRIES = 1000
 WHATSAPP_ICON_MASK_DATA_URI = (
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E"
     "%3Cpath d='M9 57l4.2-15.2A24.2 24.2 0 0 1 10 29.8C10 16.7 20.7 6 33.8 6"
@@ -2020,10 +2414,47 @@ WHATSAPP_ICON_MASK_DATA_URI = (
 )
 
 
+def _hidden_reminder_key_part(value) -> str:
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return _SPACE_RX.sub(" ", str(value).strip()).lower()
+
+
 def hidden_reminder_key(row) -> tuple[str, ...]:
-    return tuple(
-        _SPACE_RX.sub(" ", str(row.get(field, "") or "").strip()).lower()
-        for field in HIDDEN_REMINDER_KEY_FIELDS
+    return tuple(_hidden_reminder_key_part(row.get(field, "")) for field in HIDDEN_REMINDER_KEY_FIELDS)
+
+
+def get_hidden_reminders_index() -> dict[tuple[str, ...], dict]:
+    deleted = st.session_state.get("deleted_reminders", [])
+    cache_key = (id(deleted), len(deleted))
+    cached = st.session_state.get("_hidden_reminders_index_cache")
+    if isinstance(cached, dict) and cached.get("cache_key") == cache_key:
+        return cached.get("index", {})
+
+    index = {}
+    for entry in deleted:
+        if not isinstance(entry, dict):
+            continue
+        key = hidden_reminder_key(entry)
+        if any(key):
+            index[key] = entry
+    st.session_state["_hidden_reminders_index_cache"] = {
+        "cache_key": cache_key,
+        "index": index,
+    }
+    return index
+
+
+def _hidden_reminder_action_time(entry) -> datetime:
+    return (
+        _parse_reminder_log_time(entry.get("ActionedAt", ""))
+        or _parse_reminder_log_time(entry.get("DeletedAt", ""))
+        or datetime.min
     )
 
 
@@ -2038,18 +2469,17 @@ def merge_deleted_reminders(*logs):
             key = hidden_reminder_key(entry)
             if not any(key):
                 continue
-            merged[key] = dict(entry)
-    return list(merged.values())[-1000:]
+            existing = merged.get(key)
+            if existing is None or _hidden_reminder_action_time(entry) >= _hidden_reminder_action_time(existing):
+                merged[key] = dict(entry)
+    return sorted(merged.values(), key=_hidden_reminder_action_time)[-MAX_SETTINGS_LOG_ENTRIES:]
 
 
 def get_hidden_reminder_record(row) -> dict | None:
     target_key = hidden_reminder_key(row)
     if not any(target_key):
         return None
-    for entry in st.session_state.get("deleted_reminders", []):
-        if isinstance(entry, dict) and hidden_reminder_key(entry) == target_key:
-            return entry
-    return None
+    return get_hidden_reminders_index().get(target_key)
 
 
 def upsert_hidden_reminder(row, action: str, message: str = "", now: datetime | None = None) -> dict:
@@ -2078,7 +2508,7 @@ def upsert_hidden_reminder(row, action: str, message: str = "", now: datetime | 
         if not (isinstance(existing, dict) and hidden_reminder_key(existing) == target_key)
     ]
     reminders.append(rec)
-    st.session_state["deleted_reminders"] = reminders[-1000:]
+    st.session_state["deleted_reminders"] = reminders[-MAX_SETTINGS_LOG_ENTRIES:]
     return rec
 
 
@@ -2091,7 +2521,15 @@ def filter_hidden_reminders(reminders_df: pd.DataFrame) -> pd.DataFrame:
     if not deleted_keys:
         return reminders_df
 
-    keep_mask = reminders_df.apply(lambda row: hidden_reminder_key(row) not in deleted_keys, axis=1)
+    key_parts = []
+    for field in HIDDEN_REMINDER_KEY_FIELDS:
+        if field in reminders_df.columns:
+            values = reminders_df[field]
+        else:
+            values = pd.Series("", index=reminders_df.index)
+        key_parts.append(values.map(_hidden_reminder_key_part))
+
+    keep_mask = [key not in deleted_keys for key in zip(*key_parts)]
     return reminders_df.loc[keep_mask].copy()
 
 
@@ -2103,7 +2541,8 @@ def remove_actioned_reminder(row) -> None:
         entry for entry in st.session_state.get("deleted_reminders", [])
         if not (isinstance(entry, dict) and hidden_reminder_key(entry) == target_key)
     ]
-    st.session_state["_replace_deleted_reminders_once"] = True
+    remove_keys = st.session_state.setdefault("_deleted_reminder_remove_keys_once", [])
+    remove_keys.append(list(target_key))
 
 
 def get_recent_reminder_warning(client_name: str, now: datetime | None = None, sync_remote: bool = False) -> str | None:
@@ -2141,9 +2580,9 @@ def record_wa_reminder_click(client_name: str, now: datetime | None = None, row=
         entry["ReminderKey"] = list(hidden_reminder_key(row))
     log = list(st.session_state.get("wa_reminder_log", []))
     log.append(entry)
-    st.session_state["wa_reminder_log"] = log[-1000:]
+    st.session_state["wa_reminder_log"] = log[-MAX_SETTINGS_LOG_ENTRIES:]
     if save:
-        save_settings()
+        save_settings(track_user=False)
 
 
 def remove_wa_reminder_click_for_row(row):
@@ -2154,7 +2593,8 @@ def remove_wa_reminder_click_for_row(row):
         entry for entry in st.session_state.get("wa_reminder_log", [])
         if not (isinstance(entry, dict) and entry.get("ReminderKey") == target_key)
     ]
-    st.session_state["_replace_wa_reminder_log_once"] = True
+    remove_keys = st.session_state.setdefault("_wa_reminder_remove_keys_once", [])
+    remove_keys.append(target_key)
 
 
 def record_wa_button_tracker(row, message: str, source: str, now: datetime | None = None):
@@ -2539,6 +2979,11 @@ def get_settings_sheet():
 
 
 def get_or_create_tracker_sheet(title: str, headers: list[str]):
+    cache_key = (str(title), tuple(headers))
+    tracker_cache = st.session_state.setdefault("_tracker_sheet_cache", {})
+    if cache_key in tracker_cache:
+        return tracker_cache[cache_key]
+
     spreadsheet = get_settings_spreadsheet()
     try:
         worksheet = spreadsheet.worksheet(title)
@@ -2549,6 +2994,7 @@ def get_or_create_tracker_sheet(title: str, headers: list[str]):
     if first_row[:len(headers)] != headers:
         end_col = _column_number_to_letter(len(headers))
         _gspread_retry(worksheet.update, values=[headers], range_name=f"A1:{end_col}1")
+    tracker_cache[cache_key] = worksheet
     return worksheet
 
 
@@ -2595,7 +3041,7 @@ def _remember_login_signature(clinic_id: str, expires_at: int, password_hash: st
     ).hexdigest()
 
 
-def create_remember_login_token(clinic_id: str, user_row: dict | None = None, days: int = 14) -> str:
+def create_remember_login_token(clinic_id: str, user_row: dict | None = None, days: int = REMEMBER_LOGIN_DAYS) -> str:
     clinic_id = str(clinic_id or "").strip()
     user_row = user_row or get_clinic_row(clinic_id)
     password_hash = str((user_row or {}).get("PasswordHash", "")).strip()
@@ -2770,8 +3216,21 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
 def update_clinic_password(clinic_id: str, new_password: str):
     """Update the password hash for the current clinic login."""
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-    password_col = _settings_col_index(headers, "PasswordHash")
-    _gspread_retry(sheet.update_cell, row_idx, password_col, hash_pw(new_password))
+    password_hash = hash_pw(new_password)
+    updated_at = datetime.utcnow().isoformat()
+    if callable(globals().get("_update_password_cells", None)):
+        _update_password_cells(sheet, headers, row_idx, "", password_hash, updated_at)
+    else:
+        password_col = _settings_col_index(headers, "PasswordHash")
+        _gspread_retry(sheet.update_cell, row_idx, password_col, password_hash)
+    update_cached_settings_row_fields(
+        clinic_id,
+        {
+            "PlainPassword": "",
+            "PasswordHash": password_hash,
+            "UpdatedAt": updated_at,
+        },
+    )
 
 def _to_blob(uploaded):
     # Deterministic blob for caching; avoids .read() side effects
@@ -2788,7 +3247,7 @@ def upload_fingerprint(file_blobs) -> str:
     return h.hexdigest()
 
 @st.cache_data(show_spinner=False)
-def summarize_uploads(file_blobs):
+def summarize_uploads(file_blobs, cache_version: int = UPLOAD_SUMMARY_SCHEMA_VERSION):
     datasets, summary_rows = [], []
     for fb in file_blobs:
         df, pms_name, amount_col = process_file(fb["bytes"], fb["name"])
@@ -2799,7 +3258,7 @@ def summarize_uploads(file_blobs):
         to_date = charge_dates.max()
         summary_rows.append({
             "File name": fb["name"],
-            "Rows": len(df),
+            "Rows": int(len(df.index)),
             "PMS": pms_name,
             "From": from_date.strftime("%d %b %Y") if pd.notna(from_date) else "-",
             "To":   to_date.strftime("%d %b %Y")   if pd.notna(to_date)   else "-"
@@ -2808,7 +3267,7 @@ def summarize_uploads(file_blobs):
     return datasets, summary_rows
 
 @st.cache_data(show_spinner=False)
-def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
+def prepare_session_bundle(df: pd.DataFrame, cache_key: str):
     """
     Build a single, reusable bundle for the whole app:
       - Normalized keys & core date fields
@@ -2816,7 +3275,8 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
       - VisitFlag column
       - Transactions (client- & patient-level) using 'Block' segmentation
       - patients_per_month series
-    NOTE: Cache key should include (data_version, rules_fp) at call site.
+    cache_key is an explicit cache invalidator for schema changes. Reminder rules
+    are intentionally excluded because this bundle only uses fixed analytics masks.
     """
     import numpy as np
 
@@ -2938,7 +3398,8 @@ if remember_token and not st.session_state["logged_in"]:
         st.session_state["clinic_id"] = remembered_clinic_id
         st.session_state["logged_in"] = True
         st.session_state["show_top_change_password"] = False
-        reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
+        set_remember_login_token(create_remember_login_token(remembered_clinic_id))
+        reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
         load_settings()
         load_shared_dataset_for_clinic()
         upsert_user_tracker(
@@ -2966,7 +3427,7 @@ if (
         st.session_state["clinic_id"] = default_username
         st.session_state["logged_in"] = True
         st.session_state["show_top_change_password"] = False
-        reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
+        reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
         load_settings()
         load_shared_dataset_for_clinic()
         rerun_app()
@@ -2975,6 +3436,9 @@ if not st.session_state["logged_in"]:
     login_col, _ = st.columns([0.36, 0.64])
     with login_col:
         st.markdown("### Clinic Login")
+        logout_notice = st.session_state.pop("logout_notice", "")
+        if logout_notice:
+            st.success(logout_notice)
         with st.form("clinic_login_form"):
             username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
             password = st.text_input("Password", type="password", value="")
@@ -2988,7 +3452,7 @@ if not st.session_state["logged_in"]:
                 st.session_state["show_top_change_password"] = False
                 set_remember_login_token(create_remember_login_token(username, user_row))
 
-                reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
+                reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
                 load_settings()
                 # ✅ Auto-load shared dataset from Drive into working_df
                 load_shared_dataset_for_clinic()
@@ -3030,8 +3494,8 @@ if not st.session_state["logged_in"]:
                         st.session_state["clinic_id"] = new_clinic
                         st.session_state["logged_in"] = True
                         st.session_state["show_top_change_password"] = False
-                        set_remember_login_token(create_remember_login_token(new_clinic))
-                        reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
+                        set_remember_login_token(create_remember_login_token(new_clinic, {"PasswordHash": hash_pw(new_password)}))
+                        reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
                         load_settings()
                         st.session_state["user_country"] = country
                         st.success(f"✅ Account created. Welcome, {new_clinic}!")
@@ -3049,11 +3513,8 @@ else:
 
             if st.button("Logout", key="top_account_logout", use_container_width=True):
                 clear_remember_login_token()
-                for key in ["logged_in", "clinic_id"]:
-                    st.session_state.pop(key, None)
-                st.session_state["show_create_account"] = False
-                st.session_state["show_top_change_password"] = False
-                st.success("You have been logged out.")
+                clear_account_session_state()
+                st.session_state["logout_notice"] = "You have been logged out."
                 st.rerun()
 
             if st.session_state.get("show_top_change_password", False):
@@ -3075,7 +3536,7 @@ else:
                         st.error("Current password is incorrect.")
                     else:
                         update_clinic_password(clinic_id, new_password)
-                        set_remember_login_token(create_remember_login_token(clinic_id))
+                        set_remember_login_token(create_remember_login_token(clinic_id, {"PasswordHash": hash_pw(new_password)}))
                         upsert_user_tracker(
                             clinic_id,
                             country=st.session_state.get("user_country", ""),
@@ -3090,6 +3551,7 @@ if not st.session_state["logged_in"]:
 
 if "rules" not in st.session_state:
     load_settings()
+ensure_shared_dataset_loaded_for_session()
 
 st.markdown(
     """
@@ -3210,23 +3672,23 @@ def apply_search_criteria_changes():
     st.session_state["applied_rules"] = clone_reminder_rules(st.session_state.get("rules", DEFAULT_RULES.copy()))
     st.session_state.pop("prepared_df", None)
     st.session_state.pop("prepared_key", None)
-    st.session_state.pop("bundle_key", None)
     st.session_state["_search_criteria_refreshed"] = True
 
 
-# === Bundle Creation (inline hash; safe if rules not set yet) ===
-rules_dict = get_applied_reminder_rules()
-rules_fp = _rules_fp(rules_dict)
-bundle_key = (st.session_state.get("data_version", 0), rules_fp)
+# === Optional analytics bundle creation ===
+bundle_key = (st.session_state.get("data_version", 0), SESSION_BUNDLE_SCHEMA_VERSION)
 
 if st.session_state.get("working_df") is not None:
-    # Build/refresh the session bundle only when data exists
-    if st.session_state.get("bundle_key") != bundle_key:
+    # The active reminder workflow does not use this heavier analytics bundle.
+    if PRECOMPUTE_ANALYTICS_BUNDLE and st.session_state.get("bundle_key") != bundle_key:
         df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
-            st.session_state["working_df"], rules_fp
+            st.session_state["working_df"], str(SESSION_BUNDLE_SCHEMA_VERSION)
         )
         st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
         st.session_state["bundle_key"] = bundle_key
+    elif not PRECOMPUTE_ANALYTICS_BUNDLE:
+        st.session_state.pop("bundle", None)
+        st.session_state.pop("bundle_key", None)
 else:
     # No data → clear any stale bundle so downstream checks can bail gracefully
     st.session_state.pop("bundle", None)
@@ -3298,12 +3760,56 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
                 unsafe_allow_html=True,
             )
 
+
+def repair_history_row_counts_from_df(history: list[dict], df_w: pd.DataFrame | None) -> tuple[list[dict], bool]:
+    rows = normalize_dataset_upload_history(history)
+    if not rows or df_w is None or getattr(df_w, "empty", True):
+        return rows, False
+
+    charge_dates = (
+        pd.to_datetime(df_w["ChargeDate"], errors="coerce").dt.normalize()
+        if "ChargeDate" in df_w.columns
+        else pd.Series(pd.NaT, index=df_w.index)
+    )
+    changed = False
+    repaired = []
+    for row in rows:
+        fixed = dict(row)
+        if parse_history_int(fixed.get("rows")) <= 0:
+            start = parse_history_date(fixed.get("from"))
+            end = parse_history_date(fixed.get("to"))
+            if start is not None and end is not None:
+                count = int(((charge_dates >= start) & (charge_dates <= end)).sum())
+            else:
+                count = 0
+            if count <= 0 and len(rows) == 1:
+                count = int(len(df_w.index))
+            if count > 0:
+                fixed["rows"] = count
+                changed = True
+        repaired.append(fixed)
+    return repaired, changed
+
+
 def get_saved_dataset_summary_rows() -> list[dict]:
     history = normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", []))
-    if history:
-        return history
-
     df_w = st.session_state.get("working_df")
+    if history:
+        if any(parse_history_int(row.get("rows")) <= 0 for row in history) and (
+            df_w is None or getattr(df_w, "empty", True)
+        ):
+            clinic_id = st.session_state.get("clinic_id", "")
+            attempt_key = f"{clinic_id}:{hashlib.md5(json.dumps(history, sort_keys=True).encode('utf-8')).hexdigest()}"
+            if st.session_state.get("_row_count_repair_load_attempted_for") != attempt_key:
+                st.session_state["_row_count_repair_load_attempted_for"] = attempt_key
+                load_shared_dataset_for_clinic()
+                df_w = st.session_state.get("working_df")
+        repaired_history, changed = repair_history_row_counts_from_df(history, df_w)
+        if changed:
+            st.session_state["dataset_upload_history"] = repaired_history
+            save_settings_quietly()
+        return repaired_history
+
     df_w = drop_duplicate_columns(df_w) if df_w is not None else None
     if df_w is None or getattr(df_w, "empty", True):
         return []
@@ -3334,7 +3840,7 @@ def repair_dataset_upload_history_from_rows(summary_rows: list[dict]) -> bool:
     if not upload_history:
         return False
     st.session_state["dataset_upload_history"] = upload_history
-    save_settings()
+    save_settings_quietly()
     return True
 
 def render_dataset_date_range(extra_rows: list[dict] | None = None):
@@ -3393,8 +3899,7 @@ def remove_dataset_upload_at_index(remove_idx: int):
         st.session_state["shared_dataset_updated_at"] = updated_at
 
     st.session_state["dataset_upload_history"] = remaining_history
-    st.session_state["dataset_save_notice"] = f"Removed {target.get('file_name', 'CSV')} from saved clinic data."
-    save_settings()
+    save_settings_quietly()
 
 def consume_dataset_upload_removal():
     remove_idx_raw = get_query_param_value("remove_dataset_upload")
@@ -3517,7 +4022,7 @@ def render_setup_checklist():
     with reset_col:
         if st.button("↻ Reset", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
             st.session_state["get_started_reset_at"] = datetime.utcnow().isoformat()
-            save_settings()
+            save_settings_quietly()
             st.success("Get Started guide reset.")
             st.rerun()
 
@@ -3816,9 +4321,13 @@ def map_intervals_vec(df, rules):
     matched = np.empty(n, dtype=object)
     matched[:] = [[] for _ in range(n)]
 
+    item_norm = df["ItemNorm"].astype(str)
+
     for rule_text, settings in rules.items():
-        pat = re.escape(rule_text.lower().strip())
-        mask = df["ItemNorm"].str.contains(pat, na=False)
+        term = str(rule_text or "").lower().strip()
+        if not term:
+            continue
+        mask = item_norm.str.contains(term, regex=False, na=False)
         if not mask.any():
             continue
 
@@ -3870,29 +4379,39 @@ def expand_reminder_dates(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return df
 
+    day_cols = ["Reminder1Days", "Reminder2Days", "OverdueReminderDays", "IntervalDays"]
+    day_frame = pd.DataFrame(index=df.index)
+    for col in day_cols:
+        if col in df.columns:
+            day_frame[col] = pd.to_numeric(df[col], errors="coerce")
+        else:
+            day_frame[col] = np.nan
+
+    valid_mask = day_frame.gt(0).any(axis=1)
+    if not valid_mask.any():
+        return df.iloc[0:0].copy()
+
+    work = df.loc[valid_mask].copy()
+    day_frame = day_frame.loc[valid_mask]
     out = []
-    for _, row in df.iterrows():
-        interval_days = pd.to_numeric(pd.Series([row.get("IntervalDays")]), errors="coerce").iloc[0]
-        reminder_days = []
-        for field in ("Reminder1Days", "Reminder2Days", "OverdueReminderDays"):
-            value = pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
-            if pd.notna(value) and int(value) > 0:
-                reminder_days.append(int(value))
+    for rec, day_values in zip(work.to_dict("records"), day_frame.itertuples(index=False, name=None)):
+        reminder_days = sorted({
+            int(value)
+            for value in day_values
+            if pd.notna(value) and int(value) > 0
+        })
 
-        if pd.notna(interval_days):
-            reminder_days.append(int(interval_days))
-
-        for reminder_day in sorted(set(reminder_days)):
-            rec = row.copy()
-            rec["ReminderDays"] = reminder_day
-            rec["ReminderDate"] = rec.get("ChargeDate") + pd.to_timedelta(reminder_day, unit="D")
-            rec["ReminderDateTs"] = pd.to_datetime(rec.get("ReminderDate"), errors="coerce")
-            rec["ReminderDateFmt"] = (
-                rec["ReminderDateTs"].strftime("%d %b %Y")
-                if pd.notna(rec["ReminderDateTs"])
+        for reminder_day in reminder_days:
+            expanded = rec.copy()
+            expanded["ReminderDays"] = reminder_day
+            expanded["ReminderDate"] = expanded.get("ChargeDate") + pd.to_timedelta(reminder_day, unit="D")
+            expanded["ReminderDateTs"] = pd.to_datetime(expanded.get("ReminderDate"), errors="coerce")
+            expanded["ReminderDateFmt"] = (
+                expanded["ReminderDateTs"].strftime("%d %b %Y")
+                if pd.notna(expanded["ReminderDateTs"])
                 else ""
             )
-            out.append(rec)
+            out.append(expanded)
 
     if not out:
         return df.iloc[0:0].copy()
@@ -3996,8 +4515,6 @@ with data_tab:
     with dataset_summary_slot.container():
         render_dataset_date_range()
     st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
-    if st.session_state.get("dataset_save_notice"):
-        st.success(st.session_state.pop("dataset_save_notice"))
 
     datasets = []
     summary_rows = []
@@ -4007,8 +4524,8 @@ with data_tab:
     # Cached dataset loader (persistent across reruns)
     # --------------------------------
     @st.cache_resource(show_spinner=False)
-    def load_persistent_dataset(file_blobs):
-        return summarize_uploads(file_blobs)
+    def load_persistent_dataset(file_blobs, cache_version: int = UPLOAD_SUMMARY_SCHEMA_VERSION):
+        return summarize_uploads(file_blobs, cache_version)
     
     # --------------------------------
     # File uploader
@@ -4040,10 +4557,9 @@ with data_tab:
     
         st.session_state["last_uploaded_files"] = current_files
         st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-        reset_uploaded_data_state(clear_cache=True)
-    
-        # optional but recommended
-        load_shared_dataset_for_clinic()
+        reset_uploaded_data_state(clear_cache=False)
+        if not current_files:
+            load_shared_dataset_for_clinic()
     
         st.rerun()
     
@@ -4057,18 +4573,16 @@ with data_tab:
     
         if st.session_state.get("last_saved_upload_key") == current_upload_key:
             try:
-                _, summary_rows = load_persistent_dataset(file_blobs)
+                _, summary_rows = load_persistent_dataset(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
             except Exception:
                 summary_rows = []
             if summary_rows and dataset_history_needs_metadata_repair(st.session_state.get("dataset_upload_history", [])):
                 repair_dataset_upload_history_from_rows(summary_rows)
-                st.session_state["dataset_save_notice"] = "Saved data details updated."
                 st.rerun()
-            st.info("This upload has already been saved for this clinic.")
         else:
             # ✅ Use cached dataset loader (faster after first run)
             try:
-                datasets, summary_rows = load_persistent_dataset(file_blobs)
+                datasets, summary_rows = load_persistent_dataset(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
             except UploadValidationError as e:
                 st.toast("Upload needs different columns.")
                 st.warning(
@@ -4086,8 +4600,6 @@ with data_tab:
                 st.stop()
     
             all_pms = {p for p, _ in datasets}
-            rules_fp = _rules_fp(get_applied_reminder_rules())
-    
             # --- Case 1: All files from same PMS ---
             if len(all_pms) == 1 and "Undetected" not in all_pms:
                 working_df = pd.concat([df for _, df in datasets], ignore_index=True)
@@ -4112,12 +4624,6 @@ with data_tab:
                     st.session_state.pop("working_df", None)
     
             if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
-                df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
-                    st.session_state["working_df"], rules_fp
-                )
-                st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
-                st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
-    
                 new_df = st.session_state["working_df"].copy()
                 new_df = new_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
                 new_df = ensure_min_canonical_schema(new_df)
@@ -4170,17 +4676,8 @@ with data_tab:
                     st.session_state["last_saved_upload_key"] = current_upload_key
                     st.session_state["file_uploader_reset_version"] = st.session_state.get("file_uploader_reset_version", 0) + 1
                     st.session_state["last_uploaded_files"] = []
-                    st.session_state["dataset_save_notice"] = (
-                        "✅ Dataset saved for this clinic. Other users with this login will load it automatically."
-                    )
                     st.session_state.pop("pending_overlap_upload_key", None)
-                    save_settings()
-    
-                    df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
-                        st.session_state["working_df"], rules_fp
-                    )
-                    st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
-                    st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
+                    save_settings_quietly()
     
                     st.rerun()
     
@@ -4225,12 +4722,8 @@ with data_tab:
         st.session_state["shared_dataset_name"] = None
         st.session_state["shared_dataset_error"] = None
         st.session_state["dataset_upload_history"] = []
-        save_settings()
+        save_settings_quietly()
 
-        # Optional: clear uploader + caches
-        st.cache_data.clear()
-    
-        st.success("✅ Clinic data cleared. No clinic data is saved for this clinic now.")
         st.rerun()
     
 # --------------------------------
@@ -4401,7 +4894,7 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
         record_wa_button_tracker(row_data, message, source=f"{key_prefix}_sent", now=now)
     rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
     hide_revealed_reminders_after_action(key_prefix)
-    save_settings()
+    save_settings(track_user=False)
     st.session_state["_pending_reminder_action_status"] = {
         "message": f"Reminder for {normalize_display_case(rec['Animal Name'])} marked sent.",
     }
@@ -4414,7 +4907,7 @@ def decline_reminder_action(row_data: dict, key_prefix: str):
         remove_wa_reminder_click_for_row(row_data)
     rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=datetime.utcnow())
     hide_revealed_reminders_after_action(key_prefix)
-    save_settings()
+    save_settings(track_user=False)
     st.session_state["_pending_reminder_action_status"] = {
         "message": f"Reminder for {normalize_display_case(rec['Animal Name'])} declined.",
     }
@@ -4426,7 +4919,7 @@ def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
     if hidden_action == REMINDER_ACTION_SENT:
         remove_wa_reminder_click_for_row(row_data)
     remove_actioned_reminder(row_data)
-    save_settings()
+    save_settings(track_user=False)
     st.session_state["_pending_reminder_action_status"] = {
         "message": f"Reminder for {normalize_display_case(row_data.get('Animal Name', ''))} returned to Active Reminders.",
     }
@@ -5001,7 +5494,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         if new_name != prev_name:
             st.session_state["user_name"] = new_name
             st.session_state["user_name_updated_at"] = datetime.utcnow().isoformat()
-            save_settings()
+            save_settings_quietly()
             st.toast("✅ Name saved to settings.")
 
 
@@ -5131,7 +5624,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     st.session_state["wa_template_reviewed"] = True
                     st.session_state["wa_template_updated"] = True
                     st.session_state["wa_template_updated_at"] = datetime.utcnow().isoformat()
-                    save_settings()
+                    save_settings_quietly()
                     st.success("Template updated successfully!")
                     st.rerun()
         with col_reset:
@@ -5141,7 +5634,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 st.session_state["wa_template_reviewed"] = False
                 st.session_state["wa_template_updated"] = False
                 st.session_state["wa_template_updated_at"] = ""
-                save_settings()
+                save_settings_quietly()
                 st.session_state[ver_key] += 1
                 st.success("Template reset to default!")
                 st.rerun()
@@ -5249,7 +5742,7 @@ if st.session_state.get("working_df") is not None:
                 value=current_window_days,
                 step=1,
                 key="reminder_window_days",
-                on_change=save_settings,
+                on_change=save_settings_quietly,
                 label_visibility="collapsed",
             )
         with group_col:
@@ -5264,7 +5757,7 @@ if st.session_state.get("working_df") is not None:
                 value=st.session_state.get("client_group_days", 1),
                 step=1,
                 key="client_group_days",
-                on_change=save_settings,
+                on_change=save_settings_quietly,
                 label_visibility="collapsed",
             )
         with warning_col:
@@ -5279,7 +5772,7 @@ if st.session_state.get("working_df") is not None:
                 value=st.session_state.get("reminder_warning_days", 0),
                 step=1,
                 key="reminder_warning_days",
-                on_change=save_settings,
+                on_change=save_settings_quietly,
                 label_visibility="collapsed",
             )
     
@@ -5330,7 +5823,7 @@ if st.session_state.get("working_df") is not None:
                 st.session_state["_search_terms_autosave_error"] = f"Reminder 3 (Due Date) must be a positive integer for: {rule}"
                 return
             st.session_state["rules"][rule]["days"] = int(days_raw)
-            save_settings()
+            save_settings_quietly()
             invalidate_reminder_rule_cache()
     
         def save_rule_reminder_day(rule, field, key):
@@ -5347,7 +5840,7 @@ if st.session_state.get("working_df") is not None:
                 }.get(field, "Reminder")
                 st.session_state["_search_terms_autosave_error"] = f"{label} must be blank or a positive integer for: {rule}"
                 return
-            save_settings()
+            save_settings_quietly()
             invalidate_reminder_rule_cache()
     
         def save_rule_visible_text(rule, key):
@@ -5356,12 +5849,12 @@ if st.session_state.get("working_df") is not None:
                 st.session_state["rules"][rule]["visible_text"] = visible_text
             else:
                 st.session_state["rules"][rule].pop("visible_text", None)
-            save_settings()
+            save_settings_quietly()
             invalidate_reminder_rule_cache()
     
         def toggle_use_qty(rule, key):
             st.session_state["rules"][rule]["use_qty"] = st.session_state[key]
-            save_settings()
+            save_settings_quietly()
             invalidate_reminder_rule_cache()
     
         st.markdown("### Add New Search Term")
@@ -5483,7 +5976,7 @@ if st.session_state.get("working_df") is not None:
                             st.session_state["rules"][safe_rule] = rule_data
                             st.session_state["search_term_added"] = True
                             st.session_state["search_term_added_at"] = datetime.utcnow().isoformat()
-                            save_settings()
+                            save_settings_quietly()
                             st.session_state["new_rule_counter"] += 1
                             invalidate_reminder_rule_cache()
                             st.rerun()
@@ -5573,7 +6066,7 @@ if st.session_state.get("working_df") is not None:
         if to_delete:
             for rule in to_delete:
                 st.session_state["rules"].pop(rule, None)
-            save_settings()
+            save_settings_quietly()
             invalidate_reminder_rule_cache()
             st.rerun()
     
@@ -5586,7 +6079,8 @@ if st.session_state.get("working_df") is not None:
             st.session_state["search_term_added"] = False
             st.session_state["search_term_added_at"] = ""
             st.session_state["form_version"] += 1
-            save_settings()
+            st.session_state["_replace_search_settings_once"] = True
+            save_settings_quietly()
             invalidate_reminder_rule_cache()
             st.rerun()
     
@@ -5610,7 +6104,7 @@ if st.session_state.get("working_df") is not None:
                     with cols[1]:
                         if st.button("×", key=f"del_client_excl_{safe_client}", help="Remove client exclusion"):
                             st.session_state["client_exclusions"].remove(client_name)
-                            save_settings()
+                            save_settings_quietly()
                             st.rerun()
         else:
             st.caption("No client exclusions yet.")
@@ -5640,7 +6134,7 @@ if st.session_state.get("working_df") is not None:
                     }
                     if client_key not in existing_keys:
                         st.session_state["client_exclusions"].append(safe_client)
-                        save_settings()
+                        save_settings_quietly()
                         st.session_state["new_rule_counter"] += 1
                         st.rerun()
                     else:
@@ -5674,7 +6168,7 @@ if st.session_state.get("working_df") is not None:
                     with cols[1]:
                         if st.button("×", key=f"del_patient_excl_{safe_pair}", help="Remove patient exclusion"):
                             st.session_state["patient_exclusions"].remove(exclusion)
-                            save_settings()
+                            save_settings_quietly()
                             st.rerun()
         else:
             st.caption("No patient exclusions yet.")
@@ -5719,7 +6213,7 @@ if st.session_state.get("working_df") is not None:
                     }
                     if patient_key not in existing_pairs:
                         st.session_state["patient_exclusions"].append({"client": safe_client, "patient": safe_patient})
-                        save_settings()
+                        save_settings_quietly()
                         st.session_state["new_rule_counter"] += 1
                         st.rerun()
                     else:
@@ -5739,7 +6233,7 @@ if st.session_state.get("working_df") is not None:
                     with cols[1]:
                         if st.button("×", key=f"del_excl_{safe_term}", help="Remove item exclusion"):
                             st.session_state["exclusions"].remove(term)
-                            save_settings()
+                            save_settings_quietly()
                             st.rerun()
         else:
             st.caption("No item exclusions yet.")
@@ -5764,7 +6258,7 @@ if st.session_state.get("working_df") is not None:
                     safe_term = new_excl.strip().lower()
                     if safe_term not in st.session_state["exclusions"]:
                         st.session_state["exclusions"].append(safe_term)
-                        save_settings()
+                        save_settings_quietly()
                         st.session_state["new_rule_counter"] += 1
                         st.rerun()
                     else:
