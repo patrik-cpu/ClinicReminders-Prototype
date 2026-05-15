@@ -795,22 +795,23 @@ st.markdown(
     }
     .column-help::after {
         background: #ffffff;
-        border: 1px solid rgba(0,0,0,0.18);
-        border-radius: 4px;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.16);
+        border: 1px solid rgba(15,23,42,0.14);
+        border-radius: 8px;
+        box-shadow: 0 10px 24px rgba(15,23,42,0.18);
         color: #111827;
         content: attr(data-tooltip);
         display: none;
-        font-size: 0.78rem;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 0.8rem;
         font-weight: 500;
         left: 50%;
-        line-height: 1.25;
+        line-height: 1.35;
         max-width: 18rem;
         min-width: 10rem;
-        padding: 0.42rem 0.55rem;
+        padding: 0.55rem 0.7rem;
         position: absolute;
         text-align: left;
-        top: calc(100% + 0.35rem);
+        bottom: calc(100% + 0.45rem);
         transform: translateX(-50%);
         white-space: normal;
         z-index: 9999;
@@ -3722,6 +3723,14 @@ def reminder_header_help(column: str) -> str:
     return REMINDER_TABLE_COLUMN_HELP.get(column, f"Sort by {REMINDER_TABLE_HEADER_LABELS.get(column, column)}")
 
 
+def render_column_help_icon(container, help_text: str, align: str = "left"):
+    safe_help = html_lib.escape(help_text)
+    container.markdown(
+        f"<div style='text-align:{align}; line-height:1.6rem;'><span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_reminder_header_label(container, label: str, column: str, align: str = "left"):
     safe_label = html_lib.escape(label)
     safe_help = html_lib.escape(reminder_header_help(column))
@@ -4031,13 +4040,14 @@ def render_actioned_reminders_tab(key_prefix: str):
         if head in ACTIONED_REMINDER_SORTABLE_COLUMNS:
             if sort_state["column"] == head:
                 label = f"{label} {'^' if sort_state['ascending'] else 'v'}"
-            col.button(
+            button_col, help_col = col.columns([0.82, 0.18], gap="small")
+            button_col.button(
                 label,
                 key=f"{key_prefix}_actioned_sort_{idx}",
-                help=reminder_header_help(head),
                 on_click=set_actioned_reminder_sort,
                 args=(key_prefix, head),
             )
+            render_column_help_icon(help_col, reminder_header_help(head))
         else:
             render_reminder_header_label(col, label, head, align=align)
 
@@ -4108,13 +4118,14 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         if head in REMINDER_TABLE_SORTABLE_COLUMNS:
             if sort_state["column"] == head:
                 label = f"{label} {'^' if sort_state['ascending'] else 'v'}"
-            c.button(
+            button_col, help_col = c.columns([0.82, 0.18], gap="small")
+            button_col.button(
                 label,
                 key=f"{key_prefix}_sort_{idx}",
-                help=reminder_header_help(head),
                 on_click=set_reminder_table_sort,
                 args=(key_prefix, head),
             )
+            render_column_help_icon(help_col, reminder_header_help(head))
         else:
             render_reminder_header_label(c, label, head, align=align)
 
