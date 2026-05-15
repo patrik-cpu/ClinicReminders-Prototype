@@ -1583,6 +1583,18 @@ def parse_history_int(value) -> int:
     except (TypeError, ValueError):
         return 0
 
+def format_pms_display_name(value) -> str:
+    name = str(value or "").strip()
+    if not name:
+        return "-"
+    display_names = {
+        "vetport": "VetPORT",
+        "ezyvet": "ezyVet",
+        "xpress": "Xpress",
+        "canonical csv": "Canonical CSV",
+    }
+    return display_names.get(name.lower(), name)
+
 def normalize_dataset_upload_history(history) -> list[dict]:
     rows = []
     if not isinstance(history, list):
@@ -1597,7 +1609,7 @@ def normalize_dataset_upload_history(history) -> list[dict]:
         to_date = parse_history_date(entry.get("to") or entry.get("To"))
         rows.append({
             "file_name": file_name,
-            "pms": str(entry.get("pms") or entry.get("PMS") or "-").strip() or "-",
+            "pms": format_pms_display_name(entry.get("pms") or entry.get("PMS") or "-"),
             "rows": parse_history_int(entry.get("rows") or entry.get("Rows") or 0),
             "from": from_date.strftime("%Y-%m-%d") if from_date is not None else "",
             "to": to_date.strftime("%Y-%m-%d") if to_date is not None else "",
@@ -1673,7 +1685,8 @@ def max_missing_days_between_uploads(rows: list[dict]) -> int:
 def dataset_summary_checks(rows: list[dict]) -> list[dict]:
     normalized_rows = normalize_dataset_upload_history(rows)
     pms_values = [str(row.get("pms", "")).strip() for row in normalized_rows if str(row.get("pms", "")).strip()]
-    supported_pms = bool(pms_values) and all(pms.lower() != "undetected" for pms in pms_values)
+    unsupported_pms = {"", "-", "unknown", "undetected", "csv"}
+    supported_pms = bool(pms_values) and all(pms.lower() not in unsupported_pms for pms in pms_values)
     same_pms = len({pms.lower() for pms in pms_values}) <= 1
     min_date, max_date = dataset_history_date_bounds(normalized_rows)
     today = pd.Timestamp(date.today())
@@ -3320,6 +3333,25 @@ def get_saved_dataset_summary_rows() -> list[dict]:
         "status": "Saved",
     }]
 
+def dataset_history_needs_metadata_repair(history) -> bool:
+    rows = normalize_dataset_upload_history(history)
+    if not rows:
+        return True
+    for row in rows:
+        file_name = str(row.get("file_name", "")).strip()
+        pms = str(row.get("pms", "")).strip().lower()
+        if "<div" in file_name.lower() or file_name == "Saved clinic data" or pms in {"", "-", "unknown", "csv"}:
+            return True
+    return False
+
+def repair_dataset_upload_history_from_rows(summary_rows: list[dict]) -> bool:
+    upload_history = upload_summary_rows_to_history(summary_rows, status="Saved")
+    if not upload_history:
+        return False
+    st.session_state["dataset_upload_history"] = upload_history
+    save_settings()
+    return True
+
 def render_dataset_date_range(extra_rows: list[dict] | None = None):
     rows = get_saved_dataset_summary_rows() + normalize_dataset_upload_history(extra_rows or [])
     render_dataset_summary_box("Saved clinic data", rows)
@@ -4039,6 +4071,14 @@ with data_tab:
         current_upload_key = upload_fingerprint(file_blobs)
     
         if st.session_state.get("last_saved_upload_key") == current_upload_key:
+            try:
+                _, summary_rows = load_persistent_dataset(file_blobs)
+            except Exception:
+                summary_rows = []
+            if summary_rows and dataset_history_needs_metadata_repair(st.session_state.get("dataset_upload_history", [])):
+                repair_dataset_upload_history_from_rows(summary_rows)
+                st.session_state["dataset_save_notice"] = "Saved data details updated."
+                st.rerun()
             st.info("This upload has already been saved for this clinic.")
         else:
             # ✅ Use cached dataset loader (faster after first run)
@@ -4132,8 +4172,11 @@ with data_tab:
                     st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
                     st.session_state["shared_dataset_loaded"] = True
                     st.session_state["shared_dataset_name"] = out_name
+                    existing_upload_history = st.session_state.get("dataset_upload_history", [])
+                    if dataset_history_needs_metadata_repair(existing_upload_history):
+                        existing_upload_history = []
                     st.session_state["dataset_upload_history"] = merge_dataset_upload_history(
-                        st.session_state.get("dataset_upload_history", []),
+                        existing_upload_history,
                         upload_summary_rows_to_history(summary_rows, status="Saved"),
                         replace_overlapping_dates=replace_overlapping_dates,
                         upload_min=upload_min,
