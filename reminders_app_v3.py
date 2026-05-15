@@ -494,9 +494,6 @@ if st.session_state.get("logged_in", False):
           <a href="#search" style="text-decoration:none; display:block;">🔍 Search reminders</a>
           <a href="#search-terms" style="text-decoration:none; display:block;">📝 Search terms</a>
           <a href="#exclusions" style="text-decoration:none; display:block;">🚫 Exclusions</a>
-          <div style="font-weight:700; margin:1rem 0 0.25rem;">Occasional tools</div>
-          <a href="#factoids" style="text-decoration:none; display:block;">📊 Factoids</a>
-          <a href="#feedback-section" style="text-decoration:none; display:block;">💬 Feedback</a>
         </div>
         """,
         unsafe_allow_html=True,
@@ -4750,37 +4747,12 @@ if st.session_state.get("working_df") is not None:
                 st.error("Enter a valid exclusion term")
 
 # --------------------------------
-# 📊 Factoids Section (Password Protected)
+# 📊 Factoids Section (temporarily hidden)
 # --------------------------------
-st.markdown("<div id='factoids' class='anchor-offset'></div>", unsafe_allow_html=True)
-st.markdown("## 📊 Factoids")
-st.caption("Occasional reporting area. Most reminder users can leave this locked and continue working above.")
-
-# --- Simple password gate — hides all content until unlocked
-if "factoids_unlocked" not in st.session_state:
-    st.session_state["factoids_unlocked"] = False
-
-if not st.session_state["factoids_unlocked"]:
-    st.info("🔒 Enter password to view Factoids (admin/manager access only).")
-
-    with st.form("unlock_factoids_form"):
-        password_input = st.text_input(
-            "Enter password to view Factoids",
-            type="password",
-            key="factoids_password"
-        )
-        submitted = st.form_submit_button("Unlock Factoids")
-
-    if submitted:
-        if password_input == "clinic123":
-            st.session_state["factoids_unlocked"] = True
-            st.success("✅ Access granted. Loading Factoids...")
-            st.rerun()
-        else:
-            st.error("❌ Incorrect password. Please try again.")
+st.session_state["factoids_unlocked"] = False
 
 # --- Only show Factoids after unlock ---
-if st.session_state["factoids_unlocked"]:
+if False and st.session_state["factoids_unlocked"]:
 
     # Guard: ensure the session bundle (df_full, masks, tx_client, tx_patient, patients_per_month) exists
     if "bundle" not in st.session_state:
@@ -6083,41 +6055,14 @@ def fetch_feedback_cached(limit=500):
     # keep your existing callsites working
     return fetch_feedback(limit)
 
-st.markdown("<div id='feedback-section' class='anchor-offset'></div>", unsafe_allow_html=True)
-st.markdown("## 💬 Feedback")
-st.markdown("### Found a problem? Let me (Patrik) know here:")
-
-# Wrap inputs in a form to avoid reruns per keystroke
-with st.form("feedback_form"):
-    feedback_text = st.text_area(
-        "Describe the issue or suggestion",
-        key="feedback_text",
-        height=120,
-        placeholder="What did you try? What happened? Any screenshots or CSV names?",
-    )
-    user_name_for_feedback = st.text_input("Your name (optional)", key="feedback_name", placeholder="Clinic / Your name")
-    user_email_for_feedback = st.text_input("Your email (optional)", key="feedback_email", placeholder="you@example.com")
-    submitted_fb = st.form_submit_button("Send")
-
-if submitted_fb:
-    if not feedback_text.strip():
-        st.error("Please enter a message before sending.")
-    else:
-        try:
-            insert_feedback(user_name_for_feedback, user_email_for_feedback, feedback_text.strip())
-            st.success("Thanks! Your message has been recorded.")
-            for k in ["feedback_text","feedback_name","feedback_email"]:
-                if k in st.session_state:
-                    del st.session_state[k]
-        except Exception as e:
-            st.error(f"Could not save your message: {e}")
+# Feedback UI temporarily hidden; helper functions are kept above for easy restoration.
 
 # --------------------------------
 #  👩‍⚕️ ADMIN TOOLS
 # --------------------------------
 
-# Only show to a special admin account (for example, “Admin”)
-if st.session_state.get("clinic_id") == "Admin":
+# Admin tools temporarily hidden.
+if False and st.session_state.get("clinic_id") == "Admin":
     st.markdown("---")
     st.markdown("## 🧩 Clinic Account Management (Admin Only)")
     st.markdown("### 👩‍⚕️ Admin: Add or Reset Clinic Accounts")
@@ -6158,42 +6103,18 @@ if st.session_state.get("clinic_id") == "Admin":
                 upsert_user_tracker(new_clinic, event="admin_created")
                 st.success(f"✅ Added new clinic '{new_clinic}'.")
 
-else:
+elif False:
     st.caption("Admin-only clinic management hidden. Log in as Admin to access it.")
     
 # --------------------------------
-# 🧷 Nova Vet Family Admin Access (Password Protected)
+# 🧷 Nova Vet Family Admin Access (temporarily hidden)
 # --------------------------------
-st.markdown("---")
-st.markdown("### 🧷 Nova Vet Family Admin Access")
-
-# Password gate (separate from Factoids)
-if "admin_unlocked" not in st.session_state:
-    st.session_state["admin_unlocked"] = False
-
-if not st.session_state["admin_unlocked"]:
-    st.info("🔒 Enter password.")
-
-    with st.form("unlock_admin_form"):
-        admin_pw = st.text_input(
-            "Enter password for Nova Vet Family Admin Access",
-            type="password",
-            key="admin_pw_input"
-        )
-        submitted_admin = st.form_submit_button("Unlock")
-
-    if submitted_admin:
-        if admin_pw == "Nova@2025":
-            st.session_state["admin_unlocked"] = True
-            st.success("✅ Access granted. Admin tools unlocked!")
-            st.rerun()
-        else:
-            st.error("❌ Incorrect password. Please try again.")
+st.session_state["admin_unlocked"] = False
 
 # --------------------------------
 # If unlocked → show Keyword Debugging + Quarterly LLM Export
 # --------------------------------
-if st.session_state["admin_unlocked"]:
+if False and st.session_state["admin_unlocked"]:
     # 🧪 Keyword Debugging Export
     st.markdown("---")
     st.markdown("### 🧪 Keyword Debugging Export")
