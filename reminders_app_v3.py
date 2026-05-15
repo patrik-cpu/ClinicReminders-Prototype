@@ -62,9 +62,72 @@ def set_main_section_tab(tab_name: str):
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.image("assets/clinic_reminders_logo.svg", width=520)
     st.markdown(
-        '<p style="font-size:1.1rem; color:#667085; margin:0.35rem 0 0;">Turn clinic sales data into clear follow-up reminders, then prepare WhatsApp messages in a few clicks.</p>',
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&display=swap');
+        .cr-brand-card {
+            background: #ffffff;
+            border: 1px solid rgba(41, 210, 114, 0.12);
+            border-radius: 16px;
+            box-shadow: 0 14px 36px rgba(15, 23, 42, 0.055);
+            margin-bottom: 0.45rem;
+            max-width: 610px;
+            padding: 1.05rem 1.15rem 0.95rem;
+        }
+        .cr-brand-logo {
+            align-items: center;
+            column-gap: 1.05rem;
+            display: grid;
+            grid-template-columns: 178px 1fr;
+            grid-template-rows: auto auto;
+        }
+        .cr-brand-pulse {
+            grid-row: 1 / 3;
+            height: 128px;
+            width: 178px;
+        }
+        .cr-brand-word {
+            color: #10162f;
+            font-family: "Nunito", "Avenir Next Rounded Std", "Arial Rounded MT Bold", "Trebuchet MS", Arial, sans-serif;
+            letter-spacing: 0;
+            line-height: 0.95;
+        }
+        .cr-brand-word.clinic {
+            align-self: end;
+            font-size: 3.05rem;
+            font-weight: 700;
+        }
+        .cr-brand-word.reminders {
+            align-self: start;
+            font-size: 4.05rem;
+            font-weight: 800;
+        }
+        .cr-brand-subtitle {
+            color: #5f6f67;
+            font-size: 1.1rem;
+            line-height: 1.45;
+            margin: 0.4rem 0 0;
+        }
+        </style>
+        <div class="cr-brand-card">
+            <div class="cr-brand-logo" aria-label="Clinic Reminders">
+                <svg class="cr-brand-pulse" viewBox="0 0 210 150" role="img" aria-hidden="true">
+                    <path
+                        d="M10 82 H68 L86 36 L105 122 L128 18 L142 138 L163 48 L182 92 L196 44"
+                        fill="none"
+                        stroke="#29D272"
+                        stroke-width="9"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    />
+                </svg>
+                <div class="cr-brand-word clinic">Clinic</div>
+                <div class="cr-brand-word reminders">Reminders</div>
+            </div>
+        </div>
+        <p class="cr-brand-subtitle">Turn clinic sales data into clear follow-up reminders, then prepare WhatsApp messages in a few clicks.</p>
+        """,
         unsafe_allow_html=True,
     )
 top_account_slot = tut_col.empty()
@@ -489,46 +552,58 @@ st.markdown(
     '''
     <style>
     :root {
-        --cr-app-bg: #f6f8fb;
+        --cr-primary: #29D272;
+        --cr-primary-dark: #1DA759;
+        --cr-primary-soft: #E9FBF1;
+        --cr-primary-quiet: #F5FCF8;
+        --cr-app-bg: #f6faf7;
         --cr-surface: #ffffff;
-        --cr-surface-muted: #eef3f8;
-        --cr-sidebar-bg: #e3ebf3;
-        --cr-sidebar-account-bg: #e3ebf3;
-        --cr-text: #172033;
-        --cr-muted: #5f6b7a;
-        --cr-border: #d8e0ea;
-        --cr-link: #2563eb;
-        --cr-link-hover: #1d4ed8;
-        --cr-chip-bg: rgba(23, 32, 51, 0.06);
-        --cr-step-bg: #f8fafc;
-        --cr-step-complete-bg: #e8f7f1;
-        --cr-step-complete-border: #7bdcb5;
-        --cr-step-current-bg: #eaf2ff;
-        --cr-step-current-border: #8bb8ff;
+        --cr-surface-muted: #eff7f3;
+        --cr-sidebar-bg: #eef7f2;
+        --cr-sidebar-account-bg: #eef7f2;
+        --cr-text: #101828;
+        --cr-muted: #60746a;
+        --cr-border: #dbe9e1;
+        --cr-link: #168a4c;
+        --cr-link-hover: #0f6f3d;
+        --cr-chip-bg: rgba(41, 210, 114, 0.11);
+        --cr-step-bg: #fbfdfc;
+        --cr-step-complete-bg: #e9fbf1;
+        --cr-step-complete-border: rgba(41, 210, 114, 0.45);
+        --cr-step-current-bg: #f0fbf5;
+        --cr-step-current-border: rgba(29, 167, 89, 0.36);
         --cr-step-optional-bg: #fff7df;
         --cr-step-optional-border: #f4c95d;
     }
     [data-theme="light"], [data-baseweb-theme="light"] {
-        --cr-app-bg: #f6f8fb;
+        --cr-primary: #29D272;
+        --cr-primary-dark: #1DA759;
+        --cr-primary-soft: #E9FBF1;
+        --cr-primary-quiet: #F5FCF8;
+        --cr-app-bg: #f6faf7;
         --cr-surface: #ffffff;
-        --cr-surface-muted: #eef3f8;
-        --cr-sidebar-bg: #e3ebf3;
-        --cr-sidebar-account-bg: #e3ebf3;
-        --cr-text: #172033;
-        --cr-muted: #5f6b7a;
-        --cr-border: #d8e0ea;
-        --cr-link: #2563eb;
-        --cr-link-hover: #1d4ed8;
-        --cr-chip-bg: rgba(23, 32, 51, 0.06);
-        --cr-step-bg: #f8fafc;
-        --cr-step-complete-bg: #e8f7f1;
-        --cr-step-complete-border: #7bdcb5;
-        --cr-step-current-bg: #eaf2ff;
-        --cr-step-current-border: #8bb8ff;
+        --cr-surface-muted: #eff7f3;
+        --cr-sidebar-bg: #eef7f2;
+        --cr-sidebar-account-bg: #eef7f2;
+        --cr-text: #101828;
+        --cr-muted: #60746a;
+        --cr-border: #dbe9e1;
+        --cr-link: #168a4c;
+        --cr-link-hover: #0f6f3d;
+        --cr-chip-bg: rgba(41, 210, 114, 0.11);
+        --cr-step-bg: #fbfdfc;
+        --cr-step-complete-bg: #e9fbf1;
+        --cr-step-complete-border: rgba(41, 210, 114, 0.45);
+        --cr-step-current-bg: #f0fbf5;
+        --cr-step-current-border: rgba(29, 167, 89, 0.36);
         --cr-step-optional-bg: #fff7df;
         --cr-step-optional-border: #f4c95d;
     }
     [data-theme="dark"], [data-baseweb-theme="dark"] {
+        --cr-primary: #29D272;
+        --cr-primary-dark: #1DA759;
+        --cr-primary-soft: rgba(41, 210, 114, 0.14);
+        --cr-primary-quiet: rgba(41, 210, 114, 0.08);
         --cr-app-bg: #0e1117;
         --cr-surface: #161b22;
         --cr-surface-muted: rgba(255,255,255,0.035);
@@ -537,14 +612,14 @@ st.markdown(
         --cr-text: #f8fafc;
         --cr-muted: rgba(255,255,255,0.72);
         --cr-border: rgba(255,255,255,0.12);
-        --cr-link: #60a5fa;
-        --cr-link-hover: #93c5fd;
+        --cr-link: #29D272;
+        --cr-link-hover: #6EE7A3;
         --cr-chip-bg: rgba(255,255,255,0.10);
         --cr-step-bg: rgba(255,255,255,0.035);
         --cr-step-complete-bg: rgba(16, 185, 129, 0.10);
         --cr-step-complete-border: rgba(52, 211, 153, 0.45);
-        --cr-step-current-bg: rgba(59, 130, 246, 0.12);
-        --cr-step-current-border: rgba(59, 130, 246, 0.55);
+        --cr-step-current-bg: rgba(41, 210, 114, 0.12);
+        --cr-step-current-border: rgba(41, 210, 114, 0.50);
         --cr-step-optional-bg: rgba(245, 158, 11, 0.08);
         --cr-step-optional-border: rgba(245, 158, 11, 0.35);
     }
@@ -647,14 +722,14 @@ st.markdown(
         display: none !important;
     }
     .dataset-summary {
-        background: #dbeafe;
+        background: var(--cr-primary-soft);
         border-radius: 6px;
-        color: #0757b8;
+        color: #126b3d;
         margin: 0.35rem 0 0.85rem;
         padding: 0.85rem 1rem;
     }
     .dataset-summary-title {
-        color: #063f87;
+        color: #0f5130;
         font-size: 1rem;
         font-weight: 700;
         margin-bottom: 0.4rem;
@@ -665,13 +740,13 @@ st.markdown(
         grid-template-columns: repeat(3, minmax(150px, 1fr));
     }
     .dataset-summary-label {
-        color: #456179;
+        color: var(--cr-muted);
         font-size: 0.78rem;
         font-weight: 600;
         text-transform: uppercase;
     }
     .dataset-summary-value {
-        color: #042f64;
+        color: var(--cr-text);
         font-size: 0.95rem;
         font-weight: 650;
         overflow-wrap: anywhere;
@@ -2629,7 +2704,7 @@ st.markdown(
       div[data-testid="stTabs"] div[role="tablist"] button,
       div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
       button[data-baseweb="tab"] {
-        background: var(--cr-surface-muted) !important;
+        background: var(--cr-primary-quiet) !important;
         border: 1px solid var(--cr-border) !important;
         border-bottom: 0 !important;
         border-radius: 8px 8px 0 0 !important;
@@ -2641,48 +2716,33 @@ st.markdown(
       div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
       div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"],
       button[data-baseweb="tab"][aria-selected="true"] {
-        background: var(--cr-app-bg) !important;
-        border-color: var(--cr-border) !important;
-        box-shadow: 0 1px 0 var(--cr-app-bg) !important;
+        background: var(--cr-primary) !important;
+        border-color: var(--cr-primary) !important;
+        box-shadow: 0 1px 0 var(--cr-primary) !important;
         position: relative !important;
         z-index: 1 !important;
       }
       div[data-testid="stTabs"] div[role="tablist"] button:hover,
       div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:hover,
       button[data-baseweb="tab"]:hover {
-        background: var(--cr-surface) !important;
+        background: var(--cr-primary-soft) !important;
       }
-      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(1),
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(1) {
-        background: #1DA759 !important;
+      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"]:hover,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"]:hover,
+      button[data-baseweb="tab"][aria-selected="true"]:hover {
+        background: var(--cr-primary) !important;
       }
-      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(2),
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(2) {
-        background: #29D272 !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(3),
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(3) {
-        background: #80CE2D !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(4),
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(4) {
-        background: #A7E466 !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(5),
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(5) {
-        background: #D4E257 !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(1) p,
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(1) p {
-        color: #ffffff !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(n+2) p,
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(n+2) p {
-        color: #052e16 !important;
+      div[data-testid="stTabs"] div[role="tablist"] button p,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p {
+        color: #23513a !important;
       }
       div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
       div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"] {
         filter: saturate(1.08) brightness(1.03) !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"] p,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"] p {
+        color: #062d19 !important;
       }
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button,
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button p,
@@ -2695,6 +2755,9 @@ st.markdown(
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"],
       div[data-testid="stTabs"] div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
+        background: var(--cr-surface) !important;
+        border-color: var(--cr-border) !important;
+        box-shadow: 0 1px 0 var(--cr-surface) !important;
         filter: none !important;
         font-weight: 600 !important;
       }
