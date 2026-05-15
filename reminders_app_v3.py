@@ -3277,7 +3277,7 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
             f'<div class="dataset-summary-title">{html_lib.escape(title)}</div>'
             '<div class="dataset-summary-table">'
             '<div class="dataset-summary-header">'
-            '<div class="dataset-summary-label">CSV</div>'
+            '<div class="dataset-summary-label">Data</div>'
             '<div class="dataset-summary-label">PMS</div>'
             '<div class="dataset-summary-label">Rows</div>'
             '<div class="dataset-summary-label">Date range</div>'
@@ -3301,10 +3301,9 @@ def get_saved_dataset_summary_rows() -> list[dict]:
         return []
 
     dmin, dmax = get_dataset_date_range(df_w)
-    dataset_name = str(st.session_state.get("shared_dataset_name") or "Saved clinic data")
     return [{
-        "file_name": dataset_name,
-        "pms": "CSV",
+        "file_name": "Saved clinic data",
+        "pms": "Unknown",
         "rows": len(df_w),
         "from": dmin.strftime("%Y-%m-%d") if dmin is not None else "",
         "to": dmax.strftime("%Y-%m-%d") if dmax is not None else "",
