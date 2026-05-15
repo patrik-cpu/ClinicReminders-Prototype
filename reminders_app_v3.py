@@ -232,6 +232,7 @@ def reset_uploaded_data_state(clear_cache: bool = True, reset_uploader: bool = F
         "prepared_key",
         "shared_dataset_loaded",
         "shared_dataset_name",
+        "shared_dataset_updated_at",
         "shared_dataset_error",
     ]:
         st.session_state.pop(key, None)
@@ -831,6 +832,10 @@ st.markdown(
         margin: 0 0 0.85rem;
         color: var(--cr-muted);
     }
+    .setup-intro {
+        margin: 0 0 0.65rem !important;
+        color: var(--cr-muted);
+    }
     .setup-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(180px, 1fr));
@@ -1212,6 +1217,7 @@ def load_shared_dataset_for_clinic():
         st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1  # invalidate downstream caches
         st.session_state["shared_dataset_loaded"] = True
         st.session_state["shared_dataset_name"] = filename
+        st.session_state["shared_dataset_updated_at"] = rec.get(SHEET_COL_DATASET_UPDATED_AT, "")
 
     except Exception as e:
         st.session_state["shared_dataset_loaded"] = False
@@ -1321,9 +1327,11 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
 
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+    updated_at = datetime.utcnow().isoformat()
     sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_ID), file_id)
     sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_FILE_NAME), filename)
-    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT), datetime.utcnow().isoformat())
+    sheet.update_cell(row_idx, _settings_col_index(headers, SHEET_COL_DATASET_UPDATED_AT), updated_at)
+    return updated_at
 
 # ============================================================
 # ✅ Dataset Publishing (Refactor #1)
@@ -1517,7 +1525,8 @@ def publish_dataset_for_clinic(
     )
     
     # ✅ Only update pointer after upload success
-    update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
+    dataset_updated_at = update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
+    st.session_state["shared_dataset_updated_at"] = dataset_updated_at
 
 
     return merged_df, new_file_id, out_name
@@ -1560,6 +1569,10 @@ def load_settings():
         st.session_state["search_term_added"] = bool(settings.get("search_term_added", False))
         st.session_state["wa_template_reviewed"] = bool(settings.get("wa_template_reviewed", False))
         st.session_state["wa_template_updated"] = bool(settings.get("wa_template_updated", False))
+        st.session_state["get_started_reset_at"] = settings.get("get_started_reset_at", "")
+        st.session_state["search_term_added_at"] = settings.get("search_term_added_at", "")
+        st.session_state["user_name_updated_at"] = settings.get("user_name_updated_at", "")
+        st.session_state["wa_template_updated_at"] = settings.get("wa_template_updated_at", "")
         st.session_state["user_country"] = settings.get("country", "")
     else:
         # Defaults for new clinics
@@ -1578,6 +1591,10 @@ def load_settings():
         st.session_state["search_term_added"] = False
         st.session_state["wa_template_reviewed"] = False
         st.session_state["wa_template_updated"] = False
+        st.session_state["get_started_reset_at"] = ""
+        st.session_state["search_term_added_at"] = ""
+        st.session_state["user_name_updated_at"] = ""
+        st.session_state["wa_template_updated_at"] = ""
         st.session_state["user_country"] = ""
 
 
@@ -1640,6 +1657,10 @@ def save_settings():
         "search_term_added": bool(setting_for_save("search_term_added", False)),
         "wa_template_reviewed": bool(setting_for_save("wa_template_reviewed", False)),
         "wa_template_updated": bool(setting_for_save("wa_template_updated", False)),
+        "get_started_reset_at": setting_for_save("get_started_reset_at", ""),
+        "search_term_added_at": setting_for_save("search_term_added_at", ""),
+        "user_name_updated_at": setting_for_save("user_name_updated_at", ""),
+        "wa_template_updated_at": setting_for_save("wa_template_updated_at", ""),
         "country": setting_for_save("user_country", remote_settings.get("country", "")),
     }
     settings_json = json.dumps(settings_data)
@@ -2400,6 +2421,10 @@ def default_settings_for_country(country: str = "") -> dict:
         "search_term_added": False,
         "wa_template_reviewed": False,
         "wa_template_updated": False,
+        "get_started_reset_at": "",
+        "search_term_added_at": "",
+        "user_name_updated_at": "",
+        "wa_template_updated_at": "",
         "country": country,
     }
 
@@ -3012,31 +3037,65 @@ def render_dataset_date_range():
 def render_setup_checklist():
     df_w = st.session_state.get("working_df")
     has_data = df_w is not None and not getattr(df_w, "empty", True)
-    has_shared_dataset = bool(st.session_state.get("shared_dataset_loaded") and st.session_state.get("shared_dataset_name"))
-    has_rules = bool(st.session_state.get("rules"))
     search_term_added = bool(st.session_state.get("search_term_added", False))
     has_sender_name = bool(str(st.session_state.get("user_name", "")).strip())
     template_updated = bool(st.session_state.get("wa_template_updated", False))
-    has_sent_reminder = bool(st.session_state.get("wa_reminder_log")) or any(
-        isinstance(entry, dict) and str(entry.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT
-        for entry in st.session_state.get("deleted_reminders", [])
-    )
+    reset_at = _parse_reminder_log_time(st.session_state.get("get_started_reset_at", ""))
+
+    def happened_after_reset(timestamp: str) -> bool:
+        if not reset_at:
+            return True
+        happened_at = _parse_reminder_log_time(timestamp)
+        return bool(happened_at and happened_at > reset_at)
+
+    def sent_after_reset() -> bool:
+        for entry in st.session_state.get("wa_reminder_log", []):
+            if isinstance(entry, dict) and happened_after_reset(entry.get("RemindedAt", "")):
+                return True
+        for entry in st.session_state.get("deleted_reminders", []):
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT and happened_after_reset(entry.get("ActionedAt", "") or entry.get("DeletedAt", "")):
+                return True
+        return False
+
+    upload_done = has_data and happened_after_reset(st.session_state.get("shared_dataset_updated_at", ""))
+    search_done = search_term_added and happened_after_reset(st.session_state.get("search_term_added_at", ""))
+    name_done = has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", ""))
+    template_done = template_updated and happened_after_reset(st.session_state.get("wa_template_updated_at", ""))
+    reminder_done = sent_after_reset()
 
     def status(done: bool):
         if done:
             return "complete", "Done"
         return "todo", "To do"
 
-    upload_class, upload_status = status(has_data)
-    search_class, search_status = status(search_term_added)
-    name_class, name_status = status(has_sender_name)
-    template_class, template_status = status(template_updated)
-    reminders_class, reminders_status = status(has_sent_reminder)
+    upload_class, upload_status = status(upload_done)
+    search_class, search_status = status(search_done)
+    name_class, name_status = status(name_done)
+    template_class, template_status = status(template_done)
+    reminders_class, reminders_status = status(reminder_done)
 
-    st.markdown(
-        f"""
-        <section class="setup-panel">
-          <p>Five quick checks before the clinic starts using reminders.</p>
+    try:
+        setup_panel = st.container(border=True)
+    except TypeError:
+        setup_panel = st.container()
+
+    with setup_panel:
+        st.markdown(
+            '<p class="setup-intro">Five quick checks before you start using reminders.</p>',
+            unsafe_allow_html=True,
+        )
+        reset_col, _ = st.columns([0.55, 5], gap="small")
+        with reset_col:
+            if st.button("Reset", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
+                st.session_state["get_started_reset_at"] = datetime.utcnow().isoformat()
+                save_settings()
+                st.success("Get Started guide reset.")
+                st.rerun()
+
+        st.markdown(
+            f"""
           <div class="setup-grid">
             <div class="setup-step {upload_class}">
               <div class="setup-status">{upload_status}</div>
@@ -3064,10 +3123,9 @@ def render_setup_checklist():
               <div class="setup-copy">Open Reminders, prepare a WhatsApp message, then mark it Sent once the client has been contacted.</div>
             </div>
           </div>
-        </section>
         """,
-        unsafe_allow_html=True,
-    )
+            unsafe_allow_html=True,
+        )
 
 # --------------------------------
 # Session state init
@@ -3083,6 +3141,10 @@ st.session_state.setdefault("search_terms_reviewed", False)
 st.session_state.setdefault("search_term_added", False)
 st.session_state.setdefault("wa_template_reviewed", False)
 st.session_state.setdefault("wa_template_updated", False)
+st.session_state.setdefault("get_started_reset_at", "")
+st.session_state.setdefault("search_term_added_at", "")
+st.session_state.setdefault("user_name_updated_at", "")
+st.session_state.setdefault("wa_template_updated_at", "")
 
 # --------------------------------
 # Helpers
@@ -4545,6 +4607,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         # Auto-save to Google Sheets when the name changes
         if new_name != prev_name:
             st.session_state["user_name"] = new_name
+            st.session_state["user_name_updated_at"] = datetime.utcnow().isoformat()
             save_settings()
             st.toast("✅ Name saved to settings.")
 
@@ -4657,6 +4720,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     st.session_state["user_template"] = new_template
                     st.session_state["wa_template_reviewed"] = True
                     st.session_state["wa_template_updated"] = True
+                    st.session_state["wa_template_updated_at"] = datetime.utcnow().isoformat()
                     save_settings()
                     st.success("Template updated successfully!")
                     st.rerun()
@@ -4666,6 +4730,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
                 st.session_state["wa_template_reviewed"] = False
                 st.session_state["wa_template_updated"] = False
+                st.session_state["wa_template_updated_at"] = ""
                 save_settings()
                 st.session_state[ver_key] += 1
                 st.success("Template reset to default!")
@@ -4977,6 +5042,7 @@ if st.session_state.get("working_df") is not None:
                         else:
                             st.session_state["rules"][safe_rule] = rule_data
                             st.session_state["search_term_added"] = True
+                            st.session_state["search_term_added_at"] = datetime.utcnow().isoformat()
                             save_settings()
                             st.session_state["new_rule_counter"] += 1
                             invalidate_reminder_rule_cache()
@@ -5078,6 +5144,7 @@ if st.session_state.get("working_df") is not None:
             st.session_state["patient_exclusions"] = []
             st.session_state["search_terms_reviewed"] = False
             st.session_state["search_term_added"] = False
+            st.session_state["search_term_added_at"] = ""
             st.session_state["form_version"] += 1
             save_settings()
             invalidate_reminder_rule_cache()
