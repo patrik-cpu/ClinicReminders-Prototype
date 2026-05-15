@@ -60,32 +60,49 @@ def set_main_section_tab(tab_name: str):
 # --------------------------------
 # Title (retention change))
 # --------------------------------
-title_col, tut_col = st.columns([4,1])
+title_col, tut_col = st.columns([5,1])
 with title_col:
     st.markdown(
         """
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&display=swap');
-        .cr-brand-card {
+        div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) {
+            align-items: center;
             background: #ffffff;
-            border: 1px solid rgba(41, 210, 114, 0.12);
+            border: 1px solid rgba(41, 210, 114, 0.10);
             border-radius: 16px;
-            box-shadow: 0 14px 36px rgba(15, 23, 42, 0.055);
+            box-shadow: 0 12px 34px rgba(15, 23, 42, 0.045);
             margin-bottom: 0.45rem;
-            max-width: 610px;
-            padding: 1.05rem 1.15rem 0.95rem;
+            padding: 0.95rem 1rem;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) div[data-testid="stPopover"] {
+            display: flex;
+            justify-content: flex-end;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) div[data-testid="stPopover"] button {
+            min-width: 7.5rem;
+            width: auto !important;
+        }
+        .cr-brand-card {
+            background: transparent;
+            border: 0;
+            border-radius: 0;
+            box-shadow: none;
+            margin-bottom: 0.45rem;
+            max-width: 500px;
+            padding: 0;
         }
         .cr-brand-logo {
             align-items: center;
-            column-gap: 1.05rem;
+            column-gap: 0.8rem;
             display: grid;
-            grid-template-columns: 178px 1fr;
+            grid-template-columns: 146px 1fr;
             grid-template-rows: auto auto;
         }
         .cr-brand-pulse {
             grid-row: 1 / 3;
-            height: 128px;
-            width: 178px;
+            height: 108px;
+            width: 146px;
         }
         .cr-brand-word {
             color: #10162f;
@@ -95,12 +112,12 @@ with title_col:
         }
         .cr-brand-word.clinic {
             align-self: end;
-            font-size: 3.05rem;
+            font-size: 2.55rem;
             font-weight: 700;
         }
         .cr-brand-word.reminders {
             align-self: start;
-            font-size: 4.05rem;
+            font-size: 3.35rem;
             font-weight: 800;
         }
         .cr-brand-subtitle {
@@ -554,8 +571,8 @@ st.markdown(
     :root {
         --cr-primary: #29D272;
         --cr-primary-dark: #1DA759;
-        --cr-primary-soft: #E9FBF1;
-        --cr-primary-quiet: #F5FCF8;
+        --cr-primary-soft: #dcf8e8;
+        --cr-primary-quiet: #f1fbf6;
         --cr-app-bg: #f6faf7;
         --cr-surface: #ffffff;
         --cr-surface-muted: #eff7f3;
@@ -568,18 +585,18 @@ st.markdown(
         --cr-link-hover: #0f6f3d;
         --cr-chip-bg: rgba(41, 210, 114, 0.11);
         --cr-step-bg: #fbfdfc;
-        --cr-step-complete-bg: #e9fbf1;
-        --cr-step-complete-border: rgba(41, 210, 114, 0.45);
-        --cr-step-current-bg: #f0fbf5;
-        --cr-step-current-border: rgba(29, 167, 89, 0.36);
+        --cr-step-complete-bg: #e4f9ee;
+        --cr-step-complete-border: rgba(41, 210, 114, 0.52);
+        --cr-step-current-bg: #dff8ea;
+        --cr-step-current-border: #29D272;
         --cr-step-optional-bg: #fff7df;
         --cr-step-optional-border: #f4c95d;
     }
     [data-theme="light"], [data-baseweb-theme="light"] {
         --cr-primary: #29D272;
         --cr-primary-dark: #1DA759;
-        --cr-primary-soft: #E9FBF1;
-        --cr-primary-quiet: #F5FCF8;
+        --cr-primary-soft: #dcf8e8;
+        --cr-primary-quiet: #f1fbf6;
         --cr-app-bg: #f6faf7;
         --cr-surface: #ffffff;
         --cr-surface-muted: #eff7f3;
@@ -592,10 +609,10 @@ st.markdown(
         --cr-link-hover: #0f6f3d;
         --cr-chip-bg: rgba(41, 210, 114, 0.11);
         --cr-step-bg: #fbfdfc;
-        --cr-step-complete-bg: #e9fbf1;
-        --cr-step-complete-border: rgba(41, 210, 114, 0.45);
-        --cr-step-current-bg: #f0fbf5;
-        --cr-step-current-border: rgba(29, 167, 89, 0.36);
+        --cr-step-complete-bg: #e4f9ee;
+        --cr-step-complete-border: rgba(41, 210, 114, 0.52);
+        --cr-step-current-bg: #dff8ea;
+        --cr-step-current-border: #29D272;
         --cr-step-optional-bg: #fff7df;
         --cr-step-optional-border: #f4c95d;
     }
@@ -723,6 +740,7 @@ st.markdown(
     }
     .dataset-summary {
         background: var(--cr-primary-soft);
+        border: 1px solid rgba(41, 210, 114, 0.22);
         border-radius: 6px;
         color: #126b3d;
         margin: 0.35rem 0 0.85rem;
@@ -786,6 +804,7 @@ st.markdown(
     }
     .setup-step.current {
         border-color: var(--cr-step-current-border);
+        box-shadow: 0 0 0 1px rgba(41, 210, 114, 0.18), 0 10px 22px rgba(29, 167, 89, 0.10);
         background: var(--cr-step-current-bg);
     }
     .setup-step.optional {
@@ -800,6 +819,10 @@ st.markdown(
         font-weight: 700;
         background: var(--cr-chip-bg);
         color: var(--cr-text);
+    }
+    .setup-step.current .setup-status {
+        background: var(--cr-primary);
+        color: #062d19;
     }
     .setup-title {
         font-weight: 700;
@@ -2635,7 +2658,7 @@ if not st.session_state["logged_in"]:
 else:
     clinic_id = st.session_state.get("clinic_id", "")
     with top_account_slot.container():
-        with st.popover("Account", use_container_width=True):
+        with st.popover("Account", use_container_width=False):
             if st.button("Change password", key="top_account_show_change_password", use_container_width=True):
                 st.session_state["show_top_change_password"] = True
 
