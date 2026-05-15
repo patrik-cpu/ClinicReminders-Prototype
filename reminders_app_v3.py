@@ -4608,70 +4608,73 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
     # --- WhatsApp Template Editor ---
     st.markdown("<div id='wa-template-editor' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("### 🧩 WhatsApp Template Editor")
-    st.caption("Setup tool: keep the default message, or edit it when your clinic needs different wording.")
-    if "wa_template" not in st.session_state or not st.session_state.get("wa_template"):
-        st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE) or DEFAULT_WA_TEMPLATE
+    tmpl_main, _ = st.columns([4, 1])
+    with tmpl_main:
+        st.markdown("### 🧩 WhatsApp Template Editor")
+        st.caption("Setup tool: keep the default message, or edit it when your clinic needs different wording.")
+        if "wa_template" not in st.session_state or not st.session_state.get("wa_template"):
+            st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE) or DEFAULT_WA_TEMPLATE
 
-    ver_key = f"{key_prefix}_tmpl_ver"
-    if ver_key not in st.session_state:
-        st.session_state[ver_key] = 0
+        ver_key = f"{key_prefix}_tmpl_ver"
+        if ver_key not in st.session_state:
+            st.session_state[ver_key] = 0
 
-    editor_key = f"wa_template_editor_{key_prefix}_{st.session_state[ver_key]}"
-    render_field_label(
-        st,
-        "WhatsApp message template",
-        "Use placeholders such as [Client Name], [Your Name], [Pet Name], [Item], and [Due Date]."
-    )
-    st.text_area(
-        "Customize your WhatsApp message template:",
-        value=st.session_state["wa_template"],
-        height=200,
-        key=editor_key,
-        label_visibility="collapsed",
-    )
-    st.markdown(
-        """
-        <div class="template-helper">
-          <h4>Template basics</h4>
-          <p>Write the message once. When you click WhatsApp, the app fills in the bracketed placeholders automatically.</p>
-          <div class="placeholder-grid">
-            <div class="placeholder-chip"><code>[Client Name]</code>Client first name</div>
-            <div class="placeholder-chip"><code>[Your Name]</code>Your saved sender name</div>
-            <div class="placeholder-chip"><code>[Pet Name]</code>Patient name or names</div>
-            <div class="placeholder-chip"><code>[Item]</code>Reminder item</div>
-            <div class="placeholder-chip"><code>[Due Date]</code>Formatted due date</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        "Example: Hi [Client Name], this is [Your Name] reminding you that [Pet Name] is due for their [Item] on the [Due Date]."
-    )
+        editor_key = f"wa_template_editor_{key_prefix}_{st.session_state[ver_key]}"
+        render_field_label(
+            st,
+            "WhatsApp message template",
+            "Use placeholders such as [Client Name], [Your Name], [Pet Name], [Item], and [Due Date]."
+        )
+        st.text_area(
+            "Customize your WhatsApp message template:",
+            value=st.session_state["wa_template"],
+            height=200,
+            key=editor_key,
+            label_visibility="collapsed",
+        )
 
-    col_update, col_reset = st.columns([1, 3])
-    with col_update:
-        if st.button("✅ Update Template", key=f"update_template_{key_prefix}"):
-            new_template = st.session_state.get(editor_key, "").strip()
-            if new_template:
-                st.session_state["wa_template"] = new_template
-                st.session_state["user_template"] = new_template
-                st.session_state["wa_template_reviewed"] = True
-                st.session_state["wa_template_updated"] = True
+        col_update, col_reset, _button_spacer = st.columns([1.1, 1.1, 2], gap="small")
+        with col_update:
+            if st.button("✅ Update Template", key=f"update_template_{key_prefix}", use_container_width=True):
+                new_template = st.session_state.get(editor_key, "").strip()
+                if new_template:
+                    st.session_state["wa_template"] = new_template
+                    st.session_state["user_template"] = new_template
+                    st.session_state["wa_template_reviewed"] = True
+                    st.session_state["wa_template_updated"] = True
+                    save_settings()
+                    st.success("Template updated successfully!")
+                    st.rerun()
+        with col_reset:
+            if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}", use_container_width=True):
+                st.session_state["wa_template"] = DEFAULT_WA_TEMPLATE
+                st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
+                st.session_state["wa_template_reviewed"] = False
+                st.session_state["wa_template_updated"] = False
                 save_settings()
-                st.success("Template updated successfully!")
+                st.session_state[ver_key] += 1
+                st.success("Template reset to default!")
                 st.rerun()
-    with col_reset:
-        if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}"):
-            st.session_state["wa_template"] = DEFAULT_WA_TEMPLATE
-            st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
-            st.session_state["wa_template_reviewed"] = False
-            st.session_state["wa_template_updated"] = False
-            save_settings()
-            st.session_state[ver_key] += 1
-            st.success("Template reset to default!")
-            st.rerun()
+
+        st.markdown(
+            """
+            <div class="template-helper">
+              <h4>Template basics</h4>
+              <p>Write the message once. When you click WhatsApp, the app fills in the bracketed placeholders automatically.</p>
+              <div class="placeholder-grid">
+                <div class="placeholder-chip"><code>[Client Name]</code>Client first name</div>
+                <div class="placeholder-chip"><code>[Your Name]</code>Your saved sender name</div>
+                <div class="placeholder-chip"><code>[Pet Name]</code>Patient name or names</div>
+                <div class="placeholder-chip"><code>[Item]</code>Reminder item</div>
+                <div class="placeholder-chip"><code>[Due Date]</code>Formatted due date</div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Example: Hi [Client Name], this is [Your Name] reminding you that [Pet Name] is due for their [Item] on the [Due Date]."
+        )
 
 def normalize_display_case(text: str) -> str:
     if not isinstance(text, str):
