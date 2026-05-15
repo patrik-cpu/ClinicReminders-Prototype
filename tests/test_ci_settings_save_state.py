@@ -74,7 +74,7 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(saved["rules"]["librela"]["days"], 30)
         self.assertEqual(saved["exclusions"], ["old", "remote-only", "local-only"])
 
-    def test_undo_reminder_action_removes_one_key_without_dropping_remote_actions(self):
+    def test_save_settings_does_not_persist_action_logs(self):
         hidden_a = {
             "Client Name": "Client A",
             "Animal Name": "Pet A",
@@ -121,12 +121,61 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.app.remove_wa_reminder_click_for_row(hidden_a)
         saved = self.run_save_with_remote(remote_settings)
 
-        hidden_keys = {self.app.hidden_reminder_key(entry) for entry in saved["deleted_reminders"]}
-        wa_keys = {tuple(entry.get("ReminderKey", [])) for entry in saved["wa_reminder_log"]}
+        self.assertNotIn("deleted_reminders", saved)
+        self.assertNotIn("wa_reminder_log", saved)
+
+    def test_action_tracker_reduce_keeps_other_actions_when_one_is_undone(self):
+        hidden_a = {
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies",
+            "Due Date": "01 Jun 2026",
+            "Reminder Date": "01 Jun 2026",
+            "Action": "sent",
+            "ActionedAt": "2026-05-15T10:00:00",
+        }
+        hidden_b = {
+            "Client Name": "Client B",
+            "Animal Name": "Pet B",
+            "Plan Item": "Librela",
+            "Due Date": "02 Jun 2026",
+            "Reminder Date": "02 Jun 2026",
+            "Action": "sent",
+            "ActionedAt": "2026-05-15T11:00:00",
+        }
+        undo_a = dict(hidden_a, Action="active", ActionedAt="2026-05-15T12:00:00")
+
+        reduced = self.app.reduce_action_tracker_records([hidden_a, hidden_b, undo_a])
+
+        hidden_keys = {self.app.hidden_reminder_key(entry) for entry in reduced}
         self.assertNotIn(self.app.hidden_reminder_key(hidden_a), hidden_keys)
         self.assertIn(self.app.hidden_reminder_key(hidden_b), hidden_keys)
-        self.assertNotIn(tuple(wa_a["ReminderKey"]), wa_keys)
-        self.assertIn(tuple(wa_b["ReminderKey"]), wa_keys)
+
+    def test_action_tracker_row_preserves_sent_message(self):
+        row = {
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies",
+            "Reminder Date": "01 Jun 2026",
+            "Due Date": "01 Jun 2026",
+            "Charge Date": "01 Jun 2025",
+            "Qty": "1",
+            "Days": "365",
+        }
+        self.app.st.session_state["clinic_id"] = "Clinic Save State"
+        self.app.st.session_state["user_name"] = "Nurse"
+
+        values = self.app.action_tracker_row_values(
+            row,
+            self.app.REMINDER_ACTION_SENT,
+            message="Hi Client A, Pet A is due.",
+            source="test_sent",
+        )
+        record = self.app.action_tracker_values_to_record(self.app.ACTION_TRACKER_HEADERS, values)
+
+        self.assertEqual(record["Action"], self.app.REMINDER_ACTION_SENT)
+        self.assertEqual(record["MessageCreated"], "Hi Client A, Pet A is due.")
+        self.assertEqual(record["Actioned By"], "Nurse")
 
 
 if __name__ == "__main__":

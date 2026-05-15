@@ -195,8 +195,27 @@ SHEET_COL_DATASET_FILE_ID = "DatasetFileId"
 SHEET_COL_DATASET_FILE_NAME = "DatasetFileName"
 SHEET_COL_DATASET_UPDATED_AT = "DatasetUpdatedAt"
 GST_TZ = ZoneInfo("Asia/Dubai")
-WA_TRACKER_WORKSHEET = "WA button tracker"
+ACTION_TRACKER_WORKSHEET = "Action tracker"
+WA_TRACKER_WORKSHEET = "WA button tracker"  # Legacy sheet name; kept for backwards compatibility.
 USER_TRACKER_WORKSHEET = "User tracker"
+ACTION_TRACKER_HEADERS = [
+    "DateTimeGST",
+    "ActionedAtUTC",
+    "ClinicID",
+    "YourNameClinic",
+    "Action",
+    "ClientName",
+    "AnimalNames",
+    "Items",
+    "ReminderDate",
+    "DueDate",
+    "ChargeDate",
+    "Qty",
+    "Days",
+    "MessageCreated",
+    "Source",
+    "ReminderKey",
+]
 WA_TRACKER_HEADERS = [
     "DateTimeGST",
     "ClinicID",
@@ -281,6 +300,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "wa_template_reviewed",
     "wa_template_updated",
     "wa_template_updated_at",
+    "action_tracker_migrated_at",
     "data_version",
     "last_saved_upload_key",
     "pending_overlap_upload_key",
@@ -2077,8 +2097,16 @@ def load_settings():
         except (TypeError, ValueError):
             st.session_state["reminder_window_days"] = 1
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
-        st.session_state["wa_reminder_log"] = settings.get("wa_reminder_log", [])
-        st.session_state["deleted_reminders"] = settings.get("deleted_reminders", [])
+        migrated_legacy_actions = False
+        legacy_wa_log = settings.get("wa_reminder_log", [])
+        legacy_deleted_reminders = settings.get("deleted_reminders", [])
+        if legacy_deleted_reminders and not settings.get("action_tracker_migrated_at"):
+            if migrate_legacy_actions_to_tracker(clinic_id, legacy_deleted_reminders):
+                settings["action_tracker_migrated_at"] = datetime.utcnow().isoformat()
+                migrated_legacy_actions = True
+        tracked_actions = load_action_tracker_records_for_clinic(clinic_id)
+        st.session_state["deleted_reminders"] = merge_deleted_reminders(legacy_deleted_reminders, tracked_actions)
+        st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(legacy_wa_log, action_records_to_wa_log(st.session_state["deleted_reminders"]))
         st.session_state["search_terms_reviewed"] = bool(settings.get("search_terms_reviewed", False))
         st.session_state["search_term_added"] = bool(settings.get("search_term_added", False))
         st.session_state["wa_template_reviewed"] = bool(settings.get("wa_template_reviewed", False))
@@ -2089,6 +2117,9 @@ def load_settings():
         st.session_state["wa_template_updated_at"] = settings.get("wa_template_updated_at", "")
         st.session_state["dataset_upload_history"] = normalize_dataset_upload_history(settings.get("dataset_upload_history", []))
         st.session_state["user_country"] = settings.get("country", "")
+        st.session_state["action_tracker_migrated_at"] = settings.get("action_tracker_migrated_at", "")
+        if migrated_legacy_actions:
+            save_settings(track_user=False, refresh_remote=False)
     else:
         # Defaults for new clinics
         settings = default_settings_for_country("")
@@ -2114,6 +2145,7 @@ def load_settings():
         st.session_state["wa_template_updated_at"] = ""
         st.session_state["dataset_upload_history"] = []
         st.session_state["user_country"] = ""
+        st.session_state["action_tracker_migrated_at"] = ""
 
 
 _SETTING_MISSING = object()
@@ -2366,8 +2398,6 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
         "reminder_window_days": max(0, int_setting_for_save("reminder_window_days", 1)),
         "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", 0)),
-        "wa_reminder_log": wa_reminder_log,
-        "deleted_reminders": deleted_reminders,
         "search_terms_reviewed": bool(setting_for_save("search_terms_reviewed", False)),
         "search_term_added": bool(setting_for_save("search_term_added", False)),
         "wa_template_reviewed": bool(setting_for_save("wa_template_reviewed", False)),
@@ -2378,6 +2408,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "wa_template_updated_at": setting_for_save("wa_template_updated_at", ""),
         "dataset_upload_history": normalize_dataset_upload_history(setting_for_save("dataset_upload_history", [])),
         "country": setting_for_save("user_country", remote_settings.get("country", "")),
+        "action_tracker_migrated_at": setting_for_save("action_tracker_migrated_at", remote_settings.get("action_tracker_migrated_at", "")),
     }
     settings_json = json.dumps(settings_data)
     updated_at = datetime.utcnow().isoformat()
@@ -2448,7 +2479,12 @@ def get_remote_settings(sheet=None, headers=None, row=None) -> dict:
         return {}
 
 def get_remote_wa_reminder_log(sheet=None, headers=None, row=None) -> list:
-    return get_remote_settings(sheet=sheet, headers=headers, row=row).get("wa_reminder_log", [])
+    clinic_id = st.session_state.get("clinic_id", "")
+    tracked_actions = load_action_tracker_records_for_clinic(clinic_id)
+    return merge_wa_reminder_logs(
+        get_remote_settings(sheet=sheet, headers=headers, row=row).get("wa_reminder_log", []),
+        action_records_to_wa_log(tracked_actions),
+    )
 
 def merge_wa_reminder_logs(*logs):
     merged = {}
@@ -2547,6 +2583,145 @@ def merge_deleted_reminders(*logs):
             if existing is None or _hidden_reminder_action_time(entry) >= _hidden_reminder_action_time(existing):
                 merged[key] = dict(entry)
     return sorted(merged.values(), key=_hidden_reminder_action_time)[-MAX_SETTINGS_LOG_ENTRIES:]
+
+
+def _action_tracker_time(entry: dict) -> datetime:
+    return (
+        _parse_reminder_log_time(entry.get("ActionedAt", ""))
+        or _parse_reminder_log_time(entry.get("DeletedAt", ""))
+        or datetime.min
+    )
+
+
+def action_tracker_row_values(row, action: str, message: str = "", source: str = "", now: datetime | None = None) -> list[str]:
+    now = now or datetime.utcnow()
+    reminder_key = list(hidden_reminder_key(row))
+    return [
+        gst_now_iso(now),
+        now.isoformat(),
+        str(st.session_state.get("clinic_id", "")).strip(),
+        str(st.session_state.get("user_name", "")).strip(),
+        str(action or "").strip().lower(),
+        normalize_display_case(row.get("Client Name", "")),
+        normalize_display_case(row.get("Animal Name", "")),
+        normalize_display_case(row.get("Plan Item", "")),
+        str(row.get("Reminder Date", "")).strip(),
+        str(row.get("Due Date", "")).strip(),
+        str(row.get("Charge Date", "")).strip(),
+        str(row.get("Qty", "")).strip(),
+        str(row.get("Days", "")).strip(),
+        str(message or "").strip(),
+        str(source or "").strip(),
+        json.dumps(reminder_key),
+    ]
+
+
+def action_tracker_values_to_record(headers: list[str], values: list[str]) -> dict | None:
+    row = {
+        header: values[idx] if idx < len(values) else ""
+        for idx, header in enumerate(headers)
+    }
+    action = str(row.get("Action", "")).strip().lower()
+    if action not in {REMINDER_ACTION_SENT, REMINDER_ACTION_DECLINED, "active", "undo"}:
+        return None
+    rec = {
+        "Reminder Date": row.get("ReminderDate", ""),
+        "Due Date": row.get("DueDate", ""),
+        "Charge Date": row.get("ChargeDate", ""),
+        "Client Name": row.get("ClientName", ""),
+        "Animal Name": row.get("AnimalNames", ""),
+        "Plan Item": row.get("Items", ""),
+        "Qty": row.get("Qty", ""),
+        "Days": row.get("Days", ""),
+        "Action": action,
+        "DeletedAt": row.get("ActionedAtUTC", ""),
+        "ActionedAt": row.get("ActionedAtUTC", ""),
+        "Actioned By": row.get("YourNameClinic", ""),
+        "MessageCreated": row.get("MessageCreated", ""),
+        "Source": row.get("Source", ""),
+    }
+    return rec
+
+
+def reduce_action_tracker_records(records: list[dict]) -> list[dict]:
+    latest_by_key = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        key = hidden_reminder_key(record)
+        if not any(key):
+            continue
+        existing = latest_by_key.get(key)
+        if existing is None or _action_tracker_time(record) >= _action_tracker_time(existing):
+            latest_by_key[key] = dict(record)
+
+    actioned = [
+        record for record in latest_by_key.values()
+        if str(record.get("Action", "")).strip().lower() in {REMINDER_ACTION_SENT, REMINDER_ACTION_DECLINED}
+    ]
+    return sorted(actioned, key=_action_tracker_time)[-MAX_SETTINGS_LOG_ENTRIES:]
+
+
+def action_records_to_wa_log(records: list[dict]) -> list[dict]:
+    wa_log = []
+    for record in records:
+        if str(record.get("Action", "")).strip().lower() != REMINDER_ACTION_SENT:
+            continue
+        reminded_at = record.get("ActionedAt", "") or record.get("DeletedAt", "")
+        if not reminded_at:
+            continue
+        wa_log.append({
+            "Client Name": record.get("Client Name", ""),
+            "RemindedAt": reminded_at,
+            "ReminderKey": list(hidden_reminder_key(record)),
+        })
+    return merge_wa_reminder_logs(wa_log)
+
+
+def load_action_tracker_records_for_clinic(clinic_id: str) -> list[dict]:
+    clinic_id = str(clinic_id or "").strip()
+    if not clinic_id:
+        return []
+    try:
+        sheet = get_or_create_tracker_sheet(ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS)
+        values = _gspread_retry(sheet.get_all_values) or []
+    except Exception:
+        return []
+    if not values:
+        return []
+    headers = values[0]
+    clinic_ix = headers.index("ClinicID") if "ClinicID" in headers else -1
+    records = []
+    for raw in values[1:]:
+        if clinic_ix >= 0 and (len(raw) <= clinic_ix or str(raw[clinic_ix]).strip().lower() != clinic_id.lower()):
+            continue
+        rec = action_tracker_values_to_record(headers, raw)
+        if rec:
+            records.append(rec)
+    return reduce_action_tracker_records(records)
+
+
+def migrate_legacy_actions_to_tracker(clinic_id: str, legacy_deleted: list[dict]) -> bool:
+    if not legacy_deleted:
+        return False
+    rows = []
+    for entry in legacy_deleted:
+        if not isinstance(entry, dict):
+            continue
+        action = str(entry.get("Action", "")).strip().lower()
+        if action not in {REMINDER_ACTION_SENT, REMINDER_ACTION_DECLINED}:
+            continue
+        actioned_at = _hidden_reminder_action_time(entry)
+        if actioned_at == datetime.min:
+            actioned_at = datetime.utcnow()
+        rows.append(action_tracker_row_values(
+            entry,
+            action,
+            message=entry.get("MessageCreated", ""),
+            source="legacy_settings_migration",
+            now=actioned_at,
+        ))
+    return append_tracker_rows(ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS, rows)
 
 
 def get_hidden_reminder_record(row) -> dict | None:
@@ -2671,23 +2846,17 @@ def remove_wa_reminder_click_for_row(row):
     remove_keys.append(target_key)
 
 
-def record_wa_button_tracker(row, message: str, source: str, now: datetime | None = None):
+def record_action_tracker(row, action: str, message: str = "", source: str = "", now: datetime | None = None):
     append_tracker_row(
-        WA_TRACKER_WORKSHEET,
-        WA_TRACKER_HEADERS,
-        [
-            gst_now_iso(now),
-            str(st.session_state.get("clinic_id", "")).strip(),
-            str(st.session_state.get("user_name", "")).strip(),
-            normalize_display_case(row.get("Client Name", "")),
-            normalize_display_case(row.get("Animal Name", "")),
-            normalize_display_case(row.get("Plan Item", "")),
-            str(row.get("Due Date", "")).strip(),
-            str(row.get("Charge Date", "")).strip(),
-            str(message or "").strip(),
-            source,
-        ],
+        ACTION_TRACKER_WORKSHEET,
+        ACTION_TRACKER_HEADERS,
+        action_tracker_row_values(row, action, message=message, source=source, now=now),
     )
+
+
+def record_wa_button_tracker(row, message: str, source: str, now: datetime | None = None):
+    """Legacy wrapper; new writes go to Action tracker."""
+    record_action_tracker(row, REMINDER_ACTION_SENT, message=message, source=source, now=now)
 
 
 def show_recent_reminder_warning(message: str, key: str):
@@ -3081,6 +3250,22 @@ def append_tracker_row(title: str, headers: list[str], row_values: list[str]):
         return False
 
 
+def append_tracker_rows(title: str, headers: list[str], rows: list[list[str]]):
+    rows = [row for row in rows if row]
+    if not rows:
+        return False
+    try:
+        worksheet = get_or_create_tracker_sheet(title, headers)
+        if hasattr(worksheet, "append_rows"):
+            _gspread_retry(worksheet.append_rows, rows, value_input_option="USER_ENTERED")
+        else:
+            for row in rows:
+                _gspread_retry(worksheet.append_row, row, value_input_option="USER_ENTERED")
+        return True
+    except Exception:
+        return False
+
+
 # === LOGIN HELPER FUNCTIONS ===
 def hash_pw(pw: str):
     """Return MD5 hash of a password."""
@@ -3199,8 +3384,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "client_group_days": 1,
         "reminder_window_days": 1,
         "reminder_warning_days": 0,
-        "wa_reminder_log": [],
-        "deleted_reminders": [],
+        "action_tracker_migrated_at": "",
         "search_terms_reviewed": False,
         "search_term_added": False,
         "wa_template_reviewed": False,
@@ -4974,7 +5158,7 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
     st.session_state[msg_key] = message
     if hidden_action != REMINDER_ACTION_SENT:
         record_wa_reminder_click(client_name, now=now, row=row_data, save=False)
-        record_wa_button_tracker(row_data, message, source=f"{key_prefix}_sent", now=now)
+        record_action_tracker(row_data, REMINDER_ACTION_SENT, message=message, source=f"{key_prefix}_sent", now=now)
     rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
     hide_revealed_reminders_after_action(key_prefix)
     save_settings(track_user=False)
@@ -4984,11 +5168,14 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
 
 
 def decline_reminder_action(row_data: dict, key_prefix: str):
+    now = datetime.utcnow()
     hidden_record = get_hidden_reminder_record(row_data)
     hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
     if hidden_action == REMINDER_ACTION_SENT:
         remove_wa_reminder_click_for_row(row_data)
-    rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=datetime.utcnow())
+    if hidden_action != REMINDER_ACTION_DECLINED:
+        record_action_tracker(row_data, REMINDER_ACTION_DECLINED, source=f"{key_prefix}_declined", now=now)
+    rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=now)
     hide_revealed_reminders_after_action(key_prefix)
     save_settings(track_user=False)
     st.session_state["_pending_reminder_action_status"] = {
@@ -5001,6 +5188,7 @@ def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
     hidden_action = str(hidden_record.get("Action", "")).strip().lower()
     if hidden_action == REMINDER_ACTION_SENT:
         remove_wa_reminder_click_for_row(row_data)
+    record_action_tracker(row_data, "active", source=f"{key_prefix}_undo", now=datetime.utcnow())
     remove_actioned_reminder(row_data)
     save_settings(track_user=False)
     st.session_state["_pending_reminder_action_status"] = {
