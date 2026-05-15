@@ -3264,37 +3264,37 @@ def render_setup_checklist():
               <div class="setup-status">{upload_status}</div>
               <div class="setup-title">1. Upload data</div>
               <div class="setup-copy">Upload a CSV, XLS, or XLSX sales plan export. One year of data is ideal so yearly reminders can be found reliably.</div>
-              <a class="setup-link" href="?setup_target=upload-data">Go to Upload Data</a>
+              <a class="setup-link" href="?setup_target=upload-data" target="_self">Go to Upload Data</a>
             </div>
             <div class="setup-step {search_class}">
               <div class="setup-status">{search_status}</div>
               <div class="setup-title">2. Add new search term</div>
               <div class="setup-copy">Add at least one clinic-specific product or service so reminders match your clinic language.</div>
-              <a class="setup-link" href="?setup_target=search-terms">Go to Search Terms</a>
+              <a class="setup-link" href="?setup_target=search-terms" target="_self">Go to Search Terms</a>
             </div>
             <div class="setup-step {name_class}">
               <div class="setup-status">{name_status}</div>
               <div class="setup-title">3. Set sender name</div>
               <div class="setup-copy">This fills [Your Name] in WhatsApp messages. Example: Mary from Bob's Test Vet Clinic.</div>
-              <a class="setup-link" href="?setup_target=whatsapp-composer">Go to WhatsApp Composer</a>
+              <a class="setup-link" href="?setup_target=whatsapp-composer" target="_self">Go to WhatsApp Composer</a>
             </div>
             <div class="setup-step {template_class}">
               <div class="setup-status">{template_status}</div>
               <div class="setup-title">4. Update template</div>
               <div class="setup-copy">Save the WhatsApp template once so it matches your clinic tone and wording.</div>
-              <a class="setup-link" href="?setup_target=template-editor">Go to Template Editor</a>
+              <a class="setup-link" href="?setup_target=template-editor" target="_self">Go to Template Editor</a>
             </div>
             <div class="setup-step {reminders_class}">
               <div class="setup-status">{reminders_status}</div>
               <div class="setup-title">5. Send your first reminder</div>
               <div class="setup-copy">Open Reminders, prepare a WhatsApp message, then mark it Sent once the client has been contacted.</div>
-              <a class="setup-link" href="?setup_target=reminders">Go to Reminders</a>
+              <a class="setup-link" href="?setup_target=reminders" target="_self">Go to Reminders</a>
             </div>
             <div class="setup-step {decline_class}">
               <div class="setup-status">{decline_status}</div>
               <div class="setup-title">6. Decline your first reminder</div>
               <div class="setup-copy">Tick the red X to decline sending this reminder while still marking it actioned.</div>
-              <a class="setup-link" href="?setup_target=reminders">Go to Reminders</a>
+              <a class="setup-link" href="?setup_target=reminders" target="_self">Go to Reminders</a>
             </div>
           </div>
         """,
