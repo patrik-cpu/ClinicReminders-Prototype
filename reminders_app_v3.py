@@ -3986,6 +3986,16 @@ def render_column_help_icon(container, help_text: str, align: str = "left"):
     )
 
 
+def render_sortable_reminder_header(container, label: str, help_text: str, button_kwargs: dict, width_units: float):
+    base_label = re.sub(r"\s+[↑↓]$", "", str(label or "")).strip()
+    label_units = min(max(0.9, len(base_label) * 0.11 + 0.25), max(0.9, width_units - 0.25))
+    help_units = 0.16
+    spacer_units = max(0.1, width_units - label_units - help_units)
+    button_col, help_col, _ = container.columns([label_units, help_units, spacer_units], gap="small")
+    button_col.button(label, **button_kwargs)
+    render_column_help_icon(help_col, help_text)
+
+
 def render_reminder_header_label(container, label: str, column: str, align: str = "left"):
     safe_label = html_lib.escape(label)
     safe_help = html_lib.escape(reminder_header_help(column))
@@ -4281,6 +4291,7 @@ def render_actioned_reminders_tab(key_prefix: str):
             font-weight: 600 !important;
             margin: 0 !important;
             text-align: left !important;
+            white-space: nowrap !important;
           }}
         </style>
         """,
@@ -4289,20 +4300,23 @@ def render_actioned_reminders_tab(key_prefix: str):
 
     sort_state = get_actioned_reminder_sort(key_prefix)
     header_cols = st.columns(col_widths)
-    for idx, (col, head) in enumerate(zip(header_cols, headers)):
+    for idx, (col, head, width) in enumerate(zip(header_cols, headers, col_widths)):
         align = "center" if head == "Undo" else "left"
         label = labels.get(head, head)
         if head in ACTIONED_REMINDER_SORTABLE_COLUMNS:
             if sort_state["column"] == head:
                 label = f"{label} {'↑' if sort_state['ascending'] else '↓'}"
-            button_col, help_col = col.columns([0.82, 0.18], gap="small")
-            button_col.button(
+            render_sortable_reminder_header(
+                col,
                 label,
-                key=f"{key_prefix}_actioned_sort_{idx}",
-                on_click=set_actioned_reminder_sort,
-                args=(key_prefix, head),
+                reminder_header_help(head),
+                {
+                    "key": f"{key_prefix}_actioned_sort_{idx}",
+                    "on_click": set_actioned_reminder_sort,
+                    "args": (key_prefix, head),
+                },
+                width,
             )
-            render_column_help_icon(help_col, reminder_header_help(head))
         else:
             render_reminder_header_label(col, label, head, align=align)
 
@@ -4358,6 +4372,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             font-weight: 600 !important;
             margin: 0 !important;
             text-align: left !important;
+            white-space: nowrap !important;
           }}
         </style>
         """,
@@ -4367,20 +4382,23 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     # --- Header row ---
     sort_state = get_reminder_table_sort(key_prefix)
     header_cols = st.columns(col_widths)
-    for idx, (c, head) in enumerate(zip(header_cols, headers)):
+    for idx, (c, head, width) in enumerate(zip(header_cols, headers, col_widths)):
         align = "center" if head in ["WhatsApp", "Sent", "Decline"] else "left"
         label = REMINDER_TABLE_HEADER_LABELS.get(head, head)
         if head in REMINDER_TABLE_SORTABLE_COLUMNS:
             if sort_state["column"] == head:
                 label = f"{label} {'↑' if sort_state['ascending'] else '↓'}"
-            button_col, help_col = c.columns([0.82, 0.18], gap="small")
-            button_col.button(
+            render_sortable_reminder_header(
+                c,
                 label,
-                key=f"{key_prefix}_sort_{idx}",
-                on_click=set_reminder_table_sort,
-                args=(key_prefix, head),
+                reminder_header_help(head),
+                {
+                    "key": f"{key_prefix}_sort_{idx}",
+                    "on_click": set_reminder_table_sort,
+                    "args": (key_prefix, head),
+                },
+                width,
             )
-            render_column_help_icon(help_col, reminder_header_help(head))
         else:
             render_reminder_header_label(c, label, head, align=align)
 
