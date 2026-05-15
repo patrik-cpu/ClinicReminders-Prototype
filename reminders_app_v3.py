@@ -782,6 +782,7 @@ st.markdown(
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        position: relative;
         width: 0.95rem;
         height: 0.95rem;
         border: 1px solid var(--cr-muted);
@@ -791,6 +792,31 @@ st.markdown(
         line-height: 1;
         margin-left: 0.25rem;
         vertical-align: 0.05rem;
+    }
+    .column-help::after {
+        background: #ffffff;
+        border: 1px solid rgba(0,0,0,0.18);
+        border-radius: 4px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.16);
+        color: #111827;
+        content: attr(data-tooltip);
+        display: none;
+        font-size: 0.78rem;
+        font-weight: 500;
+        left: 50%;
+        line-height: 1.25;
+        max-width: 18rem;
+        min-width: 10rem;
+        padding: 0.42rem 0.55rem;
+        position: absolute;
+        text-align: left;
+        top: calc(100% + 0.35rem);
+        transform: translateX(-50%);
+        white-space: normal;
+        z-index: 9999;
+    }
+    .column-help:hover::after {
+        display: block;
     }
     </style>
     ''',
@@ -3700,7 +3726,7 @@ def render_reminder_header_label(container, label: str, column: str, align: str 
     safe_label = html_lib.escape(label)
     safe_help = html_lib.escape(reminder_header_help(column))
     container.markdown(
-        f"<div style='text-align:{align}; font-weight:600;'>{safe_label} <span class='column-help' title='{safe_help}'>?</span></div>",
+        f"<div style='text-align:{align}; font-weight:600;'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -4430,7 +4456,7 @@ if st.session_state.get("working_df") is not None:
             safe_label = html_lib.escape(label)
             safe_help = html_lib.escape(help_text)
             st.markdown(
-                f"**{safe_label}** <span class='column-help' title='{safe_help}'>?</span>",
+                f"**{safe_label}** <span class='column-help' data-tooltip='{safe_help}'>?</span>",
                 unsafe_allow_html=True,
             )
     
