@@ -3343,10 +3343,8 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
         f"""
         <style>
           .st-key-{wa_key} button {{
-            align-items: center !important;
-            display: flex !important;
-            justify-content: center !important;
             min-height: 2.45rem !important;
+            position: relative !important;
           }}
           .st-key-{wa_key} button p {{
             font-size: 0 !important;
@@ -3357,7 +3355,11 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
             content: "";
             display: block;
             height: 1.55rem;
+            left: 50%;
             margin: 0 !important;
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
             -webkit-mask: url("{WHATSAPP_ICON_MASK_DATA_URI}") center / contain no-repeat;
             mask: url("{WHATSAPP_ICON_MASK_DATA_URI}") center / contain no-repeat;
             width: 1.55rem;
