@@ -664,14 +664,35 @@ st.markdown(
     div[data-testid="InputInstructions"] {
         display: none !important;
     }
-    .dataset-range {
+    .dataset-summary {
         background: #dbeafe;
         border-radius: 6px;
         color: #0757b8;
-        font-size: 0.98rem;
-        font-weight: 600;
         margin: 0.35rem 0 0.85rem;
         padding: 0.85rem 1rem;
+    }
+    .dataset-summary-title {
+        color: #063f87;
+        font-size: 1rem;
+        font-weight: 700;
+        margin-bottom: 0.4rem;
+    }
+    .dataset-summary-grid {
+        display: grid;
+        gap: 0.35rem 1.25rem;
+        grid-template-columns: repeat(3, minmax(150px, 1fr));
+    }
+    .dataset-summary-label {
+        color: #456179;
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .dataset-summary-value {
+        color: #042f64;
+        font-size: 0.95rem;
+        font-weight: 650;
+        overflow-wrap: anywhere;
     }
     .setup-panel {
         border: 1px solid var(--cr-border);
@@ -2466,11 +2487,40 @@ def render_dataset_date_range():
         return
 
     dmin, dmax = get_dataset_date_range(df_w)
+    has_saved_dataset = bool(st.session_state.get("shared_dataset_loaded") and st.session_state.get("shared_dataset_name"))
+    summary_title = "Saved clinic data" if has_saved_dataset else "Current upload preview"
+    dataset_name = str(st.session_state.get("shared_dataset_name") or "Not saved yet")
+    row_count = len(df_w)
     if dmin is not None and dmax is not None:
-        st.markdown(
-            f"<div class='dataset-range'>Date Range: {dmin:%d %b %Y} → {dmax:%d %b %Y}</div>",
-            unsafe_allow_html=True,
-        )
+        date_range = f"{dmin:%d %b %Y} → {dmax:%d %b %Y}"
+    else:
+        date_range = "Dates not detected"
+
+    safe_name = html_lib.escape(dataset_name)
+    safe_rows = html_lib.escape(f"{row_count:,}")
+    safe_range = html_lib.escape(date_range)
+    st.markdown(
+        f"""
+        <div class="dataset-summary">
+          <div class="dataset-summary-title">{html_lib.escape(summary_title)}</div>
+          <div class="dataset-summary-grid">
+            <div>
+              <div class="dataset-summary-label">Dataset</div>
+              <div class="dataset-summary-value">{safe_name}</div>
+            </div>
+            <div>
+              <div class="dataset-summary-label">Rows</div>
+              <div class="dataset-summary-value">{safe_rows}</div>
+            </div>
+            <div>
+              <div class="dataset-summary-label">Date range</div>
+              <div class="dataset-summary-value">{safe_range}</div>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def render_setup_checklist():
     df_w = st.session_state.get("working_df")
