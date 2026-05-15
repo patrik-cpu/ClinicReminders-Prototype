@@ -4475,8 +4475,7 @@ if st.session_state.get("working_df") is not None:
             save_settings()
             invalidate_reminder_rule_cache()
     
-        st.write("## Add New Search Term")
-        st.info("💡 Add a new **Search Term** (e.g., Cardisure), set optional reminder dates, the due date, whether to use quantity, and optional message text.")
+        st.markdown("### Add New Search Term")
         row_id = st.session_state['new_rule_counter']
         c1, c2, c3, c4, c5, c6, c7 = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
         with c1:
@@ -4546,6 +4545,8 @@ if st.session_state.get("working_df") is not None:
                     st.error("Enter a name and valid positive integer for Reminder 3 (Due Date)")
     
 
+        st.divider()
+        st.markdown("### Current Search Terms")
 
         cols = st.columns([3,1,1,1.4,1,2,0.7])
         with cols[0]: column_header("Search Term", "Text to look for in the PMS item name.")
