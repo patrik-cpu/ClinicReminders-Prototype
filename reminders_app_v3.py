@@ -3912,11 +3912,41 @@ if st.session_state.get("working_df") is not None:
     with cols[3]: st.markdown("**Visible Text**")
     with cols[4]: st.markdown("**Delete**")
 
-    new_values, to_delete = {}, []
+    to_delete = []
+
+    autosave_error = st.session_state.pop("_search_terms_autosave_error", "")
+    if autosave_error:
+        st.error(autosave_error)
+
+    def invalidate_reminder_rule_cache():
+        st.session_state.pop("prepared_df", None)
+        st.session_state.pop("prepared_key", None)
+
+    def save_rule_days(rule, key):
+        days_raw = str(st.session_state.get(key, "")).strip()
+        if not days_raw.isdigit() or int(days_raw) <= 0:
+            st.session_state["_search_terms_autosave_error"] = f"Days must be a positive integer for: {rule}"
+            return
+        st.session_state["rules"][rule]["days"] = int(days_raw)
+        st.session_state["search_terms_reviewed"] = True
+        save_settings()
+        invalidate_reminder_rule_cache()
+
+    def save_rule_visible_text(rule, key):
+        visible_text = str(st.session_state.get(key, "")).strip()
+        if visible_text:
+            st.session_state["rules"][rule]["visible_text"] = visible_text
+        else:
+            st.session_state["rules"][rule].pop("visible_text", None)
+        st.session_state["search_terms_reviewed"] = True
+        save_settings()
+        invalidate_reminder_rule_cache()
+
     def toggle_use_qty(rule, key):
         st.session_state["rules"][rule]["use_qty"] = st.session_state[key]
+        st.session_state["search_terms_reviewed"] = True
         save_settings()
-        st.rerun()
+        invalidate_reminder_rule_cache()
 
     for rule, settings in sorted(st.session_state["rules"].items(), key=lambda x: x[0]):
         ver = st.session_state["form_version"]
@@ -3926,9 +3956,11 @@ if st.session_state.get("working_df") is not None:
             with cols[0]:
                 st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
             with cols[1]:
-                new_values.setdefault(rule, {})["days"] = st.text_input(
+                st.text_input(
                     "Days", value=str(settings["days"]),
                     key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
+                    on_change=save_rule_days,
+                    args=(rule, f"days_{safe_rule}_{ver}",),
                     help="How many days after the charge date this item should become due again."
                 )
             with cols[2]:
@@ -3940,9 +3972,11 @@ if st.session_state.get("working_df") is not None:
                     help="When enabled, quantity multiplies the recurrence interval."
                 )
             with cols[3]:
-                new_values[rule]["visible_text"] = st.text_input(
+                st.text_input(
                     "Visible Text", value=settings.get("visible_text",""),
                     key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
+                    on_change=save_rule_visible_text,
+                    args=(rule, f"vis_{safe_rule}_{ver}",),
                     help="Optional friendly wording shown in tables and WhatsApp messages."
                 )
             with cols[4]:
@@ -3955,52 +3989,16 @@ if st.session_state.get("working_df") is not None:
         save_settings()
         st.rerun()
 
-    colU, colR, colTip = st.columns([2,1,2])
-    with colU:
-        if st.button("Update", help="Save changes to recurrence intervals and visible text."):
-            updated = {}
-            invalid_rules = []
-            for rule, settings in st.session_state["rules"].items():
-                days_raw = str(new_values.get(rule, {}).get("days", settings["days"])).strip()
-                if not days_raw.isdigit() or int(days_raw) <= 0:
-                    invalid_rules.append(rule)
-                    continue
-                d = int(days_raw)
-                vis = new_values.get(rule, {}).get("visible_text", settings.get("visible_text", ""))
-                if vis.strip() == "":
-                    updated[rule] = {"days": d, "use_qty": settings["use_qty"]}
-                else:
-                    updated[rule] = {"days": d, "use_qty": settings["use_qty"], "visible_text": vis.strip()}
-
-            if invalid_rules:
-                st.error("Days must be a positive integer for: " + ", ".join(sorted(invalid_rules)))
-            else:
-                st.session_state["rules"] = updated
-                st.session_state["search_terms_reviewed"] = True
-                save_settings()
-                # invalidate prepared cache because rules changed
-                st.session_state.pop("prepared_df", None)
-                st.session_state.pop("prepared_key", None)
-                st.rerun()
-
-    with colR:
-        if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
-            st.session_state["rules"] = DEFAULT_RULES.copy()
-            st.session_state["exclusions"] = []
-            st.session_state["client_exclusions"] = []
-            st.session_state["search_terms_reviewed"] = False
-            st.session_state["form_version"] += 1
-            save_settings()
-            st.session_state.pop("prepared_df", None)
-            st.session_state.pop("prepared_key", None)
-            st.rerun()
-
-    with colTip:
-        st.markdown("### 💡 Tip")
-        st.info(
-            "Click **Update** to save changes to Recurrence Intervals or Visible Text.\n\n"
-            "Click **Reset defaults** to restore rules and exclusions to your defaults."
-        )
+    if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
+        st.session_state["rules"] = DEFAULT_RULES.copy()
+        st.session_state["exclusions"] = []
+        st.session_state["client_exclusions"] = []
+        st.session_state["search_terms_reviewed"] = False
+        st.session_state["form_version"] += 1
+        save_settings()
+        st.session_state.pop("prepared_df", None)
+        st.session_state.pop("prepared_key", None)
+        st.rerun()
 
     st.markdown("---")
     st.write("### Add New Search Term")
