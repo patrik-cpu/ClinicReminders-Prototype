@@ -4313,13 +4313,12 @@ if st.session_state.get("working_df") is not None:
         # st.cache_data.clear()
         st.rerun()
 
-    latest_date = prepared["ChargeDate"].max()
-    default_start = (latest_date + timedelta(days=1)).date() if pd.notna(latest_date) else date.today()
+    default_start = date.today()
 
     start_col, window_col, group_col, warning_col = st.columns(4)
     with start_col:
         start_date = st.date_input(
-            "Start Date",
+            "Today",
             value=default_start,
             help="First day to include in the reminder list."
         )
