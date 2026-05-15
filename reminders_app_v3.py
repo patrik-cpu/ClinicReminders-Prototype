@@ -485,16 +485,6 @@ if st.session_state.get("logged_in", False):
           <div style="font-weight:700; margin-bottom:0.15rem;">Clinic</div>
           <div class="sidebar-clinic-name">{clinic_label}</div>
         </div>
-        <div style="font-size:15px; line-height:1.85;">
-          <a href="#getting-started" style="text-decoration:none; display:block; font-weight:700; margin-bottom:0.75rem;">🚀 Getting Started</a>
-          <div style="font-weight:700; margin-bottom:0.25rem;">Daily workflow</div>
-          <a href="#reminders" style="text-decoration:none; display:block;">📅 Reminders</a>
-          <a href="#data-upload" style="text-decoration:none; display:block;">📂 Data</a>
-          <div style="font-weight:700; margin:1rem 0 0.25rem;">Reminder setup</div>
-          <a href="#search" style="text-decoration:none; display:block;">🔍 Search reminders</a>
-          <a href="#search-terms" style="text-decoration:none; display:block;">📝 Search terms</a>
-          <a href="#exclusions" style="text-decoration:none; display:block;">🚫 Exclusions</a>
-        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -2583,6 +2573,21 @@ if not st.session_state["logged_in"]:
 if "rules" not in st.session_state:
     load_settings()
 
+st.markdown(
+    """
+    <style>
+      div[data-testid="stTabs"] > div[role="tablist"] button:nth-child(3) p {
+        font-size: 1.12rem !important;
+        font-weight: 800 !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+get_started_tab, data_tab, reminders_page_tab, search_terms_tab, exclusions_tab = st.tabs(
+    ["Get Started", "Data", "Reminders", "Search Terms", "Exclusions"]
+)
+
 
 def clone_reminder_rules(rules: dict | None) -> dict:
     return json.loads(json.dumps(rules or {}))
@@ -2731,31 +2736,26 @@ def render_setup_checklist():
               <div class="setup-status">{upload_status}</div>
               <div class="setup-title">1. Upload data</div>
               <div class="setup-copy">Upload a CSV, XLS, or XLSX sales plan export. One year of data is ideal so yearly reminders can be found reliably.</div>
-              <a href="#data-upload">Go to Data</a>
             </div>
             <div class="setup-step {search_class}">
               <div class="setup-status">{search_status}</div>
               <div class="setup-title">2. Add new search term</div>
               <div class="setup-copy">Add at least one clinic-specific product or service so reminders match your clinic language.</div>
-              <a href="#search-terms">Add search term</a>
             </div>
             <div class="setup-step {name_class}">
               <div class="setup-status">{name_status}</div>
               <div class="setup-title">3. Set sender name</div>
               <div class="setup-copy">This fills [Your Name] in WhatsApp messages. Example: Mary from Bob's Test Vet Clinic.</div>
-              <a href="#whatsapp-composer">Set WhatsApp name</a>
             </div>
             <div class="setup-step {template_class}">
               <div class="setup-status">{template_status}</div>
               <div class="setup-title">4. Update template</div>
               <div class="setup-copy">Save the WhatsApp template once so it matches your clinic tone and wording.</div>
-              <a href="#wa-template-editor">Update template</a>
             </div>
             <div class="setup-step {reminders_class}">
               <div class="setup-status">{reminders_status}</div>
               <div class="setup-title">5. Check reminders</div>
               <div class="setup-copy">Pick a start date, confirm the output, then click WA to prepare messages.</div>
-              <a href="#reminders">Open reminders</a>
             </div>
           </div>
         </section>
@@ -3214,251 +3214,253 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
 
 # --- Data section ---
-st.markdown("<div id='getting-started' class='anchor-offset'></div>", unsafe_allow_html=True)
-render_setup_checklist()
-
-st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
-st.markdown("## 📂 Data")
-render_dataset_status()
-render_dataset_date_range()
-st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
-if st.session_state.get("dataset_save_notice"):
-    st.success(st.session_state.pop("dataset_save_notice"))
-
-datasets = []
-summary_rows = []
-working_df = None
-
-# --------------------------------
-# Cached dataset loader (persistent across reruns)
-# --------------------------------
-@st.cache_resource(show_spinner=False)
-def load_persistent_dataset(file_blobs):
-    return summarize_uploads(file_blobs)
-
-# --------------------------------
-# File uploader
-# --------------------------------
-files = st.file_uploader(
-    "Upload Sales Plan file(s)",
-    type=["csv", "xls", "xlsx"],
-    accept_multiple_files=True,
-    key=f"file_uploader_main_{st.session_state.get('file_uploader_reset_version', 0)}",
-    help="Upload one or more PMS export files. Valid uploads are saved for everyone using this clinic login."
-)
-
-# --------------------------------
-# Cache invalidation logic — clear when files added/removed/renamed
-# --------------------------------
-if "last_uploaded_files" not in st.session_state:
-    st.session_state["last_uploaded_files"] = []
-
-current_files = [f.name for f in files] if files else []
-
-# Detect any file addition, deletion, or rename
-if set(current_files) != set(st.session_state["last_uploaded_files"]):
-    st.toast("🔄 File change detected — clearing cache and refreshing data...")
-
-    st.session_state["last_uploaded_files"] = current_files
-    st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-    reset_uploaded_data_state(clear_cache=True)
-
-    # optional but recommended
-    load_shared_dataset_for_clinic()
-
-    st.rerun()
-
-
-# --------------------------------
-# File upload handling
-# --------------------------------
-if files:
-    file_blobs = tuple(_to_blob(f) for f in files)
-    current_upload_key = upload_fingerprint(file_blobs)
-
-    if st.session_state.get("last_saved_upload_key") == current_upload_key:
-        st.info("This upload has already been saved for this clinic.")
-    else:
-        # ✅ Use cached dataset loader (faster after first run)
-        try:
-            datasets, summary_rows = load_persistent_dataset(file_blobs)
-        except UploadValidationError as e:
-            st.toast("Upload needs different columns.")
-            st.warning(
-                "This upload does not look like a supported sales export. "
-                + str(e)
-                + " Please upload a file with client, patient, item, amount/quantity, and date columns."
-            )
-            st.stop()
-        except Exception:
-            st.toast("Upload could not be read.")
-            st.warning(
-                "This file could not be read as a supported clinic sales export. "
-                "Please check that it is a CSV, XLS, or XLSX export with client, patient, item, amount/quantity, and date columns."
-            )
-            st.stop()
-
-        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
-
-        all_pms = {p for p, _ in datasets}
-        rules_fp = _rules_fp(get_applied_reminder_rules())
-
-        # --- Case 1: All files from same PMS ---
-        if len(all_pms) == 1 and "Undetected" not in all_pms:
-            working_df = pd.concat([df for _, df in datasets], ignore_index=True)
-            st.session_state["working_df"] = sanitize_working_df(working_df)
-            st.success(f"All files detected as {list(all_pms)[0]} — ready to save.")
-
-        # --- Case 2: Mixed PMS or undetected but schema-compatible ---
+with get_started_tab:
+    st.markdown("<div id='getting-started' class='anchor-offset'></div>", unsafe_allow_html=True)
+    render_setup_checklist()
+    
+with data_tab:
+    st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("## 📂 Data")
+    render_dataset_status()
+    render_dataset_date_range()
+    st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
+    if st.session_state.get("dataset_save_notice"):
+        st.success(st.session_state.pop("dataset_save_notice"))
+    
+    datasets = []
+    summary_rows = []
+    working_df = None
+    
+    # --------------------------------
+    # Cached dataset loader (persistent across reruns)
+    # --------------------------------
+    @st.cache_resource(show_spinner=False)
+    def load_persistent_dataset(file_blobs):
+        return summarize_uploads(file_blobs)
+    
+    # --------------------------------
+    # File uploader
+    # --------------------------------
+    files = st.file_uploader(
+        "Upload Sales Plan file(s)",
+        type=["csv", "xls", "xlsx"],
+        accept_multiple_files=True,
+        key=f"file_uploader_main_{st.session_state.get('file_uploader_reset_version', 0)}",
+        help="Upload one or more PMS export files. Valid uploads are saved for everyone using this clinic login."
+    )
+    
+    # --------------------------------
+    # Cache invalidation logic — clear when files added/removed/renamed
+    # --------------------------------
+    if "last_uploaded_files" not in st.session_state:
+        st.session_state["last_uploaded_files"] = []
+    
+    current_files = [f.name for f in files] if files else []
+    
+    # Detect any file addition, deletion, or rename
+    if set(current_files) != set(st.session_state["last_uploaded_files"]):
+        st.toast("🔄 File change detected — clearing cache and refreshing data...")
+    
+        st.session_state["last_uploaded_files"] = current_files
+        st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
+        reset_uploaded_data_state(clear_cache=True)
+    
+        # optional but recommended
+        load_shared_dataset_for_clinic()
+    
+        st.rerun()
+    
+    
+    # --------------------------------
+    # File upload handling
+    # --------------------------------
+    if files:
+        file_blobs = tuple(_to_blob(f) for f in files)
+        current_upload_key = upload_fingerprint(file_blobs)
+    
+        if st.session_state.get("last_saved_upload_key") == current_upload_key:
+            st.info("This upload has already been saved for this clinic.")
         else:
+            # ✅ Use cached dataset loader (faster after first run)
             try:
-                cand = pd.concat([df for _, df in datasets], ignore_index=True, sort=False)
-                required_cols = ["ChargeDate", "Client Name", "Animal Name", "Item Name", "Qty", "Amount"]
-
-                if all(c in cand.columns for c in required_cols):
-                    working_df = cand
-                    st.session_state["working_df"] = sanitize_working_df(working_df)
-                    st.success("Files merged into canonical schema — ready to save.")
-                else:
-                    st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
-
-            except Exception as e:
-                st.warning(f"⚠️ PMS mismatch or undetected files. Reminders cannot be generated. ({e})")
-                st.session_state.pop("working_df", None)
-
-        if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
-            df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
-                st.session_state["working_df"], rules_fp
-            )
-            st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
-            st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
-
-            new_df = st.session_state["working_df"].copy()
-            new_df = new_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
-            new_df = ensure_min_canonical_schema(new_df)
-            upload_min, upload_max = dataset_date_bounds(new_df)
-            st.caption(
-                f"Current upload date range: "
-                f"{format_date_bound(upload_min)} → {format_date_bound(upload_max)}"
-            )
-
-            clinic_id = st.session_state.get("clinic_id")
-            if not clinic_id:
-                st.error("Not logged in.")
+                datasets, summary_rows = load_persistent_dataset(file_blobs)
+            except UploadValidationError as e:
+                st.toast("Upload needs different columns.")
+                st.warning(
+                    "This upload does not look like a supported sales export. "
+                    + str(e)
+                    + " Please upload a file with client, patient, item, amount/quantity, and date columns."
+                )
                 st.stop()
-
-            existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
-            existing_df = None
-            if existing_file_id:
+            except Exception:
+                st.toast("Upload could not be read.")
+                st.warning(
+                    "This file could not be read as a supported clinic sales export. "
+                    "Please check that it is a CSV, XLS, or XLSX export with client, patient, item, amount/quantity, and date columns."
+                )
+                st.stop()
+    
+            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
+    
+            all_pms = {p for p, _ in datasets}
+            rules_fp = _rules_fp(get_applied_reminder_rules())
+    
+            # --- Case 1: All files from same PMS ---
+            if len(all_pms) == 1 and "Undetected" not in all_pms:
+                working_df = pd.concat([df for _, df in datasets], ignore_index=True)
+                st.session_state["working_df"] = sanitize_working_df(working_df)
+                st.success(f"All files detected as {list(all_pms)[0]} — ready to save.")
+    
+            # --- Case 2: Mixed PMS or undetected but schema-compatible ---
+            else:
                 try:
-                    existing_df = load_existing_shared_df(existing_file_id, existing_name)
+                    cand = pd.concat([df for _, df in datasets], ignore_index=True, sort=False)
+                    required_cols = ["ChargeDate", "Client Name", "Animal Name", "Item Name", "Qty", "Amount"]
+    
+                    if all(c in cand.columns for c in required_cols):
+                        working_df = cand
+                        st.session_state["working_df"] = sanitize_working_df(working_df)
+                        st.success("Files merged into canonical schema — ready to save.")
+                    else:
+                        st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
+    
                 except Exception as e:
-                    st.error(
-                        "Could not load the existing clinic dataset, so this upload was not saved. "
-                        f"Please try again before replacing clinic data. ({e})"
-                    )
-                    st.stop()
-
-            existing_min, existing_max = dataset_date_bounds(existing_df)
-            overlaps_existing = date_ranges_overlap(upload_min, upload_max, existing_min, existing_max)
-
-            def save_uploaded_dataset(replace_overlapping_dates: bool):
-                merged_df, new_file_id, out_name = publish_dataset_for_clinic(
-                    clinic_id=clinic_id,
-                    new_df=new_df,
-                    datasets_folder_id=DATASETS_FOLDER_ID,
-                    replace_overlapping_dates=replace_overlapping_dates,
-                    existing_file_id=existing_file_id,
-                    existing_name=existing_name,
-                    existing_df=existing_df,
-                )
-
-                st.session_state["working_df"] = sanitize_working_df(merged_df)
-                st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-                st.session_state["shared_dataset_loaded"] = True
-                st.session_state["shared_dataset_name"] = out_name
-                st.session_state["last_saved_upload_key"] = current_upload_key
-                st.session_state["dataset_save_notice"] = (
-                    "✅ Dataset saved for this clinic. Other users with this login will load it automatically."
-                )
-                st.session_state.pop("pending_overlap_upload_key", None)
-
+                    st.warning(f"⚠️ PMS mismatch or undetected files. Reminders cannot be generated. ({e})")
+                    st.session_state.pop("working_df", None)
+    
+            if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
                 df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
                     st.session_state["working_df"], rules_fp
                 )
                 st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
                 st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
-
-                st.rerun()
-
-            if overlaps_existing:
-                overlap_min = max(upload_min, existing_min)
-                overlap_max = min(upload_max, existing_max)
-                st.session_state["pending_overlap_upload_key"] = current_upload_key
-                st.warning(
-                    "This upload overlaps existing clinic data "
-                    f"from {format_date_bound(overlap_min)} to {format_date_bound(overlap_max)}. "
-                    "Replace existing rows in the uploaded date range and save?"
+    
+                new_df = st.session_state["working_df"].copy()
+                new_df = new_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
+                new_df = ensure_min_canonical_schema(new_df)
+                upload_min, upload_max = dataset_date_bounds(new_df)
+                st.caption(
+                    f"Current upload date range: "
+                    f"{format_date_bound(upload_min)} → {format_date_bound(upload_max)}"
                 )
-                c_confirm, c_cancel = st.columns([1, 3])
-                if c_confirm.button(
-                    "Replace and save",
-                    key=f"confirm_overlap_{current_upload_key[:12]}",
-                    help="Remove existing clinic rows in this upload's date range, then save the uploaded rows.",
-                ):
-                    save_uploaded_dataset(replace_overlapping_dates=True)
-                if c_cancel.button("Cancel upload", key=f"cancel_overlap_{current_upload_key[:12]}"):
+    
+                clinic_id = st.session_state.get("clinic_id")
+                if not clinic_id:
+                    st.error("Not logged in.")
+                    st.stop()
+    
+                existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+                existing_df = None
+                if existing_file_id:
+                    try:
+                        existing_df = load_existing_shared_df(existing_file_id, existing_name)
+                    except Exception as e:
+                        st.error(
+                            "Could not load the existing clinic dataset, so this upload was not saved. "
+                            f"Please try again before replacing clinic data. ({e})"
+                        )
+                        st.stop()
+    
+                existing_min, existing_max = dataset_date_bounds(existing_df)
+                overlaps_existing = date_ranges_overlap(upload_min, upload_max, existing_min, existing_max)
+    
+                def save_uploaded_dataset(replace_overlapping_dates: bool):
+                    merged_df, new_file_id, out_name = publish_dataset_for_clinic(
+                        clinic_id=clinic_id,
+                        new_df=new_df,
+                        datasets_folder_id=DATASETS_FOLDER_ID,
+                        replace_overlapping_dates=replace_overlapping_dates,
+                        existing_file_id=existing_file_id,
+                        existing_name=existing_name,
+                        existing_df=existing_df,
+                    )
+    
+                    st.session_state["working_df"] = sanitize_working_df(merged_df)
+                    st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
+                    st.session_state["shared_dataset_loaded"] = True
+                    st.session_state["shared_dataset_name"] = out_name
+                    st.session_state["last_saved_upload_key"] = current_upload_key
+                    st.session_state["dataset_save_notice"] = (
+                        "✅ Dataset saved for this clinic. Other users with this login will load it automatically."
+                    )
                     st.session_state.pop("pending_overlap_upload_key", None)
-                    st.info("Upload not saved.")
-            else:
-                save_uploaded_dataset(replace_overlapping_dates=False)
-
-# -------------------------------------
-# Clear Clinic Data
-# -------------------------------------
-st.markdown("#### Clear Clinic Data")
-confirm_reset = st.checkbox(
-    "I understand this will remove clinic data for my clinic",
-    key="confirm_reset_dataset",
-    help="Use this only when the wrong clinic data was saved."
-)
-
-if st.button(
-    "Clear clinic data",
-    disabled=not confirm_reset,
-    help="Clear clinic data so the clinic behaves like no data is saved."
-):
-    clinic_id = st.session_state.get("clinic_id")
-    if not clinic_id:
-        st.error("Not logged in.")
-        st.stop()
-
-    # Grab current pointer so we can optionally trash it
-    try:
-        existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
-    except Exception as e:
-        existing_file_id, existing_name = "", ""
-        st.warning(f"Could not read existing dataset pointer (will still reset). ({type(e).__name__})")
-
-    # 1) Clear pointer in settings sheet (THIS is the key)
-    clear_clinic_dataset_pointer(clinic_id)
-
-    # 2) Optional: trash the old file in Drive
-    # drive_trash_file(existing_file_id)
-
-    # 3) Clear local state so UI resets immediately
-    reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
-
-    st.session_state["shared_dataset_loaded"] = False
-    st.session_state["shared_dataset_name"] = None
-    st.session_state["shared_dataset_error"] = None
-
-    # Optional: clear uploader + caches
-    st.cache_data.clear()
-
-    st.success("✅ Clinic data cleared. No clinic data is saved for this clinic now.")
-    st.rerun()
-
+    
+                    df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
+                        st.session_state["working_df"], rules_fp
+                    )
+                    st.session_state["bundle"] = (df_full, masks, tx_client, tx_patient, patients_per_month)
+                    st.session_state["bundle_key"] = (st.session_state.get("data_version", 0), rules_fp)
+    
+                    st.rerun()
+    
+                if overlaps_existing:
+                    overlap_min = max(upload_min, existing_min)
+                    overlap_max = min(upload_max, existing_max)
+                    st.session_state["pending_overlap_upload_key"] = current_upload_key
+                    st.warning(
+                        "This upload overlaps existing clinic data "
+                        f"from {format_date_bound(overlap_min)} to {format_date_bound(overlap_max)}. "
+                        "Replace existing rows in the uploaded date range and save?"
+                    )
+                    c_confirm, c_cancel = st.columns([1, 3])
+                    if c_confirm.button(
+                        "Replace and save",
+                        key=f"confirm_overlap_{current_upload_key[:12]}",
+                        help="Remove existing clinic rows in this upload's date range, then save the uploaded rows.",
+                    ):
+                        save_uploaded_dataset(replace_overlapping_dates=True)
+                    if c_cancel.button("Cancel upload", key=f"cancel_overlap_{current_upload_key[:12]}"):
+                        st.session_state.pop("pending_overlap_upload_key", None)
+                        st.info("Upload not saved.")
+                else:
+                    save_uploaded_dataset(replace_overlapping_dates=False)
+    
+    # -------------------------------------
+    # Clear Clinic Data
+    # -------------------------------------
+    st.markdown("#### Clear Clinic Data")
+    confirm_reset = st.checkbox(
+        "I understand this will remove clinic data for my clinic",
+        key="confirm_reset_dataset",
+        help="Use this only when the wrong clinic data was saved."
+    )
+    
+    if st.button(
+        "Clear clinic data",
+        disabled=not confirm_reset,
+        help="Clear clinic data so the clinic behaves like no data is saved."
+    ):
+        clinic_id = st.session_state.get("clinic_id")
+        if not clinic_id:
+            st.error("Not logged in.")
+            st.stop()
+    
+        # Grab current pointer so we can optionally trash it
+        try:
+            existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+        except Exception as e:
+            existing_file_id, existing_name = "", ""
+            st.warning(f"Could not read existing dataset pointer (will still reset). ({type(e).__name__})")
+    
+        # 1) Clear pointer in settings sheet (THIS is the key)
+        clear_clinic_dataset_pointer(clinic_id)
+    
+        # 2) Optional: trash the old file in Drive
+        # drive_trash_file(existing_file_id)
+    
+        # 3) Clear local state so UI resets immediately
+        reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
+    
+        st.session_state["shared_dataset_loaded"] = False
+        st.session_state["shared_dataset_name"] = None
+        st.session_state["shared_dataset_error"] = None
+    
+        # Optional: clear uploader + caches
+        st.cache_data.clear()
+    
+        st.success("✅ Clinic data cleared. No clinic data is saved for this clinic now.")
+        st.rerun()
+    
 # --------------------------------
 # Render Tables
 # --------------------------------
@@ -4292,459 +4294,470 @@ if st.session_state.get("working_df") is not None:
     df = st.session_state["working_df"].copy()
     applied_rules = get_applied_reminder_rules()
 
-    # Weekly Reminders
-    st.markdown("---")
-    st.markdown("<h2 id='reminders'>📅 Reminders</h2>", unsafe_allow_html=True)
-    st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("#### 📅 Weekly Reminders")
-    st.info("💡 Daily workspace: pick a start date, review due reminders, then click WA to prepare a message.")
-
-    prepared = get_prepared_df(df, applied_rules)
-
-    # ✅ safety: if schema changed but cache is stale, rebuild
-    if "BaseIntervalDays" not in prepared.columns:
-        st.error("Internal error: BaseIntervalDays missing. Rebuilding reminder cache...")
-        st.session_state.pop("prepared_df", None)
-        st.session_state.pop("prepared_key", None)
-        # optional big hammer:
-        # st.cache_data.clear()
-        st.rerun()
-
-    default_start = date.today()
-
-    start_col, window_col, group_col, warning_col = st.columns(4)
-    with start_col:
-        start_date = st.date_input(
-            "Today",
-            value=default_start,
-            help="First day to include in the reminder list."
-        )
-    with window_col:
-        reminder_window_days = st.number_input(
-            "Days to look ahead",
-            min_value=0,
-            value=st.session_state.get("reminder_window_days", 0),
-            step=1,
-            key="reminder_window_days",
-            on_change=save_settings,
-            help="0 = selected day only. 1 = selected day plus tomorrow. Maximum 30."
-        )
-    with group_col:
-        group_days = st.number_input(
-            "Number of days to group reminders for the same client",
-            min_value=0,
-            value=st.session_state.get("client_group_days", 1),
-            step=1,
-            key="client_group_days",
-            on_change=save_settings,
-            help=(
-                "Controls how reminders for the same client are combined. "
-                "0 = no grouping. 1 = group only reminders on the same day, e.g. Oct 4. "
-                "2 = group reminders across two dates, e.g. Oct 4 and Oct 5. "
-                "3 = group reminders across three dates, e.g. Oct 4 to Oct 6."
-            )
-        )
-    with warning_col:
-        st.number_input(
-            "Number of days for repeat-reminder warning",
-            min_value=0,
-            value=st.session_state.get("reminder_warning_days", 0),
-            step=1,
-            key="reminder_warning_days",
-            on_change=save_settings,
-            help="Show a warning when WA is clicked for a client who already had a reminder within this many days. Use 0 to turn warnings off."
-        )
-
-    render_search_criteria_refresh_notice()
-
-    if reminder_window_days > 30:
-        st.warning("Max 30 days.")
-        reminder_window_days = 30
-
-    end_date = start_date + timedelta(days=reminder_window_days)
-
-    reminder_ts = prepared.get("ReminderDateTs")
-    if reminder_ts is None:
-        reminder_ts = prepared.get("NextDueDateTs")
-    if reminder_ts is None:
-        reminder_ts = pd.to_datetime(prepared["NextDueDate"], errors="coerce")
-    start_ts = pd.Timestamp(start_date)
-    end_ts = pd.Timestamp(end_date)
-    due2 = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
-
-    if not due2.empty:
-        grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=applied_rules)
-
-        render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
-    else:
-        st.info("No reminders in the selected week.")
-
-    # --------------------------------
-    # Search
-    # --------------------------------
-    st.markdown("---")
-    st.markdown("<div id='search' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("#### 🔍 Search Reminders")
-    st.info("💡 Search by client, animal, or item to find upcoming reminders.")
-    search_term = st.text_input(
-        "Enter text to search (client, animal, or item)",
-        help="Searches upcoming reminders by client name, animal name, or item text."
-    )
-
-    if search_term:
-        q = search_term.lower()
-        # Ensure lowercase columns exist for searching
-        for col in ["Client Name", "Animal Name", "Item Name"]:
-            col_lower = f"_{col.split()[0].lower()}_lower"
-            if col_lower not in prepared.columns and col in prepared.columns:
-                prepared[col_lower] = prepared[col].astype(str).str.lower()
+    with reminders_page_tab:
+        # Weekly Reminders
+        st.markdown("---")
+        st.markdown("<h2 id='reminders'>📅 Reminders</h2>", unsafe_allow_html=True)
+        st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
+        st.markdown("#### 📅 Weekly Reminders")
+        st.info("💡 Daily workspace: pick a start date, review due reminders, then click WA to prepare a message.")
     
-        # Now run the query safely
-        filtered2 = prepared.query(
-            "_client_lower.str.contains(@q, regex=False) or _animal_lower.str.contains(@q, regex=False) or _item_lower.str.contains(@q, regex=False)",
-            engine="python"
-        ).copy()
-
-
-        if not filtered2.empty:
-            if "ReminderDateFmt" not in filtered2.columns:
-                filtered2["ReminderDateFmt"] = filtered2.get("DueDateFmt", "")
-            g = filtered2.groupby(["ReminderDateFmt", "DueDateFmt", "Client Name"], dropna=False)
-            grouped_search = (
-                pd.DataFrame({
-                    "Charge Date": g["ChargeDateFmt"].max(),
-                    "Animal Name": g["Animal Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
-                    "Plan Item": g["MatchedItems"].apply(
-                        lambda lists: simplify_vaccine_text(
-                            format_items(sorted(set(
-                                i.strip() for sub in lists for i in (sub if isinstance(sub, list) else [sub]) if str(i).strip()
-                            )))
-                        )
-                    ),
-                    "Qty": g["Qty"].sum(min_count=1),
-                    "Days": g["IntervalDays"].apply(
-                        lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
-                        if pd.to_numeric(x, errors="coerce").notna().any()
-                        else ""
-                    ),
-                })
-                .reset_index()
-                .rename(columns={"ReminderDateFmt": "Reminder Date", "DueDateFmt": "Due Date"})
-            )[["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
-
-            render_table(grouped_search, "Search Results", "search", "search_message", applied_rules)
+        prepared = get_prepared_df(df, applied_rules)
+    
+        # ✅ safety: if schema changed but cache is stale, rebuild
+        if "BaseIntervalDays" not in prepared.columns:
+            st.error("Internal error: BaseIntervalDays missing. Rebuilding reminder cache...")
+            st.session_state.pop("prepared_df", None)
+            st.session_state.pop("prepared_key", None)
+            # optional big hammer:
+            # st.cache_data.clear()
+            st.rerun()
+    
+        default_start = date.today()
+    
+        start_col, window_col, group_col, warning_col = st.columns(4)
+        with start_col:
+            start_date = st.date_input(
+                "Today",
+                value=default_start,
+                help="First day to include in the reminder list."
+            )
+        with window_col:
+            reminder_window_days = st.number_input(
+                "Days to look ahead",
+                min_value=0,
+                value=st.session_state.get("reminder_window_days", 0),
+                step=1,
+                key="reminder_window_days",
+                on_change=save_settings,
+                help="0 = selected day only. 1 = selected day plus tomorrow. Maximum 30."
+            )
+        with group_col:
+            group_days = st.number_input(
+                "Number of days to group reminders for the same client",
+                min_value=0,
+                value=st.session_state.get("client_group_days", 1),
+                step=1,
+                key="client_group_days",
+                on_change=save_settings,
+                help=(
+                    "Controls how reminders for the same client are combined. "
+                    "0 = no grouping. 1 = group only reminders on the same day, e.g. Oct 4. "
+                    "2 = group reminders across two dates, e.g. Oct 4 and Oct 5. "
+                    "3 = group reminders across three dates, e.g. Oct 4 to Oct 6."
+                )
+            )
+        with warning_col:
+            st.number_input(
+                "Number of days for repeat-reminder warning",
+                min_value=0,
+                value=st.session_state.get("reminder_warning_days", 0),
+                step=1,
+                key="reminder_warning_days",
+                on_change=save_settings,
+                help="Show a warning when WA is clicked for a client who already had a reminder within this many days. Use 0 to turn warnings off."
+            )
+    
+        render_search_criteria_refresh_notice()
+    
+        if reminder_window_days > 30:
+            st.warning("Max 30 days.")
+            reminder_window_days = 30
+    
+        end_date = start_date + timedelta(days=reminder_window_days)
+    
+        reminder_ts = prepared.get("ReminderDateTs")
+        if reminder_ts is None:
+            reminder_ts = prepared.get("NextDueDateTs")
+        if reminder_ts is None:
+            reminder_ts = pd.to_datetime(prepared["NextDueDate"], errors="coerce")
+        start_ts = pd.Timestamp(start_date)
+        end_ts = pd.Timestamp(end_date)
+        due2 = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
+    
+        if not due2.empty:
+            grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=applied_rules)
+    
+            render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
         else:
-            st.info("No matches found.")
-
-    # Rules editor (unchanged UI; behavior preserved)
-    st.markdown("---")
-    st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("#### 📝 Search Terms")
-    st.info(
-        "### 🧩 How to Manage Search Terms\n\n"
-        "**1️⃣ View and edit all existing Search Terms** — each term represents a product or service that generates a reminder (e.g., *Rabies*, *Bravecto*, *Dental*).\n\n"
-        "**2️⃣ Set optional early reminder dates** — Reminder 1 and Reminder 2 are days after the billed date when reminders should appear.  \n"
-        "Example: Bravecto due at 90 days, with reminders at 80 and 85 days.\n\n"
-        "**3️⃣ Set Reminder 3 (Due Date)** — this is the exact due date shown in the WhatsApp message and used as the default reminder date when Reminder 1 and 2 are blank.\n\n"
-        "**4️⃣ Choose whether to use the ‘Qty’ column** — if checked, Reminder 3 (Due Date) multiplies by quantity.  \n"
-        "Example: *2× Bravecto* = due in 180 days.\n\n"
-        "**5️⃣ Edit the ‘Message Text’** — this is what appears inside the WhatsApp message instead of the raw product name.  \n"
-        "Example: *bravecto* → **Bravecto Tablet**, *rabies* → **Rabies Vaccine**.\n\n"
-        "**6️⃣ You can also delete outdated terms or add new ones at the bottom of the section.**"
-    )
-
-    def column_header(label, help_text):
-        safe_label = html_lib.escape(label)
-        safe_help = html_lib.escape(help_text)
-        st.markdown(
-            f"**{safe_label}** <span class='column-help' title='{safe_help}'>?</span>",
-            unsafe_allow_html=True,
+            st.info("No reminders in the selected week.")
+    
+        # --------------------------------
+        # Search
+        # --------------------------------
+        st.markdown("---")
+        st.markdown("<div id='search' class='anchor-offset'></div>", unsafe_allow_html=True)
+        st.markdown("#### 🔍 Search Reminders")
+        st.info("💡 Search by client, animal, or item to find upcoming reminders.")
+        search_term = st.text_input(
+            "Enter text to search (client, animal, or item)",
+            help="Searches upcoming reminders by client name, animal name, or item text."
         )
-
-    cols = st.columns([3,1,1,1.4,1,2,0.7])
-    with cols[0]: column_header("Search Term", "Text to look for in the PMS item name.")
-    with cols[1]: column_header("Reminder 1", "Optional first reminder date, in days after the billed date.")
-    with cols[2]: column_header("Reminder 2", "Optional second reminder date, in days after the billed date.")
-    with cols[3]: column_header("Reminder 3 (Due Date)", "Exact due date in days after the billed date.")
-    with cols[4]: column_header("Use Qty", "When enabled, quantity multiplies Reminder 3 (Due Date).")
-    with cols[5]: column_header("Message Text", "Friendly wording shown in tables and WhatsApp messages.")
-    with cols[6]: column_header("Delete", "Remove this search term.")
-
-    to_delete = []
-
-    autosave_error = st.session_state.pop("_search_terms_autosave_error", "")
-    if autosave_error:
-        st.error(autosave_error)
-
-    def invalidate_reminder_rule_cache():
-        st.session_state["search_criteria_changed"] = search_criteria_have_pending_changes()
-
-    def save_rule_days(rule, key):
-        days_raw = str(st.session_state.get(key, "")).strip()
-        if not days_raw.isdigit() or int(days_raw) <= 0:
-            st.session_state["_search_terms_autosave_error"] = f"Reminder 3 (Due Date) must be a positive integer for: {rule}"
-            return
-        st.session_state["rules"][rule]["days"] = int(days_raw)
-        save_settings()
-        invalidate_reminder_rule_cache()
-
-    def save_rule_reminder_day(rule, field, key):
-        days_raw = str(st.session_state.get(key, "")).strip()
-        if days_raw == "":
-            st.session_state["rules"][rule].pop(field, None)
-        elif days_raw.isdigit() and int(days_raw) > 0:
-            st.session_state["rules"][rule][field] = int(days_raw)
-        else:
-            label = "Reminder 1" if field == "reminder_1" else "Reminder 2"
-            st.session_state["_search_terms_autosave_error"] = f"{label} must be blank or a positive integer for: {rule}"
-            return
-        save_settings()
-        invalidate_reminder_rule_cache()
-
-    def save_rule_visible_text(rule, key):
-        visible_text = str(st.session_state.get(key, "")).strip()
-        if visible_text:
-            st.session_state["rules"][rule]["visible_text"] = visible_text
-        else:
-            st.session_state["rules"][rule].pop("visible_text", None)
-        save_settings()
-        invalidate_reminder_rule_cache()
-
-    def toggle_use_qty(rule, key):
-        st.session_state["rules"][rule]["use_qty"] = st.session_state[key]
-        save_settings()
-        invalidate_reminder_rule_cache()
-
-    for rule, settings in sorted(st.session_state["rules"].items(), key=lambda x: x[0]):
-        ver = st.session_state["form_version"]
-        safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
-        with st.container():
-            cols = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
-            with cols[0]:
-                st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
-            with cols[1]:
-                st.text_input(
-                    "Reminder 1", value=str(settings.get("reminder_1", "") or ""),
-                    key=f"reminder_1_{safe_rule}_{ver}", label_visibility="collapsed",
-                    on_change=save_rule_reminder_day,
-                    args=(rule, "reminder_1", f"reminder_1_{safe_rule}_{ver}",),
-                    help="Optional first reminder date, in days after the billed date."
-                )
-            with cols[2]:
-                st.text_input(
-                    "Reminder 2", value=str(settings.get("reminder_2", "") or ""),
-                    key=f"reminder_2_{safe_rule}_{ver}", label_visibility="collapsed",
-                    on_change=save_rule_reminder_day,
-                    args=(rule, "reminder_2", f"reminder_2_{safe_rule}_{ver}",),
-                    help="Optional second reminder date, in days after the billed date."
-                )
-            with cols[3]:
-                st.text_input(
-                    "Reminder 3 (Due Date)", value=str(settings["days"]),
-                    key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
-                    on_change=save_rule_days,
-                    args=(rule, f"days_{safe_rule}_{ver}",),
-                    help="Exact due date in days after the billed date. If Reminder 1 and 2 are blank, the reminder appears on this due date."
-                )
-            with cols[4]:
-                st.checkbox(
-                    "Use Qty", value=settings["use_qty"],
-                    key=f"useqty_{safe_rule}_{ver}",
-                    on_change=toggle_use_qty,
-                    args=(rule, f"useqty_{safe_rule}_{ver}",),
-                )
-            with cols[5]:
-                st.text_input(
-                    "Message Text", value=settings.get("visible_text",""),
-                    key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
-                    on_change=save_rule_visible_text,
-                    args=(rule, f"vis_{safe_rule}_{ver}",),
-                    help="Optional friendly wording shown in tables and WhatsApp messages."
-                )
-            with cols[6]:
-                if st.button("❌", key=f"del_{safe_rule}_{ver}"):
-                    to_delete.append(rule)
-
-    if to_delete:
-        for rule in to_delete:
-            st.session_state["rules"].pop(rule, None)
-        save_settings()
-        invalidate_reminder_rule_cache()
-        st.rerun()
-
-    if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
-        st.session_state["rules"] = DEFAULT_RULES.copy()
-        st.session_state["exclusions"] = []
-        st.session_state["client_exclusions"] = []
-        st.session_state["search_terms_reviewed"] = False
-        st.session_state["search_term_added"] = False
-        st.session_state["form_version"] += 1
-        save_settings()
-        invalidate_reminder_rule_cache()
-        st.rerun()
-
-    st.markdown("---")
-    st.write("### Add New Search Term")
-    st.info("💡 Add a new **Search Term** (e.g., Cardisure), set optional reminder dates, the due date, whether to use quantity, and optional message text.")
-    row_id = st.session_state['new_rule_counter']
-    c1, c2, c3, c4, c5, c6, c7 = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
-    with c1:
-        new_rule_name = st.text_input(
-            "Search Term",
-            key=f"new_rule_name_{row_id}",
-            help="Text to look for in the PMS item name, such as bravecto, rabies, or librela."
-        )
-    with c2:
-        new_rule_reminder_1 = st.text_input(
-            "Reminder 1",
-            key=f"new_rule_reminder_1_{row_id}",
-            help="Optional first reminder date, in days after the billed date."
-        )
-    with c3:
-        new_rule_reminder_2 = st.text_input(
-            "Reminder 2",
-            key=f"new_rule_reminder_2_{row_id}",
-            help="Optional second reminder date, in days after the billed date."
-        )
-    with c4:
-        new_rule_days = st.text_input(
-            "Reminder 3 (Due Date)",
-            key=f"new_rule_days_{row_id}",
-            help="Positive integer number of days until this item should be due again."
-        )
-    with c5:
-        new_rule_use_qty = st.checkbox(
-            "Use Qty",
-            key=f"new_rule_useqty_{row_id}",
-            help="Use when quantity should extend the reminder interval."
-        )
-    with c6:
-        new_rule_visible = st.text_input(
-            "Message Text (optional)",
-            key=f"new_rule_vis_{row_id}",
-            help="Friendly wording to show users and clients, such as Bravecto Tablet."
-        )
-    with c7:
-        if st.button("➕ Add", key=f"add_{row_id}"):
-            if new_rule_name and str(new_rule_days).isdigit() and int(new_rule_days) > 0:
-                safe_rule = new_rule_name.strip().lower()
-                rule_data = {"days": int(new_rule_days), "use_qty": bool(new_rule_use_qty)}
-                invalid_reminder = ""
-                for raw_value, field, label in [
-                    (new_rule_reminder_1, "reminder_1", "Reminder 1"),
-                    (new_rule_reminder_2, "reminder_2", "Reminder 2"),
-                ]:
-                    raw_value = str(raw_value or "").strip()
-                    if raw_value:
-                        if not raw_value.isdigit() or int(raw_value) <= 0:
-                            invalid_reminder = label
-                            break
-                        rule_data[field] = int(raw_value)
-                if invalid_reminder:
-                    st.error(f"{invalid_reminder} must be blank or a positive integer")
-                else:
-                    if new_rule_visible.strip():
-                        rule_data["visible_text"] = new_rule_visible.strip()
-                    st.session_state["rules"][safe_rule] = rule_data
-                    st.session_state["search_term_added"] = True
-                    save_settings()
-                    st.session_state["new_rule_counter"] += 1
-                    invalidate_reminder_rule_cache()
-                    st.rerun()
+    
+        if search_term:
+            q = search_term.lower()
+            # Ensure lowercase columns exist for searching
+            for col in ["Client Name", "Animal Name", "Item Name"]:
+                col_lower = f"_{col.split()[0].lower()}_lower"
+                if col_lower not in prepared.columns and col in prepared.columns:
+                    prepared[col_lower] = prepared[col].astype(str).str.lower()
+        
+            # Now run the query safely
+            filtered2 = prepared.query(
+                "_client_lower.str.contains(@q, regex=False) or _animal_lower.str.contains(@q, regex=False) or _item_lower.str.contains(@q, regex=False)",
+                engine="python"
+            ).copy()
+    
+    
+            if not filtered2.empty:
+                if "ReminderDateFmt" not in filtered2.columns:
+                    filtered2["ReminderDateFmt"] = filtered2.get("DueDateFmt", "")
+                g = filtered2.groupby(["ReminderDateFmt", "DueDateFmt", "Client Name"], dropna=False)
+                grouped_search = (
+                    pd.DataFrame({
+                        "Charge Date": g["ChargeDateFmt"].max(),
+                        "Animal Name": g["Animal Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
+                        "Plan Item": g["MatchedItems"].apply(
+                            lambda lists: simplify_vaccine_text(
+                                format_items(sorted(set(
+                                    i.strip() for sub in lists for i in (sub if isinstance(sub, list) else [sub]) if str(i).strip()
+                                )))
+                            )
+                        ),
+                        "Qty": g["Qty"].sum(min_count=1),
+                        "Days": g["IntervalDays"].apply(
+                            lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
+                            if pd.to_numeric(x, errors="coerce").notna().any()
+                            else ""
+                        ),
+                    })
+                    .reset_index()
+                    .rename(columns={"ReminderDateFmt": "Reminder Date", "DueDateFmt": "Due Date"})
+                )[["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
+    
+                render_table(grouped_search, "Search Results", "search", "search_message", applied_rules)
             else:
-                st.error("Enter a name and valid positive integer for Reminder 3 (Due Date)")
-
-    # --------------------------------
-    # Exclusions
-    # --------------------------------
-    st.markdown("---")
-    st.markdown("<div id='exclusions' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("#### 🚫 Exclusions")
-    st.info("💡 Add clients or item terms here to automatically hide matching reminders.")
-
-    st.markdown("##### Client Exclusions")
-    st.caption("Exclude all reminders for an exact client name.")
-    st.session_state.setdefault("client_exclusions", [])
-    if st.session_state["client_exclusions"]:
-        for client_name in sorted(st.session_state["client_exclusions"]):
-            safe_client = re.sub(r'[^a-zA-Z0-9_-]', '_', client_name)
+                st.info("No matches found.")
+    
+    with search_terms_tab:
+        # Rules editor (unchanged UI; behavior preserved)
+        st.markdown("---")
+        st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
+        st.markdown("#### 📝 Search Terms")
+        st.info(
+            "### 🧩 How to Manage Search Terms\n\n"
+            "**1️⃣ View and edit all existing Search Terms** — each term represents a product or service that generates a reminder (e.g., *Rabies*, *Bravecto*, *Dental*).\n\n"
+            "**2️⃣ Set optional early reminder dates** — Reminder 1 and Reminder 2 are days after the billed date when reminders should appear.  \n"
+            "Example: Bravecto due at 90 days, with reminders at 80 and 85 days.\n\n"
+            "**3️⃣ Set Reminder 3 (Due Date)** — this is the exact due date shown in the WhatsApp message and used as the default reminder date when Reminder 1 and 2 are blank.\n\n"
+            "**4️⃣ Choose whether to use the ‘Qty’ column** — if checked, Reminder 3 (Due Date) multiplies by quantity.  \n"
+            "Example: *2× Bravecto* = due in 180 days.\n\n"
+            "**5️⃣ Edit the ‘Message Text’** — this is what appears inside the WhatsApp message instead of the raw product name.  \n"
+            "Example: *bravecto* → **Bravecto Tablet**, *rabies* → **Rabies Vaccine**.\n\n"
+            "**6️⃣ You can also delete outdated terms or add new ones at the bottom of the section.**"
+        )
+    
+        def column_header(label, help_text):
+            safe_label = html_lib.escape(label)
+            safe_help = html_lib.escape(help_text)
+            st.markdown(
+                f"**{safe_label}** <span class='column-help' title='{safe_help}'>?</span>",
+                unsafe_allow_html=True,
+            )
+    
+        cols = st.columns([3,1,1,1.4,1,2,0.7])
+        with cols[0]: column_header("Search Term", "Text to look for in the PMS item name.")
+        with cols[1]: column_header("Reminder 1", "Optional first reminder date, in days after the billed date.")
+        with cols[2]: column_header("Reminder 2", "Optional second reminder date, in days after the billed date.")
+        with cols[3]: column_header("Reminder 3 (Due Date)", "Exact due date in days after the billed date.")
+        with cols[4]: column_header("Use Qty", "When enabled, quantity multiplies Reminder 3 (Due Date).")
+        with cols[5]: column_header("Message Text", "Friendly wording shown in tables and WhatsApp messages.")
+        with cols[6]: column_header("Delete", "Remove this search term.")
+    
+        to_delete = []
+    
+        autosave_error = st.session_state.pop("_search_terms_autosave_error", "")
+        if autosave_error:
+            st.error(autosave_error)
+    
+        def invalidate_reminder_rule_cache():
+            st.session_state["search_criteria_changed"] = search_criteria_have_pending_changes()
+    
+        def save_rule_days(rule, key):
+            days_raw = str(st.session_state.get(key, "")).strip()
+            if not days_raw.isdigit() or int(days_raw) <= 0:
+                st.session_state["_search_terms_autosave_error"] = f"Reminder 3 (Due Date) must be a positive integer for: {rule}"
+                return
+            st.session_state["rules"][rule]["days"] = int(days_raw)
+            save_settings()
+            invalidate_reminder_rule_cache()
+    
+        def save_rule_reminder_day(rule, field, key):
+            days_raw = str(st.session_state.get(key, "")).strip()
+            if days_raw == "":
+                st.session_state["rules"][rule].pop(field, None)
+            elif days_raw.isdigit() and int(days_raw) > 0:
+                st.session_state["rules"][rule][field] = int(days_raw)
+            else:
+                label = "Reminder 1" if field == "reminder_1" else "Reminder 2"
+                st.session_state["_search_terms_autosave_error"] = f"{label} must be blank or a positive integer for: {rule}"
+                return
+            save_settings()
+            invalidate_reminder_rule_cache()
+    
+        def save_rule_visible_text(rule, key):
+            visible_text = str(st.session_state.get(key, "")).strip()
+            if visible_text:
+                st.session_state["rules"][rule]["visible_text"] = visible_text
+            else:
+                st.session_state["rules"][rule].pop("visible_text", None)
+            save_settings()
+            invalidate_reminder_rule_cache()
+    
+        def toggle_use_qty(rule, key):
+            st.session_state["rules"][rule]["use_qty"] = st.session_state[key]
+            save_settings()
+            invalidate_reminder_rule_cache()
+    
+        for rule, settings in sorted(st.session_state["rules"].items(), key=lambda x: x[0]):
+            ver = st.session_state["form_version"]
+            safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
             with st.container():
-                cols = st.columns([6,1], gap="small")
+                cols = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
                 with cols[0]:
-                    st.markdown(f"<div style='padding-top:8px;'>{client_name}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
                 with cols[1]:
-                    if st.button("❌", key=f"del_client_excl_{safe_client}"):
-                        st.session_state["client_exclusions"].remove(client_name)
+                    st.text_input(
+                        "Reminder 1", value=str(settings.get("reminder_1", "") or ""),
+                        key=f"reminder_1_{safe_rule}_{ver}", label_visibility="collapsed",
+                        on_change=save_rule_reminder_day,
+                        args=(rule, "reminder_1", f"reminder_1_{safe_rule}_{ver}",),
+                        help="Optional first reminder date, in days after the billed date."
+                    )
+                with cols[2]:
+                    st.text_input(
+                        "Reminder 2", value=str(settings.get("reminder_2", "") or ""),
+                        key=f"reminder_2_{safe_rule}_{ver}", label_visibility="collapsed",
+                        on_change=save_rule_reminder_day,
+                        args=(rule, "reminder_2", f"reminder_2_{safe_rule}_{ver}",),
+                        help="Optional second reminder date, in days after the billed date."
+                    )
+                with cols[3]:
+                    st.text_input(
+                        "Reminder 3 (Due Date)", value=str(settings["days"]),
+                        key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
+                        on_change=save_rule_days,
+                        args=(rule, f"days_{safe_rule}_{ver}",),
+                        help="Exact due date in days after the billed date. If Reminder 1 and 2 are blank, the reminder appears on this due date."
+                    )
+                with cols[4]:
+                    st.checkbox(
+                        "Use Qty", value=settings["use_qty"],
+                        key=f"useqty_{safe_rule}_{ver}",
+                        on_change=toggle_use_qty,
+                        args=(rule, f"useqty_{safe_rule}_{ver}",),
+                    )
+                with cols[5]:
+                    st.text_input(
+                        "Message Text", value=settings.get("visible_text",""),
+                        key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
+                        on_change=save_rule_visible_text,
+                        args=(rule, f"vis_{safe_rule}_{ver}",),
+                        help="Optional friendly wording shown in tables and WhatsApp messages."
+                    )
+                with cols[6]:
+                    if st.button("❌", key=f"del_{safe_rule}_{ver}"):
+                        to_delete.append(rule)
+    
+        if to_delete:
+            for rule in to_delete:
+                st.session_state["rules"].pop(rule, None)
+            save_settings()
+            invalidate_reminder_rule_cache()
+            st.rerun()
+    
+        if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
+            st.session_state["rules"] = DEFAULT_RULES.copy()
+            st.session_state["exclusions"] = []
+            st.session_state["client_exclusions"] = []
+            st.session_state["search_terms_reviewed"] = False
+            st.session_state["search_term_added"] = False
+            st.session_state["form_version"] += 1
+            save_settings()
+            invalidate_reminder_rule_cache()
+            st.rerun()
+    
+        st.markdown("---")
+        st.write("### Add New Search Term")
+        st.info("💡 Add a new **Search Term** (e.g., Cardisure), set optional reminder dates, the due date, whether to use quantity, and optional message text.")
+        row_id = st.session_state['new_rule_counter']
+        c1, c2, c3, c4, c5, c6, c7 = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
+        with c1:
+            new_rule_name = st.text_input(
+                "Search Term",
+                key=f"new_rule_name_{row_id}",
+                help="Text to look for in the PMS item name, such as bravecto, rabies, or librela."
+            )
+        with c2:
+            new_rule_reminder_1 = st.text_input(
+                "Reminder 1",
+                key=f"new_rule_reminder_1_{row_id}",
+                help="Optional first reminder date, in days after the billed date."
+            )
+        with c3:
+            new_rule_reminder_2 = st.text_input(
+                "Reminder 2",
+                key=f"new_rule_reminder_2_{row_id}",
+                help="Optional second reminder date, in days after the billed date."
+            )
+        with c4:
+            new_rule_days = st.text_input(
+                "Reminder 3 (Due Date)",
+                key=f"new_rule_days_{row_id}",
+                help="Positive integer number of days until this item should be due again."
+            )
+        with c5:
+            new_rule_use_qty = st.checkbox(
+                "Use Qty",
+                key=f"new_rule_useqty_{row_id}",
+                help="Use when quantity should extend the reminder interval."
+            )
+        with c6:
+            new_rule_visible = st.text_input(
+                "Message Text (optional)",
+                key=f"new_rule_vis_{row_id}",
+                help="Friendly wording to show users and clients, such as Bravecto Tablet."
+            )
+        with c7:
+            if st.button("➕ Add", key=f"add_{row_id}"):
+                if new_rule_name and str(new_rule_days).isdigit() and int(new_rule_days) > 0:
+                    safe_rule = new_rule_name.strip().lower()
+                    rule_data = {"days": int(new_rule_days), "use_qty": bool(new_rule_use_qty)}
+                    invalid_reminder = ""
+                    for raw_value, field, label in [
+                        (new_rule_reminder_1, "reminder_1", "Reminder 1"),
+                        (new_rule_reminder_2, "reminder_2", "Reminder 2"),
+                    ]:
+                        raw_value = str(raw_value or "").strip()
+                        if raw_value:
+                            if not raw_value.isdigit() or int(raw_value) <= 0:
+                                invalid_reminder = label
+                                break
+                            rule_data[field] = int(raw_value)
+                    if invalid_reminder:
+                        st.error(f"{invalid_reminder} must be blank or a positive integer")
+                    else:
+                        if new_rule_visible.strip():
+                            rule_data["visible_text"] = new_rule_visible.strip()
+                        st.session_state["rules"][safe_rule] = rule_data
+                        st.session_state["search_term_added"] = True
                         save_settings()
+                        st.session_state["new_rule_counter"] += 1
+                        invalidate_reminder_rule_cache()
                         st.rerun()
-    else:
-        st.caption("No client exclusions yet.")
-
-    row_id = st.session_state['new_rule_counter']
-    c1, c2 = st.columns([4,1], gap="small")
-    with c1:
-        new_client_excl = st.text_input(
-            "Add Client Exclusion",
-            key=f"new_client_excl_{row_id}",
-            help="Enter the client name exactly as it appears in reminders."
-        )
-    with c2:
-        if st.button("➕ Add Client", key=f"add_client_excl_{row_id}"):
-            if new_client_excl and new_client_excl.strip():
-                safe_client = _SPACE_RX.sub(" ", new_client_excl.strip())
-                client_key = safe_client.lower()
-                existing_keys = {
-                    _SPACE_RX.sub(" ", str(name or "").strip()).lower()
-                    for name in st.session_state["client_exclusions"]
-                }
-                if client_key not in existing_keys:
-                    st.session_state["client_exclusions"].append(safe_client)
-                    save_settings()
-                    st.session_state["new_rule_counter"] += 1
-                    st.rerun()
                 else:
-                    st.info("This client exclusion already exists.")
-            else:
-                st.error("Enter a valid client name")
-
-    st.markdown("##### Item Exclusions")
-    st.caption("Exclude reminders whose item text contains a term.")
-    if st.session_state["exclusions"]:
-        for term in sorted(st.session_state["exclusions"]):
-            safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
-            with st.container():
-                cols = st.columns([6,1], gap="small")
-                with cols[0]:
-                    st.markdown(f"<div style='padding-top:8px;'>{term}</div>", unsafe_allow_html=True)
-                with cols[1]:
-                    if st.button("❌", key=f"del_excl_{safe_term}"):
-                        st.session_state["exclusions"].remove(term)
+                    st.error("Enter a name and valid positive integer for Reminder 3 (Due Date)")
+    
+        # --------------------------------
+    with exclusions_tab:
+        # Exclusions
+        # --------------------------------
+        st.markdown("---")
+        st.markdown("<div id='exclusions' class='anchor-offset'></div>", unsafe_allow_html=True)
+        st.markdown("#### 🚫 Exclusions")
+        st.info("💡 Add clients or item terms here to automatically hide matching reminders.")
+    
+        st.markdown("##### Client Exclusions")
+        st.caption("Exclude all reminders for an exact client name.")
+        st.session_state.setdefault("client_exclusions", [])
+        if st.session_state["client_exclusions"]:
+            for client_name in sorted(st.session_state["client_exclusions"]):
+                safe_client = re.sub(r'[^a-zA-Z0-9_-]', '_', client_name)
+                with st.container():
+                    cols = st.columns([6,1], gap="small")
+                    with cols[0]:
+                        st.markdown(f"<div style='padding-top:8px;'>{client_name}</div>", unsafe_allow_html=True)
+                    with cols[1]:
+                        if st.button("❌", key=f"del_client_excl_{safe_client}"):
+                            st.session_state["client_exclusions"].remove(client_name)
+                            save_settings()
+                            st.rerun()
+        else:
+            st.caption("No client exclusions yet.")
+    
+        row_id = st.session_state['new_rule_counter']
+        c1, c2 = st.columns([4,1], gap="small")
+        with c1:
+            new_client_excl = st.text_input(
+                "Add Client Exclusion",
+                key=f"new_client_excl_{row_id}",
+                help="Enter the client name exactly as it appears in reminders."
+            )
+        with c2:
+            if st.button("➕ Add Client", key=f"add_client_excl_{row_id}"):
+                if new_client_excl and new_client_excl.strip():
+                    safe_client = _SPACE_RX.sub(" ", new_client_excl.strip())
+                    client_key = safe_client.lower()
+                    existing_keys = {
+                        _SPACE_RX.sub(" ", str(name or "").strip()).lower()
+                        for name in st.session_state["client_exclusions"]
+                    }
+                    if client_key not in existing_keys:
+                        st.session_state["client_exclusions"].append(safe_client)
                         save_settings()
+                        st.session_state["new_rule_counter"] += 1
                         st.rerun()
-    else:
-        st.caption("No item exclusions yet.")
-
-    row_id = st.session_state['new_rule_counter']
-    c1, c2 = st.columns([4,1], gap="small")
-    with c1:
-        new_excl = st.text_input(
-            "Add Item Exclusion Term",
-            key=f"new_excl_{row_id}",
-            help="Any reminder containing this text will be hidden from reminder tables."
-        )
-    with c2:
-        if st.button("➕ Add Item", key=f"add_excl_{row_id}"):
-            if new_excl and new_excl.strip():
-                safe_term = new_excl.strip().lower()
-                if safe_term not in st.session_state["exclusions"]:
-                    st.session_state["exclusions"].append(safe_term)
-                    save_settings()
-                    st.session_state["new_rule_counter"] += 1
-                    st.rerun()
+                    else:
+                        st.info("This client exclusion already exists.")
                 else:
-                    st.info("This exclusion already exists.")
-            else:
-                st.error("Enter a valid exclusion term")
+                    st.error("Enter a valid client name")
+    
+        st.markdown("##### Item Exclusions")
+        st.caption("Exclude reminders whose item text contains a term.")
+        if st.session_state["exclusions"]:
+            for term in sorted(st.session_state["exclusions"]):
+                safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
+                with st.container():
+                    cols = st.columns([6,1], gap="small")
+                    with cols[0]:
+                        st.markdown(f"<div style='padding-top:8px;'>{term}</div>", unsafe_allow_html=True)
+                    with cols[1]:
+                        if st.button("❌", key=f"del_excl_{safe_term}"):
+                            st.session_state["exclusions"].remove(term)
+                            save_settings()
+                            st.rerun()
+        else:
+            st.caption("No item exclusions yet.")
+    
+        row_id = st.session_state['new_rule_counter']
+        c1, c2 = st.columns([4,1], gap="small")
+        with c1:
+            new_excl = st.text_input(
+                "Add Item Exclusion Term",
+                key=f"new_excl_{row_id}",
+                help="Any reminder containing this text will be hidden from reminder tables."
+            )
+        with c2:
+            if st.button("➕ Add Item", key=f"add_excl_{row_id}"):
+                if new_excl and new_excl.strip():
+                    safe_term = new_excl.strip().lower()
+                    if safe_term not in st.session_state["exclusions"]:
+                        st.session_state["exclusions"].append(safe_term)
+                        save_settings()
+                        st.session_state["new_rule_counter"] += 1
+                        st.rerun()
+                    else:
+                        st.info("This exclusion already exists.")
+                else:
+                    st.error("Enter a valid exclusion term")
+    
+else:
+    with reminders_page_tab:
+        st.info("Upload data in the Data tab to generate reminders.")
+    with search_terms_tab:
+        st.info("Upload data in the Data tab to manage search terms.")
+    with exclusions_tab:
+        st.info("Upload data in the Data tab to manage exclusions.")
 
 # --------------------------------
 # 📊 Factoids Section (temporarily hidden)
