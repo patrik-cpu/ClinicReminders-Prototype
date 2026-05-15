@@ -64,6 +64,7 @@ title_col, tut_col = st.columns([4,1])
 with title_col:
     st.title("ClinicReminders 6.0")
     st.caption("Turn clinic sales data into clear follow-up reminders, then prepare WhatsApp messages in a few clicks.")
+top_account_slot = tut_col.empty()
 
 # === Drive folder where canonical datasets live ===
 DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive folder URL
@@ -477,33 +478,6 @@ def make_mask(df, include_words, exclude_words=None):
         mask &= ~df["Item Name"].astype(str).str.contains(exclude_rx, na=False)
 
     return mask
-
-sidebar_nav_slot = st.sidebar.container()
-sidebar_account_slot = st.sidebar.container()
-
-if st.session_state.get("logged_in", False):
-    clinic_label = html_lib.escape(str(st.session_state.get("clinic_id", "")))
-    # Sidebar "table of contents" — simplified navigation
-    sidebar_nav_slot.markdown(
-        f"""
-        <div class="sidebar-clinic-block">
-          <div style="font-weight:700; margin-bottom:0.15rem;">Clinic</div>
-          <div class="sidebar-clinic-name">{clinic_label}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    current_main_tab = st.session_state.get("main_section_tab", "Reminders")
-    for tab_name in MAIN_SECTION_TABS:
-        safe_tab_key = re.sub(r"[^a-zA-Z0-9_-]", "_", tab_name.lower())
-        sidebar_nav_slot.button(
-            tab_name,
-            key=f"main_nav_{safe_tab_key}",
-            use_container_width=True,
-            type="primary" if tab_name == current_main_tab else "secondary",
-            on_click=set_main_section_tab,
-            args=(tab_name,),
-        )
 
 # --------------------------------
 # CSS Styling
@@ -2430,7 +2404,7 @@ def prepare_session_bundle(df: pd.DataFrame, rules_fp: str):
 
     return df, masks, tx_client, tx_patient, patients_per_month
 
-# === LOGIN FORM (Sidebar) ===
+# === LOGIN FORM ===
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
@@ -2474,107 +2448,100 @@ if (
         rerun_app()
 
 if not st.session_state["logged_in"]:
-    with sidebar_account_slot:
-        st.markdown("### 🔑 Clinic Login")
-        with st.form("clinic_login_form"):
-            username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
-            password = st.text_input("Password", type="password", value="")
-            login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
+    st.markdown("### 🔑 Clinic Login")
+    with st.form("clinic_login_form"):
+        username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
+        password = st.text_input("Password", type="password", value="")
+        login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
 
-        if login_submitted:
-            user_row = authenticate_user(username, password)
-            if user_row:
-                st.session_state["clinic_id"] = username
-                st.session_state["logged_in"] = True
-                set_remember_login_token(create_remember_login_token(username, user_row))
+    if login_submitted:
+        user_row = authenticate_user(username, password)
+        if user_row:
+            st.session_state["clinic_id"] = username
+            st.session_state["logged_in"] = True
+            set_remember_login_token(create_remember_login_token(username, user_row))
 
-                load_settings()
-                # ✅ Auto-load shared dataset from Drive into working_df
-                load_shared_dataset_for_clinic()
-                upsert_user_tracker(
-                    username,
-                    country=st.session_state.get("user_country", ""),
-                    event="login",
-                )
+            load_settings()
+            # ✅ Auto-load shared dataset from Drive into working_df
+            load_shared_dataset_for_clinic()
+            upsert_user_tracker(
+                username,
+                country=st.session_state.get("user_country", ""),
+                event="login",
+            )
 
-                st.success(f"✅ Welcome, {username}!")
-                st.rerun()
+            st.success(f"✅ Welcome, {username}!")
+            st.rerun()
+        else:
+            st.error("❌ Invalid username or password.")
+
+    if "show_create_account" not in st.session_state:
+        st.session_state["show_create_account"] = False
+    if st.button("Create Account", key="toggle_create_account"):
+        st.session_state["show_create_account"] = not st.session_state["show_create_account"]
+
+    if st.session_state["show_create_account"]:
+        st.markdown("### Create Account")
+        with st.form("create_account_form"):
+            new_clinic = st.text_input("Clinic Name (username)").strip()
+            country = st.selectbox("Country", COUNTRY_OPTIONS)
+            new_password = st.text_input("Set password", type="password")
+            confirm_password = st.text_input("Confirm password", type="password")
+            create_submitted = st.form_submit_button("Create Account", type="primary", use_container_width=True)
+
+        if create_submitted:
+            if not new_clinic or not new_password or not confirm_password:
+                st.error("Enter a clinic name and password twice.")
+            elif len(new_password) < 6:
+                st.error("Password must be at least 6 characters.")
+            elif new_password != confirm_password:
+                st.error("Passwords do not match.")
             else:
-                st.error("❌ Invalid username or password.")
-
-        if "show_create_account" not in st.session_state:
-            st.session_state["show_create_account"] = False
-        if st.button("Create Account", key="toggle_create_account", use_container_width=True):
-            st.session_state["show_create_account"] = not st.session_state["show_create_account"]
-
-        if st.session_state["show_create_account"]:
-            st.markdown("### Create Account")
-            with st.form("create_account_form"):
-                new_clinic = st.text_input("Clinic Name (username)").strip()
-                country = st.selectbox("Country", COUNTRY_OPTIONS)
-                new_password = st.text_input("Set password", type="password")
-                confirm_password = st.text_input("Confirm password", type="password")
-                create_submitted = st.form_submit_button("Create Account", type="primary", use_container_width=True)
-
-            if create_submitted:
-                if not new_clinic or not new_password or not confirm_password:
-                    st.error("Enter a clinic name and password twice.")
-                elif len(new_password) < 6:
-                    st.error("Password must be at least 6 characters.")
-                elif new_password != confirm_password:
-                    st.error("Passwords do not match.")
-                else:
-                    try:
-                        create_clinic_account(new_clinic, country, new_password)
-                        st.session_state["clinic_id"] = new_clinic
-                        st.session_state["logged_in"] = True
-                        set_remember_login_token(create_remember_login_token(new_clinic))
-                        load_settings()
-                        st.session_state["user_country"] = country
-                        st.success(f"✅ Account created. Welcome, {new_clinic}!")
-                        st.rerun()
-                    except ValueError as e:
-                        st.error(str(e))
-                    except Exception:
-                        st.error("Could not create account. Please try again or contact support.")
+                try:
+                    create_clinic_account(new_clinic, country, new_password)
+                    st.session_state["clinic_id"] = new_clinic
+                    st.session_state["logged_in"] = True
+                    set_remember_login_token(create_remember_login_token(new_clinic))
+                    load_settings()
+                    st.session_state["user_country"] = country
+                    st.success(f"✅ Account created. Welcome, {new_clinic}!")
+                    st.rerun()
+                except ValueError as e:
+                    st.error(str(e))
+                except Exception:
+                    st.error("Could not create account. Please try again or contact support.")
 else:
-    with sidebar_account_slot:
-        clinic_id = st.session_state.get("clinic_id", "")
+    clinic_id = st.session_state.get("clinic_id", "")
+    with top_account_slot.container():
+        with st.popover("⚙️", use_container_width=True):
+            st.caption(str(clinic_id or "Account"))
+            st.markdown("#### Change password")
+            with st.form("change_password_form"):
+                current_password = st.text_input("Current password", type="password")
+                new_password = st.text_input("New password", type="password")
+                confirm_password = st.text_input("Confirm new password", type="password")
+                submitted = st.form_submit_button("Change password")
 
-        if "show_account_settings" not in st.session_state:
-            st.session_state["show_account_settings"] = False
-        with st.container(key="sidebar_account_actions"):
-            if st.button("⚙️ Account Settings", key="toggle_account_settings", use_container_width=True):
-                st.session_state["show_account_settings"] = not st.session_state["show_account_settings"]
+            if submitted:
+                if not current_password or not new_password or not confirm_password:
+                    st.error("Enter the current password and the new password twice.")
+                elif new_password != confirm_password:
+                    st.error("New passwords do not match.")
+                elif len(new_password) < 6:
+                    st.error("New password must be at least 6 characters.")
+                elif not authenticate_user(clinic_id, current_password):
+                    st.error("Current password is incorrect.")
+                else:
+                    update_clinic_password(clinic_id, new_password)
+                    set_remember_login_token(create_remember_login_token(clinic_id))
+                    upsert_user_tracker(
+                        clinic_id,
+                        country=st.session_state.get("user_country", ""),
+                        event="password_changed",
+                    )
+                    st.success("Password updated.")
 
-            if st.session_state["show_account_settings"]:
-                st.caption("Change the password for this clinic login.")
-                with st.form("change_password_form"):
-                    current_password = st.text_input("Current password", type="password")
-                    new_password = st.text_input("New password", type="password")
-                    confirm_password = st.text_input("Confirm new password", type="password")
-                    submitted = st.form_submit_button("Change password")
-
-                if submitted:
-                    if not current_password or not new_password or not confirm_password:
-                        st.error("Enter the current password and the new password twice.")
-                    elif new_password != confirm_password:
-                        st.error("New passwords do not match.")
-                    elif len(new_password) < 6:
-                        st.error("New password must be at least 6 characters.")
-                    elif not authenticate_user(clinic_id, current_password):
-                        st.error("Current password is incorrect.")
-                    else:
-                        update_clinic_password(clinic_id, new_password)
-                        set_remember_login_token(create_remember_login_token(clinic_id))
-                        upsert_user_tracker(
-                            clinic_id,
-                            country=st.session_state.get("user_country", ""),
-                            event="password_changed",
-                        )
-                        st.success("Password updated.")
-
-            if st.button("Logout", key="sidebar_logout", use_container_width=True):
+            if st.button("Logout", key="top_account_logout", use_container_width=True):
                 clear_remember_login_token()
                 for key in ["logged_in", "clinic_id"]:
                     st.session_state.pop(key, None)
@@ -2593,11 +2560,12 @@ st.markdown(
     """
     <style>
       div[data-testid="stTabs"] > div[role="tablist"] button p {
-        font-size: 1.04rem !important;
+        font-size: 1.32rem !important;
+        font-weight: 700 !important;
       }
       div[data-testid="stTabs"] > div[role="tablist"] button:nth-child(3) p {
-        font-size: 1.22rem !important;
-        font-weight: 800 !important;
+        font-size: 1.58rem !important;
+        font-weight: 900 !important;
       }
     </style>
     """,
