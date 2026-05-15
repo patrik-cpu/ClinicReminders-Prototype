@@ -799,6 +799,22 @@ st.markdown(
         color: var(--cr-link);
         font-weight: 700;
     }
+    .column-help {
+        color: var(--cr-muted);
+        cursor: help;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 0.95rem;
+        height: 0.95rem;
+        border: 1px solid var(--cr-muted);
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 700;
+        line-height: 1;
+        margin-left: 0.25rem;
+        vertical-align: 0.05rem;
+    }
     </style>
     ''',
     unsafe_allow_html=True,
@@ -4055,18 +4071,27 @@ if st.session_state.get("working_df") is not None:
         "**3️⃣ Set Reminder 3 (Due Date)** — this is the exact due date shown in the WhatsApp message and used as the default reminder date when Reminder 1 and 2 are blank.\n\n"
         "**4️⃣ Choose whether to use the ‘Qty’ column** — if checked, Reminder 3 (Due Date) multiplies by quantity.  \n"
         "Example: *2× Bravecto* = due in 180 days.\n\n"
-        "**5️⃣ Edit the ‘Visible Text’** — this is what appears inside the WhatsApp message instead of the raw product name.  \n"
+        "**5️⃣ Edit the ‘Message Text’** — this is what appears inside the WhatsApp message instead of the raw product name.  \n"
         "Example: *bravecto* → **Bravecto Tablet**, *rabies* → **Rabies Vaccine**.\n\n"
         "**6️⃣ You can also delete outdated terms or add new ones at the bottom of the section.**"
     )
+
+    def column_header(label, help_text):
+        safe_label = html_lib.escape(label)
+        safe_help = html_lib.escape(help_text)
+        st.markdown(
+            f"**{safe_label}** <span class='column-help' title='{safe_help}'>?</span>",
+            unsafe_allow_html=True,
+        )
+
     cols = st.columns([3,1,1,1.4,1,2,0.7])
-    with cols[0]: st.markdown("**Rule**")
-    with cols[1]: st.markdown("**Reminder 1**")
-    with cols[2]: st.markdown("**Reminder 2**")
-    with cols[3]: st.markdown("**Reminder 3 (Due Date)**")
-    with cols[4]: st.markdown("**Use Qty**")
-    with cols[5]: st.markdown("**Visible Text**")
-    with cols[6]: st.markdown("**Delete**")
+    with cols[0]: column_header("Search Term", "Text to look for in the PMS item name.")
+    with cols[1]: column_header("Reminder 1", "Optional first reminder date, in days after the charge date.")
+    with cols[2]: column_header("Reminder 2", "Optional second reminder date, in days after the charge date.")
+    with cols[3]: column_header("Reminder 3 (Due Date)", "Exact due date in days after the charge date.")
+    with cols[4]: column_header("Use Qty", "When enabled, quantity multiplies Reminder 3 (Due Date).")
+    with cols[5]: column_header("Message Text", "Friendly wording shown in tables and WhatsApp messages.")
+    with cols[6]: column_header("Delete", "Remove this search term.")
 
     to_delete = []
 
@@ -4151,11 +4176,10 @@ if st.session_state.get("working_df") is not None:
                     key=f"useqty_{safe_rule}_{ver}",
                     on_change=toggle_use_qty,
                     args=(rule, f"useqty_{safe_rule}_{ver}",),
-                    help="When enabled, quantity multiplies Reminder 3 (Due Date)."
                 )
             with cols[5]:
                 st.text_input(
-                    "Visible Text", value=settings.get("visible_text",""),
+                    "Message Text", value=settings.get("visible_text",""),
                     key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
                     on_change=save_rule_visible_text,
                     args=(rule, f"vis_{safe_rule}_{ver}",),
@@ -4190,7 +4214,7 @@ if st.session_state.get("working_df") is not None:
     c1, c2, c3, c4, c5, c6, c7 = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
     with c1:
         new_rule_name = st.text_input(
-            "Rule name",
+            "Search Term",
             key=f"new_rule_name_{row_id}",
             help="Text to look for in the PMS item name, such as bravecto, rabies, or librela."
         )
@@ -4220,7 +4244,7 @@ if st.session_state.get("working_df") is not None:
         )
     with c6:
         new_rule_visible = st.text_input(
-            "Visible Text (optional)",
+            "Message Text (optional)",
             key=f"new_rule_vis_{row_id}",
             help="Friendly wording to show users and clients, such as Bravecto Tablet."
         )
