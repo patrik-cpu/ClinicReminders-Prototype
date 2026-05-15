@@ -300,6 +300,7 @@ TRACKER_SHEET_DEFINITIONS = [
     (PERFORMANCE_TRACKER_WORKSHEET, PERFORMANCE_TRACKER_HEADERS),
 ]
 TRACKER_CELL_TEXT_LIMIT = 500
+PERFORMANCE_TRACKER_SLOW_LOAD_MS = 3000
 COUNTRY_OPTIONS = [
     "United Arab Emirates", "Saudi Arabia", "Qatar", "Bahrain", "Kuwait", "Oman",
     "United Kingdom", "Ireland", "United States", "Canada", "Australia", "New Zealand",
@@ -387,7 +388,6 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_settings_row_cache",
     "_remote_settings_cache",
     "_tracker_sheet_cache",
-    "_tracking_sheets_ensured_for",
     "_hidden_reminders_index_cache",
     "llm_payload",
     "llm_zip_bytes",
@@ -1579,14 +1579,16 @@ def load_shared_dataset_for_clinic():
         st.session_state["shared_dataset_loaded"] = True
         st.session_state["shared_dataset_name"] = filename
         st.session_state["shared_dataset_updated_at"] = rec.get(SHEET_COL_DATASET_UPDATED_AT, "")
-        record_performance_tracker_event(
-            "shared_dataset_load",
-            (time.perf_counter() - load_started) * 1000,
-            rows=len(df),
-            status="success",
-            message=filename,
-            source="load_shared_dataset_for_clinic",
-        )
+        load_duration_ms = (time.perf_counter() - load_started) * 1000
+        if load_duration_ms >= PERFORMANCE_TRACKER_SLOW_LOAD_MS:
+            record_performance_tracker_event(
+                "shared_dataset_load",
+                load_duration_ms,
+                rows=len(df),
+                status="slow",
+                message=filename,
+                source="load_shared_dataset_for_clinic",
+            )
 
     except Exception as e:
         st.session_state["shared_dataset_loaded"] = False
@@ -3476,18 +3478,28 @@ def record_performance_tracker_event(
     ])
 
 
-def ensure_tracking_sheets():
-    clinic_id = st.session_state.get("clinic_id")
-    if not clinic_id:
-        return
-    if st.session_state.get("_tracking_sheets_ensured_for") == clinic_id:
-        return
+@st.cache_resource(show_spinner=False)
+def ensure_tracking_sheets_once():
+    spreadsheet = get_settings_spreadsheet()
+    existing = {worksheet.title: worksheet for worksheet in spreadsheet.worksheets()}
     for title, headers in TRACKER_SHEET_DEFINITIONS:
-        try:
-            get_or_create_tracker_sheet(title, headers)
-        except Exception:
-            return
-    st.session_state["_tracking_sheets_ensured_for"] = clinic_id
+        worksheet = existing.get(title)
+        if worksheet is None:
+            worksheet = spreadsheet.add_worksheet(title=title, rows=1000, cols=max(len(headers), 8))
+        first_row = worksheet.row_values(1)
+        if first_row[:len(headers)] != headers:
+            end_col = _column_number_to_letter(len(headers))
+            _gspread_retry(worksheet.update, values=[headers], range_name=f"A1:{end_col}1")
+    return True
+
+
+def ensure_tracking_sheets():
+    if not st.session_state.get("clinic_id"):
+        return
+    try:
+        ensure_tracking_sheets_once()
+    except Exception:
+        return
 
 
 # === LOGIN HELPER FUNCTIONS ===
