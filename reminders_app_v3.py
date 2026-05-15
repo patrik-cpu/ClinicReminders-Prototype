@@ -50,6 +50,12 @@ DRIVE_SCOPE = [
 
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
+MAIN_SECTION_TABS = ["Get Started", "Upload Data", "Reminders", "Search Terms", "Exclusions"]
+
+
+def set_main_section_tab(tab_name: str):
+    if tab_name in MAIN_SECTION_TABS:
+        st.session_state["main_section_tab"] = tab_name
 
 # --------------------------------
 # Title (retention change))
@@ -484,16 +490,20 @@ if st.session_state.get("logged_in", False):
           <div style="font-weight:700; margin-bottom:0.15rem;">Clinic</div>
           <div class="sidebar-clinic-name">{clinic_label}</div>
         </div>
-        <div style="font-size:15px; line-height:1.85;">
-          <a href="#getting-started" style="text-decoration:none; display:block;">Get Started</a>
-          <a href="#data-upload" style="text-decoration:none; display:block;">Upload Data</a>
-          <a href="#reminders" style="text-decoration:none; display:block; font-weight:700;">Reminders</a>
-          <a href="#search-terms" style="text-decoration:none; display:block;">Search Terms</a>
-          <a href="#exclusions" style="text-decoration:none; display:block;">Exclusions</a>
-        </div>
         """,
         unsafe_allow_html=True,
     )
+    current_main_tab = st.session_state.get("main_section_tab", "Reminders")
+    for tab_name in MAIN_SECTION_TABS:
+        safe_tab_key = re.sub(r"[^a-zA-Z0-9_-]", "_", tab_name.lower())
+        sidebar_nav_slot.button(
+            tab_name,
+            key=f"main_nav_{safe_tab_key}",
+            use_container_width=True,
+            type="primary" if tab_name == current_main_tab else "secondary",
+            on_click=set_main_section_tab,
+            args=(tab_name,),
+        )
 
 # --------------------------------
 # CSS Styling
@@ -2594,7 +2604,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 get_started_tab, data_tab, reminders_page_tab, search_terms_tab, exclusions_tab = st.tabs(
-    ["Get Started", "Upload Data", "Reminders", "Search Terms", "Exclusions"]
+    MAIN_SECTION_TABS,
+    default=st.session_state.get("main_section_tab", "Reminders"),
 )
 
 
