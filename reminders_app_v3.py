@@ -831,6 +831,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
+def render_field_label(container, label: str, help_text: str):
+    safe_label = html_lib.escape(label)
+    safe_help = html_lib.escape(help_text)
+    container.markdown(
+        f"<div style='font-size:0.9rem; font-weight:600; margin-bottom:0.35rem;'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
+        unsafe_allow_html=True,
+    )
+
 # --------------------------------
 # Defaults
 # --------------------------------
@@ -2589,7 +2598,7 @@ else:
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:
-    st.warning("Please log in to access ClinicReminders & Factoids.")
+    st.warning("Please log in to access ClinicReminders.")
     st.stop()
 
 if "rules" not in st.session_state:
@@ -3277,12 +3286,17 @@ with data_tab:
     # --------------------------------
     # File uploader
     # --------------------------------
+    render_field_label(
+        st,
+        "Upload sales data files",
+        "Upload one or more CSV, XLS, or XLSX sales exports. Valid uploads are saved for everyone using this clinic login."
+    )
     files = st.file_uploader(
-        "Upload Sales Plan file(s)",
+        "Upload sales data files",
         type=["csv", "xls", "xlsx"],
         accept_multiple_files=True,
         key=f"file_uploader_main_{st.session_state.get('file_uploader_reset_version', 0)}",
-        help="Upload one or more PMS export files. Valid uploads are saved for everyone using this clinic login."
+        label_visibility="collapsed",
     )
     
     # --------------------------------
@@ -3458,7 +3472,6 @@ with data_tab:
     confirm_reset = st.checkbox(
         "I understand this will remove clinic data for my clinic",
         key="confirm_reset_dataset",
-        help="Use this only when the wrong clinic data was saved."
     )
     
     if st.button(
@@ -3500,10 +3513,13 @@ with data_tab:
 # --------------------------------
 # Render Tables
 # --------------------------------
-def render_table(df, title, key_prefix, msg_key, rules):
+def _exclusion_key(value) -> str:
+    return _SPACE_RX.sub(" ", str(value or "").strip()).lower()
+
+
+def apply_reminder_exclusion_filters(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     if df.empty:
-        st.info(f"No reminders in {title}.")
-        return
+        return df
     df = df.copy()
     if "Item Name" in df.columns:
         df["Plan Item"] = df["Item Name"].apply(
@@ -3514,35 +3530,44 @@ def render_table(df, title, key_prefix, msg_key, rules):
     client_exclusions = st.session_state.get("client_exclusions", [])
     if client_exclusions and "Client Name" in df.columns:
         excluded_clients = {
-            _SPACE_RX.sub(" ", str(name or "").strip()).lower()
+            _exclusion_key(name)
             for name in client_exclusions
             if str(name or "").strip()
         }
         if excluded_clients:
-            client_keys = df["Client Name"].astype(str).map(lambda value: _SPACE_RX.sub(" ", value.strip()).lower())
+            client_keys = df["Client Name"].map(_exclusion_key)
             df = df[~client_keys.isin(excluded_clients)]
     patient_exclusions = st.session_state.get("patient_exclusions", [])
     if patient_exclusions and {"Client Name", "Animal Name"}.issubset(df.columns):
         excluded_patient_pairs = {
             (
-                _SPACE_RX.sub(" ", str(item.get("client", "") or "").strip()).lower(),
-                _SPACE_RX.sub(" ", str(item.get("patient", "") or "").strip()).lower(),
+                _exclusion_key(item.get("client", "")),
+                _exclusion_key(item.get("patient", "")),
             )
             for item in patient_exclusions
             if isinstance(item, dict) and str(item.get("client", "") or "").strip() and str(item.get("patient", "") or "").strip()
         }
         if excluded_patient_pairs:
             row_pairs = list(zip(
-                df["Client Name"].astype(str).map(lambda value: _SPACE_RX.sub(" ", value.strip()).lower()),
-                df["Animal Name"].astype(str).map(lambda value: _SPACE_RX.sub(" ", value.strip()).lower()),
+                df["Client Name"].map(_exclusion_key),
+                df["Animal Name"].map(_exclusion_key),
             ))
             df = df[[pair not in excluded_patient_pairs for pair in row_pairs]]
-    if st.session_state["exclusions"]:
-        excl_pattern = "|".join(map(re.escape, st.session_state["exclusions"]))
+    item_exclusions = [str(term or "").strip().lower() for term in st.session_state.get("exclusions", []) if str(term or "").strip()]
+    if item_exclusions:
+        excl_pattern = "|".join(map(re.escape, item_exclusions))
         target_col = "Item Name" if "Item Name" in df.columns else "Plan Item"
         df = df[~df[target_col].astype(str).str.lower().str.contains(excl_pattern, regex=True, na=False)]
+    return df
+
+
+def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
-        st.info("All rows excluded by exclusion list.")
+        st.info(f"No reminders in {title}.")
+        return
+    df = apply_reminder_exclusion_filters(df, rules)
+    if df.empty:
+        st.info("All reminders in this view are hidden by exclusions.")
         return
 
     show_pending_recent_reminder_warning()
@@ -3742,15 +3767,6 @@ def render_column_help_icon(container, help_text: str, align: str = "left"):
     safe_help = html_lib.escape(help_text)
     container.markdown(
         f"<div style='text-align:{align}; line-height:1.6rem;'><span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
-        unsafe_allow_html=True,
-    )
-
-
-def render_field_label(container, label: str, help_text: str):
-    safe_label = html_lib.escape(label)
-    safe_help = html_lib.escape(help_text)
-    container.markdown(
-        f"<div style='font-size:0.9rem; font-weight:600; margin-bottom:0.35rem;'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -4227,12 +4243,17 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         st.caption("Set this once so prepared messages sound like they are coming from your clinic.")
 
         prev_name = st.session_state.get("user_name", "")
+        render_field_label(
+            st,
+            "Your name / clinic",
+            "This fills [Your Name] in prepared WhatsApp messages."
+        )
         new_name = st.text_input(
             "Your name / clinic (appears in WhatsApp messages):",
             value=prev_name,
             key=f"user_name_input_{key_prefix}",
             placeholder="e.g. Mary from Neighbourhood Veterinary Clinic",
-            help="Saved for the clinic and used in the [Your Name] placeholder."
+            label_visibility="collapsed",
         )
         
         # Auto-save to Google Sheets when the name changes
@@ -4245,11 +4266,16 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
 
+        render_field_label(
+            st,
+            "Message",
+            "Prepared when you click WhatsApp in the reminders table. You can edit it before opening WhatsApp."
+        )
         st.text_area(
             "Message:",
             key=msg_key,
             height=200,
-            help="Prepared when you click WhatsApp in the reminders table. You can edit it before opening WhatsApp."
+            label_visibility="collapsed",
         )
         current_message = st.session_state.get(msg_key, "")
 
@@ -4321,12 +4347,17 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         st.session_state[ver_key] = 0
 
     editor_key = f"wa_template_editor_{key_prefix}_{st.session_state[ver_key]}"
+    render_field_label(
+        st,
+        "WhatsApp message template",
+        "Use placeholders such as [Client Name], [Your Name], [Pet Name], [Item], and [Due Date]."
+    )
     st.text_area(
         "Customize your WhatsApp message template:",
         value=st.session_state["wa_template"],
         height=200,
         key=editor_key,
-        help="Use placeholders: [Client Name], [Your Name], [Pet Name], [Item], [Due Date]",
+        label_visibility="collapsed",
     )
     st.markdown(
         """
@@ -4421,7 +4452,14 @@ if st.session_state.get("working_df") is not None:
             st.rerun()
 
         default_start = date.today()
-    
+        current_window_days = st.session_state.get("reminder_window_days", 1)
+        try:
+            current_window_days = min(30, max(0, int(current_window_days)))
+        except (TypeError, ValueError):
+            current_window_days = 1
+        if st.session_state.get("reminder_window_days") != current_window_days:
+            st.session_state["reminder_window_days"] = current_window_days
+
         start_col, window_col, group_col, warning_col = st.columns(4)
         with start_col:
             render_field_label(
@@ -4443,7 +4481,8 @@ if st.session_state.get("working_df") is not None:
             reminder_window_days = st.number_input(
                 "Days to look ahead",
                 min_value=0,
-                value=st.session_state.get("reminder_window_days", 1),
+                max_value=30,
+                value=current_window_days,
                 step=1,
                 key="reminder_window_days",
                 on_change=save_settings,
@@ -4482,10 +4521,6 @@ if st.session_state.get("working_df") is not None:
     
         render_search_criteria_refresh_notice()
     
-        if reminder_window_days > 30:
-            st.warning("Max 30 days.")
-            reminder_window_days = 30
-    
         end_date = start_date + timedelta(days=reminder_window_days)
     
         reminder_ts = prepared.get("ReminderDateTs")
@@ -4496,13 +4531,18 @@ if st.session_state.get("working_df") is not None:
         start_ts = pd.Timestamp(start_date)
         end_ts = pd.Timestamp(end_date)
         due2 = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
+        reminders_before_exclusions = len(due2)
+        due2 = apply_reminder_exclusion_filters(due2, applied_rules)
     
         if not due2.empty:
             grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=applied_rules)
     
             render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
         else:
-            st.info("No reminders in the selected week.")
+            if reminders_before_exclusions:
+                st.info("All reminders in the selected date range are hidden by exclusions.")
+            else:
+                st.info("No reminders in the selected date range.")
     
     with search_terms_tab:
         # Rules editor (unchanged UI; behavior preserved)
@@ -4610,8 +4650,8 @@ if st.session_state.get("working_df") is not None:
             )
         with c7:
             if st.button("➕ Add", key=f"add_{row_id}"):
-                if new_rule_name and str(new_rule_days).isdigit() and int(new_rule_days) > 0:
-                    safe_rule = new_rule_name.strip().lower()
+                safe_rule = str(new_rule_name or "").strip().lower()
+                if safe_rule and str(new_rule_days).isdigit() and int(new_rule_days) > 0:
                     rule_data = {"days": int(new_rule_days), "use_qty": bool(new_rule_use_qty)}
                     invalid_reminder = ""
                     for raw_value, field, label in [
@@ -4629,12 +4669,15 @@ if st.session_state.get("working_df") is not None:
                     else:
                         if new_rule_visible.strip():
                             rule_data["visible_text"] = new_rule_visible.strip()
-                        st.session_state["rules"][safe_rule] = rule_data
-                        st.session_state["search_term_added"] = True
-                        save_settings()
-                        st.session_state["new_rule_counter"] += 1
-                        invalidate_reminder_rule_cache()
-                        st.rerun()
+                        if safe_rule in st.session_state["rules"]:
+                            st.info("This search term already exists. Edit it in Current Search Terms.")
+                        else:
+                            st.session_state["rules"][safe_rule] = rule_data
+                            st.session_state["search_term_added"] = True
+                            save_settings()
+                            st.session_state["new_rule_counter"] += 1
+                            invalidate_reminder_rule_cache()
+                            st.rerun()
                 else:
                     st.error("Enter a name and valid positive integer for Reminder 3 (Due Date)")
     
@@ -4693,6 +4736,7 @@ if st.session_state.get("working_df") is not None:
                     st.checkbox(
                         "Use Qty", value=settings["use_qty"],
                         key=f"useqty_{safe_rule}_{ver}",
+                        label_visibility="collapsed",
                         on_change=toggle_use_qty,
                         args=(rule, f"useqty_{safe_rule}_{ver}",),
                     )

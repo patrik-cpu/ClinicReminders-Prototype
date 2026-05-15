@@ -50,6 +50,22 @@ class ReminderGroupingTests(unittest.TestCase):
         self.assertEqual(len(grouped), 2)
         self.assertIn("04 Oct 2025 | 05 Oct 2025", set(grouped["Reminder Date"]))
 
+    def test_patient_exclusions_apply_before_grouping(self):
+        due_df = self.make_due_df()
+        due_df.loc[1, "ReminderDate"] = pd.Timestamp("2025-10-04")
+        due_df.loc[1, "ReminderDateFmt"] = "04 Oct 2025"
+        self.app.st.session_state["client_exclusions"] = []
+        self.app.st.session_state["patient_exclusions"] = [
+            {"client": "Same Client", "patient": "Alpha"}
+        ]
+        self.app.st.session_state["exclusions"] = []
+
+        filtered = self.app.apply_reminder_exclusion_filters(due_df, self.app.DEFAULT_RULES)
+        grouped = self.app.bundle_client_reminders_by_window(filtered, window_days=1)
+
+        self.assertNotIn("Alpha", " ".join(grouped["Animal Name"].astype(str)))
+        self.assertIn("Bravo", " ".join(grouped["Animal Name"].astype(str)))
+
 
 if __name__ == "__main__":
     unittest.main()
