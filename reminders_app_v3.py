@@ -2975,6 +2975,7 @@ def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5
         )
         return grouped[["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "ReminderDetails"]]
 
+    max_gap_days = max(int(window_days) - 1, 0)
     for client_name, cdf in work.groupby("Client Name", dropna=False):
         cdf = cdf.sort_values(["_ReminderDateTs", "ChargeDate"], ascending=[True, True]).reset_index(drop=True)
         cluster = []
@@ -2987,7 +2988,7 @@ def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5
                 cluster = [row]
                 continue
 
-            same_cluster = pd.notna(reminder_ts) and pd.notna(anchor) and abs((reminder_ts - anchor).days) <= window_days
+            same_cluster = pd.notna(reminder_ts) and pd.notna(anchor) and abs((reminder_ts - anchor).days) <= max_gap_days
             if same_cluster:
                 cluster.append(row)
             else:
@@ -4093,13 +4094,18 @@ if st.session_state.get("working_df") is not None:
         )
     with group_col:
         group_days = st.number_input(
-            "Number of days to group reminders for the same Client",
+            "Number of days to group reminders for the same client",
             min_value=0,
             value=st.session_state.get("client_group_days", 1),
             step=1,
             key="client_group_days",
             on_change=save_settings,
-            help="Group reminders for the same client within this many days. Use 0 for no grouping."
+            help=(
+                "Controls how reminders for the same client are combined. "
+                "0 = no grouping. 1 = group only reminders on the same day, e.g. Oct 4. "
+                "2 = group reminders across two dates, e.g. Oct 4 and Oct 5. "
+                "3 = group reminders across three dates, e.g. Oct 4 to Oct 6."
+            )
         )
     with warning_col:
         st.number_input(

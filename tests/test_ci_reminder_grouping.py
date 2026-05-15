@@ -1,0 +1,55 @@
+import contextlib
+import importlib
+import io
+import unittest
+
+import pandas as pd
+
+
+class ReminderGroupingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            cls.app = importlib.import_module("reminders_app_v3")
+
+    def make_due_df(self):
+        return pd.DataFrame(
+            {
+                "ReminderDate": pd.to_datetime(["2025-10-04", "2025-10-05", "2025-10-06"]),
+                "ReminderDateFmt": ["04 Oct 2025", "05 Oct 2025", "06 Oct 2025"],
+                "DueDateFmt": ["14 Oct 2025", "15 Oct 2025", "16 Oct 2025"],
+                "ChargeDate": pd.to_datetime(["2025-09-04", "2025-09-05", "2025-09-06"]),
+                "ChargeDateFmt": ["04 Sep 2025", "05 Sep 2025", "06 Sep 2025"],
+                "Client Name": ["Same Client", "Same Client", "Same Client"],
+                "Animal Name": ["Alpha", "Bravo", "Charlie"],
+                "Item Name": ["Item A", "Item B", "Item C"],
+                "MatchedItems": [["Item A"], ["Item B"], ["Item C"]],
+                "Qty": [1, 1, 1],
+                "IntervalDays": [30, 30, 30],
+                "BaseIntervalDays": [30, 30, 30],
+            }
+        )
+
+    def test_zero_disables_grouping(self):
+        grouped = self.app.bundle_client_reminders_by_window(self.make_due_df(), window_days=0)
+        self.assertEqual(len(grouped), 3)
+
+    def test_one_groups_same_day_only(self):
+        due_df = self.make_due_df()
+        due_df.loc[1, "ReminderDate"] = pd.Timestamp("2025-10-04")
+        due_df.loc[1, "ReminderDateFmt"] = "04 Oct 2025"
+
+        grouped = self.app.bundle_client_reminders_by_window(due_df, window_days=1)
+
+        self.assertEqual(len(grouped), 2)
+        self.assertIn("Alpha and Bravo", set(grouped["Animal Name"]))
+
+    def test_two_groups_adjacent_dates(self):
+        grouped = self.app.bundle_client_reminders_by_window(self.make_due_df(), window_days=2)
+
+        self.assertEqual(len(grouped), 2)
+        self.assertIn("04 Oct 2025 | 05 Oct 2025", set(grouped["Reminder Date"]))
+
+
+if __name__ == "__main__":
+    unittest.main()
