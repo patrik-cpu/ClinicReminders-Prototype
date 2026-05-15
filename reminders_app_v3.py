@@ -3582,11 +3582,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                     display: flex; flex-direction: column; gap: 10px;
                     font-family: "Source Sans Pro", sans-serif;
                   }}
-                  .phone-row input {{
-                    width: 100%; height: 44px; padding: 0 12px;
-                    border: 1px solid #ccc; border-radius: 6px; font-size: 16px;
-                    font-family: inherit;
-                  }}
                   .button-row {{ display: flex; gap: 12px; align-items: center; margin-top: 2px; }}
                   .button-row button {{
                     height: 52px; padding: 0 20px; border: none; border-radius: 6px;
@@ -3599,12 +3594,8 @@ def render_table_with_buttons(df, key_prefix, msg_key):
               </head>
               <body>
                 <div class="composer-wrap">
-                  <div class="phone-row">
-                    <input id="phoneInput" type="text" inputmode="tel"
-                           placeholder="+9715XXXXXXXX" aria-label="Phone number (with country code)">
-                  </div>
                   <div class="button-row">
-                    <button class="wa-btn" id="waBtn">📲 Open in WhatsApp</button>
+                    <button class="wa-btn" id="waBtn">📲 Copy & Open WhatsApp</button>
                     <button class="copy-btn" id="copyBtn">📋 Copy to Clipboard</button>
                   </div>
                 </div>
@@ -3620,17 +3611,8 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                   }}
                   document.getElementById('waBtn').addEventListener('click', async function(e) {{
                     e.preventDefault();
-                    const rawPhone = document.getElementById('phoneInput').value || '';
-                    const phoneClean = rawPhone.replace(/[^0-9]/g, '');
-                    const encMsg = encodeURIComponent(MESSAGE_RAW || '');
-                    let url = '';
-                    if (phoneClean) {{
-                      url = `https://wa.me/${{phoneClean}}${{encMsg ? "?text=" + encMsg : ""}}`;
-                    }} else {{
-                      await copyToClipboard(MESSAGE_RAW || '');
-                      url = "https://wa.me/";
-                    }}
-                    window.open(url, '_blank', 'noopener');
+                    await copyToClipboard(MESSAGE_RAW || '');
+                    window.open("https://wa.me/", '_blank', 'noopener');
                   }});
                   document.getElementById('copyBtn').addEventListener('click', async function() {{
                     await copyToClipboard(MESSAGE_RAW || '');
@@ -3642,15 +3624,8 @@ def render_table_with_buttons(df, key_prefix, msg_key):
               </body>
             </html>
             ''',
-            height=130,
+            height=68,
         )
-
-    st.markdown(
-        "<span style='color:red; font-weight:bold;'>❗ Note:</span> "
-        "WhatsApp button might not work the first time after refreshing. Use twice for normal function.",
-        unsafe_allow_html=True
-    )
-    st.info("If you leave the phone blank, the message is auto-copied. WhatsApp opens in forward/search mode — just paste into the chat.")
 
 
     # --- WhatsApp Template Editor ---
