@@ -825,6 +825,14 @@ st.markdown(
         margin: 0.35rem 0 0.85rem;
         padding: 0.85rem 1rem;
     }
+    .st-key-dataset_summary_box {
+        background: var(--cr-primary-soft);
+        border: 1px solid rgba(41, 210, 114, 0.22);
+        border-radius: 6px;
+        color: #126b3d;
+        margin: 0.35rem 0 0.85rem;
+        padding: 0.85rem 1rem;
+    }
     .dataset-summary-title {
         color: #0f5130;
         font-size: 1rem;
@@ -869,6 +877,16 @@ st.markdown(
         font-weight: 800;
         line-height: 1;
         text-decoration: none;
+    }
+    [class*="st-key-remove_dataset_upload_button_"] button {
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        color: #e11d48 !important;
+        font-size: 1.15rem !important;
+        font-weight: 800 !important;
+        min-height: 1.6rem !important;
+        padding: 0 !important;
     }
     .dataset-check-grid {
         display: grid;
@@ -3247,52 +3265,40 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
     if not normalized_rows:
         return
 
-    row_html = []
-    for idx, row in enumerate(normalized_rows):
+    def formatted_history_range(row: dict) -> str:
         from_date = parse_history_date(row.get("from"))
         to_date = parse_history_date(row.get("to"))
         if from_date is not None and to_date is not None:
-            date_range = f"{from_date:%d %b %Y} → {to_date:%d %b %Y}"
-        else:
-            date_range = "Dates not detected"
-        remove_url = f"?remove_dataset_upload={idx}"
-        row_html.append(
-            (
-                '<div class="dataset-summary-row">'
-                f'<div class="dataset-summary-value">{html_lib.escape(row.get("file_name", ""))}</div>'
-                f'<div class="dataset-summary-value">{html_lib.escape(row.get("pms", "-"))}</div>'
-                f'<div class="dataset-summary-value">{html_lib.escape(f"{int(row.get("rows") or 0):,}")}</div>'
-                f'<div class="dataset-summary-value">{html_lib.escape(date_range)}</div>'
-                f'<div class="dataset-summary-value"><a class="dataset-summary-remove" href="{remove_url}" target="_self" title="Remove this CSV">×</a></div>'
-                '</div>'
-            )
-        )
-    check_html = []
-    for check in dataset_summary_checks(normalized_rows):
-        class_name = "good" if check["good"] else "bad"
-        icon = "✓" if check["good"] else "×"
-        check_html.append(
-            f'<div class="dataset-check {class_name}">{icon} {html_lib.escape(check["text"])}</div>'
-        )
+            return f"{from_date:%d %b %Y} → {to_date:%d %b %Y}"
+        return "Dates not detected"
 
-    st.html(
-        (
-            '<div class="dataset-summary">'
-            f'<div class="dataset-summary-title">{html_lib.escape(title)}</div>'
-            '<div class="dataset-summary-table">'
-            '<div class="dataset-summary-header">'
-            '<div class="dataset-summary-label">Data</div>'
-            '<div class="dataset-summary-label">PMS</div>'
-            '<div class="dataset-summary-label">Rows</div>'
-            '<div class="dataset-summary-label">Date range</div>'
-            '<div class="dataset-summary-label">Remove</div>'
-            '</div>'
-            f'{"".join(row_html)}'
-            '</div>'
-            f'<div class="dataset-check-grid">{"".join(check_html)}</div>'
-            '</div>'
-        )
-    )
+    col_widths = [2.0, 0.55, 0.45, 1.0, 0.35]
+    with st.container(key="dataset_summary_box"):
+        st.markdown(f"<div class='dataset-summary-title'>{html_lib.escape(title)}</div>", unsafe_allow_html=True)
+        header_cols = st.columns(col_widths, gap="small")
+        for col, label in zip(header_cols, ["Data", "PMS", "Rows", "Date range", "Remove"]):
+            col.markdown(f"<div class='dataset-summary-label'>{label}</div>", unsafe_allow_html=True)
+
+        for idx, row in enumerate(normalized_rows):
+            row_cols = st.columns(col_widths, gap="small")
+            row_count = f"{int(row.get('rows') or 0):,}"
+            row_cols[0].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(row.get('file_name', ''))}</div>", unsafe_allow_html=True)
+            row_cols[1].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(row.get('pms', '-'))}</div>", unsafe_allow_html=True)
+            row_cols[2].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(row_count)}</div>", unsafe_allow_html=True)
+            row_cols[3].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(formatted_history_range(row))}</div>", unsafe_allow_html=True)
+            row_key = hashlib.md5(json.dumps(row, sort_keys=True).encode("utf-8")).hexdigest()[:10]
+            if row_cols[4].button("×", key=f"remove_dataset_upload_button_{idx}_{row_key}", help="Remove this data file"):
+                remove_dataset_upload_at_index(idx)
+                st.rerun()
+
+        check_cols = st.columns(3, gap="small")
+        for col, check in zip(check_cols, dataset_summary_checks(normalized_rows)):
+            class_name = "good" if check["good"] else "bad"
+            icon = "✓" if check["good"] else "×"
+            col.markdown(
+                f"<div class='dataset-check {class_name}'>{icon} {html_lib.escape(check['text'])}</div>",
+                unsafe_allow_html=True,
+            )
 
 def get_saved_dataset_summary_rows() -> list[dict]:
     history = normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", []))
@@ -3969,7 +3975,6 @@ with data_tab:
     st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("## 📂 Upload Data")
     render_dataset_status()
-    consume_dataset_upload_removal()
     dataset_summary_slot = st.empty()
     with dataset_summary_slot.container():
         render_dataset_date_range()
