@@ -848,6 +848,10 @@ st.markdown(
         border-color: var(--cr-step-complete-border);
         background: var(--cr-step-complete-bg);
     }
+    .setup-step.todo {
+        border-color: rgba(248, 113, 113, 0.42);
+        background: #fff1f2;
+    }
     .setup-step.current {
         border-color: var(--cr-step-current-border);
         box-shadow: 0 0 0 1px rgba(41, 210, 114, 0.18), 0 10px 22px rgba(29, 167, 89, 0.10);
@@ -869,6 +873,10 @@ st.markdown(
     .setup-step.current .setup-status {
         background: var(--cr-primary);
         color: #062d19;
+    }
+    .setup-step.todo .setup-status {
+        background: #ffe4e6;
+        color: #9f1239;
     }
     .setup-title {
         font-weight: 700;
@@ -3001,22 +3009,21 @@ def render_setup_checklist():
     search_term_added = bool(st.session_state.get("search_term_added", False))
     has_sender_name = bool(str(st.session_state.get("user_name", "")).strip())
     template_updated = bool(st.session_state.get("wa_template_updated", False))
-    reminders_ready = has_data and has_rules and has_sender_name
+    has_sent_reminder = bool(st.session_state.get("wa_reminder_log")) or any(
+        isinstance(entry, dict) and str(entry.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT
+        for entry in st.session_state.get("deleted_reminders", [])
+    )
 
-    def status(done: bool, current: bool = False, optional: bool = False):
+    def status(done: bool):
         if done:
             return "complete", "Done"
-        if current:
-            return "current", "Next"
-        if optional:
-            return "optional", "Optional"
         return "todo", "To do"
 
-    upload_class, upload_status = status(has_data, not has_data)
-    search_class, search_status = status(search_term_added, has_shared_dataset and not search_term_added)
-    name_class, name_status = status(has_sender_name, has_shared_dataset and search_term_added and not has_sender_name)
-    template_class, template_status = status(template_updated, has_shared_dataset and has_sender_name and not template_updated, optional=True)
-    reminders_class, reminders_status = status(reminders_ready, has_shared_dataset and has_sender_name)
+    upload_class, upload_status = status(has_data)
+    search_class, search_status = status(search_term_added)
+    name_class, name_status = status(has_sender_name)
+    template_class, template_status = status(template_updated)
+    reminders_class, reminders_status = status(has_sent_reminder)
 
     st.markdown(
         f"""
@@ -3045,8 +3052,8 @@ def render_setup_checklist():
             </div>
             <div class="setup-step {reminders_class}">
               <div class="setup-status">{reminders_status}</div>
-              <div class="setup-title">5. Check reminders</div>
-              <div class="setup-copy">Pick a start date, confirm the output, then click WhatsApp to prepare messages.</div>
+              <div class="setup-title">5. Send your first reminder</div>
+              <div class="setup-copy">Open Reminders, prepare a WhatsApp message, then mark it Sent once the client has been contacted.</div>
             </div>
           </div>
         </section>
