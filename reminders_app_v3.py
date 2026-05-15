@@ -3053,7 +3053,7 @@ def expand_reminder_dates(df: pd.DataFrame) -> pd.DataFrame:
             if pd.notna(value) and int(value) > 0:
                 reminder_days.append(int(value))
 
-        if not reminder_days and pd.notna(interval_days):
+        if pd.notna(interval_days):
             reminder_days.append(int(interval_days))
 
         for reminder_day in sorted(set(reminder_days)):
