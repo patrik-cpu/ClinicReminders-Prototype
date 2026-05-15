@@ -903,6 +903,11 @@ st.markdown(
     .field-examples div + div {
         margin-top: 0.2rem;
     }
+    .example-checkbox-row {
+        align-items: center;
+        display: flex;
+        min-height: 1.45em;
+    }
     .example-checkbox {
         border: 1px solid #7a8c83;
         border-radius: 3px;
@@ -911,7 +916,6 @@ st.markdown(
         height: 0.9rem;
         justify-content: center;
         line-height: 1;
-        vertical-align: -0.08rem;
         width: 0.9rem;
     }
     .example-checkbox.checked::after {
@@ -5401,7 +5405,10 @@ if st.session_state.get("working_df") is not None:
                 label_visibility="collapsed",
                 help="Use when quantity should extend the reminder interval."
             )
-            field_examples("<span class='example-checkbox'></span>", "<span class='example-checkbox checked'></span>")
+            field_examples(
+                "<span class='example-checkbox-row'><span class='example-checkbox'></span></span>",
+                "<span class='example-checkbox-row'><span class='example-checkbox checked'></span></span>",
+            )
         with c7:
             new_rule_visible = st.text_input(
                 "Message Text (optional)",
