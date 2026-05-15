@@ -42,7 +42,7 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from google.oauth2.service_account import Credentials
 from googleapiclient.errors import HttpError
 from io import BytesIO
-PREPARED_SCHEMA_VERSION = 3
+PREPARED_SCHEMA_VERSION = 4
 DRIVE_SCOPE = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
@@ -1500,7 +1500,7 @@ def merge_wa_reminder_logs(*logs):
         key=lambda entry: _parse_reminder_log_time(entry.get("RemindedAt", "")) or datetime.min,
     )[-1000:]
 
-HIDDEN_REMINDER_KEY_FIELDS = ("Client Name", "Animal Name", "Plan Item", "Due Date")
+HIDDEN_REMINDER_KEY_FIELDS = ("Client Name", "Animal Name", "Plan Item", "Due Date", "Reminder Date")
 REMINDER_ACTION_SENT = "sent"
 REMINDER_ACTION_DECLINED = "declined"
 WHATSAPP_ICON_MASK_DATA_URI = (
@@ -1550,6 +1550,7 @@ def get_hidden_reminder_record(row) -> dict | None:
 def upsert_hidden_reminder(row, action: str, message: str = "", now: datetime | None = None) -> dict:
     now = now or datetime.utcnow()
     rec = {
+        "Reminder Date": row.get("Reminder Date", ""),
         "Due Date": row.get("Due Date", ""),
         "Charge Date": row.get("Charge Date", ""),
         "Client Name": row.get("Client Name", ""),
@@ -2855,6 +2856,7 @@ def build_grouped_reminder_summary(details: list[dict]) -> str:
 
 def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str, rules: dict | None = None):
     due_dates = sorted({str(x).strip() for x in cluster_df.get("DueDateFmt", []) if str(x).strip()})
+    reminder_dates = sorted({str(x).strip() for x in cluster_df.get("ReminderDateFmt", []) if str(x).strip()})
     animals = sorted({str(x).strip() for x in cluster_df.get("Animal Name", []) if str(x).strip()})
 
     all_items = []
@@ -2894,6 +2896,7 @@ def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str, rules:
     days_base = int(base_min.dropna().min()) if base_min.notna().any() else ""
 
     return {
+        "Reminder Date": " | ".join(reminder_dates),
         "Due Date": " | ".join(due_dates),
         "Charge Date": cluster_df.get("ChargeDateFmt", pd.Series(dtype=str)).max(),
         "Client Name": client_name,
@@ -2906,45 +2909,55 @@ def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str, rules:
 
 def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5, rules: dict | None = None) -> pd.DataFrame:
     if due_df.empty:
-        return pd.DataFrame(columns=["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "ReminderDetails"])
+        return pd.DataFrame(columns=["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "ReminderDetails"])
 
     out_rows = []
     work = due_df.copy()
-    due_col = "DueDate" if "DueDate" in work.columns else "NextDueDate"
-    work["_DueDateTs"] = pd.to_datetime(work[due_col], errors="coerce")
+    reminder_col = "ReminderDate" if "ReminderDate" in work.columns else "NextDueDate"
+    work["_ReminderDateTs"] = pd.to_datetime(work[reminder_col], errors="coerce")
 
     for client_name, cdf in work.groupby("Client Name", dropna=False):
-        cdf = cdf.sort_values(["_DueDateTs", "ChargeDate"], ascending=[True, True]).reset_index(drop=True)
+        cdf = cdf.sort_values(["_ReminderDateTs", "ChargeDate"], ascending=[True, True]).reset_index(drop=True)
         cluster = []
         anchor = None
 
         for _, row in cdf.iterrows():
-            due_ts = row.get("_DueDateTs")
+            reminder_ts = row.get("_ReminderDateTs")
             if anchor is None:
-                anchor = due_ts
+                anchor = reminder_ts
                 cluster = [row]
                 continue
 
-            same_cluster = pd.notna(due_ts) and pd.notna(anchor) and abs((due_ts - anchor).days) <= window_days
+            same_cluster = pd.notna(reminder_ts) and pd.notna(anchor) and abs((reminder_ts - anchor).days) <= window_days
             if same_cluster:
                 cluster.append(row)
             else:
                 out_rows.append(_summarize_client_cluster(pd.DataFrame(cluster), client_name, rules))
                 cluster = [row]
-                anchor = due_ts
+                anchor = reminder_ts
 
         if cluster:
             out_rows.append(_summarize_client_cluster(pd.DataFrame(cluster), client_name, rules))
 
     grouped = pd.DataFrame(out_rows)
     if grouped.empty:
-        return pd.DataFrame(columns=["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"])
+        return pd.DataFrame(columns=["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"])
 
     grouped["Qty"] = grouped["Qty"].where(
         grouped["Qty"].astype(str) == "NA",
         pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
     )
-    return grouped[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "ReminderDetails"]]
+    return grouped[["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "ReminderDetails"]]
+def _positive_int_or_na(value):
+    try:
+        if value is None or str(value).strip() == "":
+            return pd.NA
+        parsed = int(str(value).strip())
+        return parsed if parsed > 0 else pd.NA
+    except (TypeError, ValueError):
+        return pd.NA
+
+
 def map_intervals_vec(df, rules):
     df = df.copy()
     if "ItemNorm" not in df.columns:
@@ -2963,6 +2976,8 @@ def map_intervals_vec(df, rules):
 
     # BaseIntervalDays = NEVER uses qty (new)
     interval_base = pd.Series(pd.NA, index=df.index, dtype="Float64")
+    reminder_1 = pd.Series(pd.NA, index=df.index, dtype="Float64")
+    reminder_2 = pd.Series(pd.NA, index=df.index, dtype="Float64")
 
     matched = np.empty(n, dtype=object)
     matched[:] = [[] for _ in range(n)]
@@ -2978,6 +2993,14 @@ def map_intervals_vec(df, rules):
         # Base is always just 'days'
         base_cand = pd.Series(days, index=df.index)[mask]
         interval_base = interval_base.where(~mask, pd.concat([interval_base[mask], base_cand], axis=1).min(axis=1))
+        reminder_1_days = _positive_int_or_na(settings.get("reminder_1"))
+        reminder_2_days = _positive_int_or_na(settings.get("reminder_2"))
+        if pd.notna(reminder_1_days):
+            reminder_1_cand = pd.Series(int(reminder_1_days), index=df.index)[mask]
+            reminder_1 = reminder_1.where(~mask, pd.concat([reminder_1[mask], reminder_1_cand], axis=1).min(axis=1))
+        if pd.notna(reminder_2_days):
+            reminder_2_cand = pd.Series(int(reminder_2_days), index=df.index)[mask]
+            reminder_2 = reminder_2.where(~mask, pd.concat([reminder_2[mask], reminder_2_cand], axis=1).min(axis=1))
 
         # Qty interval uses qty only if rule says so
         if settings.get("use_qty"):
@@ -2999,15 +3022,50 @@ def map_intervals_vec(df, rules):
     df["MatchedItems"] = [list({x.strip() for x in lst if str(x).strip()}) for lst in matched]
     df["IntervalDays"] = interval_qty
     df["BaseIntervalDays"] = interval_base
+    df["Reminder1Days"] = reminder_1
+    df["Reminder2Days"] = reminder_2
     return df
+
+
+def expand_reminder_dates(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+
+    out = []
+    for _, row in df.iterrows():
+        interval_days = pd.to_numeric(pd.Series([row.get("IntervalDays")]), errors="coerce").iloc[0]
+        reminder_days = []
+        for field in ("Reminder1Days", "Reminder2Days"):
+            value = pd.to_numeric(pd.Series([row.get(field)]), errors="coerce").iloc[0]
+            if pd.notna(value) and int(value) > 0:
+                reminder_days.append(int(value))
+
+        if not reminder_days and pd.notna(interval_days):
+            reminder_days.append(int(interval_days))
+
+        for reminder_day in sorted(set(reminder_days)):
+            rec = row.copy()
+            rec["ReminderDays"] = reminder_day
+            rec["ReminderDate"] = rec.get("ChargeDate") + pd.to_timedelta(reminder_day, unit="D")
+            rec["ReminderDateTs"] = pd.to_datetime(rec.get("ReminderDate"), errors="coerce")
+            rec["ReminderDateFmt"] = (
+                rec["ReminderDateTs"].strftime("%d %b %Y")
+                if pd.notna(rec["ReminderDateTs"])
+                else ""
+            )
+            out.append(rec)
+
+    if not out:
+        return df.iloc[0:0].copy()
+    return pd.DataFrame(out).reset_index(drop=True)
 
 @st.cache_data(show_spinner=False)
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=[
-            "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
-            "MatchedItems", "Qty", "IntervalDays", "BaseIntervalDays",
-            "NextDueDate", "NextDueDateBase", "NextDueDateTs", "ChargeDate"
+            "ReminderDateFmt", "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
+            "MatchedItems", "Qty", "IntervalDays", "BaseIntervalDays", "Reminder1Days", "Reminder2Days",
+            "NextDueDate", "NextDueDateBase", "NextDueDateTs", "ReminderDate", "ReminderDateTs", "ChargeDate"
         ])
 
     df = df.copy()
@@ -3045,6 +3103,9 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     # ✅ hard guarantee column exists even if something upstream changes
     if "BaseIntervalDays" not in df.columns:
         df["BaseIntervalDays"] = pd.NA
+    for col in ["Reminder1Days", "Reminder2Days"]:
+        if col not in df.columns:
+            df[col] = pd.NA
 
     return df
 
@@ -3585,8 +3646,8 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
 
 
 def render_table_with_buttons(df, key_prefix, msg_key):
-    col_widths = [2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
-    headers = ["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Sent", "Decline"]
+    col_widths = [2, 2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
+    headers = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Sent", "Decline"]
 
     # --- Header row ---
     header_cols = st.columns(col_widths)
@@ -3616,7 +3677,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             row_cols[j].markdown(val)
 
         # --- WA button (aligned to its column, full-width) ---
-        row_cols[7].button(
+        row_cols[8].button(
             "WhatsApp",
             key=wa_key,
             use_container_width=True,
@@ -3625,7 +3686,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             args=(row_data, key_prefix, msg_key, idx),
         )
 
-        row_cols[8].button(
+        row_cols[9].button(
             "✔",
             key=sent_key,
             use_container_width=True,
@@ -3634,7 +3695,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             args=(row_data, key_prefix, msg_key, idx),
         )
 
-        row_cols[9].button(
+        row_cols[10].button(
             "✖",
             key=decline_key,
             use_container_width=True,
@@ -3818,6 +3879,7 @@ def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     if st.session_state.get("prepared_key") != key:
         prepared = ensure_reminder_columns(working_df, rules)
         prepared = drop_early_duplicates_fast(prepared)
+        prepared = expand_reminder_dates(prepared)
 
         st.session_state["prepared_df"] = prepared
         st.session_state["prepared_key"] = key
@@ -3895,12 +3957,14 @@ if st.session_state.get("working_df") is not None:
 
     end_date = start_date + timedelta(days=reminder_window_days - 1)
 
-    due_ts = prepared.get("NextDueDateTs")
-    if due_ts is None:
-        due_ts = pd.to_datetime(prepared["NextDueDate"], errors="coerce")
+    reminder_ts = prepared.get("ReminderDateTs")
+    if reminder_ts is None:
+        reminder_ts = prepared.get("NextDueDateTs")
+    if reminder_ts is None:
+        reminder_ts = pd.to_datetime(prepared["NextDueDate"], errors="coerce")
     start_ts = pd.Timestamp(start_date)
     end_ts = pd.Timestamp(end_date)
-    due2 = prepared[(due_ts >= start_ts) & (due_ts <= end_ts)].copy()
+    due2 = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
 
     if not due2.empty:
         grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=st.session_state.get("rules", {}))
@@ -3937,7 +4001,9 @@ if st.session_state.get("working_df") is not None:
 
 
         if not filtered2.empty:
-            g = filtered2.groupby(["DueDateFmt", "Client Name"], dropna=False)
+            if "ReminderDateFmt" not in filtered2.columns:
+                filtered2["ReminderDateFmt"] = filtered2.get("DueDateFmt", "")
+            g = filtered2.groupby(["ReminderDateFmt", "DueDateFmt", "Client Name"], dropna=False)
             grouped_search = (
                 pd.DataFrame({
                     "Charge Date": g["ChargeDateFmt"].max(),
@@ -3957,8 +4023,8 @@ if st.session_state.get("working_df") is not None:
                     ),
                 })
                 .reset_index()
-                .rename(columns={"DueDateFmt": "Due Date"})
-            )[["Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
+                .rename(columns={"ReminderDateFmt": "Reminder Date", "DueDateFmt": "Due Date"})
+            )[["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
 
             render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
         else:
@@ -3971,20 +4037,23 @@ if st.session_state.get("working_df") is not None:
     st.info(
         "### 🧩 How to Manage Search Terms\n\n"
         "**1️⃣ View and edit all existing Search Terms** — each term represents a product or service that generates a reminder (e.g., *Rabies*, *Bravecto*, *Dental*).\n\n"
-        "**2️⃣ Set the recurrence interval (‘Days’)** — how long until the next reminder appears.  \n"
-        "Example: 90 days for Bravecto, 365 days for Vaccinations.\n\n"
-        "**3️⃣ Choose whether to use the ‘Qty’ column** — if checked, the reminder multiplies the interval by quantity.  \n"
-        "Example: *2× Bravecto* = 180 days.\n\n"
-        "**4️⃣ Edit the ‘Visible Text’** — this is what appears inside the WhatsApp message instead of the raw product name.  \n"
+        "**2️⃣ Set optional early reminder dates** — Reminder 1 and Reminder 2 are days after the charge date when reminders should appear.  \n"
+        "Example: Bravecto due at 90 days, with reminders at 80 and 85 days.\n\n"
+        "**3️⃣ Set Reminder 3 (Due Date)** — this is the exact due date shown in the WhatsApp message and used as the default reminder date when Reminder 1 and 2 are blank.\n\n"
+        "**4️⃣ Choose whether to use the ‘Qty’ column** — if checked, Reminder 3 (Due Date) multiplies by quantity.  \n"
+        "Example: *2× Bravecto* = due in 180 days.\n\n"
+        "**5️⃣ Edit the ‘Visible Text’** — this is what appears inside the WhatsApp message instead of the raw product name.  \n"
         "Example: *bravecto* → **Bravecto Tablet**, *rabies* → **Rabies Vaccine**.\n\n"
-        "**5️⃣ You can also delete outdated terms or add new ones at the bottom of the section.**"
+        "**6️⃣ You can also delete outdated terms or add new ones at the bottom of the section.**"
     )
-    cols = st.columns([3,1,1,2,0.7])
+    cols = st.columns([3,1,1,1.4,1,2,0.7])
     with cols[0]: st.markdown("**Rule**")
-    with cols[1]: st.markdown("**Days**")
-    with cols[2]: st.markdown("**Use Qty**")
-    with cols[3]: st.markdown("**Visible Text**")
-    with cols[4]: st.markdown("**Delete**")
+    with cols[1]: st.markdown("**Reminder 1**")
+    with cols[2]: st.markdown("**Reminder 2**")
+    with cols[3]: st.markdown("**Reminder 3 (Due Date)**")
+    with cols[4]: st.markdown("**Use Qty**")
+    with cols[5]: st.markdown("**Visible Text**")
+    with cols[6]: st.markdown("**Delete**")
 
     to_delete = []
 
@@ -3999,9 +4068,22 @@ if st.session_state.get("working_df") is not None:
     def save_rule_days(rule, key):
         days_raw = str(st.session_state.get(key, "")).strip()
         if not days_raw.isdigit() or int(days_raw) <= 0:
-            st.session_state["_search_terms_autosave_error"] = f"Days must be a positive integer for: {rule}"
+            st.session_state["_search_terms_autosave_error"] = f"Reminder 3 (Due Date) must be a positive integer for: {rule}"
             return
         st.session_state["rules"][rule]["days"] = int(days_raw)
+        save_settings()
+        invalidate_reminder_rule_cache()
+
+    def save_rule_reminder_day(rule, field, key):
+        days_raw = str(st.session_state.get(key, "")).strip()
+        if days_raw == "":
+            st.session_state["rules"][rule].pop(field, None)
+        elif days_raw.isdigit() and int(days_raw) > 0:
+            st.session_state["rules"][rule][field] = int(days_raw)
+        else:
+            label = "Reminder 1" if field == "reminder_1" else "Reminder 2"
+            st.session_state["_search_terms_autosave_error"] = f"{label} must be blank or a positive integer for: {rule}"
+            return
         save_settings()
         invalidate_reminder_rule_cache()
 
@@ -4023,26 +4105,42 @@ if st.session_state.get("working_df") is not None:
         ver = st.session_state["form_version"]
         safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
         with st.container():
-            cols = st.columns([3,1,1,2,0.7], gap="small")
+            cols = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
             with cols[0]:
                 st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
             with cols[1]:
                 st.text_input(
-                    "Days", value=str(settings["days"]),
+                    "Reminder 1", value=str(settings.get("reminder_1", "") or ""),
+                    key=f"reminder_1_{safe_rule}_{ver}", label_visibility="collapsed",
+                    on_change=save_rule_reminder_day,
+                    args=(rule, "reminder_1", f"reminder_1_{safe_rule}_{ver}",),
+                    help="Optional first reminder date, in days after the charge date."
+                )
+            with cols[2]:
+                st.text_input(
+                    "Reminder 2", value=str(settings.get("reminder_2", "") or ""),
+                    key=f"reminder_2_{safe_rule}_{ver}", label_visibility="collapsed",
+                    on_change=save_rule_reminder_day,
+                    args=(rule, "reminder_2", f"reminder_2_{safe_rule}_{ver}",),
+                    help="Optional second reminder date, in days after the charge date."
+                )
+            with cols[3]:
+                st.text_input(
+                    "Reminder 3 (Due Date)", value=str(settings["days"]),
                     key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
                     on_change=save_rule_days,
                     args=(rule, f"days_{safe_rule}_{ver}",),
-                    help="How many days after the charge date this item should become due again."
+                    help="Exact due date in days after the charge date. If Reminder 1 and 2 are blank, the reminder appears on this due date."
                 )
-            with cols[2]:
+            with cols[4]:
                 st.checkbox(
                     "Use Qty", value=settings["use_qty"],
                     key=f"useqty_{safe_rule}_{ver}",
                     on_change=toggle_use_qty,
                     args=(rule, f"useqty_{safe_rule}_{ver}",),
-                    help="When enabled, quantity multiplies the recurrence interval."
+                    help="When enabled, quantity multiplies Reminder 3 (Due Date)."
                 )
-            with cols[3]:
+            with cols[5]:
                 st.text_input(
                     "Visible Text", value=settings.get("visible_text",""),
                     key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
@@ -4050,7 +4148,7 @@ if st.session_state.get("working_df") is not None:
                     args=(rule, f"vis_{safe_rule}_{ver}",),
                     help="Optional friendly wording shown in tables and WhatsApp messages."
                 )
-            with cols[4]:
+            with cols[6]:
                 if st.button("❌", key=f"del_{safe_rule}_{ver}"):
                     to_delete.append(rule)
 
@@ -4074,9 +4172,9 @@ if st.session_state.get("working_df") is not None:
 
     st.markdown("---")
     st.write("### Add New Search Term")
-    st.info("💡 Add a new **Search Term** (e.g., Cardisure), set its days, whether to use quantity, and optional visible text.")
+    st.info("💡 Add a new **Search Term** (e.g., Cardisure), set optional reminder dates, the due date, whether to use quantity, and optional visible text.")
     row_id = st.session_state['new_rule_counter']
-    c1, c2, c3, c4, c5 = st.columns([3,1,1,2,0.7], gap="small")
+    c1, c2, c3, c4, c5, c6, c7 = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
     with c1:
         new_rule_name = st.text_input(
             "Rule name",
@@ -4084,39 +4182,65 @@ if st.session_state.get("working_df") is not None:
             help="Text to look for in the PMS item name, such as bravecto, rabies, or librela."
         )
     with c2:
+        new_rule_reminder_1 = st.text_input(
+            "Reminder 1",
+            key=f"new_rule_reminder_1_{row_id}",
+            help="Optional first reminder date, in days after the charge date."
+        )
+    with c3:
+        new_rule_reminder_2 = st.text_input(
+            "Reminder 2",
+            key=f"new_rule_reminder_2_{row_id}",
+            help="Optional second reminder date, in days after the charge date."
+        )
+    with c4:
         new_rule_days = st.text_input(
-            "Days",
+            "Reminder 3 (Due Date)",
             key=f"new_rule_days_{row_id}",
             help="Positive integer number of days until this item should be due again."
         )
-    with c3:
+    with c5:
         new_rule_use_qty = st.checkbox(
             "Use Qty",
             key=f"new_rule_useqty_{row_id}",
             help="Use when quantity should extend the reminder interval."
         )
-    with c4:
+    with c6:
         new_rule_visible = st.text_input(
             "Visible Text (optional)",
             key=f"new_rule_vis_{row_id}",
             help="Friendly wording to show users and clients, such as Bravecto Tablet."
         )
-    with c5:
+    with c7:
         if st.button("➕ Add", key=f"add_{row_id}"):
-            if new_rule_name and str(new_rule_days).isdigit():
+            if new_rule_name and str(new_rule_days).isdigit() and int(new_rule_days) > 0:
                 safe_rule = new_rule_name.strip().lower()
                 rule_data = {"days": int(new_rule_days), "use_qty": bool(new_rule_use_qty)}
-                if new_rule_visible.strip():
-                    rule_data["visible_text"] = new_rule_visible.strip()
-                st.session_state["rules"][safe_rule] = rule_data
-                st.session_state["search_term_added"] = True
-                save_settings()
-                st.session_state["new_rule_counter"] += 1
-                st.session_state.pop("prepared_df", None)
-                st.session_state.pop("prepared_key", None)
-                st.rerun()
+                invalid_reminder = ""
+                for raw_value, field, label in [
+                    (new_rule_reminder_1, "reminder_1", "Reminder 1"),
+                    (new_rule_reminder_2, "reminder_2", "Reminder 2"),
+                ]:
+                    raw_value = str(raw_value or "").strip()
+                    if raw_value:
+                        if not raw_value.isdigit() or int(raw_value) <= 0:
+                            invalid_reminder = label
+                            break
+                        rule_data[field] = int(raw_value)
+                if invalid_reminder:
+                    st.error(f"{invalid_reminder} must be blank or a positive integer")
+                else:
+                    if new_rule_visible.strip():
+                        rule_data["visible_text"] = new_rule_visible.strip()
+                    st.session_state["rules"][safe_rule] = rule_data
+                    st.session_state["search_term_added"] = True
+                    save_settings()
+                    st.session_state["new_rule_counter"] += 1
+                    st.session_state.pop("prepared_df", None)
+                    st.session_state.pop("prepared_key", None)
+                    st.rerun()
             else:
-                st.error("Enter a name and valid integer for days")
+                st.error("Enter a name and valid positive integer for Reminder 3 (Due Date)")
 
     # --------------------------------
     # Exclusions
