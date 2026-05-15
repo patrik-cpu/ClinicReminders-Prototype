@@ -1337,6 +1337,7 @@ def load_settings():
         st.session_state["wa_reminder_log"] = settings.get("wa_reminder_log", [])
         st.session_state["deleted_reminders"] = settings.get("deleted_reminders", [])
         st.session_state["search_terms_reviewed"] = bool(settings.get("search_terms_reviewed", False))
+        st.session_state["search_term_added"] = bool(settings.get("search_term_added", False))
         st.session_state["wa_template_reviewed"] = bool(settings.get("wa_template_reviewed", False))
         st.session_state["user_country"] = settings.get("country", "")
     else:
@@ -1352,6 +1353,7 @@ def load_settings():
         st.session_state["wa_reminder_log"] = []
         st.session_state["deleted_reminders"] = []
         st.session_state["search_terms_reviewed"] = False
+        st.session_state["search_term_added"] = False
         st.session_state["wa_template_reviewed"] = False
         st.session_state["user_country"] = ""
 
@@ -1411,6 +1413,7 @@ def save_settings():
         "wa_reminder_log": wa_reminder_log,
         "deleted_reminders": deleted_reminders,
         "search_terms_reviewed": bool(setting_for_save("search_terms_reviewed", False)),
+        "search_term_added": bool(setting_for_save("search_term_added", False)),
         "wa_template_reviewed": bool(setting_for_save("wa_template_reviewed", False)),
         "country": setting_for_save("user_country", remote_settings.get("country", "")),
     }
@@ -2072,6 +2075,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "wa_reminder_log": [],
         "deleted_reminders": [],
         "search_terms_reviewed": False,
+        "search_term_added": False,
         "wa_template_reviewed": False,
         "country": country,
     }
@@ -2531,7 +2535,7 @@ def render_setup_checklist():
     has_data = df_w is not None and not getattr(df_w, "empty", True)
     has_shared_dataset = bool(st.session_state.get("shared_dataset_loaded") and st.session_state.get("shared_dataset_name"))
     has_rules = bool(st.session_state.get("rules"))
-    search_terms_reviewed = bool(st.session_state.get("search_terms_reviewed", False))
+    search_term_added = bool(st.session_state.get("search_term_added", False))
     has_sender_name = bool(str(st.session_state.get("user_name", "")).strip())
     template_is_custom = (st.session_state.get("user_template", DEFAULT_WA_TEMPLATE) or DEFAULT_WA_TEMPLATE) != DEFAULT_WA_TEMPLATE
     template_reviewed = bool(st.session_state.get("wa_template_reviewed", False) or template_is_custom)
@@ -2547,8 +2551,8 @@ def render_setup_checklist():
         return "todo", "To do"
 
     upload_class, upload_status = status(has_data, not has_data)
-    search_class, search_status = status(search_terms_reviewed, has_shared_dataset and not search_terms_reviewed)
-    name_class, name_status = status(has_sender_name, has_shared_dataset and search_terms_reviewed and not has_sender_name)
+    search_class, search_status = status(search_term_added, has_shared_dataset and not search_term_added)
+    name_class, name_status = status(has_sender_name, has_shared_dataset and search_term_added and not has_sender_name)
     template_class, template_status = status(template_reviewed, has_shared_dataset and has_sender_name and not template_reviewed, optional=True)
     reminders_class, reminders_status = status(reminders_ready, has_shared_dataset and has_sender_name)
 
@@ -2566,9 +2570,9 @@ def render_setup_checklist():
             </div>
             <div class="setup-step {search_class}">
               <div class="setup-status">{search_status}</div>
-              <div class="setup-title">2. Review search terms</div>
-              <div class="setup-copy">Defaults are loaded, but review them once so reminders match your clinic language.</div>
-              <a href="#search-terms">Open search terms</a>
+              <div class="setup-title">2. Add new search term</div>
+              <div class="setup-copy">Add at least one clinic-specific product or service so reminders match your clinic language.</div>
+              <a href="#search-terms">Add search term</a>
             </div>
             <div class="setup-step {name_class}">
               <div class="setup-status">{name_status}</div>
@@ -2605,6 +2609,7 @@ st.session_state.setdefault("new_rule_counter", 0)
 st.session_state.setdefault("form_version", 0)
 st.session_state.setdefault("deleted_reminders", [])
 st.session_state.setdefault("search_terms_reviewed", False)
+st.session_state.setdefault("search_term_added", False)
 st.session_state.setdefault("wa_template_reviewed", False)
 
 # --------------------------------
@@ -3895,16 +3900,6 @@ if st.session_state.get("working_df") is not None:
         "Example: *bravecto* → **Bravecto Tablet**, *rabies* → **Rabies Vaccine**.\n\n"
         "**5️⃣ You can also delete outdated terms or add new ones at the bottom of the section.**"
     )
-    if st.session_state.get("search_terms_reviewed"):
-        st.success("Search terms marked as reviewed for this clinic.")
-    elif st.button(
-        "Mark search terms reviewed",
-        help="Marks setup step 3 complete for everyone using this clinic login."
-    ):
-        st.session_state["search_terms_reviewed"] = True
-        save_settings()
-        st.rerun()
-
     cols = st.columns([3,1,1,2,0.7])
     with cols[0]: st.markdown("**Rule**")
     with cols[1]: st.markdown("**Days**")
@@ -3928,7 +3923,6 @@ if st.session_state.get("working_df") is not None:
             st.session_state["_search_terms_autosave_error"] = f"Days must be a positive integer for: {rule}"
             return
         st.session_state["rules"][rule]["days"] = int(days_raw)
-        st.session_state["search_terms_reviewed"] = True
         save_settings()
         invalidate_reminder_rule_cache()
 
@@ -3938,13 +3932,11 @@ if st.session_state.get("working_df") is not None:
             st.session_state["rules"][rule]["visible_text"] = visible_text
         else:
             st.session_state["rules"][rule].pop("visible_text", None)
-        st.session_state["search_terms_reviewed"] = True
         save_settings()
         invalidate_reminder_rule_cache()
 
     def toggle_use_qty(rule, key):
         st.session_state["rules"][rule]["use_qty"] = st.session_state[key]
-        st.session_state["search_terms_reviewed"] = True
         save_settings()
         invalidate_reminder_rule_cache()
 
@@ -3994,6 +3986,7 @@ if st.session_state.get("working_df") is not None:
         st.session_state["exclusions"] = []
         st.session_state["client_exclusions"] = []
         st.session_state["search_terms_reviewed"] = False
+        st.session_state["search_term_added"] = False
         st.session_state["form_version"] += 1
         save_settings()
         st.session_state.pop("prepared_df", None)
@@ -4037,6 +4030,7 @@ if st.session_state.get("working_df") is not None:
                 if new_rule_visible.strip():
                     rule_data["visible_text"] = new_rule_visible.strip()
                 st.session_state["rules"][safe_rule] = rule_data
+                st.session_state["search_term_added"] = True
                 save_settings()
                 st.session_state["new_rule_counter"] += 1
                 st.session_state.pop("prepared_df", None)
