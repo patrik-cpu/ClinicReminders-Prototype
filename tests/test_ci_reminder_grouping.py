@@ -2,6 +2,7 @@ import contextlib
 import importlib
 import io
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -92,6 +93,42 @@ class ReminderGroupingTests(unittest.TestCase):
         self.assertEqual(sorted(expanded["ReminderDays"].astype(int)), [90, 100])
         self.assertEqual(set(expanded["DueDateFmt"]), {"01 Apr 2025"})
         self.assertEqual(set(expanded["ReminderDateFmt"]), {"01 Apr 2025", "11 Apr 2025"})
+
+    def test_loading_clinic_without_dataset_clears_stale_session_data(self):
+        dataset_file_id_col = self.app.SHEET_COL_DATASET_FILE_ID
+        dataset_file_name_col = self.app.SHEET_COL_DATASET_FILE_NAME
+
+        class FakeSheet:
+            def get_all_records(self):
+                return [
+                    {
+                        "ClinicID": "Fresh Clinic",
+                        dataset_file_id_col: "",
+                        dataset_file_name_col: "",
+                    }
+                ]
+
+        stale_keys = [
+            "working_df",
+            "prepared_df",
+            "bundle",
+            "bundle_key",
+            "prepared_key",
+            "shared_dataset_loaded",
+            "shared_dataset_name",
+            "shared_dataset_error",
+        ]
+        self.app.st.session_state["clinic_id"] = "Fresh Clinic"
+        self.app.st.session_state["working_df"] = pd.DataFrame({"old": [1]})
+        self.app.st.session_state["prepared_df"] = pd.DataFrame({"old": [1]})
+        self.app.st.session_state["shared_dataset_loaded"] = True
+        self.app.st.session_state["shared_dataset_name"] = "old_clinic.csv"
+
+        with patch.object(self.app, "get_settings_sheet", return_value=FakeSheet()):
+            self.app.load_shared_dataset_for_clinic()
+
+        for key in stale_keys:
+            self.assertNotIn(key, self.app.st.session_state)
 
 
 if __name__ == "__main__":

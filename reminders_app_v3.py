@@ -197,7 +197,16 @@ COUNTRY_OPTIONS = [
 
 def reset_uploaded_data_state(clear_cache: bool = True, reset_uploader: bool = False):
     """Single reset helper used by upload/reset flows."""
-    for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
+    for key in [
+        "working_df",
+        "prepared_df",
+        "bundle",
+        "bundle_key",
+        "prepared_key",
+        "shared_dataset_loaded",
+        "shared_dataset_name",
+        "shared_dataset_error",
+    ]:
         st.session_state.pop(key, None)
     if reset_uploader:
         st.session_state["file_uploader_reset_version"] = st.session_state.get("file_uploader_reset_version", 0) + 1
@@ -1114,6 +1123,7 @@ def load_shared_dataset_for_clinic():
     If the clinic has a DatasetFileId stored in the settings sheet,
     download it from Drive, process it, and set st.session_state['working_df'].
     """
+    reset_uploaded_data_state(clear_cache=False)
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id:
         return
@@ -2574,6 +2584,7 @@ if remember_token and not st.session_state["logged_in"]:
     if remembered_clinic_id:
         st.session_state["clinic_id"] = remembered_clinic_id
         st.session_state["logged_in"] = True
+        reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
         load_settings()
         load_shared_dataset_for_clinic()
         upsert_user_tracker(
@@ -2600,6 +2611,7 @@ if (
     if user_row:
         st.session_state["clinic_id"] = default_username
         st.session_state["logged_in"] = True
+        reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
         load_settings()
         load_shared_dataset_for_clinic()
         rerun_app()
@@ -2620,6 +2632,7 @@ if not st.session_state["logged_in"]:
                 st.session_state["logged_in"] = True
                 set_remember_login_token(create_remember_login_token(username, user_row))
 
+                reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
                 load_settings()
                 # ✅ Auto-load shared dataset from Drive into working_df
                 load_shared_dataset_for_clinic()
@@ -2661,6 +2674,7 @@ if not st.session_state["logged_in"]:
                         st.session_state["clinic_id"] = new_clinic
                         st.session_state["logged_in"] = True
                         set_remember_login_token(create_remember_login_token(new_clinic))
+                        reset_uploaded_data_state(clear_cache=True, reset_uploader=True)
                         load_settings()
                         st.session_state["user_country"] = country
                         st.success(f"✅ Account created. Welcome, {new_clinic}!")
