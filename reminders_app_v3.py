@@ -3596,6 +3596,51 @@ def show_pending_reminder_action_status():
         st.markdown(f"**Preview:** {preview}")
 
 
+REMINDER_TABLE_SORTABLE_COLUMNS = ("Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item")
+REMINDER_TABLE_HEADER_LABELS = {"Plan Item": "Item"}
+
+
+def set_reminder_table_sort(key_prefix: str, column: str):
+    state_key = f"{key_prefix}_reminder_sort"
+    current = st.session_state.get(state_key)
+    ascending = True
+    if isinstance(current, dict) and current.get("column") == column:
+        ascending = not bool(current.get("ascending", True))
+    st.session_state[state_key] = {"column": column, "ascending": ascending}
+
+
+def get_reminder_table_sort(key_prefix: str) -> dict:
+    current = st.session_state.get(f"{key_prefix}_reminder_sort")
+    if isinstance(current, dict) and current.get("column") in REMINDER_TABLE_SORTABLE_COLUMNS:
+        return {"column": current["column"], "ascending": bool(current.get("ascending", True))}
+    return {"column": "Reminder Date", "ascending": True}
+
+
+def parse_reminder_sort_date(value):
+    first_value = str(value or "").split("|", 1)[0].strip()
+    return pd.to_datetime(first_value, errors="coerce", dayfirst=True)
+
+
+def sort_reminder_table(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
+    sort_state = get_reminder_table_sort(key_prefix)
+    sort_column = sort_state["column"]
+    if sort_column not in df.columns:
+        return df
+
+    sorted_df = df.copy()
+    helper_col = "__reminder_sort_value"
+    if sort_column in {"Reminder Date", "Due Date", "Charge Date"}:
+        sorted_df[helper_col] = sorted_df[sort_column].map(parse_reminder_sort_date)
+    else:
+        sorted_df[helper_col] = sorted_df[sort_column].astype(str).map(lambda value: normalize_display_case(value).casefold())
+
+    return (
+        sorted_df
+        .sort_values(helper_col, ascending=sort_state["ascending"], kind="mergesort", na_position="last")
+        .drop(columns=[helper_col])
+    )
+
+
 def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key: str, hidden_action: str):
     sent_is_selected = hidden_action == REMINDER_ACTION_SENT
     decline_is_selected = hidden_action == REMINDER_ACTION_DECLINED
@@ -3675,14 +3720,55 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
 
 
 def render_table_with_buttons(df, key_prefix, msg_key):
+    df = sort_reminder_table(df, key_prefix)
     col_widths = [2, 2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
     headers = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Sent", "Decline"]
+    safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
+    st.markdown(
+        f"""
+        <style>
+          [class*="st-key-{safe_key_prefix}_sort_"] button {{
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            color: inherit !important;
+            font-weight: 600 !important;
+            justify-content: flex-start !important;
+            min-height: 1.6rem !important;
+            padding: 0 !important;
+            text-align: left !important;
+          }}
+          [class*="st-key-{safe_key_prefix}_sort_"] button:hover {{
+            color: var(--cr-link) !important;
+          }}
+          [class*="st-key-{safe_key_prefix}_sort_"] button p {{
+            font-weight: 600 !important;
+            margin: 0 !important;
+            text-align: left !important;
+          }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # --- Header row ---
+    sort_state = get_reminder_table_sort(key_prefix)
     header_cols = st.columns(col_widths)
-    for c, head in zip(header_cols, headers):
+    for idx, (c, head) in enumerate(zip(header_cols, headers)):
         align = "center" if head in ["WA", "Sent", "Decline"] else "left"
-        c.markdown(f"<div style='text-align:{align}; font-weight:600;'>{head}</div>", unsafe_allow_html=True)
+        label = REMINDER_TABLE_HEADER_LABELS.get(head, head)
+        if head in REMINDER_TABLE_SORTABLE_COLUMNS:
+            if sort_state["column"] == head:
+                label = f"{label} {'^' if sort_state['ascending'] else 'v'}"
+            c.button(
+                label,
+                key=f"{key_prefix}_sort_{idx}",
+                help=f"Sort by {REMINDER_TABLE_HEADER_LABELS.get(head, head)}",
+                on_click=set_reminder_table_sort,
+                args=(key_prefix, head),
+            )
+        else:
+            c.markdown(f"<div style='text-align:{align}; font-weight:600;'>{label}</div>", unsafe_allow_html=True)
 
     # --- Table rows ---
     for idx, row in df.iterrows():
