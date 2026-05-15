@@ -2513,33 +2513,9 @@ if not st.session_state["logged_in"]:
 else:
     clinic_id = st.session_state.get("clinic_id", "")
     with top_account_slot.container():
-        with st.popover("⚙️", use_container_width=True):
-            st.caption(str(clinic_id or "Account"))
-            st.markdown("#### Change password")
-            with st.form("change_password_form"):
-                current_password = st.text_input("Current password", type="password")
-                new_password = st.text_input("New password", type="password")
-                confirm_password = st.text_input("Confirm new password", type="password")
-                submitted = st.form_submit_button("Change password")
-
-            if submitted:
-                if not current_password or not new_password or not confirm_password:
-                    st.error("Enter the current password and the new password twice.")
-                elif new_password != confirm_password:
-                    st.error("New passwords do not match.")
-                elif len(new_password) < 6:
-                    st.error("New password must be at least 6 characters.")
-                elif not authenticate_user(clinic_id, current_password):
-                    st.error("Current password is incorrect.")
-                else:
-                    update_clinic_password(clinic_id, new_password)
-                    set_remember_login_token(create_remember_login_token(clinic_id))
-                    upsert_user_tracker(
-                        clinic_id,
-                        country=st.session_state.get("user_country", ""),
-                        event="password_changed",
-                    )
-                    st.success("Password updated.")
+        with st.popover("Account", use_container_width=True):
+            if st.button("Change password", key="top_account_show_change_password", use_container_width=True):
+                st.session_state["show_top_change_password"] = True
 
             if st.button("Logout", key="top_account_logout", use_container_width=True):
                 clear_remember_login_token()
@@ -2547,6 +2523,34 @@ else:
                     st.session_state.pop(key, None)
                 st.success("You have been logged out.")
                 st.rerun()
+
+            if st.session_state.get("show_top_change_password", False):
+                st.markdown("#### Change password")
+                with st.form("change_password_form"):
+                    current_password = st.text_input("Current password", type="password")
+                    new_password = st.text_input("New password", type="password")
+                    confirm_password = st.text_input("Confirm new password", type="password")
+                    submitted = st.form_submit_button("Change password")
+
+                if submitted:
+                    if not current_password or not new_password or not confirm_password:
+                        st.error("Enter the current password and the new password twice.")
+                    elif new_password != confirm_password:
+                        st.error("New passwords do not match.")
+                    elif len(new_password) < 6:
+                        st.error("New password must be at least 6 characters.")
+                    elif not authenticate_user(clinic_id, current_password):
+                        st.error("Current password is incorrect.")
+                    else:
+                        update_clinic_password(clinic_id, new_password)
+                        set_remember_login_token(create_remember_login_token(clinic_id))
+                        upsert_user_tracker(
+                            clinic_id,
+                            country=st.session_state.get("user_country", ""),
+                            event="password_changed",
+                        )
+                        st.session_state["show_top_change_password"] = False
+                        st.success("Password updated.")
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:
@@ -2559,12 +2563,21 @@ if "rules" not in st.session_state:
 st.markdown(
     """
     <style>
-      div[data-testid="stTabs"] > div[role="tablist"] button p {
-        font-size: 1.32rem !important;
+      div[data-testid="stTabs"] div[role="tablist"] button,
+      div[data-testid="stTabs"] div[role="tablist"] button p,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p,
+      button[data-baseweb="tab"],
+      button[data-baseweb="tab"] p {
+        font-size: 1.75rem !important;
         font-weight: 700 !important;
+        line-height: 1.2 !important;
       }
-      div[data-testid="stTabs"] > div[role="tablist"] button:nth-child(3) p {
-        font-size: 1.58rem !important;
+      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(3),
+      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(3) p,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(3),
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(3) p {
+        font-size: 2.15rem !important;
         font-weight: 900 !important;
       }
     </style>
