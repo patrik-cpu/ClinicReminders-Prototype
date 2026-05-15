@@ -177,6 +177,50 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(record["MessageCreated"], "Hi Client A, Pet A is due.")
         self.assertEqual(record["Actioned By"], "Nurse")
 
+    def test_final_sheet_layout_includes_seven_expected_tabs(self):
+        tracker_titles = {title for title, _headers in self.app.TRACKER_SHEET_DEFINITIONS}
+        expected_titles = {
+            "Saved settings",
+            self.app.USER_TRACKER_WORKSHEET,
+            self.app.ACTION_TRACKER_WORKSHEET,
+            self.app.DATASET_TRACKER_WORKSHEET,
+            self.app.SETTINGS_AUDIT_WORKSHEET,
+            self.app.ERROR_TRACKER_WORKSHEET,
+            self.app.PERFORMANCE_TRACKER_WORKSHEET,
+        }
+
+        self.assertEqual(tracker_titles | {"Saved settings"}, expected_titles)
+        self.assertEqual(len(expected_titles), 7)
+
+    def test_tracker_events_write_compact_rows(self):
+        captured = {}
+
+        def capture_append(title, headers, values):
+            captured["title"] = title
+            captured["headers"] = headers
+            captured["values"] = values
+            return True
+
+        self.app.st.session_state["clinic_id"] = "Clinic Save State"
+        self.app.st.session_state["user_name"] = "Nurse"
+        with patch.object(self.app, "append_tracker_row", side_effect=capture_append):
+            self.app.record_settings_audit_event(
+                "search_term_changed",
+                "search_terms",
+                "rabies",
+                "visible_text",
+                "A" * 600,
+                {"days": 365, "use_qty": False},
+                "test",
+            )
+
+        self.assertEqual(captured["title"], self.app.SETTINGS_AUDIT_WORKSHEET)
+        self.assertEqual(captured["headers"], self.app.SETTINGS_AUDIT_HEADERS)
+        self.assertEqual(captured["values"][1], "Clinic Save State")
+        self.assertEqual(captured["values"][2], "Nurse")
+        self.assertLessEqual(len(captured["values"][7]), self.app.TRACKER_CELL_TEXT_LIMIT)
+        self.assertIn('"days": 365', captured["values"][8])
+
 
 if __name__ == "__main__":
     unittest.main()

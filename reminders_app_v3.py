@@ -198,6 +198,10 @@ GST_TZ = ZoneInfo("Asia/Dubai")
 ACTION_TRACKER_WORKSHEET = "Action tracker"
 WA_TRACKER_WORKSHEET = "WA button tracker"  # Legacy sheet name; kept for backwards compatibility.
 USER_TRACKER_WORKSHEET = "User tracker"
+DATASET_TRACKER_WORKSHEET = "Dataset tracker"
+SETTINGS_AUDIT_WORKSHEET = "Settings audit"
+ERROR_TRACKER_WORKSHEET = "Error tracker"
+PERFORMANCE_TRACKER_WORKSHEET = "Performance tracker"
 ACTION_TRACKER_HEADERS = [
     "DateTimeGST",
     "ActionedAtUTC",
@@ -237,6 +241,65 @@ USER_TRACKER_HEADERS = [
     "AccountStatus",
     "LastEvent",
 ]
+DATASET_TRACKER_HEADERS = [
+    "DateTimeGST",
+    "Event",
+    "Status",
+    "ClinicID",
+    "YourNameClinic",
+    "FileName",
+    "PMS",
+    "Rows",
+    "FromDate",
+    "ToDate",
+    "ReplaceOverlappingDates",
+    "DriveFileId",
+    "DriveFileName",
+    "Message",
+    "Source",
+]
+SETTINGS_AUDIT_HEADERS = [
+    "DateTimeGST",
+    "ClinicID",
+    "YourNameClinic",
+    "Event",
+    "Area",
+    "Item",
+    "Field",
+    "OldValue",
+    "NewValue",
+    "Source",
+]
+ERROR_TRACKER_HEADERS = [
+    "DateTimeGST",
+    "ClinicID",
+    "YourNameClinic",
+    "Event",
+    "Stage",
+    "ErrorType",
+    "Message",
+    "Source",
+]
+PERFORMANCE_TRACKER_HEADERS = [
+    "DateTimeGST",
+    "ClinicID",
+    "YourNameClinic",
+    "Event",
+    "DurationMs",
+    "Rows",
+    "Status",
+    "Message",
+    "Source",
+]
+TRACKER_SHEET_DEFINITIONS = [
+    (USER_TRACKER_WORKSHEET, USER_TRACKER_HEADERS),
+    (ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS),
+    (DATASET_TRACKER_WORKSHEET, DATASET_TRACKER_HEADERS),
+    (SETTINGS_AUDIT_WORKSHEET, SETTINGS_AUDIT_HEADERS),
+    (ERROR_TRACKER_WORKSHEET, ERROR_TRACKER_HEADERS),
+    (PERFORMANCE_TRACKER_WORKSHEET, PERFORMANCE_TRACKER_HEADERS),
+]
+TRACKER_CELL_TEXT_LIMIT = 500
 COUNTRY_OPTIONS = [
     "United Arab Emirates", "Saudi Arabia", "Qatar", "Bahrain", "Kuwait", "Oman",
     "United Kingdom", "Ireland", "United States", "Canada", "Australia", "New Zealand",
@@ -324,6 +387,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_settings_row_cache",
     "_remote_settings_cache",
     "_tracker_sheet_cache",
+    "_tracking_sheets_ensured_for",
     "_hidden_reminders_index_cache",
     "llm_payload",
     "llm_zip_bytes",
@@ -1501,6 +1565,7 @@ def load_shared_dataset_for_clinic():
             )
         return  # no shared dataset published yet
 
+    load_started = time.perf_counter()
     try:
         file_bytes = drive_download_bytes(file_id)
 
@@ -1514,10 +1579,31 @@ def load_shared_dataset_for_clinic():
         st.session_state["shared_dataset_loaded"] = True
         st.session_state["shared_dataset_name"] = filename
         st.session_state["shared_dataset_updated_at"] = rec.get(SHEET_COL_DATASET_UPDATED_AT, "")
+        record_performance_tracker_event(
+            "shared_dataset_load",
+            (time.perf_counter() - load_started) * 1000,
+            rows=len(df),
+            status="success",
+            message=filename,
+            source="load_shared_dataset_for_clinic",
+        )
 
     except Exception as e:
         st.session_state["shared_dataset_loaded"] = False
         st.session_state["shared_dataset_error"] = str(e)
+        record_error_tracker_event(
+            "shared_dataset_load_failed",
+            stage="load_shared_dataset_for_clinic",
+            error=e,
+            source="load_shared_dataset_for_clinic",
+        )
+        record_performance_tracker_event(
+            "shared_dataset_load",
+            (time.perf_counter() - load_started) * 1000,
+            status="error",
+            message=str(e),
+            source="load_shared_dataset_for_clinic",
+        )
 
 
 def shared_dataset_load_attempt_token(clinic_id: str) -> str:
@@ -3266,6 +3352,144 @@ def append_tracker_rows(title: str, headers: list[str], rows: list[list[str]]):
         return False
 
 
+def tracker_cell_value(value, limit: int = TRACKER_CELL_TEXT_LIMIT) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            value = json.dumps(value, ensure_ascii=False, default=str)
+        except TypeError:
+            value = str(value)
+    value = str(value).strip()
+    if len(value) <= limit:
+        return value
+    return value[: max(0, limit - 3)] + "..."
+
+
+def record_dataset_tracker_event(
+    event: str,
+    status: str,
+    file_name: str = "",
+    pms: str = "",
+    rows: int | str = "",
+    from_date: str = "",
+    to_date: str = "",
+    replace_overlapping_dates: bool | str = "",
+    drive_file_id: str = "",
+    drive_file_name: str = "",
+    message: str = "",
+    source: str = "",
+    now: datetime | None = None,
+) -> bool:
+    now = now or datetime.utcnow()
+    return append_tracker_row(DATASET_TRACKER_WORKSHEET, DATASET_TRACKER_HEADERS, [
+        gst_now_iso(now),
+        tracker_cell_value(event),
+        tracker_cell_value(status),
+        tracker_cell_value(st.session_state.get("clinic_id", "")),
+        tracker_cell_value(st.session_state.get("user_name", "")),
+        tracker_cell_value(file_name),
+        tracker_cell_value(pms),
+        tracker_cell_value(rows),
+        tracker_cell_value(from_date),
+        tracker_cell_value(to_date),
+        tracker_cell_value(replace_overlapping_dates),
+        tracker_cell_value(drive_file_id),
+        tracker_cell_value(drive_file_name),
+        tracker_cell_value(message),
+        tracker_cell_value(source),
+    ])
+
+
+def record_settings_audit_event(
+    event: str,
+    area: str,
+    item: str = "",
+    field: str = "",
+    old_value="",
+    new_value="",
+    source: str = "",
+    now: datetime | None = None,
+) -> bool:
+    now = now or datetime.utcnow()
+    return append_tracker_row(SETTINGS_AUDIT_WORKSHEET, SETTINGS_AUDIT_HEADERS, [
+        gst_now_iso(now),
+        tracker_cell_value(st.session_state.get("clinic_id", "")),
+        tracker_cell_value(st.session_state.get("user_name", "")),
+        tracker_cell_value(event),
+        tracker_cell_value(area),
+        tracker_cell_value(item),
+        tracker_cell_value(field),
+        tracker_cell_value(old_value),
+        tracker_cell_value(new_value),
+        tracker_cell_value(source),
+    ])
+
+
+def record_error_tracker_event(
+    event: str,
+    stage: str = "",
+    error: Exception | None = None,
+    message: str = "",
+    source: str = "",
+    now: datetime | None = None,
+) -> bool:
+    now = now or datetime.utcnow()
+    error_type = type(error).__name__ if error is not None else ""
+    error_message = message or (str(error) if error is not None else "")
+    return append_tracker_row(ERROR_TRACKER_WORKSHEET, ERROR_TRACKER_HEADERS, [
+        gst_now_iso(now),
+        tracker_cell_value(st.session_state.get("clinic_id", "")),
+        tracker_cell_value(st.session_state.get("user_name", "")),
+        tracker_cell_value(event),
+        tracker_cell_value(stage),
+        tracker_cell_value(error_type),
+        tracker_cell_value(error_message),
+        tracker_cell_value(source),
+    ])
+
+
+def record_performance_tracker_event(
+    event: str,
+    duration_ms: int | float,
+    rows: int | str = "",
+    status: str = "success",
+    message: str = "",
+    source: str = "",
+    now: datetime | None = None,
+) -> bool:
+    now = now or datetime.utcnow()
+    try:
+        duration_value = str(int(round(float(duration_ms))))
+    except (TypeError, ValueError):
+        duration_value = tracker_cell_value(duration_ms)
+    return append_tracker_row(PERFORMANCE_TRACKER_WORKSHEET, PERFORMANCE_TRACKER_HEADERS, [
+        gst_now_iso(now),
+        tracker_cell_value(st.session_state.get("clinic_id", "")),
+        tracker_cell_value(st.session_state.get("user_name", "")),
+        tracker_cell_value(event),
+        duration_value,
+        tracker_cell_value(rows),
+        tracker_cell_value(status),
+        tracker_cell_value(message),
+        tracker_cell_value(source),
+    ])
+
+
+def ensure_tracking_sheets():
+    clinic_id = st.session_state.get("clinic_id")
+    if not clinic_id:
+        return
+    if st.session_state.get("_tracking_sheets_ensured_for") == clinic_id:
+        return
+    for title, headers in TRACKER_SHEET_DEFINITIONS:
+        try:
+            get_or_create_tracker_sheet(title, headers)
+        except Exception:
+            return
+    st.session_state["_tracking_sheets_ensured_for"] = clinic_id
+
+
 # === LOGIN HELPER FUNCTIONS ===
 def hash_pw(pw: str):
     """Return MD5 hash of a password."""
@@ -3809,6 +4033,7 @@ if not st.session_state["logged_in"]:
 
 if "rules" not in st.session_state:
     load_settings()
+ensure_tracking_sheets()
 ensure_shared_dataset_loaded_for_session()
 
 st.markdown(
@@ -4166,6 +4391,19 @@ def remove_dataset_upload_at_index(remove_idx: int):
 
     st.session_state["dataset_upload_history"] = remaining_history
     save_settings_quietly()
+    record_dataset_tracker_event(
+        "dataset_file_removed",
+        "success",
+        file_name=target.get("file_name", ""),
+        pms=target.get("pms", ""),
+        rows=target.get("rows", ""),
+        from_date=target.get("from", ""),
+        to_date=target.get("to", ""),
+        drive_file_id=existing_file_id,
+        drive_file_name=existing_name,
+        message=f"Remaining saved ranges: {len(remaining_history)}",
+        source="remove_dataset_upload",
+    )
 
 def consume_dataset_upload_removal():
     remove_idx_raw = get_query_param_value("remove_dataset_upload")
@@ -4848,9 +5086,30 @@ with data_tab:
                 st.rerun()
         else:
             # ✅ Use cached dataset loader (faster after first run)
+            parse_started = time.perf_counter()
             try:
                 datasets, summary_rows = load_persistent_dataset(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
             except UploadValidationError as e:
+                record_dataset_tracker_event(
+                    "upload_parse_failed",
+                    "error",
+                    file_name=", ".join(current_files),
+                    message=str(e),
+                    source="file_uploader",
+                )
+                record_error_tracker_event(
+                    "upload_parse_failed",
+                    stage="load_persistent_dataset",
+                    error=e,
+                    source="file_uploader",
+                )
+                record_performance_tracker_event(
+                    "upload_parse",
+                    (time.perf_counter() - parse_started) * 1000,
+                    status="error",
+                    message=str(e),
+                    source="file_uploader",
+                )
                 st.toast("Upload needs different columns.")
                 st.warning(
                     "This upload does not look like a supported sales export. "
@@ -4858,13 +5117,41 @@ with data_tab:
                     + " Please upload a file with client, patient, item, amount/quantity, and date columns."
                 )
                 st.stop()
-            except Exception:
+            except Exception as e:
+                record_dataset_tracker_event(
+                    "upload_parse_failed",
+                    "error",
+                    file_name=", ".join(current_files),
+                    message=str(e),
+                    source="file_uploader",
+                )
+                record_error_tracker_event(
+                    "upload_parse_failed",
+                    stage="load_persistent_dataset",
+                    error=e,
+                    source="file_uploader",
+                )
+                record_performance_tracker_event(
+                    "upload_parse",
+                    (time.perf_counter() - parse_started) * 1000,
+                    status="error",
+                    message=str(e),
+                    source="file_uploader",
+                )
                 st.toast("Upload could not be read.")
                 st.warning(
                     "This file could not be read as a supported clinic sales export. "
                     "Please check that it is a CSV, XLS, or XLSX export with client, patient, item, amount/quantity, and date columns."
                 )
                 st.stop()
+            record_performance_tracker_event(
+                "upload_parse",
+                (time.perf_counter() - parse_started) * 1000,
+                rows=sum(len(df) for _, df in datasets),
+                status="success",
+                message=", ".join(current_files),
+                source="file_uploader",
+            )
     
             all_pms = {p for p, _ in datasets}
             # --- Case 1: All files from same PMS ---
@@ -4906,6 +5193,19 @@ with data_tab:
                     try:
                         existing_df = load_existing_shared_df(existing_file_id, existing_name)
                     except Exception as e:
+                        record_error_tracker_event(
+                            "existing_dataset_load_failed",
+                            stage="upload_existing_dataset_check",
+                            error=e,
+                            source="file_uploader",
+                        )
+                        record_dataset_tracker_event(
+                            "upload_save_failed",
+                            "error",
+                            file_name=", ".join(current_files),
+                            message=str(e),
+                            source="file_uploader",
+                        )
                         st.error(
                             "Could not load the existing clinic dataset, so this upload was not saved. "
                             f"Please try again before replacing clinic data. ({e})"
@@ -4916,15 +5216,40 @@ with data_tab:
                 overlaps_existing = date_ranges_overlap(upload_min, upload_max, existing_min, existing_max)
     
                 def save_uploaded_dataset(replace_overlapping_dates: bool):
-                    merged_df, new_file_id, out_name = publish_dataset_for_clinic(
-                        clinic_id=clinic_id,
-                        new_df=new_df,
-                        datasets_folder_id=DATASETS_FOLDER_ID,
-                        replace_overlapping_dates=replace_overlapping_dates,
-                        existing_file_id=existing_file_id,
-                        existing_name=existing_name,
-                        existing_df=existing_df,
-                    )
+                    publish_started = time.perf_counter()
+                    try:
+                        merged_df, new_file_id, out_name = publish_dataset_for_clinic(
+                            clinic_id=clinic_id,
+                            new_df=new_df,
+                            datasets_folder_id=DATASETS_FOLDER_ID,
+                            replace_overlapping_dates=replace_overlapping_dates,
+                            existing_file_id=existing_file_id,
+                            existing_name=existing_name,
+                            existing_df=existing_df,
+                        )
+                    except Exception as e:
+                        record_dataset_tracker_event(
+                            "upload_save_failed",
+                            "error",
+                            file_name=", ".join(current_files),
+                            replace_overlapping_dates=replace_overlapping_dates,
+                            message=str(e),
+                            source="file_uploader",
+                        )
+                        record_error_tracker_event(
+                            "upload_save_failed",
+                            stage="publish_dataset_for_clinic",
+                            error=e,
+                            source="file_uploader",
+                        )
+                        record_performance_tracker_event(
+                            "dataset_publish",
+                            (time.perf_counter() - publish_started) * 1000,
+                            status="error",
+                            message=str(e),
+                            source="file_uploader",
+                        )
+                        raise
     
                     st.session_state["working_df"] = sanitize_working_df(merged_df)
                     st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
@@ -4939,6 +5264,29 @@ with data_tab:
                         replace_overlapping_dates=replace_overlapping_dates,
                         upload_min=upload_min,
                         upload_max=upload_max,
+                    )
+                    saved_history_rows = upload_summary_rows_to_history(summary_rows, status="Saved")
+                    for summary_row in saved_history_rows:
+                        record_dataset_tracker_event(
+                            "upload_saved",
+                            "success",
+                            file_name=summary_row.get("file_name", ""),
+                            pms=summary_row.get("pms", ""),
+                            rows=summary_row.get("rows", ""),
+                            from_date=summary_row.get("from", ""),
+                            to_date=summary_row.get("to", ""),
+                            replace_overlapping_dates=replace_overlapping_dates,
+                            drive_file_id=new_file_id,
+                            drive_file_name=out_name,
+                            source="file_uploader",
+                        )
+                    record_performance_tracker_event(
+                        "dataset_publish",
+                        (time.perf_counter() - publish_started) * 1000,
+                        rows=len(merged_df),
+                        status="success",
+                        message=out_name,
+                        source="file_uploader",
                     )
                     st.session_state["last_saved_upload_key"] = current_upload_key
                     st.session_state["file_uploader_reset_version"] = st.session_state.get("file_uploader_reset_version", 0) + 1
@@ -4990,6 +5338,14 @@ with data_tab:
         st.session_state["shared_dataset_error"] = None
         st.session_state["dataset_upload_history"] = []
         save_settings_quietly()
+        record_dataset_tracker_event(
+            "dataset_cleared",
+            "success",
+            drive_file_id=existing_file_id,
+            drive_file_name=existing_name,
+            message="Clinic data cleared",
+            source="clear_clinic_data",
+        )
 
         st.rerun()
     
@@ -5766,6 +6122,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             st.session_state["user_name"] = new_name
             st.session_state["user_name_updated_at"] = datetime.utcnow().isoformat()
             save_settings_quietly()
+            record_settings_audit_event("sender_name_updated", "template", "whatsapp", "user_name", prev_name, new_name, "reminders_tab")
             st.toast("✅ Name saved to settings.")
 
 
@@ -5890,22 +6247,26 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             if st.button("✅ Update Template", key=f"update_template_{key_prefix}", use_container_width=True):
                 new_template = st.session_state.get(editor_key, "").strip()
                 if new_template:
+                    old_template = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE)
                     st.session_state["wa_template"] = new_template
                     st.session_state["user_template"] = new_template
                     st.session_state["wa_template_reviewed"] = True
                     st.session_state["wa_template_updated"] = True
                     st.session_state["wa_template_updated_at"] = datetime.utcnow().isoformat()
                     save_settings_quietly()
+                    record_settings_audit_event("template_updated", "template", "whatsapp", "user_template", old_template, new_template, "reminders_tab")
                     st.success("Template updated successfully!")
                     st.rerun()
         with col_reset:
             if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}", use_container_width=True):
+                old_template = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE)
                 st.session_state["wa_template"] = DEFAULT_WA_TEMPLATE
                 st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
                 st.session_state["wa_template_reviewed"] = False
                 st.session_state["wa_template_updated"] = False
                 st.session_state["wa_template_updated_at"] = ""
                 save_settings_quietly()
+                record_settings_audit_event("template_reset", "template", "whatsapp", "user_template", old_template, DEFAULT_WA_TEMPLATE, "reminders_tab")
                 st.session_state[ver_key] += 1
                 st.success("Template reset to default!")
                 st.rerun()
@@ -6093,16 +6454,22 @@ if st.session_state.get("working_df") is not None:
             if not days_raw.isdigit() or int(days_raw) <= 0:
                 st.session_state["_search_terms_autosave_error"] = f"Reminder 3 (Due Date) must be a positive integer for: {rule}"
                 return
+            old_value = st.session_state["rules"][rule].get("days", "")
             st.session_state["rules"][rule]["days"] = int(days_raw)
             save_settings_quietly()
+            if str(old_value) != str(int(days_raw)):
+                record_settings_audit_event("search_term_changed", "search_terms", rule, "days", old_value, int(days_raw), "search_terms_tab")
             invalidate_reminder_rule_cache()
-    
+
         def save_rule_reminder_day(rule, field, key):
             days_raw = str(st.session_state.get(key, "")).strip()
+            old_value = st.session_state["rules"][rule].get(field, "")
             if days_raw == "":
                 st.session_state["rules"][rule].pop(field, None)
+                new_value = ""
             elif days_raw.isdigit() and int(days_raw) > 0:
                 st.session_state["rules"][rule][field] = int(days_raw)
+                new_value = int(days_raw)
             else:
                 label = {
                     "reminder_1": "Reminder 1",
@@ -6112,20 +6479,28 @@ if st.session_state.get("working_df") is not None:
                 st.session_state["_search_terms_autosave_error"] = f"{label} must be blank or a positive integer for: {rule}"
                 return
             save_settings_quietly()
+            if str(old_value) != str(new_value):
+                record_settings_audit_event("search_term_changed", "search_terms", rule, field, old_value, new_value, "search_terms_tab")
             invalidate_reminder_rule_cache()
     
         def save_rule_visible_text(rule, key):
             visible_text = str(st.session_state.get(key, "")).strip()
+            old_value = st.session_state["rules"][rule].get("visible_text", "")
             if visible_text:
                 st.session_state["rules"][rule]["visible_text"] = visible_text
             else:
                 st.session_state["rules"][rule].pop("visible_text", None)
             save_settings_quietly()
+            if str(old_value) != str(visible_text):
+                record_settings_audit_event("search_term_changed", "search_terms", rule, "visible_text", old_value, visible_text, "search_terms_tab")
             invalidate_reminder_rule_cache()
     
         def toggle_use_qty(rule, key):
+            old_value = st.session_state["rules"][rule].get("use_qty", "")
             st.session_state["rules"][rule]["use_qty"] = st.session_state[key]
             save_settings_quietly()
+            if bool(old_value) != bool(st.session_state[key]):
+                record_settings_audit_event("search_term_changed", "search_terms", rule, "use_qty", old_value, st.session_state[key], "search_terms_tab")
             invalidate_reminder_rule_cache()
     
         st.markdown("### Add New Search Term")
@@ -6248,6 +6623,7 @@ if st.session_state.get("working_df") is not None:
                             st.session_state["search_term_added"] = True
                             st.session_state["search_term_added_at"] = datetime.utcnow().isoformat()
                             save_settings_quietly()
+                            record_settings_audit_event("search_term_added", "search_terms", safe_rule, "rule", "", rule_data, "search_terms_tab")
                             st.session_state["new_rule_counter"] += 1
                             invalidate_reminder_rule_cache()
                             st.rerun()
@@ -6336,7 +6712,8 @@ if st.session_state.get("working_df") is not None:
     
         if to_delete:
             for rule in to_delete:
-                st.session_state["rules"].pop(rule, None)
+                old_rule = st.session_state["rules"].pop(rule, None)
+                record_settings_audit_event("search_term_deleted", "search_terms", rule, "rule", old_rule, "", "search_terms_tab")
             save_settings_quietly()
             invalidate_reminder_rule_cache()
             st.rerun()
@@ -6352,6 +6729,7 @@ if st.session_state.get("working_df") is not None:
             st.session_state["form_version"] += 1
             st.session_state["_replace_search_settings_once"] = True
             save_settings_quietly()
+            record_settings_audit_event("search_terms_reset_defaults", "search_terms", "all", "rules", "custom", "default", "search_terms_tab")
             invalidate_reminder_rule_cache()
             st.rerun()
     
@@ -6376,6 +6754,7 @@ if st.session_state.get("working_df") is not None:
                         if st.button("×", key=f"del_client_excl_{safe_client}", help="Remove client exclusion"):
                             st.session_state["client_exclusions"].remove(client_name)
                             save_settings_quietly()
+                            record_settings_audit_event("exclusion_deleted", "exclusions", client_name, "client", client_name, "", "exclusions_tab")
                             st.rerun()
         else:
             st.caption("No client exclusions yet.")
@@ -6406,6 +6785,7 @@ if st.session_state.get("working_df") is not None:
                     if client_key not in existing_keys:
                         st.session_state["client_exclusions"].append(safe_client)
                         save_settings_quietly()
+                        record_settings_audit_event("exclusion_added", "exclusions", safe_client, "client", "", safe_client, "exclusions_tab")
                         st.session_state["new_rule_counter"] += 1
                         st.rerun()
                     else:
@@ -6440,6 +6820,7 @@ if st.session_state.get("working_df") is not None:
                         if st.button("×", key=f"del_patient_excl_{safe_pair}", help="Remove patient exclusion"):
                             st.session_state["patient_exclusions"].remove(exclusion)
                             save_settings_quietly()
+                            record_settings_audit_event("exclusion_deleted", "exclusions", f"{client_name} - {patient_name}", "patient", exclusion, "", "exclusions_tab")
                             st.rerun()
         else:
             st.caption("No patient exclusions yet.")
@@ -6483,8 +6864,10 @@ if st.session_state.get("working_df") is not None:
                         if isinstance(item, dict)
                     }
                     if patient_key not in existing_pairs:
-                        st.session_state["patient_exclusions"].append({"client": safe_client, "patient": safe_patient})
+                        new_patient_exclusion = {"client": safe_client, "patient": safe_patient}
+                        st.session_state["patient_exclusions"].append(new_patient_exclusion)
                         save_settings_quietly()
+                        record_settings_audit_event("exclusion_added", "exclusions", f"{safe_client} - {safe_patient}", "patient", "", new_patient_exclusion, "exclusions_tab")
                         st.session_state["new_rule_counter"] += 1
                         st.rerun()
                     else:
@@ -6505,6 +6888,7 @@ if st.session_state.get("working_df") is not None:
                         if st.button("×", key=f"del_excl_{safe_term}", help="Remove item exclusion"):
                             st.session_state["exclusions"].remove(term)
                             save_settings_quietly()
+                            record_settings_audit_event("exclusion_deleted", "exclusions", term, "item", term, "", "exclusions_tab")
                             st.rerun()
         else:
             st.caption("No item exclusions yet.")
@@ -6530,6 +6914,7 @@ if st.session_state.get("working_df") is not None:
                     if safe_term not in st.session_state["exclusions"]:
                         st.session_state["exclusions"].append(safe_term)
                         save_settings_quietly()
+                        record_settings_audit_event("exclusion_added", "exclusions", safe_term, "item", "", safe_term, "exclusions_tab")
                         st.session_state["new_rule_counter"] += 1
                         st.rerun()
                     else:
