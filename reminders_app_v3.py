@@ -3867,19 +3867,19 @@ def render_actioned_reminders_tab(key_prefix: str):
         return
 
     headers = [
+        "Actioned Date",
+        "Actioned By",
         "Reminder Date",
         "Due Date",
         "Charge Date",
         "Client Name",
         "Animal Name",
         "Plan Item",
-        "Actioned Date",
         "Action",
-        "Actioned By",
         "Remove",
     ]
     labels = {**REMINDER_TABLE_HEADER_LABELS, "Actioned Date": "Actioned Date", "Actioned By": "Actioned By"}
-    col_widths = [2, 2, 2, 4, 3, 4, 2, 1.5, 3, 1.8]
+    col_widths = [2, 3, 2, 2, 2, 4, 3, 4, 1.5, 1.8]
 
     header_cols = st.columns(col_widths)
     for col, head in zip(header_cols, headers):
