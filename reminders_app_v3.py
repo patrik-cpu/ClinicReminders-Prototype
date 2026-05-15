@@ -102,7 +102,7 @@ with title_col:
             position: relative;
         }
         .cr-brand-line {
-            height: 108px;
+            height: 118px;
             left: 0;
             pointer-events: none;
             position: absolute;
@@ -113,7 +113,7 @@ with title_col:
         .cr-brand-pulse {
             grid-row: 1 / 3;
             grid-column: 1;
-            height: 108px;
+            height: 118px;
             opacity: 0;
             width: 168px;
         }
@@ -121,7 +121,7 @@ with title_col:
             color: #10162f;
             font-family: "Nunito", "Avenir Next Rounded Std", "Arial Rounded MT Bold", "Trebuchet MS", Arial, sans-serif;
             letter-spacing: 0;
-            line-height: 0.95;
+            line-height: 1;
             position: relative;
             z-index: 1;
         }
@@ -129,11 +129,13 @@ with title_col:
             align-self: end;
             font-size: 2.55rem;
             font-weight: 700;
+            margin-bottom: 0.22rem;
         }
         .cr-brand-word.reminders {
             align-self: start;
-            font-size: 3.35rem;
+            font-size: 3.25rem;
             font-weight: 800;
+            margin-top: 0.28rem;
         }
         .cr-brand-subtitle {
             color: #5f6f67;
@@ -144,9 +146,9 @@ with title_col:
         </style>
         <div class="cr-brand-card">
             <div class="cr-brand-logo" aria-label="Clinic Reminders">
-                <svg class="cr-brand-line" viewBox="0 0 560 108" preserveAspectRatio="none" role="img" aria-hidden="true">
+                <svg class="cr-brand-line" viewBox="0 0 560 118" preserveAspectRatio="none" role="img" aria-hidden="true">
                     <path
-                        d="M8 60 H72 L88 25 L106 92 L126 8 L140 104 L158 28 L174 60 H545"
+                        d="M8 64 H72 L88 29 L106 96 L126 12 L140 108 L158 32 L174 64 H545"
                         fill="none"
                         stroke="#29D272"
                         stroke-width="7"
@@ -154,9 +156,9 @@ with title_col:
                         stroke-linejoin="round"
                     />
                 </svg>
-                <svg class="cr-brand-pulse" viewBox="0 0 168 108" role="img" aria-hidden="true">
+                <svg class="cr-brand-pulse" viewBox="0 0 168 118" role="img" aria-hidden="true">
                     <path
-                        d="M8 60 H72 L88 25 L106 92 L126 8 L140 104 L158 28 L168 60"
+                        d="M8 64 H72 L88 29 L106 96 L126 12 L140 108 L158 32 L168 64"
                         fill="none"
                         stroke="#29D272"
                         stroke-width="9"
