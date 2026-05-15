@@ -1333,7 +1333,7 @@ def load_settings():
         st.session_state["client_exclusions"] = settings.get("client_exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
         st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
-        st.session_state["client_group_days"] = int(settings.get("client_group_days", 1) or 1)
+        st.session_state["client_group_days"] = max(0, int(settings.get("client_group_days", 1) or 0))
         st.session_state["reminder_window_days"] = int(settings.get("reminder_window_days", 7) or 7)
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
         st.session_state["wa_reminder_log"] = settings.get("wa_reminder_log", [])
@@ -1411,7 +1411,7 @@ def save_settings():
         "client_exclusions": setting_for_save("client_exclusions", []),
         "user_name": setting_for_save("user_name", ""),
         "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
-        "client_group_days": max(1, int_setting_for_save("client_group_days", 1)),
+        "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
         "reminder_window_days": max(1, int_setting_for_save("reminder_window_days", 7)),
         "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", 0)),
         "wa_reminder_log": wa_reminder_log,
@@ -2916,6 +2916,19 @@ def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5
     reminder_col = "ReminderDate" if "ReminderDate" in work.columns else "NextDueDate"
     work["_ReminderDateTs"] = pd.to_datetime(work[reminder_col], errors="coerce")
 
+    if window_days <= 0:
+        for client_name, cdf in work.sort_values(["_ReminderDateTs", "ChargeDate"], ascending=[True, True]).groupby("Client Name", dropna=False):
+            for _, row in cdf.iterrows():
+                out_rows.append(_summarize_client_cluster(pd.DataFrame([row]), client_name, rules))
+        grouped = pd.DataFrame(out_rows)
+        if grouped.empty:
+            return pd.DataFrame(columns=["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"])
+        grouped["Qty"] = grouped["Qty"].where(
+            grouped["Qty"].astype(str) == "NA",
+            pd.to_numeric(grouped["Qty"], errors="coerce").fillna(0).astype(int)
+        )
+        return grouped[["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "ReminderDetails"]]
+
     for client_name, cdf in work.groupby("Client Name", dropna=False):
         cdf = cdf.sort_values(["_ReminderDateTs", "ChargeDate"], ascending=[True, True]).reset_index(drop=True)
         cluster = []
@@ -3933,12 +3946,12 @@ if st.session_state.get("working_df") is not None:
     with group_col:
         group_days = st.number_input(
             "Number of days to group reminders for the same Client",
-            min_value=1,
+            min_value=0,
             value=st.session_state.get("client_group_days", 1),
             step=1,
             key="client_group_days",
             on_change=save_settings,
-            help="Group all reminders for the same client within this many days into one reminder row."
+            help="Group reminders for the same client within this many days. Use 0 for no grouping."
         )
     with warning_col:
         st.number_input(
