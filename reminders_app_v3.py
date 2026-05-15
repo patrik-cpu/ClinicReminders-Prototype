@@ -67,7 +67,7 @@ with title_col:
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&display=swap');
         div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) {
-            align-items: center;
+            align-items: flex-start;
             background: #ffffff;
             border: 1px solid rgba(41, 210, 114, 0.10);
             border-radius: 16px;
@@ -78,6 +78,7 @@ with title_col:
         div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) div[data-testid="stPopover"] {
             display: flex;
             justify-content: flex-end;
+            padding-top: 0.25rem;
         }
         div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) div[data-testid="stPopover"] button {
             min-width: 7.5rem;
