@@ -845,7 +845,7 @@ st.markdown(
         align-items: start;
         display: grid;
         gap: 0.35rem 1.25rem;
-        grid-template-columns: minmax(220px, 2fr) minmax(90px, 0.45fr) minmax(170px, 1fr) minmax(110px, 0.55fr);
+        grid-template-columns: minmax(220px, 2fr) minmax(95px, 0.55fr) minmax(90px, 0.45fr) minmax(170px, 1fr) minmax(70px, 0.35fr);
     }
     .dataset-summary-row + .dataset-summary-row {
         border-top: 1px solid rgba(41, 210, 114, 0.18);
@@ -862,6 +862,36 @@ st.markdown(
         font-size: 0.95rem;
         font-weight: 650;
         overflow-wrap: anywhere;
+    }
+    .dataset-summary-remove {
+        color: #e11d48;
+        font-size: 1.15rem;
+        font-weight: 800;
+        line-height: 1;
+        text-decoration: none;
+    }
+    .dataset-check-grid {
+        display: grid;
+        gap: 0.6rem;
+        grid-template-columns: repeat(3, minmax(180px, 1fr));
+        margin-top: 0.8rem;
+    }
+    .dataset-check {
+        border-radius: 8px;
+        font-size: 0.92rem;
+        font-weight: 650;
+        line-height: 1.3;
+        padding: 0.6rem 0.7rem;
+    }
+    .dataset-check.good {
+        background: #dcfce7;
+        border: 1px solid rgba(34, 197, 94, 0.45);
+        color: #14532d;
+    }
+    .dataset-check.bad {
+        background: #fff1f2;
+        border: 1px solid rgba(248, 113, 113, 0.45);
+        color: #9f1239;
     }
     .field-examples {
         color: var(--cr-muted);
@@ -1567,6 +1597,62 @@ def merge_dataset_upload_history(
             )
         ]
     return existing + incoming
+
+def dataset_history_date_bounds(rows: list[dict]) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    starts = [parse_history_date(row.get("from")) for row in rows]
+    ends = [parse_history_date(row.get("to")) for row in rows]
+    starts = [d for d in starts if d is not None]
+    ends = [d for d in ends if d is not None]
+    if not starts or not ends:
+        return None, None
+    return min(starts), max(ends)
+
+def max_missing_days_between_uploads(rows: list[dict]) -> int:
+    ranges = []
+    for row in rows:
+        start = parse_history_date(row.get("from"))
+        end = parse_history_date(row.get("to"))
+        if start is None or end is None:
+            continue
+        ranges.append((start, end))
+    if len(ranges) < 2:
+        return 0
+
+    ranges.sort(key=lambda item: item[0])
+    _, current_end = ranges[0]
+    max_gap = 0
+    for start, end in ranges[1:]:
+        gap_days = (start - current_end).days - 1
+        if gap_days > max_gap:
+            max_gap = gap_days
+        if end > current_end:
+            current_end = end
+    return max(0, max_gap)
+
+def dataset_summary_checks(rows: list[dict]) -> list[dict]:
+    normalized_rows = normalize_dataset_upload_history(rows)
+    pms_values = [str(row.get("pms", "")).strip() for row in normalized_rows if str(row.get("pms", "")).strip()]
+    supported_pms = bool(pms_values) and all(pms.lower() != "undetected" for pms in pms_values)
+    same_pms = len({pms.lower() for pms in pms_values}) <= 1
+    min_date, max_date = dataset_history_date_bounds(normalized_rows)
+    today = pd.Timestamp(date.today())
+    covers_last_year = bool(min_date is not None and max_date is not None and min_date <= today - pd.Timedelta(days=365) and max_date >= today - pd.Timedelta(days=1))
+    max_gap = max_missing_days_between_uploads(normalized_rows)
+    no_large_gaps = max_gap < 3
+    return [
+        {
+            "good": supported_pms and same_pms,
+            "text": "Same supported PMS" if supported_pms and same_pms else "CSV PMS types need attention",
+        },
+        {
+            "good": covers_last_year,
+            "text": "At least 365 days back from today" if covers_last_year else "Less than 365 days back from today",
+        },
+        {
+            "good": no_large_gaps,
+            "text": "No 3+ day gaps between CSVs" if no_large_gaps else f"{max_gap} day gap between CSVs",
+        },
+    ]
 
 def date_ranges_overlap(
     first_min: pd.Timestamp | None,
@@ -2666,8 +2752,8 @@ def summarize_uploads(file_blobs):
     datasets, summary_rows = [], []
     for fb in file_blobs:
         df, pms_name, amount_col = process_file(fb["bytes"], fb["name"])
-        pms_name = pms_name or "Undetected"
         validate_upload_dataframe(df, fb["name"])
+        pms_name = pms_name or "Canonical CSV"
         charge_dates = pd.to_datetime(df["ChargeDate"], errors="coerce")
         from_date = charge_dates.min()
         to_date = charge_dates.max()
@@ -3139,40 +3225,50 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
         return
 
     row_html = []
-    for row in normalized_rows:
+    for idx, row in enumerate(normalized_rows):
         from_date = parse_history_date(row.get("from"))
         to_date = parse_history_date(row.get("to"))
         if from_date is not None and to_date is not None:
             date_range = f"{from_date:%d %b %Y} → {to_date:%d %b %Y}"
         else:
             date_range = "Dates not detected"
+        remove_url = f"?remove_dataset_upload={idx}"
         row_html.append(
             (
                 '<div class="dataset-summary-row">'
                 f'<div class="dataset-summary-value">{html_lib.escape(row.get("file_name", ""))}</div>'
+                f'<div class="dataset-summary-value">{html_lib.escape(row.get("pms", "-"))}</div>'
                 f'<div class="dataset-summary-value">{html_lib.escape(f"{int(row.get("rows") or 0):,}")}</div>'
                 f'<div class="dataset-summary-value">{html_lib.escape(date_range)}</div>'
-                f'<div class="dataset-summary-value">{html_lib.escape(row.get("status", "Saved"))}</div>'
+                f'<div class="dataset-summary-value"><a class="dataset-summary-remove" href="{remove_url}" target="_self" title="Remove this CSV">×</a></div>'
                 '</div>'
             )
         )
+    check_html = []
+    for check in dataset_summary_checks(normalized_rows):
+        class_name = "good" if check["good"] else "bad"
+        icon = "✓" if check["good"] else "×"
+        check_html.append(
+            f'<div class="dataset-check {class_name}">{icon} {html_lib.escape(check["text"])}</div>'
+        )
 
-    st.markdown(
+    st.html(
         (
             '<div class="dataset-summary">'
             f'<div class="dataset-summary-title">{html_lib.escape(title)}</div>'
             '<div class="dataset-summary-table">'
             '<div class="dataset-summary-header">'
             '<div class="dataset-summary-label">CSV</div>'
+            '<div class="dataset-summary-label">PMS</div>'
             '<div class="dataset-summary-label">Rows</div>'
             '<div class="dataset-summary-label">Date range</div>'
-            '<div class="dataset-summary-label">Status</div>'
+            '<div class="dataset-summary-label">Remove</div>'
             '</div>'
             f'{"".join(row_html)}'
             '</div>'
+            f'<div class="dataset-check-grid">{"".join(check_html)}</div>'
             '</div>'
-        ),
-        unsafe_allow_html=True,
+        )
     )
 
 def get_saved_dataset_summary_rows() -> list[dict]:
@@ -3199,6 +3295,77 @@ def get_saved_dataset_summary_rows() -> list[dict]:
 def render_dataset_date_range(extra_rows: list[dict] | None = None):
     rows = get_saved_dataset_summary_rows() + normalize_dataset_upload_history(extra_rows or [])
     render_dataset_summary_box("Saved clinic data", rows)
+
+def remove_dataset_upload_at_index(remove_idx: int):
+    clinic_id = st.session_state.get("clinic_id")
+    if not clinic_id:
+        st.error("Not logged in.")
+        st.stop()
+
+    history = normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", []))
+    using_history = bool(history)
+    rows = history or get_saved_dataset_summary_rows()
+    if remove_idx < 0 or remove_idx >= len(rows):
+        return
+
+    target = rows[remove_idx]
+    remaining_history = history[:remove_idx] + history[remove_idx + 1:] if using_history else []
+    existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+
+    current_df = st.session_state.get("working_df")
+    if (current_df is None or getattr(current_df, "empty", True)) and existing_file_id:
+        current_df = load_existing_shared_df(existing_file_id, existing_name)
+
+    target_start = parse_history_date(target.get("from"))
+    target_end = parse_history_date(target.get("to"))
+    remaining_df = pd.DataFrame()
+    if current_df is not None and not getattr(current_df, "empty", True) and target_start is not None and target_end is not None and "ChargeDate" in current_df.columns:
+        source_df = current_df.copy()
+        charge_dates = pd.to_datetime(source_df["ChargeDate"], errors="coerce").dt.normalize()
+        keep_mask = charge_dates.isna() | (charge_dates < target_start) | (charge_dates > target_end)
+        remaining_df = source_df.loc[keep_mask].copy()
+
+    if remaining_df.empty:
+        clear_clinic_dataset_pointer(clinic_id)
+        st.session_state.pop("working_df", None)
+        st.session_state["shared_dataset_loaded"] = False
+        st.session_state["shared_dataset_name"] = None
+        st.session_state["shared_dataset_updated_at"] = ""
+    else:
+        out_name = existing_name or f"{clinic_id}_shared_dataset.csv"
+        out_bytes = remaining_df.drop(columns=["_ChargeDate_raw"], errors="ignore").to_csv(index=False).encode("utf-8")
+        new_file_id = drive_upsert_csv_bytes(
+            file_bytes=out_bytes,
+            filename=out_name,
+            folder_id=DATASETS_FOLDER_ID,
+            existing_file_id=(existing_file_id or None),
+        )
+        updated_at = update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
+        st.session_state["working_df"] = sanitize_working_df(remaining_df)
+        st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
+        st.session_state["shared_dataset_loaded"] = True
+        st.session_state["shared_dataset_name"] = out_name
+        st.session_state["shared_dataset_updated_at"] = updated_at
+
+    st.session_state["dataset_upload_history"] = remaining_history
+    st.session_state["dataset_save_notice"] = f"Removed {target.get('file_name', 'CSV')} from saved clinic data."
+    save_settings()
+
+def consume_dataset_upload_removal():
+    remove_idx_raw = get_query_param_value("remove_dataset_upload")
+    if remove_idx_raw == "":
+        return
+    try:
+        remove_idx = int(remove_idx_raw)
+    except ValueError:
+        remove_idx = -1
+    try:
+        del st.query_params["remove_dataset_upload"]
+    except Exception:
+        pass
+    if remove_idx >= 0:
+        remove_dataset_upload_at_index(remove_idx)
+    st.rerun()
 
 def render_setup_checklist():
     df_w = st.session_state.get("working_df")
@@ -3780,6 +3947,7 @@ with data_tab:
     st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("## 📂 Upload Data")
     render_dataset_status()
+    consume_dataset_upload_removal()
     dataset_summary_slot = st.empty()
     with dataset_summary_slot.container():
         render_dataset_date_range()
@@ -3865,11 +4033,6 @@ with data_tab:
                 )
                 st.stop()
     
-            current_upload_history = upload_summary_rows_to_history(summary_rows, status="Ready to save")
-            dataset_summary_slot.empty()
-            with dataset_summary_slot.container():
-                render_dataset_date_range(extra_rows=current_upload_history)
-    
             all_pms = {p for p, _ in datasets}
             rules_fp = _rules_fp(get_applied_reminder_rules())
     
@@ -3877,7 +4040,7 @@ with data_tab:
             if len(all_pms) == 1 and "Undetected" not in all_pms:
                 working_df = pd.concat([df for _, df in datasets], ignore_index=True)
                 st.session_state["working_df"] = sanitize_working_df(working_df)
-                st.caption(f"All files detected as {list(all_pms)[0]} — ready to save.")
+                st.caption(f"All files detected as {list(all_pms)[0]} — saving automatically.")
     
             # --- Case 2: Mixed PMS or undetected but schema-compatible ---
             else:
@@ -3888,7 +4051,7 @@ with data_tab:
                     if all(c in cand.columns for c in required_cols):
                         working_df = cand
                         st.session_state["working_df"] = sanitize_working_df(working_df)
-                        st.caption("Files merged into canonical schema — ready to save.")
+                        st.caption("Files merged into canonical schema — saving automatically.")
                     else:
                         st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
     
@@ -3950,6 +4113,8 @@ with data_tab:
                         upload_max=upload_max,
                     )
                     st.session_state["last_saved_upload_key"] = current_upload_key
+                    st.session_state["file_uploader_reset_version"] = st.session_state.get("file_uploader_reset_version", 0) + 1
+                    st.session_state["last_uploaded_files"] = []
                     st.session_state["dataset_save_notice"] = (
                         "✅ Dataset saved for this clinic. Other users with this login will load it automatically."
                     )
@@ -3964,27 +4129,7 @@ with data_tab:
     
                     st.rerun()
     
-                if overlaps_existing:
-                    overlap_min = max(upload_min, existing_min)
-                    overlap_max = min(upload_max, existing_max)
-                    st.session_state["pending_overlap_upload_key"] = current_upload_key
-                    st.warning(
-                        "This upload overlaps existing clinic data "
-                        f"from {format_date_bound(overlap_min)} to {format_date_bound(overlap_max)}. "
-                        "Replace existing rows in the uploaded date range and save?"
-                    )
-                    c_confirm, c_cancel = st.columns([1, 3])
-                    if c_confirm.button(
-                        "Replace and save",
-                        key=f"confirm_overlap_{current_upload_key[:12]}",
-                        help="Remove existing clinic rows in this upload's date range, then save the uploaded rows.",
-                    ):
-                        save_uploaded_dataset(replace_overlapping_dates=True)
-                    if c_cancel.button("Cancel upload", key=f"cancel_overlap_{current_upload_key[:12]}"):
-                        st.session_state.pop("pending_overlap_upload_key", None)
-                        st.info("Upload not saved.")
-                else:
-                    save_uploaded_dataset(replace_overlapping_dates=False)
+                save_uploaded_dataset(replace_overlapping_dates=overlaps_existing)
     
     # -------------------------------------
     # Clear Clinic Data
