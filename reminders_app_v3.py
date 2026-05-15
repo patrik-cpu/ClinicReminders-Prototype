@@ -894,6 +894,7 @@ st.markdown(
         display: grid;
         grid-template-columns: repeat(3, minmax(180px, 1fr));
         gap: 0.75rem;
+        padding-bottom: 1rem;
     }
     .setup-step {
         border: 1px solid var(--cr-border);
