@@ -832,7 +832,7 @@ st.markdown(
     }
     .block-container h1, .block-container h2, .block-container h3 { margin-top: 0.2rem; }
     div[data-testid="stButton"] { min-height: 0px !important; height: auto !important; }
-    .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; }
+    .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; padding-bottom: 1rem !important; }
     h2[id] { scroll-margin-top: 80px; }
     .anchor-offset { position: relative; top: -100px; height: 0; }
     .sidebar-clinic-block {
@@ -985,16 +985,34 @@ st.markdown(
         line-height: 1;
         text-decoration: none;
     }
-    [class*="st-key-remove_dataset_upload_button_"] button {
-        background: transparent !important;
-        border: 0 !important;
+    [class*="remove_dataset_upload_button"] button,
+    [class*="remove-dataset-upload-button"] button {
+        background: rgba(225, 29, 72, 0.06) !important;
+        border: 1px solid rgba(225, 29, 72, 0.24) !important;
+        border-radius: 6px !important;
         box-shadow: none !important;
         color: #e11d48 !important;
-        font-size: 1.45rem !important;
-        font-weight: 800 !important;
-        line-height: 1 !important;
-        min-height: 1.9rem !important;
-        padding: 0.05rem 0.25rem !important;
+        font-weight: 750 !important;
+        line-height: 1.1 !important;
+        min-height: 2.1rem !important;
+        padding: 0.25rem 0.55rem !important;
+    }
+    [class*="remove_dataset_upload_button"] button p,
+    [class*="remove-dataset-upload-button"] button p {
+        color: #e11d48 !important;
+        font-size: 0.88rem !important;
+        font-weight: 750 !important;
+        margin: 0 !important;
+    }
+    div[data-testid="stFileUploader"] {
+        margin-bottom: 0 !important;
+    }
+    div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
+        min-height: 3rem !important;
+        padding: 0.45rem 0.75rem !important;
+    }
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"] {
+        display: none !important;
     }
     .dataset-check-grid {
         display: grid;
@@ -1453,14 +1471,40 @@ def load_shared_dataset_for_clinic():
         st.session_state["shared_dataset_error"] = str(e)
 
 
+def shared_dataset_load_attempt_token(clinic_id: str) -> str:
+    """Tokenize the saved-data state so a newly uploaded dataset can be loaded in this session."""
+    history = st.session_state.get("dataset_upload_history", [])
+    try:
+        history = normalize_dataset_upload_history(history)
+    except Exception:
+        pass
+    history_blob = json.dumps(history, sort_keys=True, default=str)
+    pointer_blob = ""
+    try:
+        sheet, headers, _ = _get_settings_row_for_clinic(clinic_id)
+        row_values = get_cached_settings_row_values(clinic_id)
+        if row_values:
+            file_id_idx = headers.index(SHEET_COL_DATASET_FILE_ID)
+            name_idx = headers.index(SHEET_COL_DATASET_FILE_NAME)
+            updated_idx = headers.index(SHEET_COL_DATASET_UPDATED_AT)
+            pointer_blob = "|".join(
+                str(row_values[idx]).strip() if idx < len(row_values) else ""
+                for idx in (file_id_idx, name_idx, updated_idx)
+            )
+    except Exception:
+        pointer_blob = ""
+    token = hashlib.md5(f"{history_blob}|{pointer_blob}".encode("utf-8")).hexdigest()
+    return f"{clinic_id}:{token}"
+
+
 def ensure_shared_dataset_loaded_for_session():
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id or st.session_state.get("working_df") is not None:
         return
-    attempted_for = st.session_state.get("_shared_dataset_load_attempted_for")
-    if attempted_for == clinic_id:
+    attempt_token = shared_dataset_load_attempt_token(clinic_id)
+    if st.session_state.get("_shared_dataset_load_attempted_for") == attempt_token:
         return
-    st.session_state["_shared_dataset_load_attempted_for"] = clinic_id
+    st.session_state["_shared_dataset_load_attempted_for"] = attempt_token
     load_shared_dataset_for_clinic()
 
 def drive_upsert_csv_bytes(
@@ -1957,6 +2001,7 @@ def publish_dataset_for_clinic(
     # ✅ Only update pointer after upload success
     dataset_updated_at = update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
     st.session_state["shared_dataset_updated_at"] = dataset_updated_at
+    st.session_state.pop("_shared_dataset_load_attempted_for", None)
 
 
     return merged_df, new_file_id, out_name
@@ -3695,10 +3740,15 @@ else:
     st.session_state.pop("bundle_key", None)
 
 # === What data is uploaded
-def render_dataset_status():
+def has_working_dataset() -> bool:
+    df_w = st.session_state.get("working_df")
+    return df_w is not None and not getattr(df_w, "empty", True)
+
+
+def render_dataset_status(saved_rows: list[dict] | None = None):
     if st.session_state.get("shared_dataset_error"):
         st.warning(f"⚠️ Could not load clinic data: {st.session_state['shared_dataset_error']}")
-    elif not st.session_state.get("shared_dataset_loaded"):
+    elif not saved_rows and not has_working_dataset() and not st.session_state.get("shared_dataset_loaded"):
         st.caption("No clinic data saved yet — upload a file to start.")
 
 def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
@@ -3747,7 +3797,7 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
             row_cols[2].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(row_count)}</div>", unsafe_allow_html=True)
             row_cols[3].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(formatted_history_range(row))}</div>", unsafe_allow_html=True)
             row_key = hashlib.md5(json.dumps(row, sort_keys=True).encode("utf-8")).hexdigest()[:10]
-            if row_cols[4].button("×", key=f"remove_dataset_upload_button_{idx}_{row_key}", help="Remove this data file"):
+            if row_cols[4].button("Remove", key=f"remove_dataset_upload_button_{idx}_{row_key}", help="Remove this data file"):
                 remove_dataset_upload_at_index(idx)
                 st.rerun()
 
@@ -3843,8 +3893,8 @@ def repair_dataset_upload_history_from_rows(summary_rows: list[dict]) -> bool:
     save_settings_quietly()
     return True
 
-def render_dataset_date_range(extra_rows: list[dict] | None = None):
-    rows = get_saved_dataset_summary_rows() + normalize_dataset_upload_history(extra_rows or [])
+def render_dataset_date_range(extra_rows: list[dict] | None = None, saved_rows: list[dict] | None = None):
+    rows = (saved_rows if saved_rows is not None else get_saved_dataset_summary_rows()) + normalize_dataset_upload_history(extra_rows or [])
     render_dataset_summary_box("Saved clinic data", rows)
 
 def remove_dataset_upload_at_index(remove_idx: int):
@@ -4510,10 +4560,11 @@ with get_started_tab:
 with data_tab:
     st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("## 📂 Upload Data")
-    render_dataset_status()
+    saved_dataset_rows = get_saved_dataset_summary_rows()
+    render_dataset_status(saved_dataset_rows)
     dataset_summary_slot = st.empty()
     with dataset_summary_slot.container():
-        render_dataset_date_range()
+        render_dataset_date_range(saved_rows=saved_dataset_rows)
     st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
 
     datasets = []

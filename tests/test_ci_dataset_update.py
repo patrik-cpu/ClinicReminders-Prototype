@@ -108,6 +108,7 @@ class DatasetUpdateTests(unittest.TestCase):
     def test_ensure_shared_dataset_loads_when_logged_session_lacks_dataframe(self):
         state = self.app.st.session_state
         state["clinic_id"] = "Clinic With Saved Data"
+        state["dataset_upload_history"] = []
         state.pop("working_df", None)
         state.pop("_shared_dataset_load_attempted_for", None)
 
@@ -115,7 +116,21 @@ class DatasetUpdateTests(unittest.TestCase):
             self.app.ensure_shared_dataset_loaded_for_session()
 
         load_shared.assert_called_once()
-        self.assertEqual(state["_shared_dataset_load_attempted_for"], "Clinic With Saved Data")
+        self.assertTrue(state["_shared_dataset_load_attempted_for"].startswith("Clinic With Saved Data:"))
+
+    def test_saved_history_retries_shared_dataset_load_after_prior_empty_attempt(self):
+        state = self.app.st.session_state
+        state["clinic_id"] = "Clinic With Saved Data"
+        state.pop("working_df", None)
+        state["dataset_upload_history"] = []
+        state["_shared_dataset_load_attempted_for"] = self.app.shared_dataset_load_attempt_token("Clinic With Saved Data")
+
+        state["dataset_upload_history"] = [{"file_name": "sales.csv", "pms": "VetPORT", "rows": 56139}]
+
+        with patch.object(self.app, "load_shared_dataset_for_clinic") as load_shared:
+            self.app.ensure_shared_dataset_loaded_for_session()
+
+        load_shared.assert_called_once()
 
 
 if __name__ == "__main__":
