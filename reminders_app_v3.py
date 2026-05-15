@@ -1328,6 +1328,7 @@ def load_settings():
             settings = {}
         st.session_state["rules"] = settings.get("rules", DEFAULT_RULES.copy())
         st.session_state["exclusions"] = settings.get("exclusions", [])
+        st.session_state["client_exclusions"] = settings.get("client_exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
         st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
         st.session_state["client_group_days"] = int(settings.get("client_group_days", 1) or 1)
@@ -1342,6 +1343,7 @@ def load_settings():
         # Defaults for new clinics
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
+        st.session_state["client_exclusions"] = []
         st.session_state["user_name"] = ""
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
         st.session_state["client_group_days"] = 1
@@ -1400,6 +1402,7 @@ def save_settings():
     settings_data = {
         "rules": setting_for_save("rules", DEFAULT_RULES.copy()),
         "exclusions": setting_for_save("exclusions", []),
+        "client_exclusions": setting_for_save("client_exclusions", []),
         "user_name": setting_for_save("user_name", ""),
         "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
         "client_group_days": max(1, int_setting_for_save("client_group_days", 1)),
@@ -2060,6 +2063,7 @@ def default_settings_for_country(country: str = "") -> dict:
     return {
         "rules": DEFAULT_RULES.copy(),
         "exclusions": [],
+        "client_exclusions": [],
         "user_name": "",
         "user_template": DEFAULT_WA_TEMPLATE,
         "client_group_days": 1,
@@ -3225,6 +3229,16 @@ def render_table(df, title, key_prefix, msg_key, rules):
         )
     elif "Plan Item" not in df.columns:
         df["Plan Item"] = ""
+    client_exclusions = st.session_state.get("client_exclusions", [])
+    if client_exclusions and "Client Name" in df.columns:
+        excluded_clients = {
+            _SPACE_RX.sub(" ", str(name or "").strip()).lower()
+            for name in client_exclusions
+            if str(name or "").strip()
+        }
+        if excluded_clients:
+            client_keys = df["Client Name"].astype(str).map(lambda value: _SPACE_RX.sub(" ", value.strip()).lower())
+            df = df[~client_keys.isin(excluded_clients)]
     if st.session_state["exclusions"]:
         excl_pattern = "|".join(map(re.escape, st.session_state["exclusions"]))
         target_col = "Item Name" if "Item Name" in df.columns else "Plan Item"
@@ -3973,6 +3987,7 @@ if st.session_state.get("working_df") is not None:
         if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
             st.session_state["rules"] = DEFAULT_RULES.copy()
             st.session_state["exclusions"] = []
+            st.session_state["client_exclusions"] = []
             st.session_state["search_terms_reviewed"] = False
             st.session_state["form_version"] += 1
             save_settings()
@@ -4038,7 +4053,55 @@ if st.session_state.get("working_df") is not None:
     st.markdown("---")
     st.markdown("<div id='exclusions' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("#### 🚫 Exclusions")
-    st.info("💡 Add terms here to automatically hide reminders that contain them.")
+    st.info("💡 Add clients or item terms here to automatically hide matching reminders.")
+
+    st.markdown("##### Client Exclusions")
+    st.caption("Exclude all reminders for an exact client name.")
+    st.session_state.setdefault("client_exclusions", [])
+    if st.session_state["client_exclusions"]:
+        for client_name in sorted(st.session_state["client_exclusions"]):
+            safe_client = re.sub(r'[^a-zA-Z0-9_-]', '_', client_name)
+            with st.container():
+                cols = st.columns([6,1], gap="small")
+                with cols[0]:
+                    st.markdown(f"<div style='padding-top:8px;'>{client_name}</div>", unsafe_allow_html=True)
+                with cols[1]:
+                    if st.button("❌", key=f"del_client_excl_{safe_client}"):
+                        st.session_state["client_exclusions"].remove(client_name)
+                        save_settings()
+                        st.rerun()
+    else:
+        st.caption("No client exclusions yet.")
+
+    row_id = st.session_state['new_rule_counter']
+    c1, c2 = st.columns([4,1], gap="small")
+    with c1:
+        new_client_excl = st.text_input(
+            "Add Client Exclusion",
+            key=f"new_client_excl_{row_id}",
+            help="Enter the client name exactly as it appears in reminders."
+        )
+    with c2:
+        if st.button("➕ Add Client", key=f"add_client_excl_{row_id}"):
+            if new_client_excl and new_client_excl.strip():
+                safe_client = _SPACE_RX.sub(" ", new_client_excl.strip())
+                client_key = safe_client.lower()
+                existing_keys = {
+                    _SPACE_RX.sub(" ", str(name or "").strip()).lower()
+                    for name in st.session_state["client_exclusions"]
+                }
+                if client_key not in existing_keys:
+                    st.session_state["client_exclusions"].append(safe_client)
+                    save_settings()
+                    st.session_state["new_rule_counter"] += 1
+                    st.rerun()
+                else:
+                    st.info("This client exclusion already exists.")
+            else:
+                st.error("Enter a valid client name")
+
+    st.markdown("##### Item Exclusions")
+    st.caption("Exclude reminders whose item text contains a term.")
     if st.session_state["exclusions"]:
         for term in sorted(st.session_state["exclusions"]):
             safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
@@ -4052,18 +4115,18 @@ if st.session_state.get("working_df") is not None:
                         save_settings()
                         st.rerun()
     else:
-        st.error("No exclusions yet.")
+        st.caption("No item exclusions yet.")
 
     row_id = st.session_state['new_rule_counter']
     c1, c2 = st.columns([4,1], gap="small")
     with c1:
         new_excl = st.text_input(
-            "Add New Exclusion Term",
+            "Add Item Exclusion Term",
             key=f"new_excl_{row_id}",
             help="Any reminder containing this text will be hidden from reminder tables."
         )
     with c2:
-        if st.button("➕ Add Exclusion", key=f"add_excl_{row_id}"):
+        if st.button("➕ Add Item", key=f"add_excl_{row_id}"):
             if new_excl and new_excl.strip():
                 safe_term = new_excl.strip().lower()
                 if safe_term not in st.session_state["exclusions"]:
