@@ -3303,7 +3303,7 @@ def render_setup_checklist():
 
     reset_col, _ = st.columns([0.85, 5], gap="small")
     with reset_col:
-        if st.button("↻ Reset Guide", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
+        if st.button("↻ Reset", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
             st.session_state["get_started_reset_at"] = datetime.utcnow().isoformat()
             save_settings()
             st.success("Get Started guide reset.")
