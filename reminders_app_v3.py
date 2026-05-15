@@ -873,6 +873,31 @@ st.markdown(
         font-weight: 700;
         text-decoration: none;
     }
+    [class*="st-key-del_client_excl_"] button,
+    [class*="st-key-del_patient_excl_"] button,
+    [class*="st-key-del_excl_"] button {
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        color: #d92d20 !important;
+        min-height: 1.75rem !important;
+        padding: 0 0.25rem !important;
+    }
+    [class*="st-key-del_client_excl_"] button:hover,
+    [class*="st-key-del_patient_excl_"] button:hover,
+    [class*="st-key-del_excl_"] button:hover {
+        background: rgba(217, 45, 32, 0.08) !important;
+        border-radius: 999px !important;
+    }
+    [class*="st-key-del_client_excl_"] button p,
+    [class*="st-key-del_patient_excl_"] button p,
+    [class*="st-key-del_excl_"] button p {
+        color: #d92d20 !important;
+        font-size: 1.1rem !important;
+        font-weight: 700 !important;
+        line-height: 1 !important;
+        margin: 0 !important;
+    }
     @media (max-width: 1100px) {
         .setup-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
     }
@@ -5045,7 +5070,7 @@ if st.session_state.get("working_df") is not None:
                     with cols[0]:
                         st.markdown(f"<div style='padding-top:8px;'>{client_name}</div>", unsafe_allow_html=True)
                     with cols[1]:
-                        if st.button("❌", key=f"del_client_excl_{safe_client}"):
+                        if st.button("×", key=f"del_client_excl_{safe_client}", help="Remove client exclusion"):
                             st.session_state["client_exclusions"].remove(client_name)
                             save_settings()
                             st.rerun()
@@ -5109,7 +5134,7 @@ if st.session_state.get("working_df") is not None:
                     with cols[0]:
                         st.markdown(f"<div style='padding-top:8px;'>{client_name} - {patient_name}</div>", unsafe_allow_html=True)
                     with cols[1]:
-                        if st.button("❌", key=f"del_patient_excl_{safe_pair}"):
+                        if st.button("×", key=f"del_patient_excl_{safe_pair}", help="Remove patient exclusion"):
                             st.session_state["patient_exclusions"].remove(exclusion)
                             save_settings()
                             st.rerun()
@@ -5174,7 +5199,7 @@ if st.session_state.get("working_df") is not None:
                     with cols[0]:
                         st.markdown(f"<div style='padding-top:8px;'>{term}</div>", unsafe_allow_html=True)
                     with cols[1]:
-                        if st.button("❌", key=f"del_excl_{safe_term}"):
+                        if st.button("×", key=f"del_excl_{safe_term}", help="Remove item exclusion"):
                             st.session_state["exclusions"].remove(term)
                             save_settings()
                             st.rerun()
