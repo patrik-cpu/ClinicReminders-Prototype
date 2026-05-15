@@ -836,16 +836,20 @@ st.markdown(
         gap: 0.35rem 1.25rem;
         grid-template-columns: repeat(3, minmax(150px, 1fr));
     }
+    .dataset-summary-table {
+        display: grid;
+        gap: 0.35rem;
+    }
+    .dataset-summary-header,
     .dataset-summary-row {
         align-items: start;
-        border-top: 1px solid rgba(41, 210, 114, 0.18);
         display: grid;
         gap: 0.35rem 1.25rem;
-        grid-template-columns: minmax(220px, 2fr) minmax(90px, 0.5fr) minmax(170px, 1fr);
-        padding: 0.55rem 0 0;
+        grid-template-columns: minmax(220px, 2fr) minmax(90px, 0.45fr) minmax(170px, 1fr) minmax(110px, 0.55fr);
     }
     .dataset-summary-row + .dataset-summary-row {
-        margin-top: 0.45rem;
+        border-top: 1px solid rgba(41, 210, 114, 0.18);
+        padding-top: 0.35rem;
     }
     .dataset-summary-label {
         color: var(--cr-muted);
@@ -1524,10 +1528,11 @@ def normalize_dataset_upload_history(history) -> list[dict]:
             "rows": parse_history_int(entry.get("rows") or entry.get("Rows") or 0),
             "from": from_date.strftime("%Y-%m-%d") if from_date is not None else "",
             "to": to_date.strftime("%Y-%m-%d") if to_date is not None else "",
+            "status": str(entry.get("status") or entry.get("Status") or "Saved").strip() or "Saved",
         })
     return rows
 
-def upload_summary_rows_to_history(summary_rows: list[dict]) -> list[dict]:
+def upload_summary_rows_to_history(summary_rows: list[dict], status: str = "Saved") -> list[dict]:
     return normalize_dataset_upload_history([
         {
             "file_name": row.get("File name", ""),
@@ -1535,6 +1540,7 @@ def upload_summary_rows_to_history(summary_rows: list[dict]) -> list[dict]:
             "rows": row.get("Rows", 0),
             "from": row.get("From", ""),
             "to": row.get("To", ""),
+            "status": status,
         }
         for row in summary_rows
     ])
@@ -3141,18 +3147,10 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
         row_html.append(
             f"""
             <div class="dataset-summary-row">
-              <div>
-                <div class="dataset-summary-label">Dataset</div>
-                <div class="dataset-summary-value">{html_lib.escape(row.get("file_name", ""))}</div>
-              </div>
-              <div>
-                <div class="dataset-summary-label">Rows</div>
-                <div class="dataset-summary-value">{html_lib.escape(f"{int(row.get('rows') or 0):,}")}</div>
-              </div>
-              <div>
-                <div class="dataset-summary-label">Date range</div>
-                <div class="dataset-summary-value">{html_lib.escape(date_range)}</div>
-              </div>
+              <div class="dataset-summary-value">{html_lib.escape(row.get("file_name", ""))}</div>
+              <div class="dataset-summary-value">{html_lib.escape(f"{int(row.get('rows') or 0):,}")}</div>
+              <div class="dataset-summary-value">{html_lib.escape(date_range)}</div>
+              <div class="dataset-summary-value">{html_lib.escape(row.get("status", "Saved"))}</div>
             </div>
             """
         )
@@ -3161,35 +3159,44 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
         f"""
         <div class="dataset-summary">
           <div class="dataset-summary-title">{html_lib.escape(title)}</div>
-          {''.join(row_html)}
+          <div class="dataset-summary-table">
+            <div class="dataset-summary-header">
+              <div class="dataset-summary-label">CSV</div>
+              <div class="dataset-summary-label">Rows</div>
+              <div class="dataset-summary-label">Date range</div>
+              <div class="dataset-summary-label">Status</div>
+            </div>
+            {''.join(row_html)}
+          </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-def render_dataset_date_range():
+def get_saved_dataset_summary_rows() -> list[dict]:
     history = normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", []))
     if history:
-        render_dataset_summary_box("Saved clinic data", history)
-        return
+        return history
 
     df_w = st.session_state.get("working_df")
     df_w = drop_duplicate_columns(df_w) if df_w is not None else None
     if df_w is None or getattr(df_w, "empty", True):
-        return
+        return []
 
     dmin, dmax = get_dataset_date_range(df_w)
     dataset_name = str(st.session_state.get("shared_dataset_name") or "Saved clinic data")
-    render_dataset_summary_box(
-        "Saved clinic data",
-        [{
-            "file_name": dataset_name,
-            "pms": "CSV",
-            "rows": len(df_w),
-            "from": dmin.strftime("%Y-%m-%d") if dmin is not None else "",
-            "to": dmax.strftime("%Y-%m-%d") if dmax is not None else "",
-        }],
-    )
+    return [{
+        "file_name": dataset_name,
+        "pms": "CSV",
+        "rows": len(df_w),
+        "from": dmin.strftime("%Y-%m-%d") if dmin is not None else "",
+        "to": dmax.strftime("%Y-%m-%d") if dmax is not None else "",
+        "status": "Saved",
+    }]
+
+def render_dataset_date_range(extra_rows: list[dict] | None = None):
+    rows = get_saved_dataset_summary_rows() + normalize_dataset_upload_history(extra_rows or [])
+    render_dataset_summary_box("Saved clinic data", rows)
 
 def render_setup_checklist():
     df_w = st.session_state.get("working_df")
@@ -3771,7 +3778,9 @@ with data_tab:
     st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("## 📂 Upload Data")
     render_dataset_status()
-    render_dataset_date_range()
+    dataset_summary_slot = st.empty()
+    with dataset_summary_slot.container():
+        render_dataset_date_range()
     st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
     if st.session_state.get("dataset_save_notice"):
         st.success(st.session_state.pop("dataset_save_notice"))
@@ -3854,8 +3863,10 @@ with data_tab:
                 )
                 st.stop()
     
-            current_upload_history = upload_summary_rows_to_history(summary_rows)
-            render_dataset_summary_box("Current upload ready to save", current_upload_history)
+            current_upload_history = upload_summary_rows_to_history(summary_rows, status="Ready to save")
+            dataset_summary_slot.empty()
+            with dataset_summary_slot.container():
+                render_dataset_date_range(extra_rows=current_upload_history)
     
             all_pms = {p for p, _ in datasets}
             rules_fp = _rules_fp(get_applied_reminder_rules())
@@ -3864,7 +3875,7 @@ with data_tab:
             if len(all_pms) == 1 and "Undetected" not in all_pms:
                 working_df = pd.concat([df for _, df in datasets], ignore_index=True)
                 st.session_state["working_df"] = sanitize_working_df(working_df)
-                st.success(f"All files detected as {list(all_pms)[0]} — ready to save.")
+                st.caption(f"All files detected as {list(all_pms)[0]} — ready to save.")
     
             # --- Case 2: Mixed PMS or undetected but schema-compatible ---
             else:
@@ -3875,7 +3886,7 @@ with data_tab:
                     if all(c in cand.columns for c in required_cols):
                         working_df = cand
                         st.session_state["working_df"] = sanitize_working_df(working_df)
-                        st.success("Files merged into canonical schema — ready to save.")
+                        st.caption("Files merged into canonical schema — ready to save.")
                     else:
                         st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
     
@@ -3931,7 +3942,7 @@ with data_tab:
                     st.session_state["shared_dataset_name"] = out_name
                     st.session_state["dataset_upload_history"] = merge_dataset_upload_history(
                         st.session_state.get("dataset_upload_history", []),
-                        current_upload_history,
+                        upload_summary_rows_to_history(summary_rows, status="Saved"),
                         replace_overlapping_dates=replace_overlapping_dates,
                         upload_min=upload_min,
                         upload_max=upload_max,
