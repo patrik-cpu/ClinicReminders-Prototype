@@ -1327,7 +1327,11 @@ def load_settings():
         st.session_state["user_name"] = settings.get("user_name", "")
         st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
         st.session_state["client_group_days"] = max(0, int(settings.get("client_group_days", 1) or 0))
-        st.session_state["reminder_window_days"] = max(0, int(settings.get("reminder_window_days", 0) or 0))
+        raw_window_days = settings.get("reminder_window_days", 1)
+        try:
+            st.session_state["reminder_window_days"] = max(0, int(raw_window_days if raw_window_days not in (None, "") else 1))
+        except (TypeError, ValueError):
+            st.session_state["reminder_window_days"] = 1
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
         st.session_state["wa_reminder_log"] = settings.get("wa_reminder_log", [])
         st.session_state["deleted_reminders"] = settings.get("deleted_reminders", [])
@@ -1344,7 +1348,7 @@ def load_settings():
         st.session_state["user_name"] = ""
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
         st.session_state["client_group_days"] = 1
-        st.session_state["reminder_window_days"] = 0
+        st.session_state["reminder_window_days"] = 1
         st.session_state["reminder_warning_days"] = 0
         st.session_state["wa_reminder_log"] = []
         st.session_state["deleted_reminders"] = []
@@ -1405,7 +1409,7 @@ def save_settings():
         "user_name": setting_for_save("user_name", ""),
         "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
         "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
-        "reminder_window_days": max(0, int_setting_for_save("reminder_window_days", 0)),
+        "reminder_window_days": max(0, int_setting_for_save("reminder_window_days", 1)),
         "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", 0)),
         "wa_reminder_log": wa_reminder_log,
         "deleted_reminders": deleted_reminders,
@@ -2164,7 +2168,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "user_name": "",
         "user_template": DEFAULT_WA_TEMPLATE,
         "client_group_days": 1,
-        "reminder_window_days": 0,
+        "reminder_window_days": 1,
         "reminder_warning_days": 0,
         "wa_reminder_log": [],
         "deleted_reminders": [],
@@ -3585,9 +3589,10 @@ def prepare_whatsapp_action(row_data: dict, key_prefix: str, msg_key: str, idx):
     message = build_whatsapp_message_for_row(row_data)
     st.session_state[msg_key] = message
     st.session_state["_pending_reminder_action_status"] = {
-        "message": f"WhatsApp message prepared for {animal_name}. Scroll to the Composer below to send.",
+        "message": f"WhatsApp message prepared for {animal_name}.",
         "preview": message,
     }
+    st.session_state["_scroll_to_whatsapp_composer"] = True
 
 
 def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx):
@@ -3668,6 +3673,36 @@ def render_search_criteria_refresh_notice():
 
 REMINDER_TABLE_SORTABLE_COLUMNS = ("Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item")
 REMINDER_TABLE_HEADER_LABELS = {"Charge Date": "Billed Date", "Plan Item": "Item"}
+REMINDER_TABLE_COLUMN_HELP = {
+    "Actioned Date": "Date this reminder was marked sent or declined.",
+    "Actioned By": "Name saved in the WhatsApp composer when the action was taken.",
+    "Reminder Date": "Date this reminder appears in the reminder workflow.",
+    "Due Date": "Date the item is due for the client or patient.",
+    "Charge Date": "Billed date of the original item or service.",
+    "Client Name": "Client linked to this reminder.",
+    "Animal Name": "Patient or patients linked to this reminder.",
+    "Plan Item": "Reminder item shown in the table and WhatsApp message.",
+    "Qty": "Quantity from the billed item, or NA for grouped reminders.",
+    "Days": "Reminder interval in days, or NA for grouped reminders.",
+    "WA": "Prepare the WhatsApp message for this row.",
+    "Sent": "Mark this reminder as sent and move it to Actioned Reminders.",
+    "Decline": "Decline this reminder and move it to Actioned Reminders.",
+    "Action": "Whether this reminder was sent or declined.",
+    "Undo": "Return this row to Active Reminders.",
+}
+
+
+def reminder_header_help(column: str) -> str:
+    return REMINDER_TABLE_COLUMN_HELP.get(column, f"Sort by {REMINDER_TABLE_HEADER_LABELS.get(column, column)}")
+
+
+def render_reminder_header_label(container, label: str, column: str, align: str = "left"):
+    safe_label = html_lib.escape(label)
+    safe_help = html_lib.escape(reminder_header_help(column))
+    container.markdown(
+        f"<div style='text-align:{align}; font-weight:600;'>{safe_label} <span class='column-help' title='{safe_help}'>?</span></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def set_reminder_table_sort(key_prefix: str, column: str):
@@ -3930,7 +3965,7 @@ def render_actioned_reminders_tab(key_prefix: str):
         "Animal Name",
         "Plan Item",
         "Action",
-        "Remove",
+        "Undo",
     ]
     labels = {**REMINDER_TABLE_HEADER_LABELS, "Actioned Date": "Actioned Date", "Actioned By": "Actioned By"}
     col_widths = [2, 3, 2, 2, 2, 4, 3, 4, 1.5, 1.8]
@@ -3965,23 +4000,21 @@ def render_actioned_reminders_tab(key_prefix: str):
     sort_state = get_actioned_reminder_sort(key_prefix)
     header_cols = st.columns(col_widths)
     for idx, (col, head) in enumerate(zip(header_cols, headers)):
-        align = "center" if head == "Remove" else "left"
+        align = "center" if head == "Undo" else "left"
         label = labels.get(head, head)
         if head in ACTIONED_REMINDER_SORTABLE_COLUMNS:
             if sort_state["column"] == head:
                 label = f"{label} {'^' if sort_state['ascending'] else 'v'}"
+            label = f"{label} ?"
             col.button(
                 label,
                 key=f"{key_prefix}_actioned_sort_{idx}",
-                help=f"Sort by {labels.get(head, head)}",
+                help=reminder_header_help(head),
                 on_click=set_actioned_reminder_sort,
                 args=(key_prefix, head),
             )
         else:
-            col.markdown(
-                f"<div style='text-align:{align}; font-weight:600;'>{label}</div>",
-                unsafe_allow_html=True,
-            )
+            render_reminder_header_label(col, label, head, align=align)
 
     for idx, row_data in enumerate(rows):
         row_cols = st.columns(col_widths, gap="small")
@@ -4000,7 +4033,7 @@ def render_actioned_reminders_tab(key_prefix: str):
             row_cols[col_idx].markdown(value)
 
         row_cols[-1].button(
-            "Remove",
+            "Undo",
             key=f"{key_prefix}_actioned_remove_{idx}",
             use_container_width=True,
             help="Return this reminder to Active Reminders",
@@ -4050,15 +4083,16 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         if head in REMINDER_TABLE_SORTABLE_COLUMNS:
             if sort_state["column"] == head:
                 label = f"{label} {'^' if sort_state['ascending'] else 'v'}"
+            label = f"{label} ?"
             c.button(
                 label,
                 key=f"{key_prefix}_sort_{idx}",
-                help=f"Sort by {REMINDER_TABLE_HEADER_LABELS.get(head, head)}",
+                help=reminder_header_help(head),
                 on_click=set_reminder_table_sort,
                 args=(key_prefix, head),
             )
         else:
-            c.markdown(f"<div style='text-align:{align}; font-weight:600;'>{label}</div>", unsafe_allow_html=True)
+            render_reminder_header_label(c, label, head, align=align)
 
     # --- Table rows ---
     for idx, row in df.iterrows():
@@ -4111,6 +4145,16 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
     # --- WhatsApp Composer section (after the table) ---
     st.markdown("<div id='whatsapp-composer' class='anchor-offset'></div>", unsafe_allow_html=True)
+    if st.session_state.pop("_scroll_to_whatsapp_composer", False):
+        components.html(
+            """
+            <script>
+              const target = window.parent.document.getElementById('whatsapp-composer');
+              if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+            </script>
+            """,
+            height=0,
+        )
     comp_main, comp_tip = st.columns([4, 1])
     with comp_main:
         st.write("### WhatsApp Composer")
@@ -4296,11 +4340,8 @@ if st.session_state.get("working_df") is not None:
     applied_rules = get_applied_reminder_rules()
 
     with reminders_page_tab:
-        # Weekly Reminders
         st.markdown("<h2 id='reminders'>📅 Reminders</h2>", unsafe_allow_html=True)
         st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
-        st.markdown("#### 📅 Weekly Reminders")
-        st.info("💡 Daily workspace: pick a start date, review due reminders, then click WA to prepare a message.")
     
         prepared = get_prepared_df(df, applied_rules)
     
@@ -4326,7 +4367,7 @@ if st.session_state.get("working_df") is not None:
             reminder_window_days = st.number_input(
                 "Days to look ahead",
                 min_value=0,
-                value=st.session_state.get("reminder_window_days", 0),
+                value=st.session_state.get("reminder_window_days", 1),
                 step=1,
                 key="reminder_window_days",
                 on_change=save_settings,
@@ -4381,62 +4422,6 @@ if st.session_state.get("working_df") is not None:
             render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
         else:
             st.info("No reminders in the selected week.")
-    
-        # --------------------------------
-        # Search
-        # --------------------------------
-        st.markdown("<div id='search' class='anchor-offset'></div>", unsafe_allow_html=True)
-        st.markdown("#### 🔍 Search Reminders")
-        st.info("💡 Search by client, animal, or item to find upcoming reminders.")
-        search_term = st.text_input(
-            "Enter text to search (client, animal, or item)",
-            help="Searches upcoming reminders by client name, animal name, or item text."
-        )
-    
-        if search_term:
-            q = search_term.lower()
-            # Ensure lowercase columns exist for searching
-            for col in ["Client Name", "Animal Name", "Item Name"]:
-                col_lower = f"_{col.split()[0].lower()}_lower"
-                if col_lower not in prepared.columns and col in prepared.columns:
-                    prepared[col_lower] = prepared[col].astype(str).str.lower()
-        
-            # Now run the query safely
-            filtered2 = prepared.query(
-                "_client_lower.str.contains(@q, regex=False) or _animal_lower.str.contains(@q, regex=False) or _item_lower.str.contains(@q, regex=False)",
-                engine="python"
-            ).copy()
-    
-    
-            if not filtered2.empty:
-                if "ReminderDateFmt" not in filtered2.columns:
-                    filtered2["ReminderDateFmt"] = filtered2.get("DueDateFmt", "")
-                g = filtered2.groupby(["ReminderDateFmt", "DueDateFmt", "Client Name"], dropna=False)
-                grouped_search = (
-                    pd.DataFrame({
-                        "Charge Date": g["ChargeDateFmt"].max(),
-                        "Animal Name": g["Animal Name"].apply(lambda s: format_items(sorted(set(s.dropna())))),
-                        "Plan Item": g["MatchedItems"].apply(
-                            lambda lists: simplify_vaccine_text(
-                                format_items(sorted(set(
-                                    i.strip() for sub in lists for i in (sub if isinstance(sub, list) else [sub]) if str(i).strip()
-                                )))
-                            )
-                        ),
-                        "Qty": g["Qty"].sum(min_count=1),
-                        "Days": g["IntervalDays"].apply(
-                            lambda x: int(pd.to_numeric(x, errors="coerce").dropna().min())
-                            if pd.to_numeric(x, errors="coerce").notna().any()
-                            else ""
-                        ),
-                    })
-                    .reset_index()
-                    .rename(columns={"ReminderDateFmt": "Reminder Date", "DueDateFmt": "Due Date"})
-                )[["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
-    
-                render_table(grouped_search, "Search Results", "search", "search_message", applied_rules)
-            else:
-                st.info("No matches found.")
     
     with search_terms_tab:
         # Rules editor (unchanged UI; behavior preserved)
