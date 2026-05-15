@@ -818,6 +818,15 @@ st.markdown(
         font-weight: 650;
         overflow-wrap: anywhere;
     }
+    .field-examples {
+        color: var(--cr-muted);
+        font-size: 0.78rem;
+        line-height: 1.3;
+        margin-top: 0.35rem;
+    }
+    .field-examples div + div {
+        margin-top: 0.15rem;
+    }
     .setup-panel {
         border: 1px solid var(--cr-border);
         border-radius: 8px;
@@ -4965,6 +4974,18 @@ if st.session_state.get("working_df") is not None:
         with header_cols[4]: column_header("Overdue Reminder", "Optional overdue reminder date, counted in days after the billed date. Example: due at 90, overdue at 100.")
         with header_cols[5]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
         with header_cols[6]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
+
+        def field_examples(first_example: str, second_example: str):
+            st.markdown(
+                f"""
+                <div class="field-examples">
+                  <div>{first_example}</div>
+                  <div>{second_example}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
         c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(rule_col_widths, gap="small")
         with c1:
             new_rule_name = st.text_input(
@@ -4973,6 +4994,10 @@ if st.session_state.get("working_df") is not None:
                 label_visibility="collapsed",
                 help="Text to look for in the PMS item name, such as bravecto, rabies, or librela."
             )
+            field_examples(
+                "Example 1: Canine Annual Vaccine Package",
+                "Example 2: stride-joint-supplement-120ml-small",
+            )
         with c2:
             new_rule_reminder_1 = st.text_input(
                 "Reminder 1",
@@ -4980,6 +5005,7 @@ if st.session_state.get("working_df") is not None:
                 label_visibility="collapsed",
                 help="Optional first reminder date, in days after the billed date."
             )
+            field_examples("335", "blank")
         with c3:
             new_rule_reminder_2 = st.text_input(
                 "Reminder 2",
@@ -4987,6 +5013,7 @@ if st.session_state.get("working_df") is not None:
                 label_visibility="collapsed",
                 help="Optional second reminder date, in days after the billed date."
             )
+            field_examples("357", "50")
         with c4:
             new_rule_days = st.text_input(
                 "Reminder 3 (Due Date)",
@@ -4994,6 +5021,7 @@ if st.session_state.get("working_df") is not None:
                 label_visibility="collapsed",
                 help="Positive integer number of days until this item should be due again."
             )
+            field_examples("365", "60")
         with c5:
             new_rule_overdue = st.text_input(
                 "Overdue Reminder",
@@ -5001,6 +5029,7 @@ if st.session_state.get("working_df") is not None:
                 label_visibility="collapsed",
                 help="Optional overdue reminder date, counted in days after the billed date."
             )
+            field_examples("375", "70")
         with c6:
             new_rule_use_qty = st.checkbox(
                 "Use Qty",
@@ -5008,12 +5037,17 @@ if st.session_state.get("working_df") is not None:
                 label_visibility="collapsed",
                 help="Use when quantity should extend the reminder interval."
             )
+            field_examples("Unticked", "Ticked")
         with c7:
             new_rule_visible = st.text_input(
                 "Message Text (optional)",
                 key=f"new_rule_vis_{row_id}",
                 label_visibility="collapsed",
                 help="Friendly wording to show users and clients, such as Bravecto Tablet."
+            )
+            field_examples(
+                "Annual vaccination and check-up",
+                "Stride joint health supplement",
             )
         with c8:
             if st.button("➕ Add", key=f"add_{row_id}"):
