@@ -51,11 +51,40 @@ DRIVE_SCOPE = [
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
 MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions"]
+SETUP_LINK_TARGETS = {
+    "upload-data": ("Upload Data", None),
+    "search-terms": ("Search Terms", None),
+    "reminders": ("Reminders", None),
+    "whatsapp-composer": ("Reminders", "_scroll_to_whatsapp_composer"),
+    "template-editor": ("Reminders", "_scroll_to_wa_template_editor"),
+}
 
 
 def set_main_section_tab(tab_name: str):
     if tab_name in MAIN_SECTION_TABS:
         st.session_state["main_section_tab"] = tab_name
+
+
+def get_query_param_value(key: str) -> str:
+    value = st.query_params.get(key, "")
+    if isinstance(value, list):
+        return str(value[0]) if value else ""
+    return str(value or "")
+
+
+def consume_setup_navigation_target():
+    target = get_query_param_value("setup_target")
+    tab_and_scroll_flag = SETUP_LINK_TARGETS.get(target)
+    if not tab_and_scroll_flag:
+        return
+    tab_name, scroll_flag = tab_and_scroll_flag
+    set_main_section_tab(tab_name)
+    if scroll_flag:
+        st.session_state[scroll_flag] = True
+    try:
+        del st.query_params["setup_target"]
+    except Exception:
+        pass
 
 # --------------------------------
 # Title (retention change))
@@ -909,6 +938,14 @@ st.markdown(
         color: var(--cr-link);
         font-weight: 700;
         text-decoration: none;
+    }
+    .setup-link {
+        display: inline-block;
+        font-size: 0.9rem;
+        margin-top: 0.2rem;
+    }
+    .setup-link:hover {
+        text-decoration: underline;
     }
     [class*="st-key-del_client_excl_"] button,
     [class*="st-key-del_patient_excl_"] button,
@@ -2926,6 +2963,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+consume_setup_navigation_target()
 reminders_page_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab = st.tabs(
     MAIN_SECTION_TABS,
     default=st.session_state.get("main_section_tab", "Reminders"),
@@ -3111,26 +3149,31 @@ def render_setup_checklist():
               <div class="setup-status">{upload_status}</div>
               <div class="setup-title">1. Upload data</div>
               <div class="setup-copy">Upload a CSV, XLS, or XLSX sales plan export. One year of data is ideal so yearly reminders can be found reliably.</div>
+              <a class="setup-link" href="?setup_target=upload-data">Go to Upload Data</a>
             </div>
             <div class="setup-step {search_class}">
               <div class="setup-status">{search_status}</div>
               <div class="setup-title">2. Add new search term</div>
               <div class="setup-copy">Add at least one clinic-specific product or service so reminders match your clinic language.</div>
+              <a class="setup-link" href="?setup_target=search-terms">Go to Search Terms</a>
             </div>
             <div class="setup-step {name_class}">
               <div class="setup-status">{name_status}</div>
               <div class="setup-title">3. Set sender name</div>
               <div class="setup-copy">This fills [Your Name] in WhatsApp messages. Example: Mary from Bob's Test Vet Clinic.</div>
+              <a class="setup-link" href="?setup_target=whatsapp-composer">Go to WhatsApp Composer</a>
             </div>
             <div class="setup-step {template_class}">
               <div class="setup-status">{template_status}</div>
               <div class="setup-title">4. Update template</div>
               <div class="setup-copy">Save the WhatsApp template once so it matches your clinic tone and wording.</div>
+              <a class="setup-link" href="?setup_target=template-editor">Go to Template Editor</a>
             </div>
             <div class="setup-step {reminders_class}">
               <div class="setup-status">{reminders_status}</div>
               <div class="setup-title">5. Send your first reminder</div>
               <div class="setup-copy">Open Reminders, prepare a WhatsApp message, then mark it Sent once the client has been contacted.</div>
+              <a class="setup-link" href="?setup_target=reminders">Go to Reminders</a>
             </div>
           </div>
         """,
@@ -4696,6 +4739,23 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 
     # --- WhatsApp Template Editor ---
     st.markdown("<div id='wa-template-editor' class='anchor-offset'></div>", unsafe_allow_html=True)
+    if st.session_state.pop("_scroll_to_wa_template_editor", False):
+        components.html(
+            """
+            <script>
+                  function scrollTemplateEditor(attempt) {
+                    const target = window.parent.document.getElementById('wa-template-editor');
+                    if (target) {
+                      target.scrollIntoView({behavior: 'smooth', block: 'start'});
+                      return;
+                    }
+                    if (attempt < 12) window.setTimeout(() => scrollTemplateEditor(attempt + 1), 120);
+                  }
+                  window.setTimeout(() => scrollTemplateEditor(0), 80);
+            </script>
+            """,
+            height=0,
+        )
     tmpl_main, _ = st.columns([4, 1])
     with tmpl_main:
         st.markdown("### 🧩 WhatsApp Template Editor")
