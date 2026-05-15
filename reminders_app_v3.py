@@ -62,8 +62,11 @@ def set_main_section_tab(tab_name: str):
 # --------------------------------
 title_col, tut_col = st.columns([4,1])
 with title_col:
-    st.title("ClinicReminders 6.0")
-    st.caption("Turn clinic sales data into clear follow-up reminders, then prepare WhatsApp messages in a few clicks.")
+    st.image("assets/clinic_reminders_logo.svg", width=520)
+    st.markdown(
+        '<p style="font-size:1.1rem; color:#667085; margin:0.35rem 0 0;">Turn clinic sales data into clear follow-up reminders, then prepare WhatsApp messages in a few clicks.</p>',
+        unsafe_allow_html=True,
+    )
 top_account_slot = tut_col.empty()
 
 # === Drive folder where canonical datasets live ===
@@ -2649,21 +2652,57 @@ st.markdown(
       button[data-baseweb="tab"]:hover {
         background: var(--cr-surface) !important;
       }
+      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(1),
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(1) {
+        background: #1DA759 !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(2),
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(2) {
+        background: #29D272 !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(3),
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(3) {
+        background: #80CE2D !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(4),
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(4) {
+        background: #A7E466 !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(5),
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(5) {
+        background: #D4E257 !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(1) p,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(1) p {
+        color: #ffffff !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(n+2) p,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(n+2) p {
+        color: #052e16 !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"] {
+        filter: saturate(1.08) brightness(1.03) !important;
+      }
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button,
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button p,
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p {
+        color: var(--cr-text) !important;
         font-size: 1rem !important;
         font-weight: 500 !important;
       }
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"],
       div[data-testid="stTabs"] div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
+        filter: none !important;
         font-weight: 600 !important;
       }
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button,
       div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
       div[data-testid="stTabs"] div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        background: var(--cr-surface-muted) !important;
+        filter: none !important;
         min-height: 2.15rem !important;
         padding: 0.35rem 0.8rem !important;
       }

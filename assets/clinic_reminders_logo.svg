@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 680" role="img" aria-labelledby="title">
+  <title id="title">Clinic Reminders</title>
+  <rect width="2048" height="680" fill="#ffffff"/>
+  <path
+    d="M58 365 H250 L295 220 L350 420 L428 94 L468 598 L542 252 L610 486 L648 250 H1990"
+    fill="none"
+    stroke="#11d273"
+    stroke-width="27"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <text
+    x="728"
+    y="168"
+    fill="#11162f"
+    font-family="Inter, Arial, Helvetica, sans-serif"
+    font-size="142"
+    font-weight="700"
+    letter-spacing="8"
+  >Clinic</text>
+  <text
+    x="720"
+    y="512"
+    fill="#11162f"
+    font-family="Inter, Arial, Helvetica, sans-serif"
+    font-size="228"
+    font-weight="800"
+  >Reminders</text>
+</svg>
