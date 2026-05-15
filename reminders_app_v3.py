@@ -4005,7 +4005,6 @@ def render_actioned_reminders_tab(key_prefix: str):
         if head in ACTIONED_REMINDER_SORTABLE_COLUMNS:
             if sort_state["column"] == head:
                 label = f"{label} {'^' if sort_state['ascending'] else 'v'}"
-            label = f"{label} ?"
             col.button(
                 label,
                 key=f"{key_prefix}_actioned_sort_{idx}",
@@ -4083,7 +4082,6 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         if head in REMINDER_TABLE_SORTABLE_COLUMNS:
             if sort_state["column"] == head:
                 label = f"{label} {'^' if sort_state['ascending'] else 'v'}"
-            label = f"{label} ?"
             c.button(
                 label,
                 key=f"{key_prefix}_sort_{idx}",
@@ -4477,41 +4475,54 @@ if st.session_state.get("working_df") is not None:
     
         st.markdown("### Add New Search Term")
         row_id = st.session_state['new_rule_counter']
+        header_cols = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
+        with header_cols[0]: column_header("Search Term", "Text to look for in the PMS item name, such as bravecto, rabies, or librela.")
+        with header_cols[1]: column_header("Reminder 1", "Optional first reminder date, in days after the billed date.")
+        with header_cols[2]: column_header("Reminder 2", "Optional second reminder date, in days after the billed date.")
+        with header_cols[3]: column_header("Reminder 3 (Due Date)", "Positive integer number of days until this item should be due again.")
+        with header_cols[4]: column_header("Use Qty", "Use when quantity should extend the reminder interval.")
+        with header_cols[5]: column_header("Message Text (optional)", "Friendly wording to show users and clients, such as Bravecto Tablet.")
         c1, c2, c3, c4, c5, c6, c7 = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
         with c1:
             new_rule_name = st.text_input(
                 "Search Term",
                 key=f"new_rule_name_{row_id}",
+                label_visibility="collapsed",
                 help="Text to look for in the PMS item name, such as bravecto, rabies, or librela."
             )
         with c2:
             new_rule_reminder_1 = st.text_input(
                 "Reminder 1",
                 key=f"new_rule_reminder_1_{row_id}",
+                label_visibility="collapsed",
                 help="Optional first reminder date, in days after the billed date."
             )
         with c3:
             new_rule_reminder_2 = st.text_input(
                 "Reminder 2",
                 key=f"new_rule_reminder_2_{row_id}",
+                label_visibility="collapsed",
                 help="Optional second reminder date, in days after the billed date."
             )
         with c4:
             new_rule_days = st.text_input(
                 "Reminder 3 (Due Date)",
                 key=f"new_rule_days_{row_id}",
+                label_visibility="collapsed",
                 help="Positive integer number of days until this item should be due again."
             )
         with c5:
             new_rule_use_qty = st.checkbox(
                 "Use Qty",
                 key=f"new_rule_useqty_{row_id}",
+                label_visibility="collapsed",
                 help="Use when quantity should extend the reminder interval."
             )
         with c6:
             new_rule_visible = st.text_input(
                 "Message Text (optional)",
                 key=f"new_rule_vis_{row_id}",
+                label_visibility="collapsed",
                 help="Friendly wording to show users and clients, such as Bravecto Tablet."
             )
         with c7:
