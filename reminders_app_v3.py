@@ -958,6 +958,9 @@ st.markdown(
     .setup-link:hover {
         text-decoration: underline;
     }
+    [class*="st-key-reset_get_started_checklist"] button {
+        min-width: 13rem;
+    }
     [class*="st-key-del_client_excl_"] button,
     [class*="st-key-del_patient_excl_"] button,
     [class*="st-key-del_excl_"] button {
@@ -3245,14 +3248,6 @@ def render_setup_checklist():
             '<p class="setup-intro">Six quick checks before you start using reminders.</p>',
             unsafe_allow_html=True,
         )
-        reset_col, _ = st.columns([0.55, 5], gap="small")
-        with reset_col:
-            if st.button("Reset", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
-                st.session_state["get_started_reset_at"] = datetime.utcnow().isoformat()
-                save_settings()
-                st.success("Get Started guide reset.")
-                st.rerun()
-
         st.markdown(
             f"""
           <div class="setup-grid">
@@ -3296,6 +3291,14 @@ def render_setup_checklist():
         """,
             unsafe_allow_html=True,
         )
+
+    reset_col, _ = st.columns([0.85, 5], gap="small")
+    with reset_col:
+        if st.button("↻ Reset Guide", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
+            st.session_state["get_started_reset_at"] = datetime.utcnow().isoformat()
+            save_settings()
+            st.success("Get Started guide reset.")
+            st.rerun()
 
 # --------------------------------
 # Session state init
