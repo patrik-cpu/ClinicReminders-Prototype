@@ -104,11 +104,15 @@ COUNTRY_OPTIONS = [
     "Vietnam", "Zimbabwe", "Other",
 ]
 
-def reset_uploaded_data_state(clear_cache: bool = True):
+def reset_uploaded_data_state(clear_cache: bool = True, reset_uploader: bool = False):
     """Single reset helper used by upload/reset flows."""
     for key in ["working_df", "prepared_df", "bundle", "bundle_key", "prepared_key"]:
         st.session_state.pop(key, None)
-    st.session_state.pop("file_uploader_main", None)
+    if reset_uploader:
+        st.session_state["file_uploader_reset_version"] = st.session_state.get("file_uploader_reset_version", 0) + 1
+        st.session_state["last_uploaded_files"] = []
+        st.session_state.pop("last_saved_upload_key", None)
+        st.session_state.pop("pending_overlap_upload_key", None)
     if clear_cache:
         st.cache_data.clear()
 
@@ -2458,6 +2462,8 @@ def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Ti
 def render_dataset_date_range():
     df_w = st.session_state.get("working_df")
     df_w = drop_duplicate_columns(df_w) if df_w is not None else None
+    if df_w is None or getattr(df_w, "empty", True):
+        return
 
     dmin, dmax = get_dataset_date_range(df_w)
     if dmin is not None and dmax is not None:
@@ -2465,8 +2471,6 @@ def render_dataset_date_range():
             f"<div class='dataset-range'>Date Range: {dmin:%d %b %Y} → {dmax:%d %b %Y}</div>",
             unsafe_allow_html=True,
         )
-    else:
-        st.markdown("<div class='dataset-range'>Date Range: dates not detected</div>", unsafe_allow_html=True)
 
 def render_setup_checklist():
     df_w = st.session_state.get("working_df")
@@ -2940,7 +2944,7 @@ files = st.file_uploader(
     "Upload Sales Plan file(s)",
     type=["csv", "xls", "xlsx"],
     accept_multiple_files=True,
-    key="file_uploader_main",
+    key=f"file_uploader_main_{st.session_state.get('file_uploader_reset_version', 0)}",
     help="Upload one or more PMS export files. Valid uploads are saved for everyone using this clinic login."
 )
 
@@ -3145,7 +3149,7 @@ if st.button(
     # drive_trash_file(existing_file_id)
 
     # 3) Clear local state so UI resets immediately
-    reset_uploaded_data_state(clear_cache=False)
+    reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
 
     st.session_state["shared_dataset_loaded"] = False
     st.session_state["shared_dataset_name"] = None
@@ -3339,6 +3343,9 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
         f"""
         <style>
           .st-key-{wa_key} button {{
+            align-items: center !important;
+            display: flex !important;
+            justify-content: center !important;
             min-height: 2.45rem !important;
           }}
           .st-key-{wa_key} button p {{
@@ -3350,7 +3357,7 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
             content: "";
             display: block;
             height: 1.55rem;
-            margin: 0 auto;
+            margin: 0 !important;
             -webkit-mask: url("{WHATSAPP_ICON_MASK_DATA_URI}") center / contain no-repeat;
             mask: url("{WHATSAPP_ICON_MASK_DATA_URI}") center / contain no-repeat;
             width: 1.55rem;
@@ -3456,18 +3463,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             args=(row_data, key_prefix),
         )
 
-    # --- Hidden count + Restore button (directly under the table) ---
-    num_deleted = len(st.session_state.get("deleted_reminders", []))
-    if num_deleted:
-        st.caption(f"🗑️ {num_deleted} reminders hidden (use Restore to bring them back)")
-        if st.button("♻️ Restore Hidden Reminders"):
-            st.session_state["deleted_reminders"] = []
-            st.session_state["_replace_deleted_reminders_once"] = True
-            save_settings()
-            st.success("All hidden reminders restored.")
-            st.rerun()
-
-    # --- WhatsApp Composer section (after the table + restore) ---
+    # --- WhatsApp Composer section (after the table) ---
     st.markdown("<div id='whatsapp-composer' class='anchor-offset'></div>", unsafe_allow_html=True)
     comp_main, comp_tip = st.columns([4, 1])
     with comp_main:
