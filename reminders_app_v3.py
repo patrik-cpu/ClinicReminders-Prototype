@@ -50,7 +50,7 @@ DRIVE_SCOPE = [
 
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
-MAIN_SECTION_TABS = ["Get Started", "Upload Data", "Reminders", "Search Terms", "Exclusions"]
+MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions"]
 
 
 def set_main_section_tab(tab_name: str):
@@ -2617,13 +2617,6 @@ st.markdown(
         font-weight: 700 !important;
         line-height: 1.2 !important;
       }
-      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(3),
-      div[data-testid="stTabs"] div[role="tablist"] button:nth-child(3) p,
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(3),
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(3) p {
-        font-size: 2.15rem !important;
-        font-weight: 900 !important;
-      }
       div[data-testid="stTabs"] div[role="tablist"] {
         align-items: flex-end !important;
         border-bottom: 1px solid var(--cr-border) !important;
@@ -2656,11 +2649,29 @@ st.markdown(
       button[data-baseweb="tab"]:hover {
         background: var(--cr-surface) !important;
       }
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button,
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button p,
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p {
+        font-size: 1rem !important;
+        font-weight: 500 !important;
+      }
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"],
+      div[data-testid="stTabs"] div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
+        font-weight: 600 !important;
+      }
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button,
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
+      div[data-testid="stTabs"] div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        min-height: 2.15rem !important;
+        padding: 0.35rem 0.8rem !important;
+      }
     </style>
     """,
     unsafe_allow_html=True,
 )
-get_started_tab, data_tab, reminders_page_tab, search_terms_tab, exclusions_tab = st.tabs(
+reminders_page_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab = st.tabs(
     MAIN_SECTION_TABS,
     default=st.session_state.get("main_section_tab", "Reminders"),
 )
