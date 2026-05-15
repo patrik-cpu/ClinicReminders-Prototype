@@ -4436,21 +4436,6 @@ if st.session_state.get("working_df") is not None:
                 unsafe_allow_html=True,
             )
     
-        cols = st.columns([3,1,1,1.4,1,2,0.7])
-        with cols[0]: column_header("Search Term", "Text to look for in the PMS item name.")
-        with cols[1]: column_header("Reminder 1", "Optional first reminder date, in days after the billed date.")
-        with cols[2]: column_header("Reminder 2", "Optional second reminder date, in days after the billed date.")
-        with cols[3]: column_header("Reminder 3 (Due Date)", "Exact due date in days after the billed date.")
-        with cols[4]: column_header("Use Qty", "When enabled, quantity multiplies Reminder 3 (Due Date).")
-        with cols[5]: column_header("Message Text", "Friendly wording shown in tables and WhatsApp messages.")
-        with cols[6]: column_header("Delete", "Remove this search term.")
-    
-        to_delete = []
-    
-        autosave_error = st.session_state.pop("_search_terms_autosave_error", "")
-        if autosave_error:
-            st.error(autosave_error)
-    
         def invalidate_reminder_rule_cache():
             st.session_state["search_criteria_changed"] = search_criteria_have_pending_changes()
     
@@ -4489,74 +4474,6 @@ if st.session_state.get("working_df") is not None:
             st.session_state["rules"][rule]["use_qty"] = st.session_state[key]
             save_settings()
             invalidate_reminder_rule_cache()
-    
-        for rule, settings in sorted(st.session_state["rules"].items(), key=lambda x: x[0]):
-            ver = st.session_state["form_version"]
-            safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
-            with st.container():
-                cols = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
-                with cols[0]:
-                    st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
-                with cols[1]:
-                    st.text_input(
-                        "Reminder 1", value=str(settings.get("reminder_1", "") or ""),
-                        key=f"reminder_1_{safe_rule}_{ver}", label_visibility="collapsed",
-                        on_change=save_rule_reminder_day,
-                        args=(rule, "reminder_1", f"reminder_1_{safe_rule}_{ver}",),
-                        help="Optional first reminder date, in days after the billed date."
-                    )
-                with cols[2]:
-                    st.text_input(
-                        "Reminder 2", value=str(settings.get("reminder_2", "") or ""),
-                        key=f"reminder_2_{safe_rule}_{ver}", label_visibility="collapsed",
-                        on_change=save_rule_reminder_day,
-                        args=(rule, "reminder_2", f"reminder_2_{safe_rule}_{ver}",),
-                        help="Optional second reminder date, in days after the billed date."
-                    )
-                with cols[3]:
-                    st.text_input(
-                        "Reminder 3 (Due Date)", value=str(settings["days"]),
-                        key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
-                        on_change=save_rule_days,
-                        args=(rule, f"days_{safe_rule}_{ver}",),
-                        help="Exact due date in days after the billed date. If Reminder 1 and 2 are blank, the reminder appears on this due date."
-                    )
-                with cols[4]:
-                    st.checkbox(
-                        "Use Qty", value=settings["use_qty"],
-                        key=f"useqty_{safe_rule}_{ver}",
-                        on_change=toggle_use_qty,
-                        args=(rule, f"useqty_{safe_rule}_{ver}",),
-                    )
-                with cols[5]:
-                    st.text_input(
-                        "Message Text", value=settings.get("visible_text",""),
-                        key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
-                        on_change=save_rule_visible_text,
-                        args=(rule, f"vis_{safe_rule}_{ver}",),
-                        help="Optional friendly wording shown in tables and WhatsApp messages."
-                    )
-                with cols[6]:
-                    if st.button("❌", key=f"del_{safe_rule}_{ver}"):
-                        to_delete.append(rule)
-    
-        if to_delete:
-            for rule in to_delete:
-                st.session_state["rules"].pop(rule, None)
-            save_settings()
-            invalidate_reminder_rule_cache()
-            st.rerun()
-    
-        if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
-            st.session_state["rules"] = DEFAULT_RULES.copy()
-            st.session_state["exclusions"] = []
-            st.session_state["client_exclusions"] = []
-            st.session_state["search_terms_reviewed"] = False
-            st.session_state["search_term_added"] = False
-            st.session_state["form_version"] += 1
-            save_settings()
-            invalidate_reminder_rule_cache()
-            st.rerun()
     
         st.write("## Add New Search Term")
         st.info("💡 Add a new **Search Term** (e.g., Cardisure), set optional reminder dates, the due date, whether to use quantity, and optional message text.")
@@ -4627,6 +4544,92 @@ if st.session_state.get("working_df") is not None:
                         st.rerun()
                 else:
                     st.error("Enter a name and valid positive integer for Reminder 3 (Due Date)")
+    
+
+
+        cols = st.columns([3,1,1,1.4,1,2,0.7])
+        with cols[0]: column_header("Search Term", "Text to look for in the PMS item name.")
+        with cols[1]: column_header("Reminder 1", "Optional first reminder date, in days after the billed date.")
+        with cols[2]: column_header("Reminder 2", "Optional second reminder date, in days after the billed date.")
+        with cols[3]: column_header("Reminder 3 (Due Date)", "Exact due date in days after the billed date.")
+        with cols[4]: column_header("Use Qty", "When enabled, quantity multiplies Reminder 3 (Due Date).")
+        with cols[5]: column_header("Message Text", "Friendly wording shown in tables and WhatsApp messages.")
+        with cols[6]: column_header("Delete", "Remove this search term.")
+    
+        to_delete = []
+    
+        autosave_error = st.session_state.pop("_search_terms_autosave_error", "")
+        if autosave_error:
+            st.error(autosave_error)
+    
+
+        for rule, settings in sorted(st.session_state["rules"].items(), key=lambda x: x[0]):
+            ver = st.session_state["form_version"]
+            safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
+            with st.container():
+                cols = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
+                with cols[0]:
+                    st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
+                with cols[1]:
+                    st.text_input(
+                        "Reminder 1", value=str(settings.get("reminder_1", "") or ""),
+                        key=f"reminder_1_{safe_rule}_{ver}", label_visibility="collapsed",
+                        on_change=save_rule_reminder_day,
+                        args=(rule, "reminder_1", f"reminder_1_{safe_rule}_{ver}",),
+                        help="Optional first reminder date, in days after the billed date."
+                    )
+                with cols[2]:
+                    st.text_input(
+                        "Reminder 2", value=str(settings.get("reminder_2", "") or ""),
+                        key=f"reminder_2_{safe_rule}_{ver}", label_visibility="collapsed",
+                        on_change=save_rule_reminder_day,
+                        args=(rule, "reminder_2", f"reminder_2_{safe_rule}_{ver}",),
+                        help="Optional second reminder date, in days after the billed date."
+                    )
+                with cols[3]:
+                    st.text_input(
+                        "Reminder 3 (Due Date)", value=str(settings["days"]),
+                        key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
+                        on_change=save_rule_days,
+                        args=(rule, f"days_{safe_rule}_{ver}",),
+                        help="Exact due date in days after the billed date. If Reminder 1 and 2 are blank, the reminder appears on this due date."
+                    )
+                with cols[4]:
+                    st.checkbox(
+                        "Use Qty", value=settings["use_qty"],
+                        key=f"useqty_{safe_rule}_{ver}",
+                        on_change=toggle_use_qty,
+                        args=(rule, f"useqty_{safe_rule}_{ver}",),
+                    )
+                with cols[5]:
+                    st.text_input(
+                        "Message Text", value=settings.get("visible_text",""),
+                        key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
+                        on_change=save_rule_visible_text,
+                        args=(rule, f"vis_{safe_rule}_{ver}",),
+                        help="Optional friendly wording shown in tables and WhatsApp messages."
+                    )
+                with cols[6]:
+                    if st.button("❌", key=f"del_{safe_rule}_{ver}"):
+                        to_delete.append(rule)
+    
+        if to_delete:
+            for rule in to_delete:
+                st.session_state["rules"].pop(rule, None)
+            save_settings()
+            invalidate_reminder_rule_cache()
+            st.rerun()
+    
+        if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
+            st.session_state["rules"] = DEFAULT_RULES.copy()
+            st.session_state["exclusions"] = []
+            st.session_state["client_exclusions"] = []
+            st.session_state["search_terms_reviewed"] = False
+            st.session_state["search_term_added"] = False
+            st.session_state["form_version"] += 1
+            save_settings()
+            invalidate_reminder_rule_cache()
+            st.rerun()
     
         # --------------------------------
     with exclusions_tab:
