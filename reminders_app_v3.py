@@ -2569,10 +2569,40 @@ else:
 if not st.session_state["logged_in"]:
     st.warning("Please log in to access ClinicReminders & Factoids.")
     st.stop()
-    
+
+if "rules" not in st.session_state:
+    load_settings()
+
+
+def clone_reminder_rules(rules: dict | None) -> dict:
+    return json.loads(json.dumps(rules or {}))
+
+
+def _rules_fp(rules: dict) -> str:
+    return hashlib.md5(json.dumps(rules or {}, sort_keys=True).encode()).hexdigest()
+
+
+def get_applied_reminder_rules() -> dict:
+    if "applied_rules" not in st.session_state:
+        st.session_state["applied_rules"] = clone_reminder_rules(st.session_state.get("rules", DEFAULT_RULES.copy()))
+    return st.session_state["applied_rules"]
+
+
+def search_criteria_have_pending_changes() -> bool:
+    return _rules_fp(st.session_state.get("rules", {})) != _rules_fp(get_applied_reminder_rules())
+
+
+def apply_search_criteria_changes():
+    st.session_state["applied_rules"] = clone_reminder_rules(st.session_state.get("rules", DEFAULT_RULES.copy()))
+    st.session_state.pop("prepared_df", None)
+    st.session_state.pop("prepared_key", None)
+    st.session_state.pop("bundle_key", None)
+    st.session_state["_search_criteria_refreshed"] = True
+
+
 # === Bundle Creation (inline hash; safe if rules not set yet) ===
-rules_dict = st.session_state.get("rules", {})  # avoid KeyError if rules not initialized
-rules_fp = hashlib.md5(json.dumps(rules_dict, sort_keys=True).encode()).hexdigest()
+rules_dict = get_applied_reminder_rules()
+rules_fp = _rules_fp(rules_dict)
 bundle_key = (st.session_state.get("data_version", 0), rules_fp)
 
 if st.session_state.get("working_df") is not None:
@@ -3260,8 +3290,7 @@ if files:
         st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
         all_pms = {p for p, _ in datasets}
-        rules_dict = st.session_state.get("rules", {})
-        rules_fp = hashlib.md5(json.dumps(rules_dict, sort_keys=True).encode()).hexdigest()
+        rules_fp = _rules_fp(get_applied_reminder_rules())
 
         # --- Case 1: All files from same PMS ---
         if len(all_pms) == 1 and "Undetected" not in all_pms:
@@ -3594,6 +3623,25 @@ def show_pending_reminder_action_status():
     preview = str(pending.get("preview", "")).strip()
     if preview:
         st.markdown(f"**Preview:** {preview}")
+
+
+def render_search_criteria_refresh_notice():
+    if st.session_state.pop("_search_criteria_refreshed", False):
+        st.success("Reminders refreshed with the latest search criteria.")
+
+    if not search_criteria_have_pending_changes():
+        return
+
+    notice_col, button_col = st.columns([5, 1.2], gap="small")
+    with notice_col:
+        st.error("Search criteria have changed. Refresh reminders to apply the latest changes.")
+    with button_col:
+        st.button(
+            "Refresh reminders",
+            type="primary",
+            use_container_width=True,
+            on_click=apply_search_criteria_changes,
+        )
 
 
 REMINDER_TABLE_SORTABLE_COLUMNS = ("Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item")
@@ -3984,11 +4032,8 @@ def normalize_display_case(text: str) -> str:
     return " ".join(fixed)
 
 # --------------------------------
-# Prepared dataframe memo (recompute only when data/rules change)
+# Prepared dataframe memo (recompute only when data/applied rules change)
 # --------------------------------
-def _rules_fp(rules: dict) -> str:
-    return hashlib.md5(json.dumps(rules, sort_keys=True).encode()).hexdigest()
-
 def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     key = (st.session_state.get("data_version", 0), _rules_fp(rules), PREPARED_SCHEMA_VERSION)
     if st.session_state.get("prepared_key") != key:
@@ -4006,6 +4051,7 @@ def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 # --------------------------------
 if st.session_state.get("working_df") is not None:
     df = st.session_state["working_df"].copy()
+    applied_rules = get_applied_reminder_rules()
 
     # Weekly Reminders
     st.markdown("---")
@@ -4014,7 +4060,7 @@ if st.session_state.get("working_df") is not None:
     st.markdown("#### 📅 Weekly Reminders")
     st.info("💡 Daily workspace: pick a start date, review due reminders, then click WA to prepare a message.")
 
-    prepared = get_prepared_df(df, st.session_state["rules"])
+    prepared = get_prepared_df(df, applied_rules)
 
     # ✅ safety: if schema changed but cache is stale, rebuild
     if "BaseIntervalDays" not in prepared.columns:
@@ -4066,6 +4112,8 @@ if st.session_state.get("working_df") is not None:
             help="Show a warning when WA is clicked for a client who already had a reminder within this many days. Use 0 to turn warnings off."
         )
 
+    render_search_criteria_refresh_notice()
+
     if reminder_window_days > 30:
         st.warning("Max 30 days.")
         reminder_window_days = 30
@@ -4082,9 +4130,9 @@ if st.session_state.get("working_df") is not None:
     due2 = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
 
     if not due2.empty:
-        grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=st.session_state.get("rules", {}))
+        grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=applied_rules)
 
-        render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", st.session_state["rules"])
+        render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
     else:
         st.info("No reminders in the selected week.")
 
@@ -4141,7 +4189,7 @@ if st.session_state.get("working_df") is not None:
                 .rename(columns={"ReminderDateFmt": "Reminder Date", "DueDateFmt": "Due Date"})
             )[["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]]
 
-            render_table(grouped_search, "Search Results", "search", "search_message", st.session_state["rules"])
+            render_table(grouped_search, "Search Results", "search", "search_message", applied_rules)
         else:
             st.info("No matches found.")
 
@@ -4186,8 +4234,7 @@ if st.session_state.get("working_df") is not None:
         st.error(autosave_error)
 
     def invalidate_reminder_rule_cache():
-        st.session_state.pop("prepared_df", None)
-        st.session_state.pop("prepared_key", None)
+        st.session_state["search_criteria_changed"] = search_criteria_have_pending_changes()
 
     def save_rule_days(rule, key):
         days_raw = str(st.session_state.get(key, "")).strip()
@@ -4279,6 +4326,7 @@ if st.session_state.get("working_df") is not None:
         for rule in to_delete:
             st.session_state["rules"].pop(rule, None)
         save_settings()
+        invalidate_reminder_rule_cache()
         st.rerun()
 
     if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
@@ -4289,8 +4337,7 @@ if st.session_state.get("working_df") is not None:
         st.session_state["search_term_added"] = False
         st.session_state["form_version"] += 1
         save_settings()
-        st.session_state.pop("prepared_df", None)
-        st.session_state.pop("prepared_key", None)
+        invalidate_reminder_rule_cache()
         st.rerun()
 
     st.markdown("---")
@@ -4359,8 +4406,7 @@ if st.session_state.get("working_df") is not None:
                     st.session_state["search_term_added"] = True
                     save_settings()
                     st.session_state["new_rule_counter"] += 1
-                    st.session_state.pop("prepared_df", None)
-                    st.session_state.pop("prepared_key", None)
+                    invalidate_reminder_rule_cache()
                     st.rerun()
             else:
                 st.error("Enter a name and valid positive integer for Reminder 3 (Due Date)")
@@ -4495,7 +4541,7 @@ if st.session_state["factoids_unlocked"]:
         st.warning("Upload data first to enable Factoids.")
     else:
         df_full, masks, tx_client, tx_patient, patients_per_month = st.session_state["bundle"]
-        rules_fp = _rules_fp(st.session_state["rules"])
+        rules_fp = _rules_fp(get_applied_reminder_rules())
         data_key = (st.session_state.get("data_version", 0), rules_fp)
 
         # -----------------------
