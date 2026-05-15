@@ -3597,7 +3597,7 @@ def show_pending_reminder_action_status():
 
 
 REMINDER_TABLE_SORTABLE_COLUMNS = ("Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item")
-REMINDER_TABLE_HEADER_LABELS = {"Plan Item": "Item"}
+REMINDER_TABLE_HEADER_LABELS = {"Charge Date": "Billed Date", "Plan Item": "Item"}
 
 
 def set_reminder_table_sort(key_prefix: str, column: str):
@@ -4152,7 +4152,7 @@ if st.session_state.get("working_df") is not None:
     st.info(
         "### 🧩 How to Manage Search Terms\n\n"
         "**1️⃣ View and edit all existing Search Terms** — each term represents a product or service that generates a reminder (e.g., *Rabies*, *Bravecto*, *Dental*).\n\n"
-        "**2️⃣ Set optional early reminder dates** — Reminder 1 and Reminder 2 are days after the charge date when reminders should appear.  \n"
+        "**2️⃣ Set optional early reminder dates** — Reminder 1 and Reminder 2 are days after the billed date when reminders should appear.  \n"
         "Example: Bravecto due at 90 days, with reminders at 80 and 85 days.\n\n"
         "**3️⃣ Set Reminder 3 (Due Date)** — this is the exact due date shown in the WhatsApp message and used as the default reminder date when Reminder 1 and 2 are blank.\n\n"
         "**4️⃣ Choose whether to use the ‘Qty’ column** — if checked, Reminder 3 (Due Date) multiplies by quantity.  \n"
@@ -4172,9 +4172,9 @@ if st.session_state.get("working_df") is not None:
 
     cols = st.columns([3,1,1,1.4,1,2,0.7])
     with cols[0]: column_header("Search Term", "Text to look for in the PMS item name.")
-    with cols[1]: column_header("Reminder 1", "Optional first reminder date, in days after the charge date.")
-    with cols[2]: column_header("Reminder 2", "Optional second reminder date, in days after the charge date.")
-    with cols[3]: column_header("Reminder 3 (Due Date)", "Exact due date in days after the charge date.")
+    with cols[1]: column_header("Reminder 1", "Optional first reminder date, in days after the billed date.")
+    with cols[2]: column_header("Reminder 2", "Optional second reminder date, in days after the billed date.")
+    with cols[3]: column_header("Reminder 3 (Due Date)", "Exact due date in days after the billed date.")
     with cols[4]: column_header("Use Qty", "When enabled, quantity multiplies Reminder 3 (Due Date).")
     with cols[5]: column_header("Message Text", "Friendly wording shown in tables and WhatsApp messages.")
     with cols[6]: column_header("Delete", "Remove this search term.")
@@ -4238,7 +4238,7 @@ if st.session_state.get("working_df") is not None:
                     key=f"reminder_1_{safe_rule}_{ver}", label_visibility="collapsed",
                     on_change=save_rule_reminder_day,
                     args=(rule, "reminder_1", f"reminder_1_{safe_rule}_{ver}",),
-                    help="Optional first reminder date, in days after the charge date."
+                    help="Optional first reminder date, in days after the billed date."
                 )
             with cols[2]:
                 st.text_input(
@@ -4246,7 +4246,7 @@ if st.session_state.get("working_df") is not None:
                     key=f"reminder_2_{safe_rule}_{ver}", label_visibility="collapsed",
                     on_change=save_rule_reminder_day,
                     args=(rule, "reminder_2", f"reminder_2_{safe_rule}_{ver}",),
-                    help="Optional second reminder date, in days after the charge date."
+                    help="Optional second reminder date, in days after the billed date."
                 )
             with cols[3]:
                 st.text_input(
@@ -4254,7 +4254,7 @@ if st.session_state.get("working_df") is not None:
                     key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
                     on_change=save_rule_days,
                     args=(rule, f"days_{safe_rule}_{ver}",),
-                    help="Exact due date in days after the charge date. If Reminder 1 and 2 are blank, the reminder appears on this due date."
+                    help="Exact due date in days after the billed date. If Reminder 1 and 2 are blank, the reminder appears on this due date."
                 )
             with cols[4]:
                 st.checkbox(
@@ -4295,7 +4295,7 @@ if st.session_state.get("working_df") is not None:
 
     st.markdown("---")
     st.write("### Add New Search Term")
-    st.info("💡 Add a new **Search Term** (e.g., Cardisure), set optional reminder dates, the due date, whether to use quantity, and optional visible text.")
+    st.info("💡 Add a new **Search Term** (e.g., Cardisure), set optional reminder dates, the due date, whether to use quantity, and optional message text.")
     row_id = st.session_state['new_rule_counter']
     c1, c2, c3, c4, c5, c6, c7 = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
     with c1:
@@ -4308,13 +4308,13 @@ if st.session_state.get("working_df") is not None:
         new_rule_reminder_1 = st.text_input(
             "Reminder 1",
             key=f"new_rule_reminder_1_{row_id}",
-            help="Optional first reminder date, in days after the charge date."
+            help="Optional first reminder date, in days after the billed date."
         )
     with c3:
         new_rule_reminder_2 = st.text_input(
             "Reminder 2",
             key=f"new_rule_reminder_2_{row_id}",
-            help="Optional second reminder date, in days after the charge date."
+            help="Optional second reminder date, in days after the billed date."
         )
     with c4:
         new_rule_days = st.text_input(
