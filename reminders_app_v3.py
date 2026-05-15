@@ -897,6 +897,9 @@ st.markdown(
         line-height: 1.45;
         margin-top: 0.45rem;
     }
+    .field-examples.use-qty-examples {
+        margin-top: 0.85rem;
+    }
     .field-examples div + div {
         margin-top: 0.2rem;
     }
@@ -5373,10 +5376,11 @@ if st.session_state.get("working_df") is not None:
         with header_cols[5]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
         with header_cols[6]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
 
-        def field_examples(first_example: str, second_example: str):
+        def field_examples(first_example: str, second_example: str, extra_class: str = ""):
+            classes = f"field-examples {extra_class}".strip()
             st.markdown(
                 f"""
-                <div class="field-examples">
+                <div class="{classes}">
                   <div>{first_example}</div>
                   <div>{second_example}</div>
                 </div>
@@ -5438,6 +5442,7 @@ if st.session_state.get("working_df") is not None:
             field_examples(
                 "Unticked",
                 "Ticked",
+                "use-qty-examples",
             )
         with c7:
             new_rule_visible = st.text_input(
