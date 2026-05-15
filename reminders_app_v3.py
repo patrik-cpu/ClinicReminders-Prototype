@@ -58,7 +58,6 @@ title_col, tut_col = st.columns([4,1])
 with title_col:
     st.title("ClinicReminders 6.0")
     st.caption("Turn clinic sales data into clear follow-up reminders, then prepare WhatsApp messages in a few clicks.")
-st.markdown("---")
 
 # === Drive folder where canonical datasets live ===
 DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive folder URL
@@ -484,6 +483,13 @@ if st.session_state.get("logged_in", False):
         <div class="sidebar-clinic-block">
           <div style="font-weight:700; margin-bottom:0.15rem;">Clinic</div>
           <div class="sidebar-clinic-name">{clinic_label}</div>
+        </div>
+        <div style="font-size:15px; line-height:1.85;">
+          <a href="#getting-started" style="text-decoration:none; display:block;">Get Started</a>
+          <a href="#data-upload" style="text-decoration:none; display:block;">Upload Data</a>
+          <a href="#reminders" style="text-decoration:none; display:block; font-weight:700;">Reminders</a>
+          <a href="#search-terms" style="text-decoration:none; display:block;">Search Terms</a>
+          <a href="#exclusions" style="text-decoration:none; display:block;">Exclusions</a>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2576,8 +2582,11 @@ if "rules" not in st.session_state:
 st.markdown(
     """
     <style>
+      div[data-testid="stTabs"] > div[role="tablist"] button p {
+        font-size: 1.04rem !important;
+      }
       div[data-testid="stTabs"] > div[role="tablist"] button:nth-child(3) p {
-        font-size: 1.12rem !important;
+        font-size: 1.22rem !important;
         font-weight: 800 !important;
       }
     </style>
@@ -2585,7 +2594,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 get_started_tab, data_tab, reminders_page_tab, search_terms_tab, exclusions_tab = st.tabs(
-    ["Get Started", "Data", "Reminders", "Search Terms", "Exclusions"]
+    ["Get Started", "Upload Data", "Reminders", "Search Terms", "Exclusions"]
 )
 
 
@@ -3220,7 +3229,7 @@ with get_started_tab:
     
 with data_tab:
     st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("## 📂 Data")
+    st.markdown("## 📂 Upload Data")
     render_dataset_status()
     render_dataset_date_range()
     st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
@@ -4296,7 +4305,6 @@ if st.session_state.get("working_df") is not None:
 
     with reminders_page_tab:
         # Weekly Reminders
-        st.markdown("---")
         st.markdown("<h2 id='reminders'>📅 Reminders</h2>", unsafe_allow_html=True)
         st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
         st.markdown("#### 📅 Weekly Reminders")
@@ -4385,7 +4393,6 @@ if st.session_state.get("working_df") is not None:
         # --------------------------------
         # Search
         # --------------------------------
-        st.markdown("---")
         st.markdown("<div id='search' class='anchor-offset'></div>", unsafe_allow_html=True)
         st.markdown("#### 🔍 Search Reminders")
         st.info("💡 Search by client, animal, or item to find upcoming reminders.")
@@ -4441,7 +4448,6 @@ if st.session_state.get("working_df") is not None:
     
     with search_terms_tab:
         # Rules editor (unchanged UI; behavior preserved)
-        st.markdown("---")
         st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
         st.markdown("#### 📝 Search Terms")
         st.info(
@@ -4587,7 +4593,6 @@ if st.session_state.get("working_df") is not None:
             invalidate_reminder_rule_cache()
             st.rerun()
     
-        st.markdown("---")
         st.write("### Add New Search Term")
         st.info("💡 Add a new **Search Term** (e.g., Cardisure), set optional reminder dates, the due date, whether to use quantity, and optional message text.")
         row_id = st.session_state['new_rule_counter']
@@ -4662,7 +4667,6 @@ if st.session_state.get("working_df") is not None:
     with exclusions_tab:
         # Exclusions
         # --------------------------------
-        st.markdown("---")
         st.markdown("<div id='exclusions' class='anchor-offset'></div>", unsafe_allow_html=True)
         st.markdown("#### 🚫 Exclusions")
         st.info("💡 Add clients or item terms here to automatically hide matching reminders.")
@@ -4753,11 +4757,11 @@ if st.session_state.get("working_df") is not None:
     
 else:
     with reminders_page_tab:
-        st.info("Upload data in the Data tab to generate reminders.")
+        st.info("Upload data in the Upload Data tab to generate reminders.")
     with search_terms_tab:
-        st.info("Upload data in the Data tab to manage search terms.")
+        st.info("Upload data in the Upload Data tab to manage search terms.")
     with exclusions_tab:
-        st.info("Upload data in the Data tab to manage exclusions.")
+        st.info("Upload data in the Upload Data tab to manage exclusions.")
 
 # --------------------------------
 # 📊 Factoids Section (temporarily hidden)
@@ -6329,5 +6333,3 @@ if False and st.session_state["admin_unlocked"]:
                     json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
                     language="json",
                 )
-else:
-    st.info("🔒 NVF admin-only sections are locked.")
