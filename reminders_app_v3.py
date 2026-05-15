@@ -3247,7 +3247,7 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
         f"""
         <style>
           .st-key-{wa_key} button {{
-            min-height: 3.8rem !important;
+            min-height: 3rem !important;
           }}
           .st-key-{wa_key} button p {{
             font-size: 1rem !important;
@@ -3260,12 +3260,12 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
             box-shadow: {sent_shadow} !important;
             color: #15803d !important;
             line-height: 1 !important;
-            min-height: 3.8rem !important;
+            min-height: 3rem !important;
             opacity: {sent_opacity};
           }}
           .st-key-{sent_key} button p {{
             color: #15803d !important;
-            font-size: 3.2rem !important;
+            font-size: 2.55rem !important;
             font-weight: 900 !important;
             line-height: 1 !important;
             opacity: {sent_opacity};
@@ -3278,12 +3278,12 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
             box-shadow: {decline_shadow} !important;
             color: #b91c1c !important;
             line-height: 1 !important;
-            min-height: 3.8rem !important;
+            min-height: 3rem !important;
             opacity: {decline_opacity};
           }}
           .st-key-{decline_key} button p {{
             color: #b91c1c !important;
-            font-size: 3.2rem !important;
+            font-size: 2.55rem !important;
             font-weight: 900 !important;
             line-height: 1 !important;
             opacity: {decline_opacity};
