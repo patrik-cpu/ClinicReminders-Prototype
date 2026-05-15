@@ -130,7 +130,7 @@ with title_col:
             letter-spacing: 0;
             line-height: 1;
             position: relative;
-            transform: translate(15px, 13px);
+            transform: translate(15px, 9px);
             z-index: 1;
         }
         .cr-brand-word.clinic {
