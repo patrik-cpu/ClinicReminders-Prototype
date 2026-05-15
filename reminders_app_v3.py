@@ -1351,6 +1351,7 @@ def load_settings():
         st.session_state["rules"] = settings.get("rules", DEFAULT_RULES.copy())
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["client_exclusions"] = settings.get("client_exclusions", [])
+        st.session_state["patient_exclusions"] = settings.get("patient_exclusions", [])
         st.session_state["user_name"] = settings.get("user_name", "")
         st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
         st.session_state["client_group_days"] = max(0, int(settings.get("client_group_days", 1) or 0))
@@ -1372,6 +1373,7 @@ def load_settings():
         st.session_state["rules"] = DEFAULT_RULES.copy()
         st.session_state["exclusions"] = []
         st.session_state["client_exclusions"] = []
+        st.session_state["patient_exclusions"] = []
         st.session_state["user_name"] = ""
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
         st.session_state["client_group_days"] = 1
@@ -1433,6 +1435,7 @@ def save_settings():
         "rules": setting_for_save("rules", DEFAULT_RULES.copy()),
         "exclusions": setting_for_save("exclusions", []),
         "client_exclusions": setting_for_save("client_exclusions", []),
+        "patient_exclusions": setting_for_save("patient_exclusions", []),
         "user_name": setting_for_save("user_name", ""),
         "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
         "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
@@ -2192,6 +2195,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "rules": DEFAULT_RULES.copy(),
         "exclusions": [],
         "client_exclusions": [],
+        "patient_exclusions": [],
         "user_name": "",
         "user_template": DEFAULT_WA_TEMPLATE,
         "client_group_days": 1,
@@ -2786,7 +2790,7 @@ def render_setup_checklist():
             <div class="setup-step {reminders_class}">
               <div class="setup-status">{reminders_status}</div>
               <div class="setup-title">5. Check reminders</div>
-              <div class="setup-copy">Pick a start date, confirm the output, then click WA to prepare messages.</div>
+              <div class="setup-copy">Pick a start date, confirm the output, then click WhatsApp to prepare messages.</div>
             </div>
           </div>
         </section>
@@ -3258,7 +3262,7 @@ with data_tab:
     st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
     if st.session_state.get("dataset_save_notice"):
         st.success(st.session_state.pop("dataset_save_notice"))
-    
+
     datasets = []
     summary_rows = []
     working_df = None
@@ -3517,6 +3521,22 @@ def render_table(df, title, key_prefix, msg_key, rules):
         if excluded_clients:
             client_keys = df["Client Name"].astype(str).map(lambda value: _SPACE_RX.sub(" ", value.strip()).lower())
             df = df[~client_keys.isin(excluded_clients)]
+    patient_exclusions = st.session_state.get("patient_exclusions", [])
+    if patient_exclusions and {"Client Name", "Animal Name"}.issubset(df.columns):
+        excluded_patient_pairs = {
+            (
+                _SPACE_RX.sub(" ", str(item.get("client", "") or "").strip()).lower(),
+                _SPACE_RX.sub(" ", str(item.get("patient", "") or "").strip()).lower(),
+            )
+            for item in patient_exclusions
+            if isinstance(item, dict) and str(item.get("client", "") or "").strip() and str(item.get("patient", "") or "").strip()
+        }
+        if excluded_patient_pairs:
+            row_pairs = list(zip(
+                df["Client Name"].astype(str).map(lambda value: _SPACE_RX.sub(" ", value.strip()).lower()),
+                df["Animal Name"].astype(str).map(lambda value: _SPACE_RX.sub(" ", value.strip()).lower()),
+            ))
+            df = df[[pair not in excluded_patient_pairs for pair in row_pairs]]
     if st.session_state["exclusions"]:
         excl_pattern = "|".join(map(re.escape, st.session_state["exclusions"]))
         target_col = "Item Name" if "Item Name" in df.columns else "Plan Item"
@@ -3696,21 +3716,21 @@ def render_search_criteria_refresh_notice():
 REMINDER_TABLE_SORTABLE_COLUMNS = ("Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item")
 REMINDER_TABLE_HEADER_LABELS = {"Charge Date": "Billed Date", "Plan Item": "Item"}
 REMINDER_TABLE_COLUMN_HELP = {
-    "Actioned Date": "Date this reminder was marked sent or declined.",
-    "Actioned By": "Name saved in the WhatsApp composer when the action was taken.",
-    "Reminder Date": "Date this reminder appears in the reminder workflow.",
-    "Due Date": "Date the item is due for the client or patient.",
-    "Charge Date": "Billed date of the original item or service.",
-    "Client Name": "Client linked to this reminder.",
-    "Animal Name": "Patient or patients linked to this reminder.",
-    "Plan Item": "Reminder item shown in the table and WhatsApp message.",
-    "Qty": "Quantity from the billed item, or NA for grouped reminders.",
-    "Days": "Reminder interval in days, or NA for grouped reminders.",
-    "WA": "Prepare the WhatsApp message for this row.",
-    "Sent": "Mark this reminder as sent and move it to Actioned Reminders.",
-    "Decline": "Decline this reminder and move it to Actioned Reminders.",
-    "Action": "Whether this reminder was sent or declined.",
-    "Undo": "Return this row to Active Reminders.",
+    "Actioned Date": "When this reminder was marked Sent or Declined.",
+    "Actioned By": "The name saved in the WhatsApp Composer when the reminder was actioned.",
+    "Reminder Date": "The date this reminder is scheduled to appear in this workflow.",
+    "Due Date": "The date the product, service, or vaccine is due again.",
+    "Charge Date": "The original billed date from the uploaded sales data.",
+    "Client Name": "The client attached to this reminder.",
+    "Animal Name": "The patient or grouped patients attached to this reminder.",
+    "Plan Item": "The reminder item shown in the table and inserted into WhatsApp messages.",
+    "Qty": "The billed quantity. NA means the row is grouped or quantity does not apply.",
+    "Days": "The reminder interval in days. NA means the row is grouped or no interval is shown.",
+    "WhatsApp": "Prepare this client's message and jump to the WhatsApp Composer, where you can review and edit before sending.",
+    "Sent": "Mark the reminder as sent and move it to Actioned Reminders.",
+    "Decline": "Mark the reminder as declined and move it to Actioned Reminders.",
+    "Action": "Shows whether the reminder was marked Sent or Declined.",
+    "Undo": "Move this reminder back to Active Reminders.",
 }
 
 
@@ -3722,6 +3742,15 @@ def render_column_help_icon(container, help_text: str, align: str = "left"):
     safe_help = html_lib.escape(help_text)
     container.markdown(
         f"<div style='text-align:{align}; line-height:1.6rem;'><span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_field_label(container, label: str, help_text: str):
+    safe_label = html_lib.escape(label)
+    safe_help = html_lib.escape(help_text)
+    container.markdown(
+        f"<div style='font-size:0.9rem; font-weight:600; margin-bottom:0.35rem;'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -4075,7 +4104,7 @@ def render_actioned_reminders_tab(key_prefix: str):
 def render_table_with_buttons(df, key_prefix, msg_key):
     df = sort_reminder_table(df, key_prefix)
     col_widths = [2, 2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
-    headers = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WA", "Sent", "Decline"]
+    headers = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WhatsApp", "Sent", "Decline"]
     safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
     st.markdown(
         f"""
@@ -4108,7 +4137,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     sort_state = get_reminder_table_sort(key_prefix)
     header_cols = st.columns(col_widths)
     for idx, (c, head) in enumerate(zip(header_cols, headers)):
-        align = "center" if head in ["WA", "Sent", "Decline"] else "left"
+        align = "center" if head in ["WhatsApp", "Sent", "Decline"] else "left"
         label = REMINDER_TABLE_HEADER_LABELS.get(head, head)
         if head in REMINDER_TABLE_SORTABLE_COLUMNS:
             if sort_state["column"] == head:
@@ -4179,8 +4208,15 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         components.html(
             """
             <script>
-              const target = window.parent.document.getElementById('whatsapp-composer');
-              if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+                  function scrollComposer(attempt) {
+                    const target = window.parent.document.getElementById('whatsapp-composer');
+                    if (target) {
+                      target.scrollIntoView({behavior: 'smooth', block: 'start'});
+                      return;
+                    }
+                    if (attempt < 12) window.setTimeout(() => scrollComposer(attempt + 1), 120);
+                  }
+                  window.setTimeout(() => scrollComposer(0), 80);
             </script>
             """,
             height=0,
@@ -4213,7 +4249,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             "Message:",
             key=msg_key,
             height=200,
-            help="Prepared when you click WA in the reminders table. You can edit it before opening WhatsApp."
+            help="Prepared when you click WhatsApp in the reminders table. You can edit it before opening WhatsApp."
         )
         current_message = st.session_state.get(msg_key, "")
 
@@ -4296,7 +4332,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         """
         <div class="template-helper">
           <h4>Template basics</h4>
-          <p>Write the message once. When you click WA, the app fills in the bracketed placeholders automatically.</p>
+          <p>Write the message once. When you click WhatsApp, the app fills in the bracketed placeholders automatically.</p>
           <div class="placeholder-grid">
             <div class="placeholder-chip"><code>[Client Name]</code>Client first name</div>
             <div class="placeholder-chip"><code>[Your Name]</code>Your saved sender name</div>
@@ -4383,17 +4419,27 @@ if st.session_state.get("working_df") is not None:
             # optional big hammer:
             # st.cache_data.clear()
             st.rerun()
-    
+
         default_start = date.today()
     
         start_col, window_col, group_col, warning_col = st.columns(4)
         with start_col:
+            render_field_label(
+                st,
+                "Today",
+                "Choose the first date to show reminders for. It defaults to today, but you can pick another date."
+            )
             start_date = st.date_input(
                 "Today",
                 value=default_start,
-                help="First day to include in the reminder list."
+                label_visibility="collapsed",
             )
         with window_col:
+            render_field_label(
+                st,
+                "Days to look ahead",
+                "0 shows the selected day only. 1 includes the selected day plus the next day."
+            )
             reminder_window_days = st.number_input(
                 "Days to look ahead",
                 min_value=0,
@@ -4401,9 +4447,14 @@ if st.session_state.get("working_df") is not None:
                 step=1,
                 key="reminder_window_days",
                 on_change=save_settings,
-                help="0 = selected day only. 1 = selected day plus tomorrow. Maximum 30."
+                label_visibility="collapsed",
             )
         with group_col:
+            render_field_label(
+                st,
+                "Number of days to group reminders for the same client",
+                "Controls how reminders for the same client are combined. 0 means no grouping; 1 groups same-day reminders."
+            )
             group_days = st.number_input(
                 "Number of days to group reminders for the same client",
                 min_value=0,
@@ -4411,14 +4462,14 @@ if st.session_state.get("working_df") is not None:
                 step=1,
                 key="client_group_days",
                 on_change=save_settings,
-                help=(
-                    "Controls how reminders for the same client are combined. "
-                    "0 = no grouping. 1 = group only reminders on the same day, e.g. Oct 4. "
-                    "2 = group reminders across two dates, e.g. Oct 4 and Oct 5. "
-                    "3 = group reminders across three dates, e.g. Oct 4 to Oct 6."
-                )
+                label_visibility="collapsed",
             )
         with warning_col:
+            render_field_label(
+                st,
+                "Number of days for repeat-reminder warning",
+                "Warns you before preparing WhatsApp if the same client had a recent reminder. Use 0 to turn warnings off."
+            )
             st.number_input(
                 "Number of days for repeat-reminder warning",
                 min_value=0,
@@ -4426,7 +4477,7 @@ if st.session_state.get("working_df") is not None:
                 step=1,
                 key="reminder_warning_days",
                 on_change=save_settings,
-                help="Show a warning when WA is clicked for a client who already had a reminder within this many days. Use 0 to turn warnings off."
+                label_visibility="collapsed",
             )
     
         render_search_criteria_refresh_notice()
@@ -4508,12 +4559,12 @@ if st.session_state.get("working_df") is not None:
         st.markdown("### Add New Search Term")
         row_id = st.session_state['new_rule_counter']
         header_cols = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
-        with header_cols[0]: column_header("Search Term", "Text to look for in the PMS item name, such as bravecto, rabies, or librela.")
-        with header_cols[1]: column_header("Reminder 1", "Optional first reminder date, in days after the billed date.")
-        with header_cols[2]: column_header("Reminder 2", "Optional second reminder date, in days after the billed date.")
-        with header_cols[3]: column_header("Reminder 3 (Due Date)", "Positive integer number of days until this item should be due again.")
-        with header_cols[4]: column_header("Use Qty", "Use when quantity should extend the reminder interval.")
-        with header_cols[5]: column_header("Message Text (optional)", "Friendly wording to show users and clients, such as Bravecto Tablet.")
+        with header_cols[0]: column_header("Search Term", "The product or service text to match in uploaded item names, such as bravecto, rabies, or librela.")
+        with header_cols[1]: column_header("Reminder 1", "Optional early reminder date, counted in days after the billed date.")
+        with header_cols[2]: column_header("Reminder 2", "Optional second early reminder date, counted in days after the billed date.")
+        with header_cols[3]: column_header("Reminder 3 (Due Date)", "The main due date, counted in days after the billed date.")
+        with header_cols[4]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
+        with header_cols[5]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
         c1, c2, c3, c4, c5, c6, c7 = st.columns([3,1,1,1.4,1,2,0.7], gap="small")
         with c1:
             new_rule_name = st.text_input(
@@ -4592,13 +4643,13 @@ if st.session_state.get("working_df") is not None:
         st.markdown("### Current Search Terms")
 
         cols = st.columns([3,1,1,1.4,1,2,0.7])
-        with cols[0]: column_header("Search Term", "Text to look for in the PMS item name.")
-        with cols[1]: column_header("Reminder 1", "Optional first reminder date, in days after the billed date.")
-        with cols[2]: column_header("Reminder 2", "Optional second reminder date, in days after the billed date.")
-        with cols[3]: column_header("Reminder 3 (Due Date)", "Exact due date in days after the billed date.")
-        with cols[4]: column_header("Use Qty", "When enabled, quantity multiplies Reminder 3 (Due Date).")
-        with cols[5]: column_header("Message Text", "Friendly wording shown in tables and WhatsApp messages.")
-        with cols[6]: column_header("Delete", "Remove this search term.")
+        with cols[0]: column_header("Search Term", "The product or service text matched against uploaded item names.")
+        with cols[1]: column_header("Reminder 1", "Optional early reminder date, counted in days after the billed date.")
+        with cols[2]: column_header("Reminder 2", "Optional second early reminder date, counted in days after the billed date.")
+        with cols[3]: column_header("Reminder 3 (Due Date)", "The main due date, counted in days after the billed date.")
+        with cols[4]: column_header("Use Qty", "When enabled, quantity extends the due date.")
+        with cols[5]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
+        with cols[6]: column_header("Delete", "Remove this search term from matching.")
     
         to_delete = []
     
@@ -4668,6 +4719,7 @@ if st.session_state.get("working_df") is not None:
             st.session_state["rules"] = DEFAULT_RULES.copy()
             st.session_state["exclusions"] = []
             st.session_state["client_exclusions"] = []
+            st.session_state["patient_exclusions"] = []
             st.session_state["search_terms_reviewed"] = False
             st.session_state["search_term_added"] = False
             st.session_state["form_version"] += 1
@@ -4683,7 +4735,7 @@ if st.session_state.get("working_df") is not None:
         st.markdown("## 🚫 Exclusions")
     
         st.markdown("### Client Exclusions")
-        st.caption("Exclude all reminders for an exact client name.")
+        st.caption("Hide every reminder for a specific client.")
         st.session_state.setdefault("client_exclusions", [])
         if st.session_state["client_exclusions"]:
             for client_name in sorted(st.session_state["client_exclusions"]):
@@ -4699,16 +4751,22 @@ if st.session_state.get("working_df") is not None:
                             st.rerun()
         else:
             st.caption("No client exclusions yet.")
-    
+
         row_id = st.session_state['new_rule_counter']
         c1, c2 = st.columns([4,1], gap="small")
         with c1:
+            render_field_label(
+                st,
+                "Add Client Exclusion",
+                "Enter the client name exactly as it appears in the reminder table. All reminders for that client will be hidden."
+            )
             new_client_excl = st.text_input(
                 "Add Client Exclusion",
                 key=f"new_client_excl_{row_id}",
-                help="Enter the client name exactly as it appears in reminders."
+                label_visibility="collapsed",
             )
         with c2:
+            st.markdown("<div style='height:1.65rem;'></div>", unsafe_allow_html=True)
             if st.button("➕ Add Client", key=f"add_client_excl_{row_id}"):
                 if new_client_excl and new_client_excl.strip():
                     safe_client = _SPACE_RX.sub(" ", new_client_excl.strip())
@@ -4726,9 +4784,88 @@ if st.session_state.get("working_df") is not None:
                         st.info("This client exclusion already exists.")
                 else:
                     st.error("Enter a valid client name")
-    
+
+        st.markdown("### Patient Exclusions")
+        st.caption("Hide reminders for one patient under one specific client.")
+        st.session_state.setdefault("patient_exclusions", [])
+        if st.session_state["patient_exclusions"]:
+            sorted_patient_exclusions = sorted(
+                st.session_state["patient_exclusions"],
+                key=lambda item: (
+                    str(item.get("client", "")).casefold() if isinstance(item, dict) else "",
+                    str(item.get("patient", "")).casefold() if isinstance(item, dict) else "",
+                ),
+            )
+            for exclusion_idx, exclusion in enumerate(sorted_patient_exclusions):
+                if not isinstance(exclusion, dict):
+                    continue
+                client_name = _SPACE_RX.sub(" ", str(exclusion.get("client", "") or "").strip())
+                patient_name = _SPACE_RX.sub(" ", str(exclusion.get("patient", "") or "").strip())
+                if not client_name or not patient_name:
+                    continue
+                safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"{client_name}_{patient_name}_{exclusion_idx}")
+                with st.container():
+                    cols = st.columns([6,1], gap="small")
+                    with cols[0]:
+                        st.markdown(f"<div style='padding-top:8px;'>{client_name} - {patient_name}</div>", unsafe_allow_html=True)
+                    with cols[1]:
+                        if st.button("❌", key=f"del_patient_excl_{safe_pair}"):
+                            st.session_state["patient_exclusions"].remove(exclusion)
+                            save_settings()
+                            st.rerun()
+        else:
+            st.caption("No patient exclusions yet.")
+
+        pc1, pc2, pc3 = st.columns([2, 2, 1], gap="small")
+        with pc1:
+            render_field_label(
+                st,
+                "Client Name",
+                "Enter the client name exactly as it appears in the reminder table."
+            )
+            new_patient_client = st.text_input(
+                "Patient exclusion client name",
+                key=f"new_patient_client_excl_{row_id}",
+                label_visibility="collapsed",
+            )
+        with pc2:
+            render_field_label(
+                st,
+                "Patient Name",
+                "Enter the patient name exactly as it appears in the reminder table."
+            )
+            new_patient_name = st.text_input(
+                "Patient exclusion patient name",
+                key=f"new_patient_name_excl_{row_id}",
+                label_visibility="collapsed",
+            )
+        with pc3:
+            st.markdown("<div style='height:1.65rem;'></div>", unsafe_allow_html=True)
+            if st.button("➕ Add Patient", key=f"add_patient_excl_{row_id}"):
+                safe_client = _SPACE_RX.sub(" ", str(new_patient_client or "").strip())
+                safe_patient = _SPACE_RX.sub(" ", str(new_patient_name or "").strip())
+                if safe_client and safe_patient:
+                    patient_key = (safe_client.lower(), safe_patient.lower())
+                    existing_pairs = {
+                        (
+                            _SPACE_RX.sub(" ", str(item.get("client", "") or "").strip()).lower(),
+                            _SPACE_RX.sub(" ", str(item.get("patient", "") or "").strip()).lower(),
+                        )
+                        for item in st.session_state["patient_exclusions"]
+                        if isinstance(item, dict)
+                    }
+                    if patient_key not in existing_pairs:
+                        st.session_state["patient_exclusions"].append({"client": safe_client, "patient": safe_patient})
+                        save_settings()
+                        st.session_state["new_rule_counter"] += 1
+                        st.rerun()
+                    else:
+                        st.info("This patient exclusion already exists.")
+                else:
+                    st.error("Enter both client and patient names")
+
         st.markdown("### Item Exclusions")
-        st.caption("Exclude reminders whose item text contains a term.")
+        st.caption("Hide reminders when the item text contains a specific word or phrase.")
         if st.session_state["exclusions"]:
             for term in sorted(st.session_state["exclusions"]):
                 safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
@@ -4743,16 +4880,22 @@ if st.session_state.get("working_df") is not None:
                             st.rerun()
         else:
             st.caption("No item exclusions yet.")
-    
+
         row_id = st.session_state['new_rule_counter']
         c1, c2 = st.columns([4,1], gap="small")
         with c1:
+            render_field_label(
+                st,
+                "Add Item Exclusion",
+                "Enter a product, service, or wording fragment. Any reminder item containing this text will be hidden."
+            )
             new_excl = st.text_input(
-                "Add Item Exclusion Term",
+                "Add Item Exclusion",
                 key=f"new_excl_{row_id}",
-                help="Any reminder containing this text will be hidden from reminder tables."
+                label_visibility="collapsed",
             )
         with c2:
+            st.markdown("<div style='height:1.65rem;'></div>", unsafe_allow_html=True)
             if st.button("➕ Add Item", key=f"add_excl_{row_id}"):
                 if new_excl and new_excl.strip():
                     safe_term = new_excl.strip().lower()
