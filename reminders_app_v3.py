@@ -1339,6 +1339,7 @@ def load_settings():
         st.session_state["search_terms_reviewed"] = bool(settings.get("search_terms_reviewed", False))
         st.session_state["search_term_added"] = bool(settings.get("search_term_added", False))
         st.session_state["wa_template_reviewed"] = bool(settings.get("wa_template_reviewed", False))
+        st.session_state["wa_template_updated"] = bool(settings.get("wa_template_updated", False))
         st.session_state["user_country"] = settings.get("country", "")
     else:
         # Defaults for new clinics
@@ -1355,6 +1356,7 @@ def load_settings():
         st.session_state["search_terms_reviewed"] = False
         st.session_state["search_term_added"] = False
         st.session_state["wa_template_reviewed"] = False
+        st.session_state["wa_template_updated"] = False
         st.session_state["user_country"] = ""
 
 
@@ -1415,6 +1417,7 @@ def save_settings():
         "search_terms_reviewed": bool(setting_for_save("search_terms_reviewed", False)),
         "search_term_added": bool(setting_for_save("search_term_added", False)),
         "wa_template_reviewed": bool(setting_for_save("wa_template_reviewed", False)),
+        "wa_template_updated": bool(setting_for_save("wa_template_updated", False)),
         "country": setting_for_save("user_country", remote_settings.get("country", "")),
     }
     settings_json = json.dumps(settings_data)
@@ -2077,6 +2080,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "search_terms_reviewed": False,
         "search_term_added": False,
         "wa_template_reviewed": False,
+        "wa_template_updated": False,
         "country": country,
     }
 
@@ -2537,8 +2541,7 @@ def render_setup_checklist():
     has_rules = bool(st.session_state.get("rules"))
     search_term_added = bool(st.session_state.get("search_term_added", False))
     has_sender_name = bool(str(st.session_state.get("user_name", "")).strip())
-    template_is_custom = (st.session_state.get("user_template", DEFAULT_WA_TEMPLATE) or DEFAULT_WA_TEMPLATE) != DEFAULT_WA_TEMPLATE
-    template_reviewed = bool(st.session_state.get("wa_template_reviewed", False) or template_is_custom)
+    template_updated = bool(st.session_state.get("wa_template_updated", False))
     reminders_ready = has_data and has_rules and has_sender_name
 
     def status(done: bool, current: bool = False, optional: bool = False):
@@ -2553,7 +2556,7 @@ def render_setup_checklist():
     upload_class, upload_status = status(has_data, not has_data)
     search_class, search_status = status(search_term_added, has_shared_dataset and not search_term_added)
     name_class, name_status = status(has_sender_name, has_shared_dataset and search_term_added and not has_sender_name)
-    template_class, template_status = status(template_reviewed, has_shared_dataset and has_sender_name and not template_reviewed, optional=True)
+    template_class, template_status = status(template_updated, has_shared_dataset and has_sender_name and not template_updated, optional=True)
     reminders_class, reminders_status = status(reminders_ready, has_shared_dataset and has_sender_name)
 
     st.markdown(
@@ -2582,9 +2585,9 @@ def render_setup_checklist():
             </div>
             <div class="setup-step {template_class}">
               <div class="setup-status">{template_status}</div>
-              <div class="setup-title">4. Review template</div>
-              <div class="setup-copy">Use the default wording, or edit it if your clinic needs a different tone or language.</div>
-              <a href="#wa-template-editor">Open template editor</a>
+              <div class="setup-title">4. Update template</div>
+              <div class="setup-copy">Save the WhatsApp template once so it matches your clinic tone and wording.</div>
+              <a href="#wa-template-editor">Update template</a>
             </div>
             <div class="setup-step {reminders_class}">
               <div class="setup-status">{reminders_status}</div>
@@ -2611,6 +2614,7 @@ st.session_state.setdefault("deleted_reminders", [])
 st.session_state.setdefault("search_terms_reviewed", False)
 st.session_state.setdefault("search_term_added", False)
 st.session_state.setdefault("wa_template_reviewed", False)
+st.session_state.setdefault("wa_template_updated", False)
 
 # --------------------------------
 # Helpers
@@ -3688,7 +3692,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         "Example: Hi [Client Name], this is [Your Name] reminding you that [Pet Name] is due for their [Item] on the [Due Date]."
     )
 
-    col_update, col_review, col_reset = st.columns([1, 1, 1])
+    col_update, col_reset = st.columns([1, 3])
     with col_update:
         if st.button("✅ Update Template", key=f"update_template_{key_prefix}"):
             new_template = st.session_state.get(editor_key, "").strip()
@@ -3696,21 +3700,16 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 st.session_state["wa_template"] = new_template
                 st.session_state["user_template"] = new_template
                 st.session_state["wa_template_reviewed"] = True
+                st.session_state["wa_template_updated"] = True
                 save_settings()
                 st.success("Template updated successfully!")
                 st.rerun()
-    with col_review:
-        if st.session_state.get("wa_template_reviewed"):
-            st.success("Template reviewed.")
-        elif st.button("Mark template reviewed", key=f"review_template_{key_prefix}", help="Marks setup step 5 complete without changing the default wording."):
-            st.session_state["wa_template_reviewed"] = True
-            save_settings()
-            st.rerun()
     with col_reset:
         if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}"):
             st.session_state["wa_template"] = DEFAULT_WA_TEMPLATE
             st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
             st.session_state["wa_template_reviewed"] = False
+            st.session_state["wa_template_updated"] = False
             save_settings()
             st.session_state[ver_key] += 1
             st.success("Template reset to default!")
