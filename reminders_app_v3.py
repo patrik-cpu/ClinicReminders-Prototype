@@ -836,6 +836,17 @@ st.markdown(
         gap: 0.35rem 1.25rem;
         grid-template-columns: repeat(3, minmax(150px, 1fr));
     }
+    .dataset-summary-row {
+        align-items: start;
+        border-top: 1px solid rgba(41, 210, 114, 0.18);
+        display: grid;
+        gap: 0.35rem 1.25rem;
+        grid-template-columns: minmax(220px, 2fr) minmax(90px, 0.5fr) minmax(170px, 1fr);
+        padding: 0.55rem 0 0;
+    }
+    .dataset-summary-row + .dataset-summary-row {
+        margin-top: 0.45rem;
+    }
     .dataset-summary-label {
         color: var(--cr-muted);
         font-size: 0.78rem;
@@ -1480,6 +1491,72 @@ def dataset_date_bounds(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Times
 def format_date_bound(d: pd.Timestamp | None) -> str:
     return d.strftime("%d %b %Y") if d is not None and pd.notna(d) else "-"
 
+def parse_history_date(value) -> pd.Timestamp | None:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.normalize()
+
+def parse_history_int(value) -> int:
+    try:
+        return int(str(value or 0).replace(",", ""))
+    except (TypeError, ValueError):
+        return 0
+
+def normalize_dataset_upload_history(history) -> list[dict]:
+    rows = []
+    if not isinstance(history, list):
+        return rows
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        file_name = str(entry.get("file_name") or entry.get("File name") or entry.get("Dataset") or "").strip()
+        if not file_name:
+            continue
+        from_date = parse_history_date(entry.get("from") or entry.get("From"))
+        to_date = parse_history_date(entry.get("to") or entry.get("To"))
+        rows.append({
+            "file_name": file_name,
+            "pms": str(entry.get("pms") or entry.get("PMS") or "-").strip() or "-",
+            "rows": parse_history_int(entry.get("rows") or entry.get("Rows") or 0),
+            "from": from_date.strftime("%Y-%m-%d") if from_date is not None else "",
+            "to": to_date.strftime("%Y-%m-%d") if to_date is not None else "",
+        })
+    return rows
+
+def upload_summary_rows_to_history(summary_rows: list[dict]) -> list[dict]:
+    return normalize_dataset_upload_history([
+        {
+            "file_name": row.get("File name", ""),
+            "pms": row.get("PMS", ""),
+            "rows": row.get("Rows", 0),
+            "from": row.get("From", ""),
+            "to": row.get("To", ""),
+        }
+        for row in summary_rows
+    ])
+
+def merge_dataset_upload_history(
+    existing_history,
+    new_history,
+    replace_overlapping_dates: bool,
+    upload_min: pd.Timestamp | None,
+    upload_max: pd.Timestamp | None,
+) -> list[dict]:
+    existing = normalize_dataset_upload_history(existing_history)
+    incoming = normalize_dataset_upload_history(new_history)
+    if replace_overlapping_dates and upload_min is not None and upload_max is not None:
+        existing = [
+            row for row in existing
+            if not date_ranges_overlap(
+                parse_history_date(row.get("from")),
+                parse_history_date(row.get("to")),
+                upload_min,
+                upload_max,
+            )
+        ]
+    return existing + incoming
+
 def date_ranges_overlap(
     first_min: pd.Timestamp | None,
     first_max: pd.Timestamp | None,
@@ -1620,6 +1697,7 @@ def load_settings():
         st.session_state["search_term_added_at"] = settings.get("search_term_added_at", "")
         st.session_state["user_name_updated_at"] = settings.get("user_name_updated_at", "")
         st.session_state["wa_template_updated_at"] = settings.get("wa_template_updated_at", "")
+        st.session_state["dataset_upload_history"] = normalize_dataset_upload_history(settings.get("dataset_upload_history", []))
         st.session_state["user_country"] = settings.get("country", "")
     else:
         # Defaults for new clinics
@@ -1642,6 +1720,7 @@ def load_settings():
         st.session_state["search_term_added_at"] = ""
         st.session_state["user_name_updated_at"] = ""
         st.session_state["wa_template_updated_at"] = ""
+        st.session_state["dataset_upload_history"] = []
         st.session_state["user_country"] = ""
 
 
@@ -1708,6 +1787,7 @@ def save_settings():
         "search_term_added_at": setting_for_save("search_term_added_at", ""),
         "user_name_updated_at": setting_for_save("user_name_updated_at", ""),
         "wa_template_updated_at": setting_for_save("wa_template_updated_at", ""),
+        "dataset_upload_history": normalize_dataset_upload_history(setting_for_save("dataset_upload_history", [])),
         "country": setting_for_save("user_country", remote_settings.get("country", "")),
     }
     settings_json = json.dumps(settings_data)
@@ -2472,6 +2552,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "search_term_added_at": "",
         "user_name_updated_at": "",
         "wa_template_updated_at": "",
+        "dataset_upload_history": [],
         "country": country,
     }
 
@@ -2581,6 +2662,7 @@ def summarize_uploads(file_blobs):
         to_date = charge_dates.max()
         summary_rows.append({
             "File name": fb["name"],
+            "Rows": len(df),
             "PMS": pms_name,
             "From": from_date.strftime("%d %b %Y") if pd.notna(from_date) else "-",
             "To":   to_date.strftime("%d %b %Y")   if pd.notna(to_date)   else "-"
@@ -3040,46 +3122,70 @@ def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Ti
         return None, None
     return dmin, dmax
 
+def render_dataset_summary_box(title: str, rows: list[dict]):
+    normalized_rows = normalize_dataset_upload_history(rows)
+    if not normalized_rows:
+        return
+
+    row_html = []
+    for row in normalized_rows:
+        from_date = parse_history_date(row.get("from"))
+        to_date = parse_history_date(row.get("to"))
+        if from_date is not None and to_date is not None:
+            date_range = f"{from_date:%d %b %Y} → {to_date:%d %b %Y}"
+        else:
+            date_range = "Dates not detected"
+        row_html.append(
+            f"""
+            <div class="dataset-summary-row">
+              <div>
+                <div class="dataset-summary-label">Dataset</div>
+                <div class="dataset-summary-value">{html_lib.escape(row.get("file_name", ""))}</div>
+              </div>
+              <div>
+                <div class="dataset-summary-label">Rows</div>
+                <div class="dataset-summary-value">{html_lib.escape(f"{int(row.get('rows') or 0):,}")}</div>
+              </div>
+              <div>
+                <div class="dataset-summary-label">Date range</div>
+                <div class="dataset-summary-value">{html_lib.escape(date_range)}</div>
+              </div>
+            </div>
+            """
+        )
+
+    st.markdown(
+        f"""
+        <div class="dataset-summary">
+          <div class="dataset-summary-title">{html_lib.escape(title)}</div>
+          {''.join(row_html)}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 def render_dataset_date_range():
+    history = normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", []))
+    if history:
+        render_dataset_summary_box("Saved clinic data", history)
+        return
+
     df_w = st.session_state.get("working_df")
     df_w = drop_duplicate_columns(df_w) if df_w is not None else None
     if df_w is None or getattr(df_w, "empty", True):
         return
 
     dmin, dmax = get_dataset_date_range(df_w)
-    has_saved_dataset = bool(st.session_state.get("shared_dataset_loaded") and st.session_state.get("shared_dataset_name"))
-    summary_title = "Saved clinic data" if has_saved_dataset else "Current upload preview"
-    dataset_name = str(st.session_state.get("shared_dataset_name") or "Not saved yet")
-    row_count = len(df_w)
-    if dmin is not None and dmax is not None:
-        date_range = f"{dmin:%d %b %Y} → {dmax:%d %b %Y}"
-    else:
-        date_range = "Dates not detected"
-
-    safe_name = html_lib.escape(dataset_name)
-    safe_rows = html_lib.escape(f"{row_count:,}")
-    safe_range = html_lib.escape(date_range)
-    st.markdown(
-        f"""
-        <div class="dataset-summary">
-          <div class="dataset-summary-title">{html_lib.escape(summary_title)}</div>
-          <div class="dataset-summary-grid">
-            <div>
-              <div class="dataset-summary-label">Dataset</div>
-              <div class="dataset-summary-value">{safe_name}</div>
-            </div>
-            <div>
-              <div class="dataset-summary-label">Rows</div>
-              <div class="dataset-summary-value">{safe_rows}</div>
-            </div>
-            <div>
-              <div class="dataset-summary-label">Date range</div>
-              <div class="dataset-summary-value">{safe_range}</div>
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    dataset_name = str(st.session_state.get("shared_dataset_name") or "Saved clinic data")
+    render_dataset_summary_box(
+        "Saved clinic data",
+        [{
+            "file_name": dataset_name,
+            "pms": "CSV",
+            "rows": len(df_w),
+            "from": dmin.strftime("%Y-%m-%d") if dmin is not None else "",
+            "to": dmax.strftime("%Y-%m-%d") if dmax is not None else "",
+        }],
     )
 
 def render_setup_checklist():
@@ -3209,6 +3315,7 @@ st.session_state.setdefault("get_started_reset_at", "")
 st.session_state.setdefault("search_term_added_at", "")
 st.session_state.setdefault("user_name_updated_at", "")
 st.session_state.setdefault("wa_template_updated_at", "")
+st.session_state.setdefault("dataset_upload_history", [])
 
 # --------------------------------
 # Helpers
@@ -3744,7 +3851,8 @@ with data_tab:
                 )
                 st.stop()
     
-            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
+            current_upload_history = upload_summary_rows_to_history(summary_rows)
+            render_dataset_summary_box("Current upload ready to save", current_upload_history)
     
             all_pms = {p for p, _ in datasets}
             rules_fp = _rules_fp(get_applied_reminder_rules())
@@ -3783,11 +3891,6 @@ with data_tab:
                 new_df = new_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
                 new_df = ensure_min_canonical_schema(new_df)
                 upload_min, upload_max = dataset_date_bounds(new_df)
-                st.caption(
-                    f"Current upload date range: "
-                    f"{format_date_bound(upload_min)} → {format_date_bound(upload_max)}"
-                )
-    
                 clinic_id = st.session_state.get("clinic_id")
                 if not clinic_id:
                     st.error("Not logged in.")
@@ -3823,11 +3926,19 @@ with data_tab:
                     st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
                     st.session_state["shared_dataset_loaded"] = True
                     st.session_state["shared_dataset_name"] = out_name
+                    st.session_state["dataset_upload_history"] = merge_dataset_upload_history(
+                        st.session_state.get("dataset_upload_history", []),
+                        current_upload_history,
+                        replace_overlapping_dates=replace_overlapping_dates,
+                        upload_min=upload_min,
+                        upload_max=upload_max,
+                    )
                     st.session_state["last_saved_upload_key"] = current_upload_key
                     st.session_state["dataset_save_notice"] = (
                         "✅ Dataset saved for this clinic. Other users with this login will load it automatically."
                     )
                     st.session_state.pop("pending_overlap_upload_key", None)
+                    save_settings()
     
                     df_full, masks, tx_client, tx_patient, patients_per_month = prepare_session_bundle(
                         st.session_state["working_df"], rules_fp
@@ -3897,7 +4008,9 @@ with data_tab:
         st.session_state["shared_dataset_loaded"] = False
         st.session_state["shared_dataset_name"] = None
         st.session_state["shared_dataset_error"] = None
-    
+        st.session_state["dataset_upload_history"] = []
+        save_settings()
+
         # Optional: clear uploader + caches
         st.cache_data.clear()
     
