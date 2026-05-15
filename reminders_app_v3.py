@@ -3232,6 +3232,10 @@ def build_whatsapp_message_for_row(row) -> str:
     return message
 
 
+def hide_revealed_reminders_after_action(key_prefix: str):
+    st.session_state[f"{key_prefix}_reveal_hidden_reminders"] = False
+
+
 def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key: str, hidden_action: str):
     sent_is_selected = hidden_action == REMINDER_ACTION_SENT
     decline_is_selected = hidden_action == REMINDER_ACTION_DECLINED
@@ -3247,10 +3251,12 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
         f"""
         <style>
           .st-key-{wa_key} button {{
-            min-height: 3rem !important;
+            min-height: 2.6rem !important;
           }}
           .st-key-{wa_key} button p {{
-            font-size: 1rem !important;
+            color: #15803d !important;
+            font-size: 1.65rem !important;
+            font-weight: 800 !important;
             line-height: 1 !important;
           }}
           .st-key-{sent_key} div[data-testid="stButton"] button,
@@ -3260,12 +3266,12 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
             box-shadow: {sent_shadow} !important;
             color: #15803d !important;
             line-height: 1 !important;
-            min-height: 3rem !important;
+            min-height: 2.6rem !important;
             opacity: {sent_opacity};
           }}
           .st-key-{sent_key} button p {{
             color: #15803d !important;
-            font-size: 2.55rem !important;
+            font-size: 2.05rem !important;
             font-weight: 900 !important;
             line-height: 1 !important;
             opacity: {sent_opacity};
@@ -3278,12 +3284,12 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
             box-shadow: {decline_shadow} !important;
             color: #b91c1c !important;
             line-height: 1 !important;
-            min-height: 3rem !important;
+            min-height: 2.6rem !important;
             opacity: {decline_opacity};
           }}
           .st-key-{decline_key} button p {{
             color: #b91c1c !important;
-            font-size: 2.55rem !important;
+            font-size: 2.05rem !important;
             font-weight: 900 !important;
             line-height: 1 !important;
             opacity: {decline_opacity};
@@ -3326,7 +3332,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             row_cols[j].markdown(val)
 
         # --- WA button (aligned to its column, full-width) ---
-        if row_cols[7].button("WA", key=wa_key, use_container_width=True):
+        if row_cols[7].button("☎", key=wa_key, use_container_width=True, help="Prepare WhatsApp message"):
             client_name = row.get("Client Name", "")
             now = datetime.utcnow()
             warning_message = get_recent_reminder_warning(client_name, now=now)
@@ -3350,6 +3356,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
                 record_wa_reminder_click(client_name, now=now, row=row, save=False)
                 record_wa_button_tracker(row, message, source=f"{key_prefix}_sent", now=now)
             rec = upsert_hidden_reminder(row, REMINDER_ACTION_SENT, message=message, now=now)
+            hide_revealed_reminders_after_action(key_prefix)
             save_settings()
             st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} marked sent.")
             st.rerun()
@@ -3358,6 +3365,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             if hidden_action == REMINDER_ACTION_SENT:
                 remove_wa_reminder_click_for_row(row)
             rec = upsert_hidden_reminder(row, REMINDER_ACTION_DECLINED, now=datetime.utcnow())
+            hide_revealed_reminders_after_action(key_prefix)
             save_settings()
             st.success(f"Reminder for {normalize_display_case(rec['Animal Name'])} declined.")
             st.rerun()
