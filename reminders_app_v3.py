@@ -951,8 +951,8 @@ st.markdown(
         border: 1px solid rgba(41, 210, 114, 0.22);
         border-radius: 6px;
         color: #126b3d;
-        margin: 0.35rem 0 0.85rem;
-        padding: 0.9rem 1rem 0.35rem;
+        margin: 0.35rem 0 0.4rem;
+        padding: 0.9rem 1rem 0.75rem;
     }
     .st-key-dataset_summary_box [data-testid="stVerticalBlock"] {
         gap: 0.35rem !important;
@@ -1042,7 +1042,7 @@ st.markdown(
         display: grid;
         gap: 0.6rem;
         grid-template-columns: repeat(3, minmax(180px, 1fr));
-        margin: 0.55rem 0 0;
+        margin: 0 1rem 0.9rem;
     }
     .dataset-check {
         border-radius: 8px;
@@ -3830,17 +3830,17 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
                 remove_dataset_upload_at_index(idx)
                 st.rerun()
 
-        check_html = []
-        for check in dataset_summary_checks(normalized_rows):
-            class_name = "good" if check["good"] else "bad"
-            icon = "✓" if check["good"] else "×"
-            check_html.append(
-                f"<div class='dataset-check {class_name}'>{icon} {html_lib.escape(check['text'])}</div>"
-            )
-        st.markdown(
-            f"<div class='dataset-check-grid'>{''.join(check_html)}</div>",
-            unsafe_allow_html=True,
+    check_html = []
+    for check in dataset_summary_checks(normalized_rows):
+        class_name = "good" if check["good"] else "bad"
+        icon = "✓" if check["good"] else "×"
+        check_html.append(
+            f"<div class='dataset-check {class_name}'>{icon} {html_lib.escape(check['text'])}</div>"
         )
+    st.markdown(
+        f"<div class='dataset-check-grid'>{''.join(check_html)}</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def repair_history_row_counts_from_df(history: list[dict], df_w: pd.DataFrame | None) -> tuple[list[dict], bool]:
