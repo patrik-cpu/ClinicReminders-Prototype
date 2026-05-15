@@ -861,12 +861,12 @@ st.markdown(
     }
     .field-examples {
         color: var(--cr-muted);
-        font-size: 0.78rem;
-        line-height: 1.3;
-        margin-top: 0.35rem;
+        font-size: 0.95rem;
+        line-height: 1.45;
+        margin-top: 0.45rem;
     }
     .field-examples div + div {
-        margin-top: 0.15rem;
+        margin-top: 0.2rem;
     }
     .setup-panel {
         border: 1px solid var(--cr-border);
@@ -5225,7 +5225,7 @@ if st.session_state.get("working_df") is not None:
                 label_visibility="collapsed",
                 help="Use when quantity should extend the reminder interval."
             )
-            field_examples("Unticked", "Ticked")
+            field_examples("&#9744; Unticked", "&#9745; Ticked")
         with c7:
             new_rule_visible = st.text_input(
                 "Message Text (optional)",
