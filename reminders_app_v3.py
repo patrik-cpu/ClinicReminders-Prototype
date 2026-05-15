@@ -806,8 +806,8 @@ st.markdown(
         font-weight: 500;
         left: 50%;
         line-height: 1.35;
-        max-width: 18rem;
-        min-width: 10rem;
+        max-width: 27rem;
+        min-width: 15rem;
         padding: 0.55rem 0.7rem;
         position: absolute;
         text-align: left;
@@ -2623,6 +2623,38 @@ st.markdown(
       div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:nth-child(3) p {
         font-size: 2.15rem !important;
         font-weight: 900 !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] {
+        align-items: flex-end !important;
+        border-bottom: 1px solid var(--cr-border) !important;
+        gap: 0.2rem !important;
+        margin-bottom: 1rem !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
+      button[data-baseweb="tab"] {
+        background: var(--cr-surface-muted) !important;
+        border: 1px solid var(--cr-border) !important;
+        border-bottom: 0 !important;
+        border-radius: 8px 8px 0 0 !important;
+        box-shadow: inset 0 -1px 0 var(--cr-border) !important;
+        margin: 0 0 -1px !important;
+        min-height: 2.75rem !important;
+        padding: 0.45rem 0.9rem !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"],
+      button[data-baseweb="tab"][aria-selected="true"] {
+        background: var(--cr-app-bg) !important;
+        border-color: var(--cr-border) !important;
+        box-shadow: 0 1px 0 var(--cr-app-bg) !important;
+        position: relative !important;
+        z-index: 1 !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button:hover,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:hover,
+      button[data-baseweb="tab"]:hover {
+        background: var(--cr-surface) !important;
       }
     </style>
     """,
