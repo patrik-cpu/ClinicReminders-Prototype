@@ -90,27 +90,40 @@ with title_col:
             border-radius: 0;
             box-shadow: none;
             margin-bottom: 0.45rem;
-            max-width: 500px;
+            max-width: 560px;
             padding: 0;
         }
         .cr-brand-logo {
             align-items: center;
-            column-gap: 0.8rem;
+            column-gap: 0;
             display: grid;
-            grid-template-columns: 146px 1fr;
+            grid-template-columns: 168px 1fr;
             grid-template-rows: auto auto;
             position: relative;
         }
+        .cr-brand-line {
+            height: 108px;
+            left: 0;
+            pointer-events: none;
+            position: absolute;
+            top: 0;
+            width: 100%;
+            z-index: 0;
+        }
         .cr-brand-pulse {
             grid-row: 1 / 3;
+            grid-column: 1;
             height: 108px;
-            width: 146px;
+            opacity: 0;
+            width: 168px;
         }
         .cr-brand-word {
             color: #10162f;
             font-family: "Nunito", "Avenir Next Rounded Std", "Arial Rounded MT Bold", "Trebuchet MS", Arial, sans-serif;
             letter-spacing: 0;
             line-height: 0.95;
+            position: relative;
+            z-index: 1;
         }
         .cr-brand-word.clinic {
             align-self: end;
@@ -121,17 +134,6 @@ with title_col:
             align-self: start;
             font-size: 3.35rem;
             font-weight: 800;
-            position: relative;
-        }
-        .cr-brand-word.reminders::before {
-            background: #29D272;
-            border-radius: 999px;
-            content: "";
-            height: 7px;
-            left: 0;
-            position: absolute;
-            right: -1.6rem;
-            top: -0.36rem;
         }
         .cr-brand-subtitle {
             color: #5f6f67;
@@ -142,9 +144,19 @@ with title_col:
         </style>
         <div class="cr-brand-card">
             <div class="cr-brand-logo" aria-label="Clinic Reminders">
-                <svg class="cr-brand-pulse" viewBox="0 0 210 150" role="img" aria-hidden="true">
+                <svg class="cr-brand-line" viewBox="0 0 560 108" preserveAspectRatio="none" role="img" aria-hidden="true">
                     <path
-                        d="M10 82 H68 L86 36 L105 122 L128 18 L142 138 L163 48 L182 92 L196 44 H210"
+                        d="M8 60 H72 L88 25 L106 92 L126 8 L140 104 L158 28 L174 60 H545"
+                        fill="none"
+                        stroke="#29D272"
+                        stroke-width="7"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    />
+                </svg>
+                <svg class="cr-brand-pulse" viewBox="0 0 168 108" role="img" aria-hidden="true">
+                    <path
+                        d="M8 60 H72 L88 25 L106 92 L126 8 L140 104 L158 28 L168 60"
                         fill="none"
                         stroke="#29D272"
                         stroke-width="9"
