@@ -431,7 +431,6 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_search_criteria_refreshed",
     "_search_terms_autosave_error",
     "_pending_recent_reminder_warning",
-    "_pending_reminder_action_status",
     "_replace_deleted_reminders_once",
     "_replace_wa_reminder_log_once",
     "_deleted_reminder_remove_keys_once",
@@ -7332,7 +7331,6 @@ def render_table(df, title, key_prefix, msg_key, rules):
         return
 
     show_pending_recent_reminder_warning()
-    show_pending_reminder_action_status()
 
     active_tab, actioned_tab = st.tabs(["Active Reminders", "Actioned Reminders"])
     with active_tab:
@@ -7438,12 +7436,9 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
         if hidden_action != REMINDER_ACTION_SENT:
             record_wa_reminder_click(client_name, now=now, row=row_data, save=False)
             record_action_tracker(row_data, REMINDER_ACTION_SENT, message=message, source=f"{key_prefix}_sent", now=now)
-        rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
+        upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
         hide_revealed_reminders_after_action(key_prefix)
         save_settings_quietly()
-    st.session_state["_pending_reminder_action_status"] = {
-        "message": f"Reminder for {normalize_display_case(rec['Animal Name'])} marked sent.",
-    }
 
 
 def decline_reminder_action(row_data: dict, key_prefix: str):
@@ -7455,12 +7450,9 @@ def decline_reminder_action(row_data: dict, key_prefix: str):
             remove_wa_reminder_click_for_row(row_data)
         if hidden_action != REMINDER_ACTION_DECLINED:
             record_action_tracker(row_data, REMINDER_ACTION_DECLINED, source=f"{key_prefix}_declined", now=now)
-        rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=now)
+        upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=now)
         hide_revealed_reminders_after_action(key_prefix)
         save_settings_quietly()
-    st.session_state["_pending_reminder_action_status"] = {
-        "message": f"Reminder for {normalize_display_case(rec['Animal Name'])} declined.",
-    }
 
 
 def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
@@ -7472,19 +7464,6 @@ def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
         record_action_tracker(row_data, "active", source=f"{key_prefix}_undo", now=datetime.utcnow())
         remove_actioned_reminder(row_data)
         save_settings_quietly()
-    st.session_state["_pending_reminder_action_status"] = {
-        "message": f"Reminder for {normalize_display_case(row_data.get('Animal Name', ''))} returned to Active Reminders.",
-    }
-
-
-def show_pending_reminder_action_status():
-    pending = st.session_state.pop("_pending_reminder_action_status", None)
-    if not isinstance(pending, dict):
-        return
-    st.success(str(pending.get("message", "")))
-    preview = str(pending.get("preview", "")).strip()
-    if preview:
-        st.markdown(f"**Preview:** {preview}")
 
 
 def render_search_criteria_refresh_notice():
