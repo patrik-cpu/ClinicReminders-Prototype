@@ -3445,6 +3445,12 @@ def close_data_privacy_dialog():
     st.session_state["show_data_privacy_dialog"] = False
 
 
+def open_account_dialog(dialog_name: str):
+    st.session_state["show_profile_dialog"] = dialog_name == "profile"
+    st.session_state["show_data_privacy_dialog"] = dialog_name == "privacy"
+    st.session_state["show_delete_account_dialog"] = dialog_name == "delete"
+
+
 def render_data_privacy_dialog():
     if not st.session_state.get("show_data_privacy_dialog", False):
         return
@@ -5139,17 +5145,17 @@ else:
     with top_account_slot.container():
         with st.popover("Account", use_container_width=False):
             if st.button("Profile", key="top_account_profile", use_container_width=True):
-                st.session_state["show_profile_dialog"] = True
+                open_account_dialog("profile")
 
             if st.button("Data & Privacy", key="top_account_data_privacy", use_container_width=True):
-                st.session_state["show_data_privacy_dialog"] = True
+                open_account_dialog("privacy")
 
             if st.session_state.get("auth_provider") != GOOGLE_AUTH_PROVIDER:
                 if st.button("Change password", key="top_account_show_change_password", use_container_width=True):
                     st.session_state["show_top_change_password"] = not st.session_state.get("show_top_change_password", False)
 
             if st.button("Delete account and data", key="top_account_delete", use_container_width=True):
-                st.session_state["show_delete_account_dialog"] = True
+                open_account_dialog("delete")
 
             if st.button("Logout", key="top_account_logout", use_container_width=True):
                 google_session_active = get_google_user_info().get("is_logged_in", False)
@@ -5189,9 +5195,12 @@ else:
                         st.session_state["show_top_change_password"] = False
                         st.success("Password updated.")
 
-render_profile_dialog()
-render_data_privacy_dialog()
-render_delete_account_dialog()
+if st.session_state.get("show_delete_account_dialog", False):
+    render_delete_account_dialog()
+elif st.session_state.get("show_profile_dialog", False):
+    render_profile_dialog()
+elif st.session_state.get("show_data_privacy_dialog", False):
+    render_data_privacy_dialog()
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:
