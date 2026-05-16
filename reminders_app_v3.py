@@ -4185,126 +4185,37 @@ def get_started_incomplete_count() -> int:
     return sum(1 for step in get_setup_checklist_steps() if not step["done"])
 
 
+def tab_badge_label(tab_name: str, count: int, alt_text: str) -> str:
+    count = int(count or 0)
+    if count <= 0:
+        return tab_name
+    display_count = str(count)
+    width = max(26, 18 + (len(display_count) * 8))
+    text_x = width / 2
+    badge_svg = f"""
+    <svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="22" viewBox="0 0 {width} 22">
+      <rect x="1" y="2" width="{width - 2}" height="18" rx="9" fill="#dc2626"/>
+      <text x="{text_x}" y="15" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle">{display_count}</text>
+    </svg>
+    """
+    encoded_badge = base64.b64encode(badge_svg.encode("utf-8")).decode("ascii")
+    return f"{tab_name} ![{alt_text}](data:image/svg+xml;base64,{encoded_badge})"
+
+
 def get_started_badge_label(count: int | None = None) -> str:
     count = get_started_incomplete_count() if count is None else int(count or 0)
     if count <= 0:
         return "Get Started"
     count = max(1, min(6, count))
-    badge_svg = f"""
-    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="22" viewBox="0 0 26 22">
-      <rect x="1" y="2" width="24" height="18" rx="9" fill="#dc2626"/>
-      <text x="13" y="15" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle">{count}</text>
-    </svg>
-    """
-    encoded_badge = base64.b64encode(badge_svg.encode("utf-8")).decode("ascii")
-    return f"Get Started ![{count} setup steps remaining](data:image/svg+xml;base64,{encoded_badge})"
+    return tab_badge_label("Get Started", count, f"{count} setup steps remaining")
 
 
 def main_section_tab_label(tab_name: str) -> str:
+    if tab_name == "Reminders":
+        return reminders_badge_label()
     if tab_name == "Get Started":
         return get_started_badge_label()
     return tab_name
-
-
-st.markdown(
-    """
-    <style>
-      div[data-testid="stTabs"] div[role="tablist"] button,
-      div[data-testid="stTabs"] div[role="tablist"] button p,
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p,
-      button[data-baseweb="tab"],
-      button[data-baseweb="tab"] p {
-        font-size: 1.75rem !important;
-        font-weight: 700 !important;
-        line-height: 1.2 !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] {
-        align-items: flex-end !important;
-        border-bottom: 1px solid var(--cr-border) !important;
-        gap: 0.2rem !important;
-        margin-bottom: 1rem !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button,
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
-      button[data-baseweb="tab"] {
-        background: var(--cr-primary-quiet) !important;
-        border: 1px solid var(--cr-border) !important;
-        border-bottom: 0 !important;
-        border-radius: 8px 8px 0 0 !important;
-        box-shadow: inset 0 -1px 0 var(--cr-border) !important;
-        margin: 0 0 -1px !important;
-        min-height: 2.75rem !important;
-        padding: 0.45rem 0.9rem !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"],
-      button[data-baseweb="tab"][aria-selected="true"] {
-        background: var(--cr-primary) !important;
-        border-color: var(--cr-primary) !important;
-        box-shadow: 0 1px 0 var(--cr-primary) !important;
-        position: relative !important;
-        z-index: 1 !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button:hover,
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:hover,
-      button[data-baseweb="tab"]:hover {
-        background: var(--cr-primary-soft) !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"]:hover,
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"]:hover,
-      button[data-baseweb="tab"][aria-selected="true"]:hover {
-        background: var(--cr-primary) !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button p,
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p {
-        color: #23513a !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"] {
-        filter: saturate(1.08) brightness(1.03) !important;
-      }
-      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"] p,
-      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"] p {
-        color: #062d19 !important;
-      }
-      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button,
-      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button p,
-      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
-      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p {
-        color: var(--cr-text) !important;
-        font-size: 1rem !important;
-        font-weight: 500 !important;
-      }
-      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
-      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"],
-      div[data-testid="stTabs"] div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
-        background: var(--cr-surface) !important;
-        border-color: var(--cr-border) !important;
-        box-shadow: 0 1px 0 var(--cr-surface) !important;
-        filter: none !important;
-        font-weight: 600 !important;
-      }
-      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button,
-      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
-      div[data-testid="stTabs"] div[data-testid="stTabs"] button[data-baseweb="tab"] {
-        background: var(--cr-surface-muted) !important;
-        filter: none !important;
-        min-height: 2.15rem !important;
-        padding: 0.35rem 0.8rem !important;
-      }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-main_section_tab_labels = [main_section_tab_label(tab_name) for tab_name in MAIN_SECTION_TABS]
-default_main_section_tab = st.session_state.get("main_section_tab", "Reminders")
-if default_main_section_tab not in MAIN_SECTION_TABS:
-    default_main_section_tab = "Reminders"
-reminders_page_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab, statistics_tab = st.tabs(
-    main_section_tab_labels,
-    default=main_section_tab_label(default_main_section_tab),
-)
 
 
 def clone_reminder_rules(rules: dict | None) -> dict:
@@ -5110,6 +5021,252 @@ def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
 
     return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
 
+
+def _exclusion_key(value) -> str:
+    return _SPACE_RX.sub(" ", str(value or "").strip()).lower()
+
+
+def apply_reminder_exclusion_filters(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
+    if df.empty:
+        return df
+    df = df.copy()
+    if "Item Name" in df.columns:
+        df["Plan Item"] = df["Item Name"].apply(
+            lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules))
+        )
+    elif "Plan Item" not in df.columns:
+        df["Plan Item"] = ""
+    client_exclusions = st.session_state.get("client_exclusions", [])
+    if client_exclusions and "Client Name" in df.columns:
+        excluded_clients = {
+            _exclusion_key(name)
+            for name in client_exclusions
+            if str(name or "").strip()
+        }
+        if excluded_clients:
+            client_keys = df["Client Name"].map(_exclusion_key)
+            df = df[~client_keys.isin(excluded_clients)]
+    patient_exclusions = st.session_state.get("patient_exclusions", [])
+    if patient_exclusions and {"Client Name", "Animal Name"}.issubset(df.columns):
+        excluded_patient_pairs = {
+            (
+                _exclusion_key(item.get("client", "")),
+                _exclusion_key(item.get("patient", "")),
+            )
+            for item in patient_exclusions
+            if isinstance(item, dict) and str(item.get("client", "") or "").strip() and str(item.get("patient", "") or "").strip()
+        }
+        if excluded_patient_pairs:
+            row_pairs = list(zip(
+                df["Client Name"].map(_exclusion_key),
+                df["Animal Name"].map(_exclusion_key),
+            ))
+            df = df[[pair not in excluded_patient_pairs for pair in row_pairs]]
+    item_exclusions = [str(term or "").strip().lower() for term in st.session_state.get("exclusions", []) if str(term or "").strip()]
+    if item_exclusions:
+        excl_pattern = "|".join(map(re.escape, item_exclusions))
+        target_col = "Item Name" if "Item Name" in df.columns else "Plan Item"
+        df = df[~df[target_col].astype(str).str.lower().str.contains(excl_pattern, regex=True, na=False)]
+    return df
+
+
+def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
+    key = (st.session_state.get("data_version", 0), _rules_fp(rules), PREPARED_SCHEMA_VERSION)
+    if st.session_state.get("prepared_key") != key:
+        prepared = ensure_reminder_columns(working_df, rules)
+        prepared = drop_early_duplicates_fast(prepared)
+        prepared = expand_reminder_dates(prepared)
+
+        st.session_state["prepared_df"] = prepared
+        st.session_state["prepared_key"] = key
+
+    return st.session_state["prepared_df"]
+
+
+def parse_reminder_date_parts(value) -> list[date]:
+    if value is None:
+        return []
+    if isinstance(value, datetime):
+        return [value.date()]
+    if isinstance(value, date):
+        return [value]
+    parsed_dates = []
+    for part in str(value or "").split("|"):
+        part = part.strip()
+        if not part:
+            continue
+        parsed = pd.to_datetime(part, errors="coerce")
+        if pd.notna(parsed):
+            parsed_dates.append(parsed.date())
+    return parsed_dates
+
+
+def reminder_row_dates(row: dict) -> list[date]:
+    return parse_reminder_date_parts(row.get("Reminder Date", "") or row.get("ReminderDate", ""))
+
+
+def reminder_row_has_date(row: dict, target_date: date) -> bool:
+    return target_date in reminder_row_dates(row)
+
+
+def _reminder_badge_window_days() -> int:
+    try:
+        return min(30, max(0, int(st.session_state.get("reminder_window_days", 1))))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _reminder_badge_group_days() -> int:
+    try:
+        return max(0, int(st.session_state.get("client_group_days", 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def get_today_active_reminder_count(today: date | None = None) -> int:
+    working_df = st.session_state.get("working_df")
+    if working_df is None or getattr(working_df, "empty", True):
+        return 0
+    today = today or date.today()
+    try:
+        rules = get_applied_reminder_rules()
+        prepared = get_prepared_df(working_df, rules)
+        reminder_ts = prepared.get("ReminderDateTs")
+        if reminder_ts is None:
+            reminder_ts = prepared.get("NextDueDateTs")
+        if reminder_ts is None:
+            reminder_ts = pd.to_datetime(prepared["NextDueDate"], errors="coerce")
+
+        start_ts = pd.Timestamp(today)
+        end_ts = pd.Timestamp(today + timedelta(days=_reminder_badge_window_days()))
+        due = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
+        due = apply_reminder_exclusion_filters(due, rules)
+        if due.empty:
+            return 0
+
+        grouped = bundle_client_reminders_by_window(due, window_days=_reminder_badge_group_days(), rules=rules)
+        if grouped.empty:
+            return 0
+        grouped_today = grouped[
+            [reminder_row_has_date(row, today) for row in grouped.to_dict("records")]
+        ].copy()
+        active_today = filter_hidden_reminders(grouped_today)
+        return len(active_today.index)
+    except Exception:
+        return 0
+
+
+def reminders_badge_label(count: int | None = None) -> str:
+    count = get_today_active_reminder_count() if count is None else int(count or 0)
+    if count <= 0:
+        return "Reminders"
+    return tab_badge_label("Reminders", count, f"{count} active reminders today")
+
+
+st.markdown(
+    """
+    <style>
+      div[data-testid="stTabs"] div[role="tablist"] button,
+      div[data-testid="stTabs"] div[role="tablist"] button p,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p,
+      button[data-baseweb="tab"],
+      button[data-baseweb="tab"] p {
+        font-size: 1.75rem !important;
+        font-weight: 700 !important;
+        line-height: 1.2 !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] {
+        align-items: flex-end !important;
+        border-bottom: 1px solid var(--cr-border) !important;
+        gap: 0.2rem !important;
+        margin-bottom: 1rem !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
+      button[data-baseweb="tab"] {
+        background: var(--cr-primary-quiet) !important;
+        border: 1px solid var(--cr-border) !important;
+        border-bottom: 0 !important;
+        border-radius: 8px 8px 0 0 !important;
+        box-shadow: inset 0 -1px 0 var(--cr-border) !important;
+        margin: 0 0 -1px !important;
+        min-height: 2.75rem !important;
+        padding: 0.45rem 0.9rem !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"],
+      button[data-baseweb="tab"][aria-selected="true"] {
+        background: var(--cr-primary) !important;
+        border-color: var(--cr-primary) !important;
+        box-shadow: 0 1px 0 var(--cr-primary) !important;
+        position: relative !important;
+        z-index: 1 !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button:hover,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"]:hover,
+      button[data-baseweb="tab"]:hover {
+        background: var(--cr-primary-soft) !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"]:hover,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"]:hover,
+      button[data-baseweb="tab"][aria-selected="true"]:hover {
+        background: var(--cr-primary) !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button p,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p {
+        color: #23513a !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"] {
+        filter: saturate(1.08) brightness(1.03) !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"] p,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"] p {
+        color: #062d19 !important;
+      }
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button,
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button p,
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p {
+        color: var(--cr-text) !important;
+        font-size: 1rem !important;
+        font-weight: 500 !important;
+      }
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"],
+      div[data-testid="stTabs"] div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
+        background: var(--cr-surface) !important;
+        border-color: var(--cr-border) !important;
+        box-shadow: 0 1px 0 var(--cr-surface) !important;
+        filter: none !important;
+        font-weight: 600 !important;
+      }
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] button,
+      div[data-testid="stTabs"] div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
+      div[data-testid="stTabs"] div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        background: var(--cr-surface-muted) !important;
+        filter: none !important;
+        min-height: 2.15rem !important;
+        padding: 0.35rem 0.8rem !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+main_section_tab_label_map = {
+    tab_name: main_section_tab_label(tab_name)
+    for tab_name in MAIN_SECTION_TABS
+}
+main_section_tab_labels = [main_section_tab_label_map[tab_name] for tab_name in MAIN_SECTION_TABS]
+default_main_section_tab = st.session_state.get("main_section_tab", "Reminders")
+if default_main_section_tab not in MAIN_SECTION_TABS:
+    default_main_section_tab = "Reminders"
+reminders_page_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab, statistics_tab = st.tabs(
+    main_section_tab_labels,
+    default=main_section_tab_label_map[default_main_section_tab],
+)
+
 # --- Data section ---
 with get_started_tab:
     st.markdown("<div id='getting-started' class='anchor-offset'></div>", unsafe_allow_html=True)
@@ -5457,54 +5614,6 @@ with data_tab:
 # --------------------------------
 # Render Tables
 # --------------------------------
-def _exclusion_key(value) -> str:
-    return _SPACE_RX.sub(" ", str(value or "").strip()).lower()
-
-
-def apply_reminder_exclusion_filters(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
-    if df.empty:
-        return df
-    df = df.copy()
-    if "Item Name" in df.columns:
-        df["Plan Item"] = df["Item Name"].apply(
-            lambda x: simplify_vaccine_text(get_visible_plan_item(x, rules))
-        )
-    elif "Plan Item" not in df.columns:
-        df["Plan Item"] = ""
-    client_exclusions = st.session_state.get("client_exclusions", [])
-    if client_exclusions and "Client Name" in df.columns:
-        excluded_clients = {
-            _exclusion_key(name)
-            for name in client_exclusions
-            if str(name or "").strip()
-        }
-        if excluded_clients:
-            client_keys = df["Client Name"].map(_exclusion_key)
-            df = df[~client_keys.isin(excluded_clients)]
-    patient_exclusions = st.session_state.get("patient_exclusions", [])
-    if patient_exclusions and {"Client Name", "Animal Name"}.issubset(df.columns):
-        excluded_patient_pairs = {
-            (
-                _exclusion_key(item.get("client", "")),
-                _exclusion_key(item.get("patient", "")),
-            )
-            for item in patient_exclusions
-            if isinstance(item, dict) and str(item.get("client", "") or "").strip() and str(item.get("patient", "") or "").strip()
-        }
-        if excluded_patient_pairs:
-            row_pairs = list(zip(
-                df["Client Name"].map(_exclusion_key),
-                df["Animal Name"].map(_exclusion_key),
-            ))
-            df = df[[pair not in excluded_patient_pairs for pair in row_pairs]]
-    item_exclusions = [str(term or "").strip().lower() for term in st.session_state.get("exclusions", []) if str(term or "").strip()]
-    if item_exclusions:
-        excl_pattern = "|".join(map(re.escape, item_exclusions))
-        target_col = "Item Name" if "Item Name" in df.columns else "Plan Item"
-        df = df[~df[target_col].astype(str).str.lower().str.contains(excl_pattern, regex=True, na=False)]
-    return df
-
-
 def render_table(df, title, key_prefix, msg_key, rules):
     if df.empty:
         st.info(f"No reminders in {title}.")
@@ -6407,22 +6516,6 @@ def normalize_display_case(text: str) -> str:
         else:
             fixed.append(w)
     return " ".join(fixed)
-
-# --------------------------------
-# Prepared dataframe memo (recompute only when data/applied rules change)
-# --------------------------------
-def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
-    key = (st.session_state.get("data_version", 0), _rules_fp(rules), PREPARED_SCHEMA_VERSION)
-    if st.session_state.get("prepared_key") != key:
-        prepared = ensure_reminder_columns(working_df, rules)
-        prepared = drop_early_duplicates_fast(prepared)
-        prepared = expand_reminder_dates(prepared)
-
-        st.session_state["prepared_df"] = prepared
-        st.session_state["prepared_key"] = key
-
-    return st.session_state["prepared_df"]
-
 
 STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
 
