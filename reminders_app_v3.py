@@ -8922,6 +8922,10 @@ def render_search_terms_editor():
 # --------------------------------
 # Main
 # --------------------------------
+if st.session_state.get("logged_in", False):
+    with search_terms_tab:
+        render_search_terms_editor()
+
 if st.session_state.get("working_df") is not None:
     df = st.session_state["working_df"].copy()
     applied_rules = get_applied_reminder_rules()
@@ -9058,9 +9062,6 @@ if st.session_state.get("working_df") is not None:
                 st.info("All reminders in the selected date range are hidden by exclusions.")
             else:
                 st.info("No reminders in the selected date range.")
-
-    with statistics_tab:
-        render_statistics_tab(prepared, applied_rules)
 
     with exclusions_tab:
         # Exclusions
@@ -9249,6 +9250,9 @@ if st.session_state.get("working_df") is not None:
                         st.info("This exclusion already exists.")
                 else:
                     st.error("Enter a valid exclusion term")
+
+    with statistics_tab:
+        render_statistics_tab(prepared, applied_rules)
     
 else:
     with reminders_page_tab:
@@ -9257,10 +9261,6 @@ else:
         st.info("Upload data in the Upload Data tab to manage exclusions.")
     with statistics_tab:
         st.info("Upload data in the Upload Data tab to view statistics.")
-
-if st.session_state.get("logged_in", False):
-    with search_terms_tab:
-        render_search_terms_editor()
 
 # --------------------------------
 # 📊 Factoids Section (temporarily hidden)
