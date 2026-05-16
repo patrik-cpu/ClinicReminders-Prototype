@@ -1705,6 +1705,21 @@ st.markdown(
     .column-help:hover::after {
         display: block;
     }
+    .field-label {
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-bottom: 0.35rem;
+    }
+    .reminder-control-label {
+        align-items: flex-start;
+        display: flex;
+        min-height: 2.25rem;
+    }
+    @media (max-width: 900px) {
+        .reminder-control-label {
+            min-height: auto;
+        }
+    }
     .cr-busy-overlay {
         align-items: center;
         background: rgba(246, 250, 247, 0.72);
@@ -1792,11 +1807,13 @@ def busy_overlay(message: str, detail: str = ""):
         overlay_slot.empty()
 
 
-def render_field_label(container, label: str, help_text: str):
+def render_field_label(container, label: str, help_text: str, class_name: str = ""):
     safe_label = html_lib.escape(label)
     safe_help = html_lib.escape(help_text)
+    safe_class = html_lib.escape(str(class_name or ""))
+    classes = "field-label" + (f" {safe_class}" if safe_class else "")
     container.markdown(
-        f"<div style='font-size:0.9rem; font-weight:600; margin-bottom:0.35rem;'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
+        f"<div class='{classes}'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -8897,7 +8914,8 @@ if st.session_state.get("working_df") is not None:
             render_field_label(
                 st,
                 "Today",
-                "Choose the anchor date to show reminders around. It defaults to today, but you can pick another date."
+                "Choose the anchor date to show reminders around. It defaults to today, but you can pick another date.",
+                class_name="reminder-control-label",
             )
             start_date = st.date_input(
                 "Today",
@@ -8908,7 +8926,8 @@ if st.session_state.get("working_df") is not None:
             render_field_label(
                 st,
                 "Days to look back",
-                "0 shows the selected day only. 1 includes the selected day plus the previous day."
+                "0 shows the selected day only. 1 includes the selected day plus the previous day.",
+                class_name="reminder-control-label",
             )
             reminder_lookback_days = st.number_input(
                 "Days to look back",
@@ -8924,7 +8943,8 @@ if st.session_state.get("working_df") is not None:
             render_field_label(
                 st,
                 "Days to look ahead",
-                "0 shows the selected day only. 1 includes the selected day plus the next day."
+                "0 shows the selected day only. 1 includes the selected day plus the next day.",
+                class_name="reminder-control-label",
             )
             reminder_window_days = st.number_input(
                 "Days to look ahead",
@@ -8939,11 +8959,12 @@ if st.session_state.get("working_df") is not None:
         with group_col:
             render_field_label(
                 st,
-                "Number of days to group reminders for the same client",
-                "Controls how reminders for the same client are combined. 0 means no grouping; 1 groups same-day reminders."
+                "Group same-client reminders",
+                "Controls how many days can be combined for the same client. 0 means no grouping; 1 groups same-day reminders.",
+                class_name="reminder-control-label",
             )
             group_days = st.number_input(
-                "Number of days to group reminders for the same client",
+                "Group same-client reminders",
                 min_value=0,
                 value=st.session_state.get("client_group_days", 1),
                 step=1,
@@ -8954,11 +8975,12 @@ if st.session_state.get("working_df") is not None:
         with warning_col:
             render_field_label(
                 st,
-                "Number of days for repeat-reminder warning",
-                "Warns you before preparing WhatsApp if the same client had a recent reminder. Use 0 to turn warnings off."
+                "Repeat warning days",
+                "Warns you before preparing WhatsApp if the same client had a recent reminder. Use 0 to turn warnings off.",
+                class_name="reminder-control-label",
             )
             st.number_input(
-                "Number of days for repeat-reminder warning",
+                "Repeat warning days",
                 min_value=0,
                 value=st.session_state.get("reminder_warning_days", 0),
                 step=1,
