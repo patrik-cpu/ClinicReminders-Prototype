@@ -410,6 +410,10 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_remote_settings_cache",
     "_tracker_sheet_cache",
     "_hidden_reminders_index_cache",
+    "pending_google_signup",
+    "google_signup_error",
+    "google_onboarding_clinic_name",
+    "google_onboarding_country",
     "llm_payload",
     "llm_zip_bytes",
     "llm_built_at",
@@ -4333,6 +4337,98 @@ def create_google_clinic_account(clinic_id: str, country: str, google_user: dict
     return values_by_header
 
 
+def google_onboarding_dialog_html(google_user: dict) -> str:
+    email = normalize_email(google_user.get("email", ""))
+    return f"""
+    <style>
+      .google-onboarding-hero {{
+        background: linear-gradient(135deg, #e8fff2 0%, #ffffff 100%);
+        border: 1px solid rgba(41, 210, 114, 0.28);
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        padding: 1rem 1.05rem;
+      }}
+      .google-onboarding-hero h3 {{
+        color: #101828;
+        font-size: 1.25rem;
+        font-weight: 850;
+        letter-spacing: 0;
+        line-height: 1.2;
+        margin: 0 0 0.35rem;
+      }}
+      .google-onboarding-hero p {{
+        color: #40566b;
+        font-size: 0.98rem;
+        line-height: 1.45;
+        margin: 0;
+      }}
+      .google-onboarding-note {{
+        background: #f8fafc;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 8px;
+        color: #526174;
+        font-size: 0.9rem;
+        line-height: 1.45;
+        margin-top: 0.8rem;
+        padding: 0.75rem 0.85rem;
+      }}
+    </style>
+    <div class="google-onboarding-hero">
+      <h3>Welcome to Clinic Reminders!</h3>
+      <p>You're signed in with Google{f" as {html_lib.escape(email)}" if email else ""}. Add your clinic name and country to create your workspace.</p>
+    </div>
+    <div class="google-onboarding-note">Next time, use Continue with Google. Your Google password is never entered or stored in Clinic Reminders.</div>
+    """
+
+
+def render_google_onboarding_dialog(google_user: dict):
+    def _render_dialog_body():
+        st.markdown(google_onboarding_dialog_html(google_user), unsafe_allow_html=True)
+        with st.form("google_onboarding_form"):
+            default_clinic_name = st.session_state.get("google_onboarding_clinic_name", "")
+            google_clinic = st.text_input("Clinic name", value=default_clinic_name, key="google_onboarding_clinic_name").strip()
+            google_country = st.selectbox("Country", COUNTRY_OPTIONS, key="google_onboarding_country")
+            google_submitted = st.form_submit_button("Create clinic workspace", type="primary", use_container_width=True)
+
+        if google_submitted:
+            try:
+                create_google_clinic_account(google_clinic, google_country, google_user)
+                st.session_state["user_country"] = google_country
+                st.session_state.pop("pending_google_signup", None)
+                finish_authenticated_session(
+                    google_clinic,
+                    event="google_login",
+                    auth_provider=GOOGLE_AUTH_PROVIDER,
+                    google_user=google_user,
+                )
+                st.rerun()
+            except ValueError as e:
+                st.error(str(e))
+            except Exception:
+                st.error("Could not create your clinic workspace. Please try again or contact support.")
+
+        if st.button("Use another Google account", key="google_onboarding_logout", use_container_width=True):
+            st.session_state.pop("pending_google_signup", None)
+            if callable(getattr(st, "logout", None)):
+                st.logout()
+            else:
+                st.rerun()
+
+    if hasattr(st, "dialog"):
+        @st.dialog("Set up your clinic")
+        def _google_onboarding_dialog():
+            _render_dialog_body()
+        _google_onboarding_dialog()
+    elif hasattr(st, "experimental_dialog"):
+        @st.experimental_dialog("Set up your clinic")
+        def _google_onboarding_dialog():
+            _render_dialog_body()
+        _google_onboarding_dialog()
+    else:
+        with st.expander("Set up your clinic", expanded=True):
+            _render_dialog_body()
+
+
 def update_clinic_password(clinic_id: str, new_password: str):
     """Update the password hash for the current clinic login."""
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
@@ -4563,6 +4659,7 @@ if google_user.get("is_logged_in") and not st.session_state["logged_in"]:
     except Exception:
         google_clinic_row = None
     if google_clinic_row:
+        st.session_state.pop("pending_google_signup", None)
         finish_authenticated_session(
             str(google_clinic_row.get("ClinicID", "")).strip(),
             event="google_login",
@@ -4570,6 +4667,10 @@ if google_user.get("is_logged_in") and not st.session_state["logged_in"]:
             google_user=google_user,
         )
         rerun_app()
+    else:
+        st.session_state["pending_google_signup"] = True
+elif st.session_state.get("pending_google_signup"):
+    st.session_state.pop("pending_google_signup", None)
 
 default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
 
@@ -4592,6 +4693,21 @@ if (
         load_shared_dataset_for_clinic()
         rerun_app()
 
+pending_google_signup = bool(st.session_state.get("pending_google_signup") and google_user.get("is_logged_in"))
+
+if pending_google_signup and not st.session_state["logged_in"]:
+    st.markdown(
+        """
+        <div style="max-width: 42rem; margin: 2rem 0 0 2rem; color: #40566b;">
+          <h3 style="color: #101828; margin-bottom: 0.35rem;">Finishing your Google sign-up</h3>
+          <p style="margin: 0;">A quick setup window will open so we can create your clinic workspace.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    render_google_onboarding_dialog(google_user)
+    st.stop()
+
 if not st.session_state["logged_in"]:
     login_col, _ = st.columns([0.36, 0.64])
     with login_col:
@@ -4612,7 +4728,7 @@ if not st.session_state["logged_in"]:
         google_signup_col, manual_signup_col = st.columns(2, gap="small")
         with google_signup_col:
             st.button(
-                "Sign Up with Google",
+                "Continue with Google",
                 key="google_signup_button",
                 use_container_width=True,
                 disabled=not google_auth_ready,
@@ -4651,37 +4767,6 @@ if not st.session_state["logged_in"]:
                 st.rerun()
             else:
                 st.error("❌ Invalid username or password.")
-
-        if google_user.get("is_logged_in"):
-            st.markdown("### Complete Google Sign Up")
-            with st.form("google_signup_form"):
-                default_clinic_name = str(google_user.get("name") or google_user.get("email") or "").strip()
-                google_clinic = st.text_input("Clinic Name", value=default_clinic_name).strip()
-                google_country = st.selectbox("Country", COUNTRY_OPTIONS, key="google_signup_country")
-                google_submitted = st.form_submit_button("Sign Up", type="primary", use_container_width=True)
-
-            if google_submitted:
-                try:
-                    create_google_clinic_account(google_clinic, google_country, google_user)
-                    finish_authenticated_session(
-                        google_clinic,
-                        event="google_login",
-                        auth_provider=GOOGLE_AUTH_PROVIDER,
-                        google_user=google_user,
-                    )
-                    st.session_state["user_country"] = google_country
-                    st.success(f"✅ Account created. Welcome, {google_clinic}!")
-                    st.rerun()
-                except ValueError as e:
-                    st.error(str(e))
-                except Exception:
-                    st.error("Could not create account with Google. Please try again or contact support.")
-
-            if st.button("Use another Google account", key="google_signup_logout", use_container_width=True):
-                if callable(getattr(st, "logout", None)):
-                    st.logout()
-                else:
-                    st.rerun()
 
         if st.session_state["show_create_account"]:
             st.markdown("### Sign Up")
