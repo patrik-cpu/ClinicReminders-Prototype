@@ -1123,6 +1123,11 @@ st.markdown(
         border: 0 !important;
         box-shadow: none !important;
     }
+    div[data-testid="stTextInput"] [data-baseweb="base-input"] > div,
+    div[data-testid="stTextInput"] [data-baseweb="base-input"] > div > div,
+    div[data-testid="stTextInput"] [data-baseweb="base-input"] span {
+        background: #f6f8fb !important;
+    }
     div[data-testid="stTextInput"] button {
         align-items: center !important;
         display: flex !important;
@@ -1137,7 +1142,13 @@ st.markdown(
         min-height: 2.5rem !important;
         padding-bottom: 0 !important;
         padding-top: 0 !important;
-        width: 3rem !important;
+        width: 2.75rem !important;
+    }
+    div[data-testid="stTextInput"] button:hover,
+    div[data-testid="stTextInput"] button:focus,
+    div[data-testid="stTextInput"] button:active {
+        background: #eef3f8 !important;
+        color: #101828 !important;
     }
     div[data-testid="stTextInput"] button svg {
         display: block !important;
