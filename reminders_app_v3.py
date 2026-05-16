@@ -1079,6 +1079,13 @@ st.markdown(
         min-height: 2.75rem !important;
         width: 100% !important;
     }
+    .st-key-clinic_login_form div[data-testid="stForm"] {
+        border: 0 !important;
+        padding: 0 !important;
+    }
+    div[data-testid="stTextInput"] {
+        width: 100% !important;
+    }
     .stTextInput label,
     div[data-testid="stTextInput"] label,
     div[data-testid="stTextInput"] label p {
@@ -1099,6 +1106,24 @@ st.markdown(
     div[data-testid="stTextInput"] input::placeholder {
         color: #667085 !important;
         -webkit-text-fill-color: #667085 !important;
+    }
+    div[data-testid="stTextInput"] [data-baseweb="base-input"] {
+        align-items: center !important;
+        background: #f6f8fb !important;
+        border-radius: 6px !important;
+        min-height: 2.5rem !important;
+    }
+    div[data-testid="stTextInput"] button {
+        align-items: center !important;
+        display: flex !important;
+        height: 2.5rem !important;
+        justify-content: center !important;
+        min-height: 2.5rem !important;
+        padding-bottom: 0 !important;
+        padding-top: 0 !important;
+    }
+    div[data-testid="stTextInput"] button svg {
+        display: block !important;
     }
     .st-key-google_signup_button button {
         background: #ffffff !important;
