@@ -1069,6 +1069,40 @@ st.markdown(
         border-color: var(--cr-primary-dark) !important;
         color: #ffffff !important;
     }
+    .st-key-google_signup_button button,
+    .st-key-toggle_create_account button {
+        min-height: 2.75rem !important;
+        width: 100% !important;
+    }
+    .st-key-google_signup_button button {
+        background: #ffffff !important;
+        border: 1.5px solid #4285f4 !important;
+        box-shadow: 0 8px 20px rgba(66, 133, 244, 0.18) !important;
+        color: #12243f !important;
+        font-weight: 800 !important;
+    }
+    .st-key-google_signup_button button:hover {
+        background: #f7fbff !important;
+        border-color: #1a73e8 !important;
+        box-shadow: 0 10px 24px rgba(26, 115, 232, 0.24) !important;
+        color: #0b1f3a !important;
+    }
+    .st-key-google_signup_button button::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath fill='%234285F4' d='M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.12-.84 2.07-1.79 2.71v2.25h2.9c1.7-1.56 2.69-3.86 2.69-6.6z'/%3E%3Cpath fill='%2334A853' d='M9 18c2.43 0 4.47-.8 5.96-2.19l-2.9-2.25c-.8.54-1.82.86-3.06.86-2.35 0-4.34-1.58-5.05-3.71H.96v2.33C2.44 15.98 5.49 18 9 18z'/%3E%3Cpath fill='%23FBBC05' d='M3.95 10.71c-.18-.54-.28-1.11-.28-1.71s.1-1.17.28-1.71V4.96H.96C.35 6.17 0 7.54 0 9s.35 2.83.96 4.04l2.99-2.33z'/%3E%3Cpath fill='%23EA4335' d='M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0 5.49 0 2.44 2.02.96 4.96l2.99 2.33C4.66 5.16 6.65 3.58 9 3.58z'/%3E%3C/svg%3E");
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: 1.15rem 1.15rem;
+        content: "";
+        display: inline-block;
+        height: 1.15rem;
+        margin-right: 0.5rem;
+        width: 1.15rem;
+    }
+    .st-key-google_signup_button button p,
+    .st-key-toggle_create_account button p {
+        font-weight: inherit !important;
+        margin: 0 !important;
+    }
     .dataset-summary {
         background: var(--cr-primary-soft);
         border: 1px solid rgba(41, 210, 114, 0.22);
@@ -4458,11 +4492,18 @@ if not st.session_state["logged_in"]:
             password = st.text_input("Password", type="password", value="")
             login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
 
-        if st.button("Sign Up with Google", key="google_signup_button", use_container_width=True):
-            try:
-                st.login(GOOGLE_AUTH_PROVIDER)
-            except Exception:
-                st.warning("Google sign-up is not configured yet. Please use Sign Up or contact support.")
+        google_signup_col, manual_signup_col = st.columns(2, gap="small")
+        with google_signup_col:
+            if st.button("Sign Up with Google", key="google_signup_button", use_container_width=True):
+                try:
+                    st.login(GOOGLE_AUTH_PROVIDER)
+                except Exception:
+                    st.warning("Google sign-up is not configured yet. Please use Sign Up or contact support.")
+        with manual_signup_col:
+            if "show_create_account" not in st.session_state:
+                st.session_state["show_create_account"] = False
+            if st.button("Sign Up", key="toggle_create_account", use_container_width=True):
+                st.session_state["show_create_account"] = not st.session_state["show_create_account"]
 
         if login_submitted:
             user_row = authenticate_user(username, password)
@@ -4517,11 +4558,6 @@ if not st.session_state["logged_in"]:
                     st.logout()
                 else:
                     st.rerun()
-
-        if "show_create_account" not in st.session_state:
-            st.session_state["show_create_account"] = False
-        if st.button("Sign Up", key="toggle_create_account"):
-            st.session_state["show_create_account"] = not st.session_state["show_create_account"]
 
         if st.session_state["show_create_account"]:
             st.markdown("### Sign Up")
