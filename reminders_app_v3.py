@@ -53,7 +53,7 @@ DRIVE_SCOPE = [
 
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
-MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions"]
+MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Statistics"]
 
 
 def set_main_section_tab(tab_name: str):
@@ -4301,7 +4301,7 @@ main_section_tab_labels = [main_section_tab_label(tab_name) for tab_name in MAIN
 default_main_section_tab = st.session_state.get("main_section_tab", "Reminders")
 if default_main_section_tab not in MAIN_SECTION_TABS:
     default_main_section_tab = "Reminders"
-reminders_page_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab = st.tabs(
+reminders_page_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab, statistics_tab = st.tabs(
     main_section_tab_labels,
     default=main_section_tab_label(default_main_section_tab),
 )
@@ -6423,19 +6423,368 @@ def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 
     return st.session_state["prepared_df"]
 
+
+STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
+
+
+def statistics_period_start(period: str, today: date | None = None) -> date | None:
+    today = today or date.today()
+    if period == "Today":
+        return today
+    if period == "7 days":
+        return today - timedelta(days=6)
+    if period == "30 days":
+        return today - timedelta(days=29)
+    return None
+
+
+def parse_statistics_dates(value) -> list[date]:
+    if value is None:
+        return []
+    if isinstance(value, datetime):
+        return [value.date()]
+    if isinstance(value, date):
+        return [value]
+    parsed_dates = []
+    for part in str(value or "").split("|"):
+        part = part.strip()
+        if not part:
+            continue
+        parsed = pd.to_datetime(part, errors="coerce")
+        if pd.notna(parsed):
+            parsed_dates.append(parsed.date())
+    return parsed_dates
+
+
+def statistics_row_dates(row: dict) -> list[date]:
+    return parse_statistics_dates(row.get("Reminder Date", "") or row.get("ReminderDate", ""))
+
+
+def statistics_primary_reminder_date(row: dict) -> date | None:
+    dates = statistics_row_dates(row)
+    return min(dates) if dates else None
+
+
+def statistics_actioned_date(row: dict) -> date | None:
+    actioned_at = _parse_reminder_log_time(row.get("ActionedAt", "") or row.get("DeletedAt", ""))
+    return actioned_at.date() if actioned_at else None
+
+
+def statistics_date_in_period(value_date: date | None, period: str, today: date | None = None) -> bool:
+    if value_date is None:
+        return False
+    today = today or date.today()
+    start = statistics_period_start(period, today)
+    if start is None:
+        return True
+    return start <= value_date <= today
+
+
+def statistics_row_in_reminder_period(row: dict, period: str, today: date | None = None) -> bool:
+    dates = statistics_row_dates(row)
+    return any(statistics_date_in_period(value_date, period, today) for value_date in dates)
+
+
+def statistics_row_key(row: dict) -> tuple[str, ...]:
+    return hidden_reminder_key(row)
+
+
+def build_statistics_generated_rows(prepared: pd.DataFrame, rules: dict, group_days: int | None = None) -> pd.DataFrame:
+    if prepared is None or getattr(prepared, "empty", True):
+        return pd.DataFrame(columns=["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"])
+    group_days = st.session_state.get("client_group_days", 1) if group_days is None else group_days
+    try:
+        group_days = max(0, int(group_days))
+    except (TypeError, ValueError):
+        group_days = 1
+    filtered = apply_reminder_exclusion_filters(prepared, rules)
+    if filtered.empty:
+        return pd.DataFrame(columns=["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"])
+    return bundle_client_reminders_by_window(filtered, window_days=group_days, rules=rules)
+
+
+def statistics_current_action_records() -> list[dict]:
+    return reduce_action_tracker_records([
+        entry for entry in st.session_state.get("deleted_reminders", [])
+        if isinstance(entry, dict)
+    ])
+
+
+def filter_generated_for_statistics_period(generated_df: pd.DataFrame, period: str, today: date | None = None) -> pd.DataFrame:
+    if generated_df is None or generated_df.empty:
+        return pd.DataFrame(columns=list(generated_df.columns) if generated_df is not None else [])
+    mask = [
+        statistics_row_in_reminder_period(row, period, today)
+        for row in generated_df.to_dict("records")
+    ]
+    return generated_df.loc[mask].copy()
+
+
+def filter_actions_by_reminder_period(action_records: list[dict], period: str, today: date | None = None) -> list[dict]:
+    return [
+        dict(record) for record in action_records
+        if statistics_row_in_reminder_period(record, period, today)
+    ]
+
+
+def filter_actions_by_actioned_period(action_records: list[dict], period: str, today: date | None = None) -> list[dict]:
+    return [
+        dict(record) for record in action_records
+        if statistics_date_in_period(statistics_actioned_date(record), period, today)
+    ]
+
+
+def statistics_summary_for_period(
+    generated_df: pd.DataFrame,
+    action_records: list[dict],
+    period: str,
+    today: date | None = None,
+) -> dict:
+    generated_period = filter_generated_for_statistics_period(generated_df, period, today)
+    generated_keys = {
+        statistics_row_key(row)
+        for row in generated_period.to_dict("records")
+        if any(statistics_row_key(row))
+    }
+    actioned_by_key = {}
+    for record in filter_actions_by_reminder_period(action_records, period, today):
+        key = statistics_row_key(record)
+        if not any(key) or key not in generated_keys:
+            continue
+        actioned_by_key[key] = record
+
+    sent = sum(1 for record in actioned_by_key.values() if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT)
+    declined = sum(1 for record in actioned_by_key.values() if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_DECLINED)
+    generated_count = len(generated_period.index)
+    actioned_count = sent + declined
+    remaining = max(generated_count - actioned_count, 0)
+    completion_rate = (actioned_count / generated_count) if generated_count else 0.0
+    return {
+        "generated": generated_count,
+        "actioned": actioned_count,
+        "sent": sent,
+        "declined": declined,
+        "remaining": remaining,
+        "completion_rate": completion_rate,
+    }
+
+
+def build_statistics_daily_frame(
+    generated_df: pd.DataFrame,
+    action_records: list[dict],
+    period: str,
+    today: date | None = None,
+) -> pd.DataFrame:
+    today = today or date.today()
+    generated_counts = {}
+    for row in filter_generated_for_statistics_period(generated_df, period, today).to_dict("records"):
+        row_date = statistics_primary_reminder_date(row)
+        if row_date is not None:
+            generated_counts[row_date] = generated_counts.get(row_date, 0) + 1
+
+    action_counts = {}
+    for record in filter_actions_by_reminder_period(action_records, period, today):
+        row_date = statistics_primary_reminder_date(record)
+        if row_date is None:
+            continue
+        action = str(record.get("Action", "")).strip().lower()
+        counts = action_counts.setdefault(row_date, {"Sent": 0, "Declined": 0})
+        if action == REMINDER_ACTION_SENT:
+            counts["Sent"] += 1
+        elif action == REMINDER_ACTION_DECLINED:
+            counts["Declined"] += 1
+
+    all_dates = sorted(set(generated_counts) | set(action_counts))
+    start = statistics_period_start(period, today)
+    if start is not None:
+        all_dates = [day for day in all_dates if start <= day <= today]
+    rows = []
+    for row_date in all_dates:
+        sent = action_counts.get(row_date, {}).get("Sent", 0)
+        declined = action_counts.get(row_date, {}).get("Declined", 0)
+        generated = generated_counts.get(row_date, 0)
+        rows.append({
+            "Date": pd.Timestamp(row_date),
+            "Generated": generated,
+            "Actioned": sent + declined,
+            "Sent": sent,
+            "Declined": declined,
+            "Remaining": max(generated - sent - declined, 0),
+        })
+    return pd.DataFrame(rows)
+
+
+def build_statistics_team_frame(action_records: list[dict], period: str, today: date | None = None) -> pd.DataFrame:
+    rows = filter_actions_by_actioned_period(action_records, period, today)
+    if not rows:
+        return pd.DataFrame(columns=["User", "Actioned", "Sent", "Declined", "Last Actioned"])
+    df_actions = pd.DataFrame(rows)
+    df_actions["User"] = df_actions.get("Actioned By", "").fillna("").astype(str).str.strip().replace("", "Unknown")
+    df_actions["ActionNorm"] = df_actions.get("Action", "").fillna("").astype(str).str.lower()
+    df_actions["ActionedAtParsed"] = df_actions.apply(
+        lambda row: _parse_reminder_log_time(row.get("ActionedAt", "") or row.get("DeletedAt", "")),
+        axis=1,
+    )
+    grouped = df_actions.groupby("User", dropna=False)
+    out = grouped.size().rename("Actioned").to_frame()
+    out["Sent"] = grouped["ActionNorm"].apply(lambda values: int((values == REMINDER_ACTION_SENT).sum()))
+    out["Declined"] = grouped["ActionNorm"].apply(lambda values: int((values == REMINDER_ACTION_DECLINED).sum()))
+    out["Last Actioned"] = grouped["ActionedAtParsed"].max().apply(lambda value: value.strftime("%d %b %Y") if pd.notna(value) else "")
+    return out.reset_index().sort_values(["Actioned", "Sent"], ascending=False)
+
+
+def build_statistics_item_frame(
+    generated_df: pd.DataFrame,
+    action_records: list[dict],
+    period: str,
+    today: date | None = None,
+) -> pd.DataFrame:
+    generated_rows = filter_generated_for_statistics_period(generated_df, period, today).to_dict("records")
+    generated_counts = {}
+    for row in generated_rows:
+        item = normalize_display_case(str(row.get("Plan Item", "") or "Unknown").strip() or "Unknown")
+        generated_counts[item] = generated_counts.get(item, 0) + 1
+
+    action_counts = {}
+    for record in filter_actions_by_reminder_period(action_records, period, today):
+        item = normalize_display_case(str(record.get("Plan Item", "") or "Unknown").strip() or "Unknown")
+        counts = action_counts.setdefault(item, {"Sent": 0, "Declined": 0})
+        action = str(record.get("Action", "")).strip().lower()
+        if action == REMINDER_ACTION_SENT:
+            counts["Sent"] += 1
+        elif action == REMINDER_ACTION_DECLINED:
+            counts["Declined"] += 1
+
+    rows = []
+    for item in sorted(set(generated_counts) | set(action_counts)):
+        sent = action_counts.get(item, {}).get("Sent", 0)
+        declined = action_counts.get(item, {}).get("Declined", 0)
+        rows.append({
+            "Item": item,
+            "Generated": generated_counts.get(item, 0),
+            "Actioned": sent + declined,
+            "Sent": sent,
+            "Declined": declined,
+        })
+    return pd.DataFrame(rows).sort_values(["Generated", "Actioned"], ascending=False) if rows else pd.DataFrame(columns=["Item", "Generated", "Actioned", "Sent", "Declined"])
+
+
+def render_statistics_metric_card(label: str, value: str):
+    st.metric(label, value)
+
+
+def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
+    st.markdown("<div id='statistics' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("## Statistics")
+
+    generated_df = build_statistics_generated_rows(
+        prepared,
+        rules,
+        group_days=st.session_state.get("client_group_days", 1),
+    )
+    action_records = statistics_current_action_records()
+
+    if not STATISTICS_PERIODS:
+        selected_period = "Today"
+    elif hasattr(st, "segmented_control"):
+        selected_period = st.segmented_control(
+            "Statistics period",
+            STATISTICS_PERIODS,
+            selection_mode="single",
+            default=st.session_state.get("statistics_period", "Today") if st.session_state.get("statistics_period", "Today") in STATISTICS_PERIODS else "Today",
+            key="statistics_period",
+            label_visibility="collapsed",
+        ) or "Today"
+    else:
+        selected_period = st.radio(
+            "Statistics period",
+            STATISTICS_PERIODS,
+            index=STATISTICS_PERIODS.index(st.session_state.get("statistics_period", "Today")) if st.session_state.get("statistics_period", "Today") in STATISTICS_PERIODS else 0,
+            horizontal=True,
+            key="statistics_period",
+            label_visibility="collapsed",
+        )
+
+    summary = statistics_summary_for_period(generated_df, action_records, selected_period)
+    overview_tab, team_tab, items_tab, completion_tab = st.tabs(["Overview", "Team", "Items", "Completion"])
+
+    with overview_tab:
+        metric_cols = st.columns(5)
+        metrics = [
+            ("Generated", f"{summary['generated']:,}"),
+            ("Actioned", f"{summary['actioned']:,}"),
+            ("Sent", f"{summary['sent']:,}"),
+            ("Declined", f"{summary['declined']:,}"),
+            ("Complete", f"{summary['completion_rate']:.0%}"),
+        ]
+        for col, (label, value) in zip(metric_cols, metrics):
+            with col:
+                render_statistics_metric_card(label, value)
+
+        daily_frame = build_statistics_daily_frame(generated_df, action_records, selected_period)
+        if daily_frame.empty:
+            st.info("No reminder statistics for this period yet.")
+        else:
+            chart_source = daily_frame.melt(
+                id_vars=["Date"],
+                value_vars=["Generated", "Actioned", "Sent", "Declined"],
+                var_name="Metric",
+                value_name="Count",
+            )
+            chart = (
+                alt.Chart(chart_source)
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("Date:T", title="Date"),
+                    y=alt.Y("Count:Q", title="Reminders"),
+                    color=alt.Color("Metric:N", title="Metric"),
+                    tooltip=["Date:T", "Metric:N", "Count:Q"],
+                )
+                .properties(height=300)
+            )
+            st.altair_chart(chart, use_container_width=True)
+
+    with team_tab:
+        team_frame = build_statistics_team_frame(action_records, selected_period)
+        if team_frame.empty:
+            st.info("No team activity for this period yet.")
+        else:
+            st.dataframe(team_frame, hide_index=True, use_container_width=True)
+
+    with items_tab:
+        item_frame = build_statistics_item_frame(generated_df, action_records, selected_period)
+        if item_frame.empty:
+            st.info("No item statistics for this period yet.")
+        else:
+            st.dataframe(item_frame.head(25), hide_index=True, use_container_width=True)
+
+    with completion_tab:
+        today_summary = statistics_summary_for_period(generated_df, action_records, "Today")
+        completion_pct = today_summary["completion_rate"]
+        comp_cols = st.columns(4)
+        completion_metrics = [
+            ("Today Generated", f"{today_summary['generated']:,}"),
+            ("Today Actioned", f"{today_summary['actioned']:,}"),
+            ("Remaining", f"{today_summary['remaining']:,}"),
+            ("Ring", f"{completion_pct:.0%}"),
+        ]
+        for col, (label, value) in zip(comp_cols, completion_metrics):
+            with col:
+                render_statistics_metric_card(label, value)
+        st.progress(min(max(completion_pct, 0.0), 1.0))
+
 # --------------------------------
 # Main
 # --------------------------------
 if st.session_state.get("working_df") is not None:
     df = st.session_state["working_df"].copy()
     applied_rules = get_applied_reminder_rules()
+    prepared = get_prepared_df(df, applied_rules)
 
     with reminders_page_tab:
         st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
         st.markdown("## 📅 Reminders")
-    
-        prepared = get_prepared_df(df, applied_rules)
-    
+
         # ✅ safety: if schema changed but cache is stale, rebuild
         if "BaseIntervalDays" not in prepared.columns:
             st.error("Internal error: BaseIntervalDays missing. Rebuilding reminder cache...")
@@ -6537,7 +6886,10 @@ if st.session_state.get("working_df") is not None:
                 st.info("All reminders in the selected date range are hidden by exclusions.")
             else:
                 st.info("No reminders in the selected date range.")
-    
+
+    with statistics_tab:
+        render_statistics_tab(prepared, applied_rules)
+
     with search_terms_tab:
         # Rules editor (unchanged UI; behavior preserved)
         st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
@@ -7034,6 +7386,8 @@ else:
         st.info("Upload data in the Upload Data tab to manage search terms.")
     with exclusions_tab:
         st.info("Upload data in the Upload Data tab to manage exclusions.")
+    with statistics_tab:
+        st.info("Upload data in the Upload Data tab to view statistics.")
 
 # --------------------------------
 # 📊 Factoids Section (temporarily hidden)
