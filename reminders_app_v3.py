@@ -194,6 +194,17 @@ DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive folder UR
 SHEET_COL_DATASET_FILE_ID = "DatasetFileId"
 SHEET_COL_DATASET_FILE_NAME = "DatasetFileName"
 SHEET_COL_DATASET_UPDATED_AT = "DatasetUpdatedAt"
+SHEET_COL_AUTH_PROVIDER = "AuthProvider"
+SHEET_COL_GOOGLE_EMAIL = "GoogleEmail"
+SHEET_COL_GOOGLE_SUBJECT = "GoogleSubject"
+SHEET_COL_GOOGLE_NAME = "GoogleName"
+GOOGLE_AUTH_PROVIDER = "google"
+GOOGLE_ACCOUNT_COLUMNS = [
+    SHEET_COL_AUTH_PROVIDER,
+    SHEET_COL_GOOGLE_EMAIL,
+    SHEET_COL_GOOGLE_SUBJECT,
+    SHEET_COL_GOOGLE_NAME,
+]
 GST_TZ = ZoneInfo("Asia/Dubai")
 ACTION_TRACKER_WORKSHEET = "Action tracker"
 WA_TRACKER_WORKSHEET = "WA button tracker"  # Legacy sheet name; kept for backwards compatibility.
@@ -357,6 +368,9 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "deleted_reminders",
     "dataset_upload_history",
     "user_country",
+    "auth_provider",
+    "google_email",
+    "google_subject",
     "get_started_reset_at",
     "search_terms_reviewed",
     "search_term_added",
@@ -453,6 +467,37 @@ def _column_number_to_letter(col_num: int) -> str:
 
 def _row_range_a1(row_idx: int, first_col_idx: int, last_col_idx: int) -> str:
     return f"{_column_number_to_letter(first_col_idx)}{row_idx}:{_column_number_to_letter(last_col_idx)}{row_idx}"
+
+
+def settings_row_values(headers: list[str], values_by_header: dict[str, object]) -> list[str]:
+    row_values = [""] * len(headers)
+    for header, value in values_by_header.items():
+        if header in headers:
+            row_values[headers.index(header)] = value
+    return row_values
+
+
+def ensure_settings_sheet_columns(
+    sheet=None,
+    headers: list[str] | None = None,
+    required_columns: list[str] | None = None,
+) -> list[str]:
+    sheet = sheet or get_settings_sheet()
+    if headers is None:
+        all_vals = _gspread_retry(sheet.get_all_values) or []
+        headers = list(all_vals[0]) if all_vals else ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+    else:
+        headers = list(headers)
+
+    missing = [col for col in (required_columns or []) if col not in headers]
+    if not missing:
+        return headers
+
+    updated_headers = headers + missing
+    end_col = _column_number_to_letter(len(updated_headers))
+    _gspread_retry(sheet.update, values=[updated_headers], range_name=f"A1:{end_col}1")
+    st.session_state.pop("_settings_row_cache", None)
+    return updated_headers
 
 
 def gst_now(now: datetime | None = None) -> datetime:
@@ -3664,6 +3709,40 @@ def verify_password(password: str, stored_hash: str) -> bool:
     return hmac.compare_digest(stored_hash, hash_pw(password))
 
 
+def normalize_email(value: str) -> str:
+    return str(value or "").strip().lower()
+
+
+def get_google_user_info(user_info=None) -> dict:
+    user_info = st.user if user_info is None else user_info
+    is_logged_in_attr = bool(getattr(user_info, "is_logged_in", False))
+    try:
+        data = dict(user_info)
+    except Exception:
+        data = {}
+
+    email = normalize_email(data.get("email", ""))
+    subject = str(data.get("sub") or data.get("user_id") or "").strip()
+    name = str(data.get("name") or data.get("given_name") or email).strip()
+    is_logged_in = is_logged_in_attr or bool(data.get("is_logged_in")) or bool(email or subject)
+    return {
+        "is_logged_in": is_logged_in,
+        "email": email,
+        "subject": subject,
+        "name": name,
+    }
+
+
+def google_identity_matches_row(row: dict, google_user: dict) -> bool:
+    row_subject = str(row.get(SHEET_COL_GOOGLE_SUBJECT, "")).strip()
+    row_email = normalize_email(row.get(SHEET_COL_GOOGLE_EMAIL, ""))
+    google_subject = str(google_user.get("subject", "")).strip()
+    google_email = normalize_email(google_user.get("email", ""))
+    if row_subject and google_subject and hmac.compare_digest(row_subject, google_subject):
+        return True
+    return bool(row_email and google_email and hmac.compare_digest(row_email, google_email))
+
+
 def authenticate_user(username, password):
     """Check username/password pair against the sheet."""
     sheet = get_settings_sheet()
@@ -3681,6 +3760,17 @@ def get_clinic_row(username):
     for r in records:
         if r["ClinicID"].strip().lower() == username.strip().lower():
             return r
+    return None
+
+
+def get_clinic_row_by_google_identity(google_user: dict):
+    if not google_user.get("is_logged_in"):
+        return None
+    sheet = get_settings_sheet()
+    records = sheet.get_all_records()
+    for row in records:
+        if google_identity_matches_row(row, google_user):
+            return row
     return None
 
 
@@ -3862,7 +3952,6 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
     headers = all_vals[0] if all_vals else ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
     settings_json = json.dumps(default_settings_for_country(country))
     password_hash = password_hash_for_storage(password)
-    row_values = [""] * len(headers)
     values_by_header = {
         "ClinicID": clinic_id,
         "PlainPassword": "",
@@ -3870,13 +3959,50 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
         "SettingsJSON": settings_json,
         "UpdatedAt": datetime.utcnow().isoformat(),
     }
-    for header, value in values_by_header.items():
-        if header in headers:
-            row_values[headers.index(header)] = value
-
-    _gspread_retry(sheet.append_row, row_values, value_input_option="USER_ENTERED")
+    _gspread_retry(sheet.append_row, settings_row_values(headers, values_by_header), value_input_option="USER_ENTERED")
     upsert_user_tracker(clinic_id, country=country, event="created")
     return password_hash
+
+
+def create_google_clinic_account(clinic_id: str, country: str, google_user: dict):
+    clinic_id = str(clinic_id or "").strip()
+    country = str(country or "").strip()
+    google_user = google_user or {}
+    email = normalize_email(google_user.get("email", ""))
+    if not clinic_id:
+        raise ValueError("Enter a clinic name.")
+    if not email:
+        raise ValueError("Google did not return an email address. Please try again.")
+    if get_clinic_row(clinic_id):
+        raise ValueError("That clinic name is already registered.")
+
+    existing_google_row = get_clinic_row_by_google_identity({
+        **google_user,
+        "is_logged_in": True,
+        "email": email,
+    })
+    if existing_google_row:
+        raise ValueError("That Google account is already linked to a clinic.")
+
+    sheet = get_settings_sheet()
+    all_vals = _gspread_retry(sheet.get_all_values)
+    headers = all_vals[0] if all_vals else ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+    headers = ensure_settings_sheet_columns(sheet, headers, GOOGLE_ACCOUNT_COLUMNS)
+    settings_json = json.dumps(default_settings_for_country(country))
+    values_by_header = {
+        "ClinicID": clinic_id,
+        "PlainPassword": "",
+        "PasswordHash": "",
+        "SettingsJSON": settings_json,
+        "UpdatedAt": datetime.utcnow().isoformat(),
+        SHEET_COL_AUTH_PROVIDER: GOOGLE_AUTH_PROVIDER,
+        SHEET_COL_GOOGLE_EMAIL: email,
+        SHEET_COL_GOOGLE_SUBJECT: str(google_user.get("subject", "")).strip(),
+        SHEET_COL_GOOGLE_NAME: str(google_user.get("name", "")).strip(),
+    }
+    _gspread_retry(sheet.append_row, settings_row_values(headers, values_by_header), value_input_option="USER_ENTERED")
+    upsert_user_tracker(clinic_id, country=country, event="google_created")
+    return values_by_header
 
 
 def update_clinic_password(clinic_id: str, new_password: str):
@@ -3912,6 +4038,32 @@ def upload_fingerprint(file_blobs) -> str:
         h.update(fb["bytes"])
         h.update(b"\0")
     return h.hexdigest()
+
+
+def finish_authenticated_session(
+    clinic_id: str,
+    event: str,
+    auth_provider: str = "password",
+    google_user: dict | None = None,
+):
+    clinic_id = str(clinic_id or "").strip()
+    st.session_state["clinic_id"] = clinic_id
+    st.session_state["logged_in"] = True
+    st.session_state["show_top_change_password"] = False
+    st.session_state["auth_provider"] = auth_provider
+    if google_user:
+        st.session_state["google_email"] = google_user.get("email", "")
+        st.session_state["google_subject"] = google_user.get("subject", "")
+
+    reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
+    load_settings()
+    load_shared_dataset_for_clinic()
+    upsert_user_tracker(
+        clinic_id,
+        country=st.session_state.get("user_country", ""),
+        event=event,
+    )
+
 
 @st.cache_data(show_spinner=False)
 def summarize_uploads(file_blobs, cache_version: int = UPLOAD_SUMMARY_SCHEMA_VERSION):
@@ -4055,6 +4207,7 @@ if "logged_in" not in st.session_state:
 if "auto_login_attempted" not in st.session_state:
     st.session_state["auto_login_attempted"] = False
 st.session_state.setdefault("show_top_change_password", False)
+google_user = get_google_user_info()
 
 remember_token = get_query_param("remember")
 if remember_token and not st.session_state["logged_in"]:
@@ -4075,6 +4228,20 @@ if remember_token and not st.session_state["logged_in"]:
         rerun_app()
     else:
         clear_remember_login_token()
+
+if google_user.get("is_logged_in") and not st.session_state["logged_in"]:
+    try:
+        google_clinic_row = get_clinic_row_by_google_identity(google_user)
+    except Exception:
+        google_clinic_row = None
+    if google_clinic_row:
+        finish_authenticated_session(
+            str(google_clinic_row.get("ClinicID", "")).strip(),
+            event="google_login",
+            auth_provider=GOOGLE_AUTH_PROVIDER,
+            google_user=google_user,
+        )
+        rerun_app()
 
 default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
 
@@ -4109,6 +4276,12 @@ if not st.session_state["logged_in"]:
             password = st.text_input("Password", type="password", value="")
             login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
 
+        if st.button("Sign Up with Google", key="google_signup_button", use_container_width=True):
+            try:
+                st.login(GOOGLE_AUTH_PROVIDER)
+            except Exception:
+                st.warning("Google sign-up is not configured yet. Please use Sign Up or contact support.")
+
         if login_submitted:
             user_row = authenticate_user(username, password)
             if user_row:
@@ -4132,19 +4305,50 @@ if not st.session_state["logged_in"]:
             else:
                 st.error("❌ Invalid username or password.")
 
+        if google_user.get("is_logged_in"):
+            st.markdown("### Complete Google Sign Up")
+            with st.form("google_signup_form"):
+                default_clinic_name = str(google_user.get("name") or google_user.get("email") or "").strip()
+                google_clinic = st.text_input("Clinic Name", value=default_clinic_name).strip()
+                google_country = st.selectbox("Country", COUNTRY_OPTIONS, key="google_signup_country")
+                google_submitted = st.form_submit_button("Sign Up", type="primary", use_container_width=True)
+
+            if google_submitted:
+                try:
+                    create_google_clinic_account(google_clinic, google_country, google_user)
+                    finish_authenticated_session(
+                        google_clinic,
+                        event="google_login",
+                        auth_provider=GOOGLE_AUTH_PROVIDER,
+                        google_user=google_user,
+                    )
+                    st.session_state["user_country"] = google_country
+                    st.success(f"✅ Account created. Welcome, {google_clinic}!")
+                    st.rerun()
+                except ValueError as e:
+                    st.error(str(e))
+                except Exception:
+                    st.error("Could not create account with Google. Please try again or contact support.")
+
+            if st.button("Use another Google account", key="google_signup_logout", use_container_width=True):
+                if callable(getattr(st, "logout", None)):
+                    st.logout()
+                else:
+                    st.rerun()
+
         if "show_create_account" not in st.session_state:
             st.session_state["show_create_account"] = False
-        if st.button("Create Account", key="toggle_create_account"):
+        if st.button("Sign Up", key="toggle_create_account"):
             st.session_state["show_create_account"] = not st.session_state["show_create_account"]
 
         if st.session_state["show_create_account"]:
-            st.markdown("### Create Account")
+            st.markdown("### Sign Up")
             with st.form("create_account_form"):
                 new_clinic = st.text_input("Clinic Name (username)").strip()
                 country = st.selectbox("Country", COUNTRY_OPTIONS)
                 new_password = st.text_input("Set password", type="password")
                 confirm_password = st.text_input("Confirm password", type="password")
-                create_submitted = st.form_submit_button("Create Account", type="primary", use_container_width=True)
+                create_submitted = st.form_submit_button("Sign Up", type="primary", use_container_width=True)
 
             if create_submitted:
                 if not new_clinic or not new_password or not confirm_password:
@@ -4173,14 +4377,19 @@ else:
     clinic_id = st.session_state.get("clinic_id", "")
     with top_account_slot.container():
         with st.popover("Account", use_container_width=False):
-            if st.button("Change password", key="top_account_show_change_password", use_container_width=True):
-                st.session_state["show_top_change_password"] = not st.session_state.get("show_top_change_password", False)
+            if st.session_state.get("auth_provider") != GOOGLE_AUTH_PROVIDER:
+                if st.button("Change password", key="top_account_show_change_password", use_container_width=True):
+                    st.session_state["show_top_change_password"] = not st.session_state.get("show_top_change_password", False)
 
             if st.button("Logout", key="top_account_logout", use_container_width=True):
+                google_session_active = get_google_user_info().get("is_logged_in", False)
                 clear_remember_login_token()
                 clear_account_session_state()
                 st.session_state["logout_notice"] = "You have been logged out."
-                st.rerun()
+                if google_session_active and callable(getattr(st, "logout", None)):
+                    st.logout()
+                else:
+                    st.rerun()
 
             if st.session_state.get("show_top_change_password", False):
                 st.markdown("#### Change password")
