@@ -1079,6 +1079,27 @@ st.markdown(
         min-height: 2.75rem !important;
         width: 100% !important;
     }
+    .stTextInput label,
+    div[data-testid="stTextInput"] label,
+    div[data-testid="stTextInput"] label p {
+        color: var(--cr-text) !important;
+    }
+    div[data-testid="stTextInput"] input {
+        background: #f6f8fb !important;
+        border: 1px solid #e1e7ef !important;
+        color: #101828 !important;
+        -webkit-text-fill-color: #101828 !important;
+        caret-color: #101828 !important;
+    }
+    div[data-testid="stTextInput"] input:focus {
+        background: #ffffff !important;
+        border-color: #29D272 !important;
+        box-shadow: 0 0 0 1px rgba(41, 210, 114, 0.35) !important;
+    }
+    div[data-testid="stTextInput"] input::placeholder {
+        color: #667085 !important;
+        -webkit-text-fill-color: #667085 !important;
+    }
     .st-key-google_signup_button button {
         background: #ffffff !important;
         border: 1.5px solid #4285f4 !important;
@@ -1107,6 +1128,17 @@ st.markdown(
     .st-key-toggle_create_account button p {
         font-weight: inherit !important;
         margin: 0 !important;
+    }
+    .st-key-toggle_create_account button {
+        background: #ffffff !important;
+        border: 1px solid #d0d7e2 !important;
+        color: #101828 !important;
+        font-weight: 700 !important;
+    }
+    .st-key-toggle_create_account button:hover {
+        background: #f8fafc !important;
+        border-color: #98a2b3 !important;
+        color: #101828 !important;
     }
     .dataset-summary {
         background: var(--cr-primary-soft);
