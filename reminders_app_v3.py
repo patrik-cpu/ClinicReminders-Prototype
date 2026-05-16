@@ -5827,6 +5827,9 @@ def has_working_dataset() -> bool:
 
 
 def render_dataset_status(saved_rows: list[dict] | None = None):
+    pending_success = st.session_state.pop("_pending_dataset_success", "")
+    if pending_success:
+        st.success(pending_success)
     pending_warning = st.session_state.pop("_pending_dataset_warning", "")
     if pending_warning:
         st.warning(pending_warning)
@@ -5890,6 +5893,7 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
                 key=f"remove_dataset_upload_button_{idx}_{row_key}",
                 help="Remove this data file",
             ):
+                set_main_section_tab("Upload Data")
                 with busy_overlay("Removing saved data file", "Updating the clinic dataset."):
                     remove_dataset_upload_at_index(idx)
                 st.rerun()
@@ -7003,6 +7007,7 @@ with data_tab:
     
     # Detect any file addition, deletion, or rename
     if set(current_files) != set(st.session_state["last_uploaded_files"]):
+        set_main_section_tab("Upload Data")
         st.toast("🔄 File change detected — clearing cache and refreshing data...")
 
         close_account_dialogs()
@@ -7233,6 +7238,10 @@ with data_tab:
                     st.session_state["last_saved_upload_key"] = current_upload_key
                     st.session_state["file_uploader_reset_version"] = st.session_state.get("file_uploader_reset_version", 0) + 1
                     st.session_state["last_uploaded_files"] = []
+                    set_main_section_tab("Upload Data")
+                    st.session_state["_pending_dataset_success"] = (
+                        f"Clinic data saved. The active dataset now has {len(merged_df):,} rows after duplicate rows are ignored."
+                    )
                     save_settings_quietly()
     
                     st.rerun()
@@ -7254,6 +7263,7 @@ with data_tab:
         disabled=not confirm_reset,
         help="Clear clinic data so the clinic behaves like no data is saved."
     ):
+        set_main_section_tab("Upload Data")
         clinic_id = st.session_state.get("clinic_id")
         if not clinic_id:
             st.error("Not logged in.")
