@@ -1,5 +1,6 @@
 import pandas as pd
 import altair as alt
+import importlib.util
 import unicodedata
 import streamlit as st
 import re
@@ -66,6 +67,10 @@ def get_query_param_value(key: str) -> str:
     if isinstance(value, list):
         return str(value[0]) if value else ""
     return str(value or "")
+
+
+def authlib_available() -> bool:
+    return importlib.util.find_spec("authlib") is not None
 
 # --------------------------------
 # Title (retention change))
@@ -4492,9 +4497,15 @@ if not st.session_state["logged_in"]:
             password = st.text_input("Password", type="password", value="")
             login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
 
+        google_auth_ready = authlib_available()
         google_signup_col, manual_signup_col = st.columns(2, gap="small")
         with google_signup_col:
-            if st.button("Sign Up with Google", key="google_signup_button", use_container_width=True):
+            if st.button(
+                "Sign Up with Google",
+                key="google_signup_button",
+                use_container_width=True,
+                disabled=not google_auth_ready,
+            ):
                 try:
                     st.login(GOOGLE_AUTH_PROVIDER)
                 except Exception:
@@ -4504,6 +4515,11 @@ if not st.session_state["logged_in"]:
                 st.session_state["show_create_account"] = False
             if st.button("Sign Up", key="toggle_create_account", use_container_width=True):
                 st.session_state["show_create_account"] = not st.session_state["show_create_account"]
+        if not google_auth_ready:
+            st.warning(
+                "Google sign-up needs the Authlib package. Run `pip install -r requirements.txt` "
+                "and restart Streamlit."
+            )
 
         if login_submitted:
             user_row = authenticate_user(username, password)
