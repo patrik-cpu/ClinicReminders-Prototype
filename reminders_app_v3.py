@@ -1543,6 +1543,48 @@ def normalize_key_series(s, index=None) -> pd.Series:
 
     return s.map(_clean_one)
 
+
+def billed_item_duplicate_identity(df: pd.DataFrame) -> tuple[pd.DataFrame | None, pd.Series]:
+    key_columns = ["ChargeDate", "Client Name", "Animal Name", "Item Name"]
+    if df is None or getattr(df, "empty", True) or any(col not in df.columns for col in key_columns):
+        return None, pd.Series(False, index=getattr(df, "index", pd.Index([])), dtype=bool)
+
+    charge_dates = parse_dates(df["ChargeDate"]).dt.normalize()
+    identity = pd.DataFrame(
+        {
+            "ChargeDate": charge_dates.dt.strftime("%Y-%m-%d").fillna(""),
+            "Client Name": normalize_key_series(df["Client Name"], index=df.index),
+            "Animal Name": normalize_key_series(df["Animal Name"], index=df.index),
+            "Item Name": normalize_key_series(df["Item Name"], index=df.index),
+        },
+        index=df.index,
+    )
+    complete = charge_dates.notna()
+    for col in ["Client Name", "Animal Name", "Item Name"]:
+        complete = complete & identity[col].ne("")
+    return identity, complete.fillna(False)
+
+
+def drop_duplicate_billed_item_rows(df: pd.DataFrame, keep: str = "last") -> pd.DataFrame:
+    """
+    Collapse duplicate billed-item rows across overlapping uploads.
+    A duplicate is the same billed date, owner, animal, and item.
+    """
+    if df is None or getattr(df, "empty", True):
+        return df
+
+    identity, complete = billed_item_duplicate_identity(df)
+    if identity is None or not complete.any():
+        return df.copy()
+
+    drop_rows = np.zeros(len(df), dtype=bool)
+    complete_values = complete.to_numpy(dtype=bool)
+    drop_rows[complete_values] = identity.loc[complete].duplicated(keep=keep).to_numpy(dtype=bool)
+    if not drop_rows.any():
+        return df.copy()
+    return df.loc[~drop_rows].copy().reset_index(drop=True)
+
+
 def sanitize_working_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     Single entry-point sanitiser for any dataframe entering app state.
@@ -1570,7 +1612,7 @@ def sanitize_working_df(df: pd.DataFrame) -> pd.DataFrame:
     if "Amount" in df.columns:
         df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
 
-    return df
+    return drop_duplicate_billed_item_rows(df)
     
 def load_shared_dataset_for_clinic():
     """
@@ -2102,7 +2144,7 @@ def merge_dataset_update(
     replace_overlapping_dates: bool = False,
 ) -> pd.DataFrame:
     if existing_df is None or getattr(existing_df, "empty", True):
-        return new_df
+        return drop_duplicate_billed_item_rows(new_df)
 
     existing = existing_df.copy()
     new = new_df.copy()
@@ -2115,6 +2157,7 @@ def merge_dataset_update(
             existing = existing.loc[keep_existing].copy()
 
     merged = pd.concat([existing, new], ignore_index=True, sort=False)
+    merged = drop_duplicate_billed_item_rows(merged, keep="last")
     if "ChargeDate" in merged.columns:
         merged["_sort_charge_date"] = parse_dates(merged["ChargeDate"])
         merged = (
@@ -5658,10 +5701,7 @@ with data_tab:
                         )
                         st.stop()
     
-                existing_min, existing_max = dataset_date_bounds(existing_df)
-                overlaps_existing = date_ranges_overlap(upload_min, upload_max, existing_min, existing_max)
-    
-                def save_uploaded_dataset(replace_overlapping_dates: bool):
+                def save_uploaded_dataset(replace_overlapping_dates: bool = False):
                     publish_started = time.perf_counter()
                     try:
                         merged_df, new_file_id, out_name = publish_dataset_for_clinic(
@@ -5735,40 +5775,11 @@ with data_tab:
                     st.session_state["last_saved_upload_key"] = current_upload_key
                     st.session_state["file_uploader_reset_version"] = st.session_state.get("file_uploader_reset_version", 0) + 1
                     st.session_state["last_uploaded_files"] = []
-                    st.session_state.pop("pending_overlap_upload_key", None)
                     save_settings_quietly()
     
                     st.rerun()
     
-                if overlaps_existing:
-                    upload_range = f"{format_date_bound(upload_min)} to {format_date_bound(upload_max)}"
-                    existing_range = f"{format_date_bound(existing_min)} to {format_date_bound(existing_max)}"
-                    st.warning(
-                        "This upload overlaps saved clinic data. "
-                        f"New upload range: {upload_range}. Saved data range: {existing_range}. "
-                        "Choose whether to replace saved rows in the overlapping date range or save this as an additional upload."
-                    )
-                    replace_col, append_col, _ = st.columns([1.3, 1.3, 3], gap="small")
-                    with replace_col:
-                        if st.button(
-                            "Replace overlap",
-                            key=f"replace_overlap_{current_upload_key[:12]}",
-                            type="primary",
-                            use_container_width=True,
-                            help="Use this when you are re-uploading a corrected export for the same dates.",
-                        ):
-                            save_uploaded_dataset(replace_overlapping_dates=True)
-                    with append_col:
-                        if st.button(
-                            "Save additional",
-                            key=f"append_overlap_{current_upload_key[:12]}",
-                            use_container_width=True,
-                            help="Use this when this file contains separate rows you want to keep alongside saved data.",
-                        ):
-                            save_uploaded_dataset(replace_overlapping_dates=False)
-                    st.stop()
-                else:
-                    save_uploaded_dataset(replace_overlapping_dates=False)
+                save_uploaded_dataset()
     
     # -------------------------------------
     # Clear Clinic Data

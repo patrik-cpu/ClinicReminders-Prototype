@@ -50,6 +50,54 @@ class DatasetUpdateTests(unittest.TestCase):
 
         self.assertEqual(list(merged["Client Name"]), ["Jan", "Feb"])
 
+    def test_overlapping_upload_dedupes_by_billed_item_identity(self):
+        existing = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01"] * 10),
+                "Client Name": ["Owner A"] * 10,
+                "Animal Name": ["Pet A"] * 10,
+                "Item Name": [f"Item {idx:02d}" for idx in range(10)],
+                "Amount": list(range(10)),
+            }
+        )
+        new = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01"] * 25),
+                "Client Name": ["Owner A"] * 25,
+                "Animal Name": ["Pet A"] * 25,
+                "Item Name": [f"Item {idx:02d}" for idx in range(25)],
+                "Amount": [100 + idx for idx in range(25)],
+            }
+        )
+
+        merged = self.app.merge_dataset_update(existing, new, replace_overlapping_dates=False)
+
+        self.assertEqual(len(merged), 25)
+        self.assertEqual(set(merged["Item Name"]), {f"Item {idx:02d}" for idx in range(25)})
+        self.assertEqual(
+            int(merged.loc[merged["Item Name"] == "Item 00", "Amount"].iloc[0]),
+            100,
+        )
+
+    def test_single_upload_dedupes_exact_billed_item_identity(self):
+        new = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01", "2025-01-01", "2025-01-01"]),
+                "Client Name": ["Owner A", "owner  a", "Owner A"],
+                "Animal Name": ["Pet A", "Pet A", "Pet B"],
+                "Item Name": ["Rabies", " rabies ", "Rabies"],
+                "Amount": [10, 20, 30],
+            }
+        )
+
+        merged = self.app.merge_dataset_update(None, new)
+
+        self.assertEqual(len(merged), 2)
+        self.assertEqual(
+            int(merged.loc[merged["Animal Name"] == "Pet A", "Amount"].iloc[0]),
+            20,
+        )
+
     def test_history_row_count_accepts_float_string(self):
         self.assertEqual(self.app.parse_history_int("56,123.0"), 56123)
 
