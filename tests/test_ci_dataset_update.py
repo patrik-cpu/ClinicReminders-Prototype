@@ -151,6 +151,78 @@ class DatasetUpdateTests(unittest.TestCase):
 
         self.assertEqual([row["file_name"] for row in merged], ["january.csv", "february.csv"])
 
+    def test_upload_history_keeps_overlapping_rows_when_saved_as_additional(self):
+        existing = [
+            {
+                "file_name": "january.csv",
+                "pms": "CSV",
+                "rows": 100,
+                "from": "2025-01-01",
+                "to": "2025-01-31",
+                "status": "Saved",
+            }
+        ]
+        incoming = [
+            {
+                "file_name": "january-extra.csv",
+                "pms": "CSV",
+                "rows": 50,
+                "from": "2025-01-15",
+                "to": "2025-01-20",
+                "status": "Saved",
+            }
+        ]
+
+        merged = self.app.merge_dataset_upload_history(
+            existing,
+            incoming,
+            replace_overlapping_dates=False,
+            upload_min=pd.Timestamp("2025-01-15"),
+            upload_max=pd.Timestamp("2025-01-20"),
+        )
+
+        self.assertEqual([row["file_name"] for row in merged], ["january.csv", "january-extra.csv"])
+
+    def test_upload_history_drops_overlapping_rows_when_replacing_dates(self):
+        existing = [
+            {
+                "file_name": "january.csv",
+                "pms": "CSV",
+                "rows": 100,
+                "from": "2025-01-01",
+                "to": "2025-01-31",
+                "status": "Saved",
+            },
+            {
+                "file_name": "february.csv",
+                "pms": "CSV",
+                "rows": 120,
+                "from": "2025-02-01",
+                "to": "2025-02-28",
+                "status": "Saved",
+            },
+        ]
+        incoming = [
+            {
+                "file_name": "january-corrected.csv",
+                "pms": "CSV",
+                "rows": 95,
+                "from": "2025-01-01",
+                "to": "2025-01-31",
+                "status": "Saved",
+            }
+        ]
+
+        merged = self.app.merge_dataset_upload_history(
+            existing,
+            incoming,
+            replace_overlapping_dates=True,
+            upload_min=pd.Timestamp("2025-01-01"),
+            upload_max=pd.Timestamp("2025-01-31"),
+        )
+
+        self.assertEqual([row["file_name"] for row in merged], ["february.csv", "january-corrected.csv"])
+
     def test_simplify_vaccine_text_handles_generic_vaccine_terms(self):
         self.assertEqual(self.app.simplify_vaccine_text("Vaccine"), "Vaccine")
         self.assertEqual(self.app.simplify_vaccine_text("Vaccination, Vaccine"), "Vaccine")

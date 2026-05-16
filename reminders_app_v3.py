@@ -5206,15 +5206,18 @@ st.markdown(
       div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p,
       button[data-baseweb="tab"],
       button[data-baseweb="tab"] p {
-        font-size: 1.75rem !important;
+        font-size: 1.4rem !important;
         font-weight: 700 !important;
         line-height: 1.2 !important;
       }
       div[data-testid="stTabs"] div[role="tablist"] {
         align-items: flex-end !important;
         border-bottom: 1px solid var(--cr-border) !important;
+        flex-wrap: nowrap !important;
         gap: 0.2rem !important;
         margin-bottom: 1rem !important;
+        overflow-x: auto !important;
+        scrollbar-width: thin !important;
       }
       div[data-testid="stTabs"] div[role="tablist"] button,
       div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
@@ -5226,7 +5229,17 @@ st.markdown(
         box-shadow: inset 0 -1px 0 var(--cr-border) !important;
         margin: 0 0 -1px !important;
         min-height: 2.75rem !important;
-        padding: 0.45rem 0.9rem !important;
+        padding: 0.45rem 0.75rem !important;
+        white-space: nowrap !important;
+      }
+      div[data-testid="stTabs"] div[role="tablist"] button img,
+      div[data-testid="stTabs"] div[role="tablist"] [role="tab"] img,
+      button[data-baseweb="tab"] img {
+        display: inline-block !important;
+        height: 1.1rem !important;
+        margin-left: 0.25rem !important;
+        max-width: none !important;
+        vertical-align: -0.15rem !important;
       }
       div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"],
       div[data-testid="stTabs"] div[role="tablist"] [role="tab"][aria-selected="true"],
@@ -5283,6 +5296,31 @@ st.markdown(
         filter: none !important;
         min-height: 2.15rem !important;
         padding: 0.35rem 0.8rem !important;
+      }
+      @media (max-width: 900px) {
+        div[data-testid="stTabs"] div[role="tablist"] button,
+        div[data-testid="stTabs"] div[role="tablist"] button p,
+        div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
+        div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p,
+        button[data-baseweb="tab"],
+        button[data-baseweb="tab"] p {
+          font-size: 1.05rem !important;
+        }
+        div[data-testid="stTabs"] div[role="tablist"] button,
+        div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
+        button[data-baseweb="tab"] {
+          padding: 0.38rem 0.55rem !important;
+        }
+      }
+      @media (max-width: 640px) {
+        div[data-testid="stTabs"] div[role="tablist"] button,
+        div[data-testid="stTabs"] div[role="tablist"] button p,
+        div[data-testid="stTabs"] div[role="tablist"] [role="tab"],
+        div[data-testid="stTabs"] div[role="tablist"] [role="tab"] p,
+        button[data-baseweb="tab"],
+        button[data-baseweb="tab"] p {
+          font-size: 0.95rem !important;
+        }
       }
     </style>
     """,
@@ -5591,7 +5629,35 @@ with data_tab:
     
                     st.rerun()
     
-                save_uploaded_dataset(replace_overlapping_dates=overlaps_existing)
+                if overlaps_existing:
+                    upload_range = f"{format_date_bound(upload_min)} to {format_date_bound(upload_max)}"
+                    existing_range = f"{format_date_bound(existing_min)} to {format_date_bound(existing_max)}"
+                    st.warning(
+                        "This upload overlaps saved clinic data. "
+                        f"New upload range: {upload_range}. Saved data range: {existing_range}. "
+                        "Choose whether to replace saved rows in the overlapping date range or save this as an additional upload."
+                    )
+                    replace_col, append_col, _ = st.columns([1.3, 1.3, 3], gap="small")
+                    with replace_col:
+                        if st.button(
+                            "Replace overlap",
+                            key=f"replace_overlap_{current_upload_key[:12]}",
+                            type="primary",
+                            use_container_width=True,
+                            help="Use this when you are re-uploading a corrected export for the same dates.",
+                        ):
+                            save_uploaded_dataset(replace_overlapping_dates=True)
+                    with append_col:
+                        if st.button(
+                            "Save additional",
+                            key=f"append_overlap_{current_upload_key[:12]}",
+                            use_container_width=True,
+                            help="Use this when this file contains separate rows you want to keep alongside saved data.",
+                        ):
+                            save_uploaded_dataset(replace_overlapping_dates=False)
+                    st.stop()
+                else:
+                    save_uploaded_dataset(replace_overlapping_dates=False)
     
     # -------------------------------------
     # Clear Clinic Data
