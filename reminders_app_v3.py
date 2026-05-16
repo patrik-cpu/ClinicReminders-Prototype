@@ -1552,6 +1552,7 @@ REMEMBER_LOGIN_DAYS = 3650
 PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 260_000
 PASSWORD_SALT_BYTES = 16
+LOGIN_TRACKER_EVENTS = {"login", "google_login", "remembered_login"}
 
 # === DEV AUTO-LOGIN ===
 DEV_AUTO_LOGIN = False
@@ -2222,6 +2223,28 @@ def date_ranges_overlap(
     if any(d is None or pd.isna(d) for d in [first_min, first_max, second_min, second_max]):
         return False
     return first_min <= second_max and second_min <= first_max
+
+
+def dataset_history_row_overlaps_other(rows: list[dict], row_idx: int) -> bool:
+    normalized_rows = normalize_dataset_upload_history(rows)
+    if row_idx < 0 or row_idx >= len(normalized_rows):
+        return False
+    target = normalized_rows[row_idx]
+    target_start = parse_history_date(target.get("from"))
+    target_end = parse_history_date(target.get("to"))
+    if target_start is None or target_end is None:
+        return False
+    for idx, other in enumerate(normalized_rows):
+        if idx == row_idx:
+            continue
+        if date_ranges_overlap(
+            target_start,
+            target_end,
+            parse_history_date(other.get("from")),
+            parse_history_date(other.get("to")),
+        ):
+            return True
+    return False
 
 def merge_dataset_update(
     existing_df: pd.DataFrame | None,
@@ -4141,7 +4164,7 @@ def upsert_user_tracker(clinic_id: str, country: str = "", event: str = "updated
             }
 
         created_at = existing.get("CreatedAtGST") or timestamp
-        last_login = timestamp if event == "login" else existing.get("LastLoginAtGST", "")
+        last_login = timestamp if event in LOGIN_TRACKER_EVENTS else existing.get("LastLoginAtGST", "")
         values_by_header = {
             "ClinicID": clinic_id,
             "Country": country or existing.get("Country", ""),
@@ -4834,6 +4857,9 @@ def has_working_dataset() -> bool:
 
 
 def render_dataset_status(saved_rows: list[dict] | None = None):
+    pending_warning = st.session_state.pop("_pending_dataset_warning", "")
+    if pending_warning:
+        st.warning(pending_warning)
     if st.session_state.get("shared_dataset_error"):
         st.warning(f"⚠️ Could not load clinic data: {st.session_state['shared_dataset_error']}")
     elif not saved_rows and not has_working_dataset() and not st.session_state.get("shared_dataset_loaded"):
@@ -4885,21 +4911,21 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
             row_cols[2].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(row_count)}</div>", unsafe_allow_html=True)
             row_cols[3].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(formatted_history_range(row))}</div>", unsafe_allow_html=True)
             row_key = hashlib.md5(json.dumps(row, sort_keys=True).encode("utf-8")).hexdigest()[:10]
-            if row_cols[4].button("Remove", key=f"remove_dataset_upload_button_{idx}_{row_key}", help="Remove this data file"):
+            overlaps_other_upload = dataset_history_row_overlaps_other(normalized_rows, idx)
+            remove_help = (
+                "This upload overlaps another saved upload, so individual removal is not available. "
+                "Use Clear clinic data and re-upload the files you want to keep."
+                if overlaps_other_upload
+                else "Remove this data file"
+            )
+            if row_cols[4].button(
+                "Remove",
+                key=f"remove_dataset_upload_button_{idx}_{row_key}",
+                help=remove_help,
+                disabled=overlaps_other_upload,
+            ):
                 remove_dataset_upload_at_index(idx)
                 st.rerun()
-
-    check_html = []
-    for check in dataset_summary_checks(normalized_rows):
-        class_name = "good" if check["good"] else "bad"
-        icon = "✓" if check["good"] else "×"
-        check_html.append(
-            f"<div class='dataset-check {class_name}'>{icon} {html_lib.escape(check['text'])}</div>"
-        )
-    st.markdown(
-        f"<div class='dataset-check-grid'>{''.join(check_html)}</div>",
-        unsafe_allow_html=True,
-    )
 
 
 def repair_history_row_counts_from_df(history: list[dict], df_w: pd.DataFrame | None) -> tuple[list[dict], bool]:
@@ -5006,6 +5032,24 @@ def remove_dataset_upload_at_index(remove_idx: int):
 
     target = rows[remove_idx]
     remaining_history = history[:remove_idx] + history[remove_idx + 1:] if using_history else []
+    if using_history and dataset_history_row_overlaps_other(history, remove_idx):
+        st.session_state["_pending_dataset_warning"] = (
+            "That upload overlaps another saved upload, so it was not removed. "
+            "Use Clear clinic data and re-upload the files you want to keep."
+        )
+        record_dataset_tracker_event(
+            "dataset_file_remove_blocked",
+            "warning",
+            file_name=target.get("file_name", ""),
+            pms=target.get("pms", ""),
+            rows=target.get("rows", ""),
+            from_date=target.get("from", ""),
+            to_date=target.get("to", ""),
+            message="Overlapping saved upload range",
+            source="remove_dataset_upload",
+        )
+        return
+
     existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
 
     current_df = st.session_state.get("working_df")

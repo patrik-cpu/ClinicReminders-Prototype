@@ -231,6 +231,38 @@ class DatasetUpdateTests(unittest.TestCase):
 
         self.assertEqual([row["file_name"] for row in merged], ["january.csv", "january-extra.csv"])
 
+    def test_upload_history_detects_row_that_overlaps_another_upload(self):
+        rows = [
+            {
+                "file_name": "january-partial.csv",
+                "pms": "CSV",
+                "rows": 10,
+                "from": "2025-01-01",
+                "to": "2025-01-01",
+                "status": "Saved",
+            },
+            {
+                "file_name": "january-full.csv",
+                "pms": "CSV",
+                "rows": 25,
+                "from": "2025-01-01",
+                "to": "2025-01-01",
+                "status": "Saved",
+            },
+            {
+                "file_name": "february.csv",
+                "pms": "CSV",
+                "rows": 20,
+                "from": "2025-02-01",
+                "to": "2025-02-28",
+                "status": "Saved",
+            },
+        ]
+
+        self.assertTrue(self.app.dataset_history_row_overlaps_other(rows, 0))
+        self.assertTrue(self.app.dataset_history_row_overlaps_other(rows, 1))
+        self.assertFalse(self.app.dataset_history_row_overlaps_other(rows, 2))
+
     def test_upload_history_drops_overlapping_rows_when_replacing_dates(self):
         existing = [
             {

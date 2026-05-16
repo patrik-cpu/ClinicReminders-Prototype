@@ -45,6 +45,11 @@ class AuthSessionTests(unittest.TestCase):
         self.assertNotEqual(first_hash, second_hash)
         self.assertNotEqual(first_signature, second_signature)
 
+    def test_login_tracker_events_include_google_and_remembered_login(self):
+        self.assertIn("login", self.app.LOGIN_TRACKER_EVENTS)
+        self.assertIn("google_login", self.app.LOGIN_TRACKER_EVENTS)
+        self.assertIn("remembered_login", self.app.LOGIN_TRACKER_EVENTS)
+
     def test_google_user_info_normalizes_identity_fields(self):
         user = {
             "is_logged_in": True,
