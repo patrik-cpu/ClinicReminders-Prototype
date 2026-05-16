@@ -1288,6 +1288,9 @@ st.markdown(
         -webkit-text-security: disc !important;
         text-security: disc !important;
     }
+    .st-key-login_password_input button {
+        display: none !important;
+    }
     .st-key-login_username_input [data-baseweb="input"]:focus-within,
     .st-key-login_username_input [data-baseweb="base-input"]:focus-within,
     .st-key-login_password_input [data-baseweb="input"]:focus-within,
@@ -2525,7 +2528,21 @@ def merge_dataset_upload_history(
                 upload_max,
             )
         ]
-    return existing + incoming
+    merged = existing + incoming
+    deduped: list[dict] = []
+    seen_keys: set[tuple[str, str, str, str]] = set()
+    for row in reversed(merged):
+        key = (
+            str(row.get("file_name", "")).strip().casefold(),
+            str(row.get("pms", "")).strip().casefold(),
+            str(row.get("from", "")).strip(),
+            str(row.get("to", "")).strip(),
+        )
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(row)
+    return list(reversed(deduped))
 
 def dataset_history_date_bounds(rows: list[dict]) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
     starts = [parse_history_date(row.get("from")) for row in rows]
@@ -5512,7 +5529,7 @@ if not st.session_state["logged_in"]:
         with st.form("clinic_login_form"):
             st.markdown("<span class='login-form-marker'></span>", unsafe_allow_html=True)
             username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0], key="login_username_input")
-            password = st.text_input("Password", value="", key="login_password_input")
+            password = st.text_input("Password", value="", type="password", key="login_password_input")
             login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
 
         google_auth_ready = authlib_available()
@@ -6302,12 +6319,50 @@ def build_grouped_reminder_summary(details: list[dict]) -> str:
 
 
 def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str, rules: dict | None = None):
-    due_dates = sorted({str(x).strip() for x in cluster_df.get("DueDateFmt", []) if str(x).strip()})
-    reminder_dates = sorted({str(x).strip() for x in cluster_df.get("ReminderDateFmt", []) if str(x).strip()})
-    animals = sorted({str(x).strip() for x in cluster_df.get("Animal Name", []) if str(x).strip()})
+    return _summarize_client_cluster_records(cluster_df.to_dict("records"), client_name, rules)
 
+
+def _summarize_client_cluster_records(records: list[dict], client_name: str, rules: dict | None = None):
+    due_dates = set()
+    reminder_dates = set()
+    animals = set()
     all_items = []
-    for val in cluster_df.get("MatchedItems", []):
+    reminder_details = []
+    qty_sum = 0.0
+    qty_seen = False
+    interval_min = None
+    charge_dates = []
+
+    def coerce_number(value):
+        if value is None:
+            return None
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+        value_text = str(value).strip()
+        if not value_text:
+            return None
+        try:
+            return float(value_text.replace(",", ""))
+        except (TypeError, ValueError):
+            return None
+
+    for row in records:
+        due_date = str(row.get("DueDateFmt", "")).strip()
+        if due_date:
+            due_dates.add(due_date)
+
+        reminder_date = str(row.get("ReminderDateFmt", "")).strip()
+        if reminder_date:
+            reminder_dates.add(reminder_date)
+
+        animal = str(row.get("Animal Name", "")).strip()
+        if animal:
+            animals.add(animal)
+
+        val = row.get("MatchedItems", [])
         if isinstance(val, list):
             all_items.extend([str(x).strip() for x in val if str(x).strip()])
         else:
@@ -6315,39 +6370,51 @@ def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str, rules:
             if s:
                 all_items.append(s)
 
-    items_text = simplify_vaccine_text(format_items(sorted(set(all_items))))
+        q = coerce_number(row.get("Qty"))
+        if q is not None:
+            qty_sum += q
+            qty_seen = True
 
-    reminder_details = []
-    for _, row in cluster_df.iterrows():
-        animal = str(row.get("Animal Name", "")).strip() or "your pet"
+        interval = coerce_number(row.get("IntervalDays"))
+        if interval is not None:
+            interval_min = interval if interval_min is None else min(interval_min, interval)
+
+        charge_date = str(row.get("ChargeDateFmt", "")).strip()
+        if charge_date:
+            charge_dates.append(charge_date)
+
+        detail_animal = animal or "your pet"
         item_name = str(row.get("Item Name", "")).strip()
         if not item_name and isinstance(row.get("MatchedItems"), list):
             item_name = format_items([str(x).strip() for x in row.get("MatchedItems", []) if str(x).strip()])
         item_name = simplify_vaccine_text(item_name or "treatment")
         due_value = str(row.get("DueDateFmt") or row.get("NextDueDate") or row.get("Due Date") or "").strip()
         reminder_details.append({
-            "Animal Name": animal,
+            "Animal Name": detail_animal,
             "Plan Item": item_name,
             "Due Date": due_value,
         })
 
-    n_animals = len(set(animals))
+    animals = sorted(animals)
+    due_dates = sorted(due_dates)
+    reminder_dates = sorted(reminder_dates)
+    items_text = simplify_vaccine_text(format_items(sorted(set(all_items))))
+
+    n_animals = len(animals)
     n_items = len(set(all_items))
-    is_grouped = len(cluster_df) > 1 or (n_animals > 1) or (n_items > 1) or (len(due_dates) > 1)
+    is_grouped = len(records) > 1 or (n_animals > 1) or (n_items > 1) or (len(due_dates) > 1)
 
-    qty_sum = pd.to_numeric(cluster_df.get("Qty", pd.Series(dtype=float)), errors="coerce").sum(min_count=1)
-    interval_min = pd.to_numeric(cluster_df.get("IntervalDays", pd.Series(dtype=float)), errors="coerce")
-
-    days_qty = int(interval_min.dropna().min()) if interval_min.notna().any() else ""
+    days_qty = int(interval_min) if interval_min is not None else ""
+    qty_value = qty_sum if qty_seen else np.nan
 
     return {
         "Reminder Date": " | ".join(reminder_dates),
         "Due Date": " | ".join(due_dates),
-        "Charge Date": cluster_df.get("ChargeDateFmt", pd.Series(dtype=str)).max(),
+        "Charge Date": max(charge_dates) if charge_dates else "",
         "Client Name": client_name,
         "Animal Name": format_items(animals),
         "Plan Item": items_text,
-        "Qty": "NA" if is_grouped else qty_sum,
+        "Qty": "NA" if is_grouped else qty_value,
         "Days": "NA" if is_grouped else days_qty,
         "ReminderDetails": reminder_details,
     }
@@ -6360,11 +6427,16 @@ def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5
     work = due_df.copy()
     reminder_col = "ReminderDate" if "ReminderDate" in work.columns else "NextDueDate"
     work["_ReminderDateTs"] = pd.to_datetime(work[reminder_col], errors="coerce")
+    work["_ClientSortKey"] = work["Client Name"].astype(str).fillna("")
+    sorted_records = work.sort_values(
+        ["_ClientSortKey", "_ReminderDateTs", "ChargeDate"],
+        ascending=[True, True, True],
+        na_position="last",
+    ).to_dict("records")
 
     if window_days <= 0:
-        for client_name, cdf in work.sort_values(["_ReminderDateTs", "ChargeDate"], ascending=[True, True]).groupby("Client Name", dropna=False):
-            for _, row in cdf.iterrows():
-                out_rows.append(_summarize_client_cluster(pd.DataFrame([row]), client_name, rules))
+        for row in sorted_records:
+            out_rows.append(_summarize_client_cluster_records([row], row.get("Client Name", ""), rules))
         grouped = pd.DataFrame(out_rows)
         if grouped.empty:
             return pd.DataFrame(columns=["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"])
@@ -6374,29 +6446,41 @@ def bundle_client_reminders_by_window(due_df: pd.DataFrame, window_days: int = 5
         )
         return grouped[["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "ReminderDetails"]]
 
+    def client_group_key(value) -> str:
+        if pd.isna(value):
+            return ""
+        return str(value)
+
     max_gap_days = max(int(window_days) - 1, 0)
-    for client_name, cdf in work.groupby("Client Name", dropna=False):
-        cdf = cdf.sort_values(["_ReminderDateTs", "ChargeDate"], ascending=[True, True]).reset_index(drop=True)
-        cluster = []
-        anchor = None
+    current_client_key = None
+    current_client_name = ""
+    cluster = []
+    anchor = None
 
-        for _, row in cdf.iterrows():
-            reminder_ts = row.get("_ReminderDateTs")
-            if anchor is None:
-                anchor = reminder_ts
-                cluster = [row]
-                continue
+    for row in sorted_records:
+        row_client_name = row.get("Client Name", "")
+        row_client_key = client_group_key(row_client_name)
+        reminder_ts = row.get("_ReminderDateTs")
 
-            same_cluster = pd.notna(reminder_ts) and pd.notna(anchor) and abs((reminder_ts - anchor).days) <= max_gap_days
-            if same_cluster:
-                cluster.append(row)
-            else:
-                out_rows.append(_summarize_client_cluster(pd.DataFrame(cluster), client_name, rules))
-                cluster = [row]
-                anchor = reminder_ts
+        if current_client_key is None or row_client_key != current_client_key:
+            if cluster:
+                out_rows.append(_summarize_client_cluster_records(cluster, current_client_name, rules))
+            current_client_key = row_client_key
+            current_client_name = row_client_name
+            cluster = [row]
+            anchor = reminder_ts
+            continue
 
-        if cluster:
-            out_rows.append(_summarize_client_cluster(pd.DataFrame(cluster), client_name, rules))
+        same_cluster = pd.notna(reminder_ts) and pd.notna(anchor) and abs((reminder_ts - anchor).days) <= max_gap_days
+        if same_cluster:
+            cluster.append(row)
+        else:
+            out_rows.append(_summarize_client_cluster_records(cluster, current_client_name, rules))
+            cluster = [row]
+            anchor = reminder_ts
+
+    if cluster:
+        out_rows.append(_summarize_client_cluster_records(cluster, current_client_name, rules))
 
     grouped = pd.DataFrame(out_rows)
     if grouped.empty:

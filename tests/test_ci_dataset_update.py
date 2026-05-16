@@ -231,6 +231,38 @@ class DatasetUpdateTests(unittest.TestCase):
 
         self.assertEqual([row["file_name"] for row in merged], ["january.csv", "january-extra.csv"])
 
+    def test_upload_history_collapses_exact_duplicate_rows(self):
+        existing = [
+            {
+                "file_name": "january.csv",
+                "pms": "CSV",
+                "rows": 100,
+                "from": "2025-01-01",
+                "to": "2025-01-31",
+                "status": "Saved",
+            }
+        ]
+        incoming = [
+            {
+                "file_name": "january.csv",
+                "pms": "CSV",
+                "rows": 100,
+                "from": "2025-01-01",
+                "to": "2025-01-31",
+                "status": "Saved",
+            }
+        ]
+
+        merged = self.app.merge_dataset_upload_history(
+            existing,
+            incoming,
+            replace_overlapping_dates=False,
+            upload_min=pd.Timestamp("2025-01-01"),
+            upload_max=pd.Timestamp("2025-01-31"),
+        )
+
+        self.assertEqual([row["file_name"] for row in merged], ["january.csv"])
+
     def test_upload_history_detects_row_that_overlaps_another_upload(self):
         rows = [
             {
