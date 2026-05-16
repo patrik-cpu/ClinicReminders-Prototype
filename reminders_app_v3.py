@@ -1524,7 +1524,7 @@ def sanitize_working_df(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = df[col].astype("string[python]").fillna("")
 
     if "ChargeDate" in df.columns:
-        df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+        df["ChargeDate"] = parse_dates(df["ChargeDate"])
 
     if "Qty" in df.columns:
         df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(1).astype(int)
@@ -1827,6 +1827,7 @@ def load_existing_shared_df(file_id: str, filename: str) -> pd.DataFrame | None:
 
     # Normalize through your pipeline to guarantee canonical columns
     df_existing, _, _ = process_file(existing_bytes, filename or "shared_dataset.csv")
+    df_existing = sanitize_working_df(df_existing)
 
     # Optional: drop debug columns if present
     df_existing = df_existing.drop(columns=["_ChargeDate_raw"], errors="ignore")
@@ -1841,7 +1842,7 @@ def dataset_date_bounds(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Times
     if df is None or getattr(df, "empty", True) or "ChargeDate" not in df.columns:
         return None, None
 
-    dates = pd.to_datetime(df["ChargeDate"], errors="coerce").dt.normalize()
+    dates = parse_dates(df["ChargeDate"])
     dmin = dates.min()
     dmax = dates.max()
     if pd.isna(dmin) or pd.isna(dmax):
@@ -2071,13 +2072,13 @@ def merge_dataset_update(
     if replace_overlapping_dates:
         new_min, new_max = dataset_date_bounds(new)
         if new_min is not None and new_max is not None and "ChargeDate" in existing.columns:
-            existing_dates = pd.to_datetime(existing["ChargeDate"], errors="coerce").dt.normalize()
+            existing_dates = parse_dates(existing["ChargeDate"])
             keep_existing = existing_dates.isna() | (existing_dates < new_min) | (existing_dates > new_max)
             existing = existing.loc[keep_existing].copy()
 
     merged = pd.concat([existing, new], ignore_index=True, sort=False)
     if "ChargeDate" in merged.columns:
-        merged["_sort_charge_date"] = pd.to_datetime(merged["ChargeDate"], errors="coerce")
+        merged["_sort_charge_date"] = parse_dates(merged["ChargeDate"])
         merged = (
             merged.sort_values("_sort_charge_date", kind="mergesort")
             .drop(columns=["_sort_charge_date"])
@@ -3077,12 +3078,16 @@ def clean_revenue_column(series: pd.Series) -> pd.Series:
     )
 
 def parse_dates(series: pd.Series) -> pd.Series:
+    if series is None:
+        return pd.Series(dtype="datetime64[ns]")
+    series = pd.Series(series, copy=False)
     if pd.api.types.is_datetime64_any_dtype(series):
         return pd.to_datetime(series.dt.date, errors="coerce")
     s = series.astype(str).str.strip()
     s = s.str.extract(
         r"(\d{1,2}[/-][A-Za-z]{3}[/-]\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})"
     )[0]
+    parsed_dates = pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]")
     numeric = pd.to_numeric(s, errors="coerce")
     if numeric.notna().sum() > 0:
         base_1900 = pd.Timestamp("1899-12-30")
@@ -3091,7 +3096,8 @@ def parse_dates(series: pd.Series) -> pd.Series:
         dt_1904 = base_1904 + pd.to_timedelta(numeric, unit="D")
         valid_1900 = dt_1900.dt.year.between(1990, 2100)
         valid_1904 = dt_1904.dt.year.between(1990, 2100)
-        return (dt_1904 if valid_1904.sum() > valid_1900.sum() else dt_1900).dt.normalize()
+        parsed_numeric = (dt_1904 if valid_1904.sum() > valid_1900.sum() else dt_1900).dt.normalize()
+        parsed_dates.loc[numeric.notna()] = parsed_numeric.loc[numeric.notna()]
     formats = [
         "%d/%b/%Y", "%d-%b-%Y",
         "%d/%m/%Y", "%m/%d/%Y",
@@ -3099,10 +3105,14 @@ def parse_dates(series: pd.Series) -> pd.Series:
     ]
     for fmt in formats:
         parsed = pd.to_datetime(s, format=fmt, errors="coerce")
-        if parsed.notna().sum() > 0:
-            return parsed.dt.normalize()
-    parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
-    return parsed.dt.normalize()
+        fill_mask = parsed_dates.isna() & parsed.notna()
+        if fill_mask.any():
+            parsed_dates.loc[fill_mask] = parsed.loc[fill_mask].dt.normalize()
+    fill_mask = parsed_dates.isna() & s.notna()
+    if fill_mask.any():
+        parsed = pd.to_datetime(s.loc[fill_mask], errors="coerce", dayfirst=True)
+        parsed_dates.loc[fill_mask] = parsed.dt.normalize()
+    return parsed_dates.dt.normalize()
 
 
 class UploadValidationError(ValueError):
@@ -3156,12 +3166,29 @@ def validate_upload_dataframe(df: pd.DataFrame, filename: str):
         raise UploadValidationError(
             f"{filename} is missing required column(s): {', '.join(missing)}."
         )
-    if "ChargeDate" not in df.columns or pd.to_datetime(df["ChargeDate"], errors="coerce").notna().sum() == 0:
+    if "ChargeDate" not in df.columns or parse_dates(df["ChargeDate"]).notna().sum() == 0:
         raise UploadValidationError(
             f"{filename} needs a readable date column such as DateTime, Date, Invoice Date, or Planitem Performed."
         )
     if df.empty:
         raise UploadValidationError(f"{filename} does not contain any usable rows.")
+
+
+def has_readable_canonical_upload_schema(df: pd.DataFrame) -> bool:
+    if df is None or getattr(df, "empty", True):
+        return False
+    if any(col not in df.columns for col in REQUIRED_UPLOAD_COLUMNS):
+        return False
+    return parse_dates(df["ChargeDate"]).notna().sum() > 0
+
+
+def finalize_processed_upload_df(df: pd.DataFrame, filename: str) -> pd.DataFrame:
+    df = sanitize_working_df(df)
+    validate_upload_dataframe(df, filename)
+    df["_client_lower"] = df["Client Name"].astype(str).str.lower()
+    df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
+    df["_item_lower"] = df["Item Name"].astype(str).str.lower()
+    return df
 
 # --------------------------------
 # File processing (decoupled from rules)
@@ -3206,7 +3233,10 @@ def process_file(file_bytes, filename):
     
     df.columns = [clean_header(c) for c in df.columns]
     df = drop_duplicate_columns(df)
-    
+
+    if has_readable_canonical_upload_schema(df):
+        return finalize_processed_upload_df(df, filename), "Canonical CSV", None
+
     # --- 4️⃣ Detect PMS ---
     pms_name = detect_pms(df)
     if not pms_name:
@@ -3291,10 +3321,7 @@ def process_file(file_bytes, filename):
         df["ChargeDate"] = pd.NaT
 
     # --- 11️⃣ Add lowercase helper columns for search and reminders ---
-    validate_upload_dataframe(df, filename)
-    df["_client_lower"] = df["Client Name"].astype(str).str.lower()
-    df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
-    df["_item_lower"] = df["Item Name"].astype(str).str.lower()
+    df = finalize_processed_upload_df(df, filename)
 
     # --- ✅ Return normalized data ---
     return df, pms_name, amount_col
@@ -3812,7 +3839,7 @@ def summarize_uploads(file_blobs, cache_version: int = UPLOAD_SUMMARY_SCHEMA_VER
         df, pms_name, amount_col = process_file(fb["bytes"], fb["name"])
         validate_upload_dataframe(df, fb["name"])
         pms_name = pms_name or "Canonical CSV"
-        charge_dates = pd.to_datetime(df["ChargeDate"], errors="coerce")
+        charge_dates = parse_dates(df["ChargeDate"])
         from_date = charge_dates.min()
         to_date = charge_dates.max()
         summary_rows.append({
@@ -3850,7 +3877,7 @@ def prepare_session_bundle(df: pd.DataFrame, cache_key: str):
     df = sanitize_working_df(df)
 
     # ---- Core columns/prep (once) ----
-    df["ChargeDate"] = pd.to_datetime(df["ChargeDate"], errors="coerce")
+    df["ChargeDate"] = parse_dates(df["ChargeDate"])
     df["DateOnly"]   = df["ChargeDate"].dt.normalize()
     df["Month"]      = df["ChargeDate"].dt.to_period("M")
     df["Year"]       = df["ChargeDate"].dt.year
@@ -4352,7 +4379,7 @@ def repair_history_row_counts_from_df(history: list[dict], df_w: pd.DataFrame | 
         return rows, False
 
     charge_dates = (
-        pd.to_datetime(df_w["ChargeDate"], errors="coerce").dt.normalize()
+        parse_dates(df_w["ChargeDate"])
         if "ChargeDate" in df_w.columns
         else pd.Series(pd.NaT, index=df_w.index)
     )
@@ -4461,7 +4488,7 @@ def remove_dataset_upload_at_index(remove_idx: int):
     remaining_df = pd.DataFrame()
     if current_df is not None and not getattr(current_df, "empty", True) and target_start is not None and target_end is not None and "ChargeDate" in current_df.columns:
         source_df = current_df.copy()
-        charge_dates = pd.to_datetime(source_df["ChargeDate"], errors="coerce").dt.normalize()
+        charge_dates = parse_dates(source_df["ChargeDate"])
         keep_mask = charge_dates.isna() | (charge_dates < target_start) | (charge_dates > target_end)
         remaining_df = source_df.loc[keep_mask].copy()
 

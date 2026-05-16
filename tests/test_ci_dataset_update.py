@@ -227,6 +227,25 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertEqual(self.app.simplify_vaccine_text("Vaccine"), "Vaccine")
         self.assertEqual(self.app.simplify_vaccine_text("Vaccination, Vaccine"), "Vaccine")
 
+    def test_parse_dates_handles_dayfirst_and_iso_saved_dates(self):
+        values = pd.Series(["30/09/2025", "2025-10-01", "01/Sep/2025"])
+
+        parsed = self.app.parse_dates(values)
+
+        self.assertEqual(list(parsed.dt.strftime("%Y-%m-%d")), ["2025-09-30", "2025-10-01", "2025-09-01"])
+
+    def test_process_file_prefers_canonical_charge_date_over_pms_looking_columns(self):
+        csv_bytes = (
+            "ChargeDate,Date,Client Name,Animal Name,Item Name,Qty,Amount\n"
+            "30/09/2025,,Client A,Pet A,Rabies,1,100\n"
+        ).encode("utf-8")
+
+        df, pms_name, _amount_col = self.app.process_file(csv_bytes, "PatTest_shared_dataset.csv")
+
+        self.assertEqual(pms_name, "Canonical CSV")
+        self.assertEqual(df.loc[0, "ChargeDate"].strftime("%Y-%m-%d"), "2025-09-30")
+        self.assertEqual(df.loc[0, "Client Name"], "Client A")
+
     def test_ensure_shared_dataset_loads_when_logged_session_lacks_dataframe(self):
         state = self.app.st.session_state
         state["clinic_id"] = "Clinic With Saved Data"
