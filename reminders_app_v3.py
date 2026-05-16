@@ -567,7 +567,7 @@ def _update_password_cells(sheet, headers, row_idx, plain_password, password_has
 
 
 def _get_settings_row_for_clinic(clinic_id: str):
-    clinic_key = str(clinic_id or "").strip().lower()
+    clinic_key = normalize_clinic_id_key(clinic_id)
     cached = st.session_state.get("_settings_row_cache")
     if isinstance(cached, dict) and cached.get("clinic_key") == clinic_key:
         return get_settings_sheet(), list(cached.get("headers", [])), int(cached.get("row_idx"))
@@ -578,7 +578,7 @@ def _get_settings_row_for_clinic(clinic_id: str):
     clinic_col = _settings_col_index(headers, "ClinicID")
     row_idx = None
     for i, r in enumerate(all_vals[1:], start=2):
-        if len(r) >= clinic_col and r[clinic_col - 1].strip().lower() == clinic_key:
+        if len(r) >= clinic_col and normalize_clinic_id_key(r[clinic_col - 1]) == clinic_key:
             row_idx = i
             break
 
@@ -595,7 +595,7 @@ def _get_settings_row_for_clinic(clinic_id: str):
 
 def get_cached_settings_row_values(clinic_id: str) -> list[str] | None:
     cached = st.session_state.get("_settings_row_cache")
-    clinic_key = str(clinic_id or "").strip().lower()
+    clinic_key = normalize_clinic_id_key(clinic_id)
     if isinstance(cached, dict) and cached.get("clinic_key") == clinic_key and "row_values" in cached:
         return list(cached.get("row_values") or [])
     return None
@@ -603,7 +603,7 @@ def get_cached_settings_row_values(clinic_id: str) -> list[str] | None:
 
 def update_cached_settings_row_fields(clinic_id: str, values_by_header: dict[str, str]) -> None:
     cached = st.session_state.get("_settings_row_cache")
-    clinic_key = str(clinic_id or "").strip().lower()
+    clinic_key = normalize_clinic_id_key(clinic_id)
     if not isinstance(cached, dict) or cached.get("clinic_key") != clinic_key:
         return
     headers = list(cached.get("headers") or [])
@@ -641,7 +641,7 @@ def get_fresh_settings_row_values(clinic_id: str) -> tuple[object, list[str], in
     """Read the clinic row directly from Sheets and refresh the session cache."""
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
     row_values = list(_gspread_retry(sheet.row_values, row_idx))
-    clinic_key = str(clinic_id or "").strip().lower()
+    clinic_key = normalize_clinic_id_key(clinic_id)
     st.session_state["_settings_row_cache"] = {
         "clinic_key": clinic_key,
         "headers": list(headers),
@@ -1847,7 +1847,8 @@ def load_shared_dataset_for_clinic():
     except Exception:
         sheet = get_settings_sheet()
         records = sheet.get_all_records()
-        rec = next((r for r in records if str(r.get("ClinicID", "")).strip().lower() == clinic_id.strip().lower()), None)
+        clinic_key = normalize_clinic_id_key(clinic_id)
+        rec = next((r for r in records if normalize_clinic_id_key(r.get("ClinicID", "")) == clinic_key), None)
     if not rec:
         return
 
@@ -2484,7 +2485,8 @@ def load_settings():
     except Exception:
         sheet = get_settings_sheet()
         records = sheet.get_all_records()
-        rec = next((r for r in records if r["ClinicID"].strip().lower() == clinic_id.lower()), None)
+        clinic_key = normalize_clinic_id_key(clinic_id)
+        rec = next((r for r in records if normalize_clinic_id_key(r.get("ClinicID", "")) == clinic_key), None)
 
     if rec and rec["SettingsJSON"]:
         try:
@@ -4089,6 +4091,17 @@ def normalize_email(value: str) -> str:
     return str(value or "").strip().lower()
 
 
+def normalize_clinic_id_key(value) -> str:
+    if value is None:
+        return ""
+    try:
+        if bool(value != value):
+            return ""
+    except Exception:
+        pass
+    return str(value).strip().lower()
+
+
 def get_google_user_info(user_info=None) -> dict:
     user_info = st.user if user_info is None else user_info
     is_logged_in_attr = getattr(user_info, "is_logged_in", False)
@@ -4133,8 +4146,9 @@ def authenticate_user(username, password):
     """Check username/password pair against the sheet."""
     sheet = get_settings_sheet()
     records = sheet.get_all_records()
+    username_key = normalize_clinic_id_key(username)
     for r in records:
-        if r["ClinicID"].strip().lower() == username.strip().lower():
+        if normalize_clinic_id_key(r.get("ClinicID", "")) == username_key:
             if verify_password(password, r.get("PasswordHash", "")):
                 return r
     return None
@@ -4143,8 +4157,9 @@ def get_clinic_row(username):
     """Return a clinic row by ClinicID without checking password."""
     sheet = get_settings_sheet()
     records = sheet.get_all_records()
+    username_key = normalize_clinic_id_key(username)
     for r in records:
-        if r["ClinicID"].strip().lower() == username.strip().lower():
+        if normalize_clinic_id_key(r.get("ClinicID", "")) == username_key:
             return r
     return None
 

@@ -105,6 +105,22 @@ class AuthSessionTests(unittest.TestCase):
             )
         )
 
+    def test_clinic_row_lookup_handles_non_string_sheet_values(self):
+        class FakeSheet:
+            def get_all_records(self):
+                return [
+                    {"ClinicID": 12345, "PasswordHash": ""},
+                    {"ClinicID": "Clinic A", "PasswordHash": self_hash},
+                ]
+
+        self_hash = self.app.password_hash_for_storage("secret-password")
+        with patch.object(self.app, "get_settings_sheet", return_value=FakeSheet()):
+            row = self.app.get_clinic_row(" clinic a ")
+            authenticated = self.app.authenticate_user("CLINIC A", "secret-password")
+
+        self.assertEqual(row["ClinicID"], "Clinic A")
+        self.assertEqual(authenticated["ClinicID"], "Clinic A")
+
     def test_settings_row_values_writes_google_columns_when_present(self):
         headers = [
             "ClinicID",
