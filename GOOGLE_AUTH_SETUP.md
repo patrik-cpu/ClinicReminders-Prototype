@@ -59,24 +59,22 @@ Cloud secrets must match one of these exactly.
 Put the same TOML in the app's Streamlit Cloud secrets. For the dev app, use the dev
 app URL in `redirect_uri`; for production, use the production app URL.
 
-Streamlit Community Cloud may route hosted auth through a prefixed callback path such
-as:
+For the dev app, use:
 
 ```text
-https://your-dev-streamlit-app.streamlit.app/-/+/oauth2callback
+https://clinicreminders-prototype-developer.streamlit.app/oauth2callback
 ```
-
-If the browser returns to that path after Google sign-in and logs show
-`MismatchingStateError`, use that exact callback path in both places:
-
-- Streamlit Cloud secrets: `[auth].redirect_uri`
-- Google Cloud OAuth client: Authorized redirect URIs
 
 Keep Authorized JavaScript origins as the app origin only, without a path:
 
 ```text
-https://your-dev-streamlit-app.streamlit.app
+https://clinicreminders-prototype-developer.streamlit.app
 ```
+
+Streamlit Community Cloud uses internal hosted paths such as `/-/+/auth/login`
+while it is routing the login request. Do not use that internal path in
+`[auth].redirect_uri` unless Streamlit support specifically asks for it. The
+official callback path is still the app URL plus `/oauth2callback`.
 
 ## If The Callback Shows `ERR_EMPTY_RESPONSE`
 
@@ -92,9 +90,8 @@ Check these first:
 
 Check these first:
 
-- The Streamlit Cloud callback path in `[auth].redirect_uri` exactly matches the
-  callback path in the browser address bar before the `?state=...` query string.
-- The same exact callback path is listed in Google Cloud Authorized redirect URIs.
+- The plain app callback path in `[auth].redirect_uri` exactly matches the same
+  plain callback path listed in Google Cloud Authorized redirect URIs.
 - You started from the app's base URL and did not refresh, duplicate, or reuse an old
   auth callback tab.
 - Streamlit was rebooted after editing secrets.

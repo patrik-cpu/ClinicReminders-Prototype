@@ -4046,6 +4046,15 @@ def get_google_user_info(user_info=None) -> dict:
     }
 
 
+def begin_google_login():
+    try:
+        st.login(GOOGLE_AUTH_PROVIDER)
+    except Exception:
+        st.session_state["google_signup_error"] = (
+            "Google sign-up is not configured yet. Please use Sign Up or contact support."
+        )
+
+
 def google_identity_matches_row(row: dict, google_user: dict) -> bool:
     row_subject = str(row.get(SHEET_COL_GOOGLE_SUBJECT, "")).strip()
     row_email = normalize_email(row.get(SHEET_COL_GOOGLE_EMAIL, ""))
@@ -4590,18 +4599,18 @@ if not st.session_state["logged_in"]:
             login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
 
         google_auth_ready = authlib_available()
+        google_signup_error = st.session_state.pop("google_signup_error", "")
+        if google_signup_error:
+            st.warning(google_signup_error)
         google_signup_col, manual_signup_col = st.columns(2, gap="small")
         with google_signup_col:
-            if st.button(
+            st.button(
                 "Sign Up with Google",
                 key="google_signup_button",
                 use_container_width=True,
                 disabled=not google_auth_ready,
-            ):
-                try:
-                    st.login(GOOGLE_AUTH_PROVIDER)
-                except Exception:
-                    st.warning("Google sign-up is not configured yet. Please use Sign Up or contact support.")
+                on_click=begin_google_login,
+            )
         with manual_signup_col:
             if "show_create_account" not in st.session_state:
                 st.session_state["show_create_account"] = False
