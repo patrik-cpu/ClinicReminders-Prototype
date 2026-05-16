@@ -105,6 +105,56 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(repaired[0]["rows"], 4)
 
+    def test_valid_csv_upload_history_does_not_need_metadata_repair(self):
+        history = [
+            {
+                "file_name": "january.csv",
+                "pms": "CSV",
+                "rows": 100,
+                "from": "2025-01-01",
+                "to": "2025-01-31",
+                "status": "Saved",
+            }
+        ]
+
+        self.assertFalse(self.app.dataset_history_needs_metadata_repair(history))
+
+    def test_upload_history_appends_new_csv_row_without_dropping_existing(self):
+        existing = [
+            {
+                "file_name": "january.csv",
+                "pms": "CSV",
+                "rows": 100,
+                "from": "2025-01-01",
+                "to": "2025-01-31",
+                "status": "Saved",
+            }
+        ]
+        incoming = [
+            {
+                "file_name": "february.csv",
+                "pms": "CSV",
+                "rows": 120,
+                "from": "2025-02-01",
+                "to": "2025-02-28",
+                "status": "Saved",
+            }
+        ]
+
+        merged = self.app.merge_dataset_upload_history(
+            existing,
+            incoming,
+            replace_overlapping_dates=False,
+            upload_min=pd.Timestamp("2025-02-01"),
+            upload_max=pd.Timestamp("2025-02-28"),
+        )
+
+        self.assertEqual([row["file_name"] for row in merged], ["january.csv", "february.csv"])
+
+    def test_simplify_vaccine_text_handles_generic_vaccine_terms(self):
+        self.assertEqual(self.app.simplify_vaccine_text("Vaccine"), "Vaccine")
+        self.assertEqual(self.app.simplify_vaccine_text("Vaccination, Vaccine"), "Vaccine")
+
     def test_ensure_shared_dataset_loads_when_logged_session_lacks_dataframe(self):
         state = self.app.st.session_state
         state["clinic_id"] = "Clinic With Saved Data"

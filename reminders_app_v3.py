@@ -4416,7 +4416,11 @@ def dataset_history_needs_metadata_repair(history) -> bool:
     for row in rows:
         file_name = str(row.get("file_name", "")).strip()
         pms = str(row.get("pms", "")).strip().lower()
-        if "<div" in file_name.lower() or file_name == "Saved clinic data" or pms in {"", "-", "unknown", "csv"}:
+        has_usable_range = bool(row.get("from")) and bool(row.get("to"))
+        has_rows = parse_history_int(row.get("rows")) > 0
+        if "<div" in file_name.lower() or file_name == "Saved clinic data":
+            return True
+        if pms in {"", "-", "unknown"} and (not has_usable_range or not has_rows):
             return True
     return False
 
@@ -4603,6 +4607,8 @@ def simplify_vaccine_text(text: str) -> str:
                 tokens = tokens[:-1]
             stripped.append(" ".join(tokens).strip())
         stripped = [s for s in stripped if s]
+        if not stripped:
+            return "Vaccines" if len(cleaned) > 1 else cleaned[0]
         if len(stripped) == 1:
             return stripped[0] + " Vaccine"
         elif len(stripped) == 2:
@@ -5371,7 +5377,8 @@ with data_tab:
                 _, summary_rows = load_persistent_dataset(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
             except Exception:
                 summary_rows = []
-            if summary_rows and dataset_history_needs_metadata_repair(st.session_state.get("dataset_upload_history", [])):
+            existing_history_rows = normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", []))
+            if summary_rows and not existing_history_rows:
                 repair_dataset_upload_history_from_rows(summary_rows)
                 st.rerun()
         else:
@@ -5546,8 +5553,6 @@ with data_tab:
                     st.session_state["shared_dataset_loaded"] = True
                     st.session_state["shared_dataset_name"] = out_name
                     existing_upload_history = st.session_state.get("dataset_upload_history", [])
-                    if dataset_history_needs_metadata_repair(existing_upload_history):
-                        existing_upload_history = []
                     st.session_state["dataset_upload_history"] = merge_dataset_upload_history(
                         existing_upload_history,
                         upload_summary_rows_to_history(summary_rows, status="Saved"),
