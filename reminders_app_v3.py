@@ -1083,6 +1083,10 @@ st.markdown(
         border: 0 !important;
         padding: 0 !important;
     }
+    .st-key-google_signup_button,
+    .st-key-toggle_create_account {
+        width: 100% !important;
+    }
     div[data-testid="stTextInput"] {
         width: 100% !important;
     }
@@ -1110,20 +1114,35 @@ st.markdown(
     div[data-testid="stTextInput"] [data-baseweb="base-input"] {
         align-items: center !important;
         background: #f6f8fb !important;
+        border: 1px solid #1f2937 !important;
         border-radius: 6px !important;
+        overflow: hidden !important;
         min-height: 2.5rem !important;
+    }
+    div[data-testid="stTextInput"] [data-baseweb="base-input"] input {
+        border: 0 !important;
+        box-shadow: none !important;
     }
     div[data-testid="stTextInput"] button {
         align-items: center !important;
         display: flex !important;
+        background: #f6f8fb !important;
+        border: 0 !important;
+        border-left: 1px solid #d8dee8 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        color: #1f2937 !important;
         height: 2.5rem !important;
         justify-content: center !important;
         min-height: 2.5rem !important;
         padding-bottom: 0 !important;
         padding-top: 0 !important;
+        width: 3rem !important;
     }
     div[data-testid="stTextInput"] button svg {
         display: block !important;
+        fill: none !important;
+        stroke: #1f2937 !important;
     }
     .st-key-google_signup_button button {
         background: #ffffff !important;
