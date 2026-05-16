@@ -5,6 +5,8 @@ import json
 import unittest
 from unittest.mock import patch
 
+from requests import Response
+
 
 class FakeSettingsSheet:
     def __init__(self, remote_settings):
@@ -131,6 +133,19 @@ class SettingsSaveStateTests(unittest.TestCase):
         saved = self.run_save_with_remote({})
 
         self.assertEqual(saved["reminder_lookback_days"], 7)
+
+    def test_quiet_settings_save_handles_sheets_api_error(self):
+        response = Response()
+        response.status_code = 429
+        response._content = json.dumps({
+            "error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED"}
+        }).encode("utf-8")
+
+        with patch.object(self.app, "save_settings", side_effect=self.app.APIError(response)):
+            saved = self.app.save_settings_quietly()
+
+        self.assertFalse(saved)
+        self.assertIn("Google Sheets was busy", self.app.st.session_state["_pending_settings_sync_warning"])
 
     def test_action_tracker_reduce_keeps_other_actions_when_one_is_undone(self):
         hidden_a = {

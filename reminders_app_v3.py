@@ -2235,24 +2235,32 @@ def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
 #   - Single orchestrator for publishing clinic datasets
 #   - Helpers to fetch existing pointer + load existing dataset
 # ============================================================
+def gspread_api_error_status(error) -> int | None:
+    status = getattr(error, "code", None)
+    if status is None:
+        status = getattr(getattr(error, "response", None), "status_code", None)
+    if status is None:
+        status = getattr(getattr(error, "resp", None), "status", None)
+    try:
+        return int(status)
+    except (TypeError, ValueError):
+        return None
+
 def _gspread_retry(fn, *args, **kwargs):
     """
-    Retries common transient Google Sheets errors (429/500/503).
+    Retries common transient Google Sheets errors (429/500/502/503/504).
     Keeps other errors as-is so you still see real permission/config issues.
     """
-    max_tries = 6
+    max_tries = 3
     for attempt in range(max_tries):
         try:
             return fn(*args, **kwargs)
         except APIError as e:
-            status = getattr(getattr(e, "response", None), "status_code", None)
-            # Some gspread versions store status differently; keep it robust:
-            if status is None:
-                status = getattr(getattr(e, "resp", None), "status", None)
+            status = gspread_api_error_status(e)
 
             # Retry only transient/quota-ish errors
-            if status in (429, 500, 503):
-                sleep = min(30, (2 ** attempt) + random.random())
+            if status in (429, 500, 502, 503, 504):
+                sleep = min(4, (0.75 * (2 ** attempt)) + random.random())
                 time.sleep(sleep)
                 continue
 
@@ -2708,7 +2716,7 @@ def load_settings():
         st.session_state["user_country"] = settings.get("country", "")
         st.session_state["action_tracker_migrated_at"] = settings.get("action_tracker_migrated_at", "")
         if migrated_legacy_actions:
-            save_settings(track_user=False, refresh_remote=False)
+            save_settings_quietly(refresh_remote=False)
     else:
         # Defaults for new clinics
         settings = default_settings_for_country("")
@@ -3057,8 +3065,28 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         upsert_user_tracker(clinic_id, country=st.session_state.get("user_country", ""), event="settings_saved")
 
 
-def save_settings_quietly():
-    save_settings(track_user=False, refresh_remote=True)
+def remember_settings_save_failure(error) -> None:
+    status = gspread_api_error_status(error) if isinstance(error, APIError) else None
+    detail = f" Google returned {status}." if status else ""
+    st.session_state["_pending_settings_sync_warning"] = (
+        "Google Sheets was busy, so the last change may not be synced yet."
+        f"{detail} If the change does not stick after a refresh, try it again."
+    )
+
+
+def save_settings_quietly(refresh_remote: bool = False) -> bool:
+    try:
+        save_settings(track_user=False, refresh_remote=refresh_remote)
+        return True
+    except APIError as e:
+        remember_settings_save_failure(e)
+        return False
+
+
+def show_pending_settings_sync_warning():
+    warning = st.session_state.pop("_pending_settings_sync_warning", "")
+    if warning:
+        st.warning(warning)
 # --------------------------------
 
 def _reminder_client_key(client_name: str) -> str:
@@ -3449,7 +3477,7 @@ def record_wa_reminder_click(client_name: str, now: datetime | None = None, row=
     log.append(entry)
     st.session_state["wa_reminder_log"] = log[-MAX_SETTINGS_LOG_ENTRIES:]
     if save:
-        save_settings(track_user=False)
+        save_settings_quietly()
 
 
 def remove_wa_reminder_click_for_row(row):
@@ -5554,6 +5582,7 @@ if "rules" not in st.session_state:
     load_settings()
 ensure_tracking_sheets()
 ensure_shared_dataset_loaded_for_session()
+show_pending_settings_sync_warning()
 
 
 def get_setup_checklist_steps() -> list[dict]:
@@ -7141,7 +7170,8 @@ with data_tab:
     
                     st.rerun()
     
-                save_uploaded_dataset()
+                with st.spinner("Saving clinic data. Larger exports can take a moment."):
+                    save_uploaded_dataset()
     
     # -------------------------------------
     # Clear Clinic Data
@@ -7314,7 +7344,7 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
         record_action_tracker(row_data, REMINDER_ACTION_SENT, message=message, source=f"{key_prefix}_sent", now=now)
     rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
     hide_revealed_reminders_after_action(key_prefix)
-    save_settings(track_user=False)
+    save_settings_quietly()
     st.session_state["_pending_reminder_action_status"] = {
         "message": f"Reminder for {normalize_display_case(rec['Animal Name'])} marked sent.",
     }
@@ -7330,7 +7360,7 @@ def decline_reminder_action(row_data: dict, key_prefix: str):
         record_action_tracker(row_data, REMINDER_ACTION_DECLINED, source=f"{key_prefix}_declined", now=now)
     rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=now)
     hide_revealed_reminders_after_action(key_prefix)
-    save_settings(track_user=False)
+    save_settings_quietly()
     st.session_state["_pending_reminder_action_status"] = {
         "message": f"Reminder for {normalize_display_case(rec['Animal Name'])} declined.",
     }
@@ -7343,7 +7373,7 @@ def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
         remove_wa_reminder_click_for_row(row_data)
     record_action_tracker(row_data, "active", source=f"{key_prefix}_undo", now=datetime.utcnow())
     remove_actioned_reminder(row_data)
-    save_settings(track_user=False)
+    save_settings_quietly()
     st.session_state["_pending_reminder_action_status"] = {
         "message": f"Reminder for {normalize_display_case(row_data.get('Animal Name', ''))} returned to Active Reminders.",
     }
