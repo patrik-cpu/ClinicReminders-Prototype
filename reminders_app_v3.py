@@ -6,7 +6,7 @@ import re
 import json, os, time
 import streamlit.components.v1 as components
 import gspread
-from settings_pointer_utils import settings_col_index, update_dataset_pointer_cells
+from settings_pointer_utils import update_dataset_pointer_cells
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -1420,7 +1420,6 @@ DEFAULT_WA_TEMPLATE = (
 # --------------------------------
 # 🔐 Login authorisation & per-clinic settings persistence (Google Sheets)
 # --------------------------------
-import hashlib
 
 # === CONFIGURATION ===
 SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ← your ClinicReminders_Settings_Master Sheet ID
@@ -3829,8 +3828,6 @@ def prepare_session_bundle(df: pd.DataFrame, cache_key: str):
     cache_key is an explicit cache invalidator for schema changes. Reminder rules
     are intentionally excluded because this bundle only uses fixed analytics masks.
     """
-    import numpy as np
-
     if df is None or len(df) == 0:
         # Return empty structures but correct shapes to avoid downstream errors
         empty = df if isinstance(df, pd.DataFrame) else pd.DataFrame()
@@ -4787,10 +4784,8 @@ def _summarize_client_cluster(cluster_df: pd.DataFrame, client_name: str, rules:
 
     qty_sum = pd.to_numeric(cluster_df.get("Qty", pd.Series(dtype=float)), errors="coerce").sum(min_count=1)
     interval_min = pd.to_numeric(cluster_df.get("IntervalDays", pd.Series(dtype=float)), errors="coerce")
-    base_min = pd.to_numeric(cluster_df.get("BaseIntervalDays", pd.Series(dtype=float)), errors="coerce")
 
     days_qty = int(interval_min.dropna().min()) if interval_min.notna().any() else ""
-    days_base = int(base_min.dropna().min()) if base_min.notna().any() else ""
 
     return {
         "Reminder Date": " | ".join(reminder_dates),
@@ -8499,10 +8494,12 @@ if False and st.session_state["admin_unlocked"]:
     # 🧾 Quarterly LLM Bundle
     # --------------------------------
     # --- Guard: ensure export builders exist (prevents crashes if not included yet)
+    quarterly_payload_builder = globals().get("build_quarterly_payload_full")
+    quarterly_json_default = globals().get("_json_default")
     missing_export_bits = []
-    if "build_quarterly_payload_full" not in globals():
+    if quarterly_payload_builder is None:
         missing_export_bits.append("build_quarterly_payload_full")
-    if "_json_default" not in globals():
+    if quarterly_json_default is None:
         missing_export_bits.append("_json_default")
     
     if missing_export_bits:
@@ -8527,7 +8524,7 @@ if False and st.session_state["admin_unlocked"]:
                 else:
                     df_full, masks, tx_client, tx_patient, patients_per_month = st.session_state["bundle"]
                     with st.spinner("Generating quarterly export bundle..."):
-                        payload, zip_bytes = build_quarterly_payload_full(
+                        payload, zip_bytes = quarterly_payload_builder(
                             df_full=df_full,
                             masks=masks,
                             tx_client=tx_client,
@@ -8538,7 +8535,7 @@ if False and st.session_state["admin_unlocked"]:
                             raw_rows_limit=None,
                         )
                     if zip_bytes:
-                        clean_payload_json = json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)
+                        clean_payload_json = json.dumps(payload, ensure_ascii=False, indent=2, default=quarterly_json_default, allow_nan=False)
                         clean_payload = json.loads(clean_payload_json)
     
                         st.session_state["llm_payload"] = clean_payload
@@ -8565,6 +8562,6 @@ if False and st.session_state["admin_unlocked"]:
             meta = f"Built at: {st.session_state.get('llm_built_at')}"
             with st.expander(f"Preview quarterly_payload.json  •  {meta}"):
                 st.code(
-                    json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=_json_default, allow_nan=False)[:8000],
+                    json.dumps(st.session_state["llm_payload"], ensure_ascii=False, indent=2, default=quarterly_json_default, allow_nan=False)[:8000],
                     language="json",
                 )
