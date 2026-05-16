@@ -414,6 +414,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_tracker_sheet_cache",
     "_hidden_reminders_index_cache",
     "pending_google_signup",
+    "google_onboarding_mode",
     "google_signup_error",
     "google_onboarding_clinic_name",
     "google_onboarding_country",
@@ -4390,8 +4391,22 @@ def create_google_clinic_account(clinic_id: str, country: str, google_user: dict
     return values_by_header
 
 
-def google_onboarding_dialog_html(google_user: dict) -> str:
+def google_onboarding_dialog_html(google_user: dict, mode: str = "signup") -> str:
     email = normalize_email(google_user.get("email", ""))
+    if mode == "recreate_after_delete":
+        title = "Your clinic account was deleted"
+        body = (
+            f"You're still signed in with Google{f' as {html_lib.escape(email)}' if email else ''}. "
+            "Add a clinic name and country to create a fresh workspace."
+        )
+        note = "The previous clinic workspace and saved data were removed. Next time, use Continue with Google to return to the new workspace."
+    else:
+        title = "Welcome to Clinic Reminders!"
+        body = (
+            f"You're signed in with Google{f' as {html_lib.escape(email)}' if email else ''}. "
+            "Add your clinic name and country to create your workspace."
+        )
+        note = "Next time, use Continue with Google. Your Google password is never entered or stored in Clinic Reminders."
     return f"""
     <style>
       .google-onboarding-hero {{
@@ -4427,27 +4442,31 @@ def google_onboarding_dialog_html(google_user: dict) -> str:
       }}
     </style>
     <div class="google-onboarding-hero">
-      <h3>Welcome to Clinic Reminders!</h3>
-      <p>You're signed in with Google{f" as {html_lib.escape(email)}" if email else ""}. Add your clinic name and country to create your workspace.</p>
+      <h3>{title}</h3>
+      <p>{body}</p>
     </div>
-    <div class="google-onboarding-note">Next time, use Continue with Google. Your Google password is never entered or stored in Clinic Reminders.</div>
+    <div class="google-onboarding-note">{note}</div>
     """
 
 
 def render_google_onboarding_dialog(google_user: dict):
+    onboarding_mode = st.session_state.get("google_onboarding_mode", "signup")
+    submit_label = "Create new clinic workspace" if onboarding_mode == "recreate_after_delete" else "Create clinic workspace"
+
     def _render_dialog_body():
-        st.markdown(google_onboarding_dialog_html(google_user), unsafe_allow_html=True)
+        st.markdown(google_onboarding_dialog_html(google_user, onboarding_mode), unsafe_allow_html=True)
         with st.form("google_onboarding_form"):
             default_clinic_name = st.session_state.get("google_onboarding_clinic_name", "")
             google_clinic = st.text_input("Clinic name", value=default_clinic_name, key="google_onboarding_clinic_name").strip()
             google_country = st.selectbox("Country", COUNTRY_OPTIONS, key="google_onboarding_country")
-            google_submitted = st.form_submit_button("Create clinic workspace", type="primary", use_container_width=True)
+            google_submitted = st.form_submit_button(submit_label, type="primary", use_container_width=True)
 
         if google_submitted:
             try:
                 create_google_clinic_account(google_clinic, google_country, google_user)
                 st.session_state["user_country"] = google_country
                 st.session_state.pop("pending_google_signup", None)
+                st.session_state.pop("google_onboarding_mode", None)
                 finish_authenticated_session(
                     google_clinic,
                     event="google_login",
@@ -4462,6 +4481,7 @@ def render_google_onboarding_dialog(google_user: dict):
 
         if st.button("Use another Google account", key="google_onboarding_logout", use_container_width=True):
             st.session_state.pop("pending_google_signup", None)
+            st.session_state.pop("google_onboarding_mode", None)
             if callable(getattr(st, "logout", None)):
                 st.logout()
             else:
@@ -4745,6 +4765,8 @@ def render_delete_account_dialog():
                 clear_account_session_state()
                 st.session_state["logout_notice"] = "The clinic account and saved data were deleted."
                 st.session_state["pending_google_signup"] = google_session_active
+                if google_session_active:
+                    st.session_state["google_onboarding_mode"] = "recreate_after_delete"
                 close_delete_account_dialog()
                 st.rerun()
             except Exception:
@@ -5000,6 +5022,7 @@ if google_user.get("is_logged_in") and not st.session_state["logged_in"]:
         google_clinic_row = None
     if google_clinic_row:
         st.session_state.pop("pending_google_signup", None)
+        st.session_state.pop("google_onboarding_mode", None)
         finish_authenticated_session(
             str(google_clinic_row.get("ClinicID", "")).strip(),
             event="google_login",
@@ -5009,8 +5032,10 @@ if google_user.get("is_logged_in") and not st.session_state["logged_in"]:
         rerun_app()
     else:
         st.session_state["pending_google_signup"] = True
+        st.session_state.setdefault("google_onboarding_mode", "signup")
 elif st.session_state.get("pending_google_signup"):
     st.session_state.pop("pending_google_signup", None)
+    st.session_state.pop("google_onboarding_mode", None)
 
 default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
 
@@ -5036,11 +5061,14 @@ if (
 pending_google_signup = bool(st.session_state.get("pending_google_signup") and google_user.get("is_logged_in"))
 
 if pending_google_signup and not st.session_state["logged_in"]:
+    onboarding_mode = st.session_state.get("google_onboarding_mode", "signup")
+    pending_title = "Create a new clinic workspace" if onboarding_mode == "recreate_after_delete" else "Finishing your Google sign-up"
+    pending_body = "Your previous clinic was deleted. A quick setup window will open so you can start fresh." if onboarding_mode == "recreate_after_delete" else "A quick setup window will open so we can create your clinic workspace."
     st.markdown(
-        """
+        f"""
         <div style="max-width: 42rem; margin: 2rem 0 0 2rem; color: #40566b;">
-          <h3 style="color: #101828; margin-bottom: 0.35rem;">Finishing your Google sign-up</h3>
-          <p style="margin: 0;">A quick setup window will open so we can create your clinic workspace.</p>
+          <h3 style="color: #101828; margin-bottom: 0.35rem;">{pending_title}</h3>
+          <p style="margin: 0;">{pending_body}</p>
         </div>
         """,
         unsafe_allow_html=True,
