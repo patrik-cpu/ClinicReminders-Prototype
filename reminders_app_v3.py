@@ -4102,6 +4102,110 @@ if "rules" not in st.session_state:
 ensure_tracking_sheets()
 ensure_shared_dataset_loaded_for_session()
 
+
+def get_setup_checklist_steps() -> list[dict]:
+    df_w = st.session_state.get("working_df")
+    has_data = df_w is not None and not getattr(df_w, "empty", True)
+    search_term_added = bool(st.session_state.get("search_term_added", False))
+    has_sender_name = bool(str(st.session_state.get("user_name", "")).strip())
+    template_updated = bool(st.session_state.get("wa_template_updated", False))
+    reset_at = _parse_reminder_log_time(st.session_state.get("get_started_reset_at", ""))
+
+    def happened_after_reset(timestamp: str) -> bool:
+        if not reset_at:
+            return True
+        happened_at = _parse_reminder_log_time(timestamp)
+        return bool(happened_at and happened_at > reset_at)
+
+    def action_after_reset(action_name: str) -> bool:
+        for entry in st.session_state.get("deleted_reminders", []):
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("Action", "")).strip().lower() == action_name and happened_after_reset(entry.get("ActionedAt", "") or entry.get("DeletedAt", "")):
+                return True
+        return False
+
+    def sent_after_reset() -> bool:
+        for entry in st.session_state.get("wa_reminder_log", []):
+            if isinstance(entry, dict) and happened_after_reset(entry.get("RemindedAt", "")):
+                return True
+        return action_after_reset(REMINDER_ACTION_SENT)
+
+    steps = [
+        {
+            "number": 1,
+            "done": has_data and happened_after_reset(st.session_state.get("shared_dataset_updated_at", "")),
+            "title": "Upload data",
+            "copy": "Upload a CSV, XLS, or XLSX sales plan export. One year of data is ideal so yearly reminders can be found reliably.",
+            "where": "Where: Upload Data tab",
+        },
+        {
+            "number": 2,
+            "done": search_term_added and happened_after_reset(st.session_state.get("search_term_added_at", "")),
+            "title": "Add new search term",
+            "copy": "Add at least one clinic-specific product or service so reminders match your clinic language.",
+            "where": "Where: Search Terms tab",
+        },
+        {
+            "number": 3,
+            "done": has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", "")),
+            "title": "Set sender name",
+            "copy": "This fills [Your Name] in WhatsApp messages. Example: Mary from Bob's Test Vet Clinic.",
+            "where": "Where: WhatsApp Composer in the Reminders tab",
+        },
+        {
+            "number": 4,
+            "done": template_updated and happened_after_reset(st.session_state.get("wa_template_updated_at", "")),
+            "title": "Update template",
+            "copy": "Save the WhatsApp template once so it matches your clinic tone and wording.",
+            "where": "Where: Template Editor in the Reminders tab",
+        },
+        {
+            "number": 5,
+            "done": sent_after_reset(),
+            "title": "Send your first reminder",
+            "copy": "Open Reminders, prepare a WhatsApp message, then mark it Sent once the client has been contacted.",
+            "where": "Where: Reminders tab",
+        },
+        {
+            "number": 6,
+            "done": action_after_reset(REMINDER_ACTION_DECLINED),
+            "title": "Decline your first reminder",
+            "copy": "Tick the red X to decline sending this reminder while still marking it actioned.",
+            "where": "Where: Reminders tab",
+        },
+    ]
+    for step in steps:
+        step["class_name"] = "complete" if step["done"] else "todo"
+        step["status"] = "Done" if step["done"] else "To do"
+    return steps
+
+
+def get_started_incomplete_count() -> int:
+    return sum(1 for step in get_setup_checklist_steps() if not step["done"])
+
+
+def get_started_badge_label(count: int | None = None) -> str:
+    count = get_started_incomplete_count() if count is None else int(count or 0)
+    if count <= 0:
+        return "Get Started"
+    count = max(1, min(6, count))
+    badge_svg = f"""
+    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="22" viewBox="0 0 26 22">
+      <rect x="1" y="2" width="24" height="18" rx="9" fill="#dc2626"/>
+      <text x="13" y="15" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle">{count}</text>
+    </svg>
+    """
+    encoded_badge = base64.b64encode(badge_svg.encode("utf-8")).decode("ascii")
+    return f"Get Started ![{count} setup steps remaining](data:image/svg+xml;base64,{encoded_badge})"
+
+
+def main_section_tab_label(tab_name: str) -> str:
+    if tab_name == "Get Started":
+        return get_started_badge_label()
+    return tab_name
+
+
 st.markdown(
     """
     <style>
@@ -4193,9 +4297,13 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+main_section_tab_labels = [main_section_tab_label(tab_name) for tab_name in MAIN_SECTION_TABS]
+default_main_section_tab = st.session_state.get("main_section_tab", "Reminders")
+if default_main_section_tab not in MAIN_SECTION_TABS:
+    default_main_section_tab = "Reminders"
 reminders_page_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab = st.tabs(
-    MAIN_SECTION_TABS,
-    default=st.session_state.get("main_section_tab", "Reminders"),
+    main_section_tab_labels,
+    default=main_section_tab_label(default_main_section_tab),
 )
 
 
@@ -4488,51 +4596,7 @@ def consume_dataset_upload_removal():
     st.rerun()
 
 def render_setup_checklist():
-    df_w = st.session_state.get("working_df")
-    has_data = df_w is not None and not getattr(df_w, "empty", True)
-    search_term_added = bool(st.session_state.get("search_term_added", False))
-    has_sender_name = bool(str(st.session_state.get("user_name", "")).strip())
-    template_updated = bool(st.session_state.get("wa_template_updated", False))
-    reset_at = _parse_reminder_log_time(st.session_state.get("get_started_reset_at", ""))
-
-    def happened_after_reset(timestamp: str) -> bool:
-        if not reset_at:
-            return True
-        happened_at = _parse_reminder_log_time(timestamp)
-        return bool(happened_at and happened_at > reset_at)
-
-    def action_after_reset(action_name: str) -> bool:
-        for entry in st.session_state.get("deleted_reminders", []):
-            if not isinstance(entry, dict):
-                continue
-            if str(entry.get("Action", "")).strip().lower() == action_name and happened_after_reset(entry.get("ActionedAt", "") or entry.get("DeletedAt", "")):
-                return True
-        return False
-
-    def sent_after_reset() -> bool:
-        for entry in st.session_state.get("wa_reminder_log", []):
-            if isinstance(entry, dict) and happened_after_reset(entry.get("RemindedAt", "")):
-                return True
-        return action_after_reset(REMINDER_ACTION_SENT)
-
-    upload_done = has_data and happened_after_reset(st.session_state.get("shared_dataset_updated_at", ""))
-    search_done = search_term_added and happened_after_reset(st.session_state.get("search_term_added_at", ""))
-    name_done = has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", ""))
-    template_done = template_updated and happened_after_reset(st.session_state.get("wa_template_updated_at", ""))
-    reminder_done = sent_after_reset()
-    decline_done = action_after_reset(REMINDER_ACTION_DECLINED)
-
-    def status(done: bool):
-        if done:
-            return "complete", "Done"
-        return "todo", "To do"
-
-    upload_class, upload_status = status(upload_done)
-    search_class, search_status = status(search_done)
-    name_class, name_status = status(name_done)
-    template_class, template_status = status(template_done)
-    reminders_class, reminders_status = status(reminder_done)
-    decline_class, decline_status = status(decline_done)
+    steps = get_setup_checklist_steps()
 
     try:
         setup_panel = st.container(border=True)
@@ -4544,45 +4608,22 @@ def render_setup_checklist():
             '<p class="setup-intro">Six quick checks before you start using reminders.</p>',
             unsafe_allow_html=True,
         )
+        step_cards = []
+        for step in steps:
+            step_cards.append(
+                f"""
+            <div class="setup-step {html_lib.escape(step["class_name"])}">
+              <div class="setup-status">{html_lib.escape(step["status"])}</div>
+              <div class="setup-title">{step["number"]}. {html_lib.escape(step["title"])}</div>
+              <div class="setup-copy">{html_lib.escape(step["copy"])}</div>
+              <div class="setup-where">{html_lib.escape(step["where"])}</div>
+            </div>
+            """
+            )
         st.markdown(
             f"""
           <div class="setup-grid">
-            <div class="setup-step {upload_class}">
-              <div class="setup-status">{upload_status}</div>
-              <div class="setup-title">1. Upload data</div>
-              <div class="setup-copy">Upload a CSV, XLS, or XLSX sales plan export. One year of data is ideal so yearly reminders can be found reliably.</div>
-              <div class="setup-where">Where: Upload Data tab</div>
-            </div>
-            <div class="setup-step {search_class}">
-              <div class="setup-status">{search_status}</div>
-              <div class="setup-title">2. Add new search term</div>
-              <div class="setup-copy">Add at least one clinic-specific product or service so reminders match your clinic language.</div>
-              <div class="setup-where">Where: Search Terms tab</div>
-            </div>
-            <div class="setup-step {name_class}">
-              <div class="setup-status">{name_status}</div>
-              <div class="setup-title">3. Set sender name</div>
-              <div class="setup-copy">This fills [Your Name] in WhatsApp messages. Example: Mary from Bob's Test Vet Clinic.</div>
-              <div class="setup-where">Where: WhatsApp Composer in the Reminders tab</div>
-            </div>
-            <div class="setup-step {template_class}">
-              <div class="setup-status">{template_status}</div>
-              <div class="setup-title">4. Update template</div>
-              <div class="setup-copy">Save the WhatsApp template once so it matches your clinic tone and wording.</div>
-              <div class="setup-where">Where: Template Editor in the Reminders tab</div>
-            </div>
-            <div class="setup-step {reminders_class}">
-              <div class="setup-status">{reminders_status}</div>
-              <div class="setup-title">5. Send your first reminder</div>
-              <div class="setup-copy">Open Reminders, prepare a WhatsApp message, then mark it Sent once the client has been contacted.</div>
-              <div class="setup-where">Where: Reminders tab</div>
-            </div>
-            <div class="setup-step {decline_class}">
-              <div class="setup-status">{decline_status}</div>
-              <div class="setup-title">6. Decline your first reminder</div>
-              <div class="setup-copy">Tick the red X to decline sending this reminder while still marking it actioned.</div>
-              <div class="setup-where">Where: Reminders tab</div>
-            </div>
+            {''.join(step_cards)}
           </div>
         """,
             unsafe_allow_html=True,
