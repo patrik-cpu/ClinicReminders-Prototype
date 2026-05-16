@@ -7343,6 +7343,8 @@ def render_table(df, title, key_prefix, msg_key, rules):
     with actioned_tab:
         render_actioned_reminders_tab(key_prefix)
 
+    render_whatsapp_tools(key_prefix, msg_key)
+
 
 def render_sender_name_input(key_suffix: str):
     prev_name = st.session_state.get("user_name", "")
@@ -8005,6 +8007,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             args=(row_data, key_prefix),
         )
 
+def render_whatsapp_tools(key_prefix: str, msg_key: str):
     # --- WhatsApp Composer section (after the table) ---
     st.markdown("<div id='whatsapp-composer' class='anchor-offset'></div>", unsafe_allow_html=True)
     if st.session_state.pop("_scroll_to_whatsapp_composer", False):
