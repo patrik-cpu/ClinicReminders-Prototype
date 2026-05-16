@@ -3225,6 +3225,7 @@ def data_privacy_dialog_html(content: dict | None = None) -> str:
         background: #f8fafc;
         border: 1px solid rgba(15, 23, 42, 0.08);
         border-radius: 8px;
+        margin-bottom: 0.85rem;
         margin-top: 0.75rem;
         padding: 0.78rem 0.85rem;
       }}
