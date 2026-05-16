@@ -488,8 +488,15 @@ def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
     
 def clear_clinic_dataset_pointer(clinic_id: str):
-    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-    _update_dataset_pointer_cells(sheet, headers, row_idx, "", "", "")
+    update_settings_row_fields(
+        clinic_id,
+        {
+            SHEET_COL_DATASET_FILE_ID: "",
+            SHEET_COL_DATASET_FILE_NAME: "",
+            SHEET_COL_DATASET_UPDATED_AT: "",
+        },
+        SETTINGS_REQUIRED_COLUMNS,
+    )
     update_cached_settings_row_fields(
         clinic_id,
         {
@@ -1812,6 +1819,30 @@ def drive_download_bytes(file_id: str) -> bytes:
         except Exception:
             pass
         raise
+
+def drive_query_literal(value: str) -> str:
+    escaped = str(value or "").replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+def drive_find_file_id_by_name(filename: str, folder_id: str) -> str:
+    if not filename or not folder_id:
+        return ""
+    service = get_drive_service()
+    query = (
+        f"name = {drive_query_literal(filename)} "
+        f"and {drive_query_literal(folder_id)} in parents "
+        "and trashed = false"
+    )
+    response = service.files().list(
+        q=query,
+        fields="files(id,name,modifiedTime)",
+        orderBy="modifiedTime desc",
+        pageSize=1,
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    ).execute()
+    files = response.get("files", []) or []
+    return str(files[0].get("id", "")).strip() if files else ""
         
 def ensure_min_canonical_schema(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -1947,13 +1978,50 @@ def load_shared_dataset_for_clinic():
 
     file_id = str(rec.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
     if not file_id:
-        if normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", [])):
-            st.session_state["shared_dataset_loaded"] = False
-            st.session_state["shared_dataset_error"] = (
-                "Clinic data is listed as saved, but the saved dataset file is not linked yet. "
-                "Please re-upload the file from this tab."
-            )
-        return  # no shared dataset published yet
+        history = normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", []))
+        if history:
+            recovered_name = str(rec.get(SHEET_COL_DATASET_FILE_NAME, "")).strip() or f"{clinic_id}_shared_dataset.csv"
+            try:
+                recovered_file_id = drive_find_file_id_by_name(recovered_name, DATASETS_FOLDER_ID)
+            except Exception as e:
+                recovered_file_id = ""
+                record_error_tracker_event(
+                    "shared_dataset_pointer_recovery_failed",
+                    stage="load_shared_dataset_for_clinic",
+                    error=e,
+                    source="load_shared_dataset_for_clinic",
+                )
+            if recovered_file_id:
+                try:
+                    update_clinic_dataset_pointer(clinic_id, recovered_file_id, recovered_name)
+                    file_id = recovered_file_id
+                    rec[SHEET_COL_DATASET_FILE_ID] = recovered_file_id
+                    rec[SHEET_COL_DATASET_FILE_NAME] = recovered_name
+                    st.session_state["shared_dataset_error"] = None
+                    record_dataset_tracker_event(
+                        "dataset_pointer_recovered",
+                        "success",
+                        file_name=recovered_name,
+                        drive_file_id=recovered_file_id,
+                        message="Recovered missing saved dataset pointer from Drive",
+                        source="load_shared_dataset_for_clinic",
+                    )
+                except Exception as e:
+                    file_id = ""
+                    record_error_tracker_event(
+                        "shared_dataset_pointer_recovery_failed",
+                        stage="load_shared_dataset_for_clinic",
+                        error=e,
+                        source="load_shared_dataset_for_clinic",
+                    )
+            if not file_id:
+                st.session_state["shared_dataset_loaded"] = False
+                st.session_state["shared_dataset_error"] = (
+                    "The saved data record is missing its file link. Clear clinic data or upload the file again."
+                )
+                return
+        else:
+            return  # no shared dataset published yet
 
     load_started = time.perf_counter()
     try:
@@ -2137,9 +2205,21 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
     return merged
 
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
-    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
     updated_at = datetime.utcnow().isoformat()
-    _update_dataset_pointer_cells(sheet, headers, row_idx, file_id, filename, updated_at)
+    update_settings_row_fields(
+        clinic_id,
+        {
+            SHEET_COL_DATASET_FILE_ID: file_id,
+            SHEET_COL_DATASET_FILE_NAME: filename,
+            SHEET_COL_DATASET_UPDATED_AT: updated_at,
+        },
+        SETTINGS_REQUIRED_COLUMNS,
+    )
+    _, fresh_headers, _, fresh_row = get_fresh_settings_row_values(clinic_id)
+    file_id_idx = fresh_headers.index(SHEET_COL_DATASET_FILE_ID)
+    saved_file_id = str(fresh_row[file_id_idx]).strip() if len(fresh_row) > file_id_idx else ""
+    if saved_file_id != str(file_id).strip():
+        raise RuntimeError("Saved dataset could not be linked to this clinic. Please try the upload again.")
     update_cached_settings_row_fields(
         clinic_id,
         {
@@ -2188,6 +2268,7 @@ def get_existing_dataset_pointer(clinic_id: str) -> tuple[str, str]:
     """
     try:
         sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+        headers = ensure_settings_sheet_columns(sheet, headers, SETTINGS_REQUIRED_COLUMNS)
         current_row = _gspread_retry(sheet.row_values, row_idx)
         clinic_ix = headers.index("ClinicID")
         fileid_ix = headers.index(SHEET_COL_DATASET_FILE_ID)
@@ -5645,7 +5726,11 @@ def render_dataset_status(saved_rows: list[dict] | None = None):
     if pending_warning:
         st.warning(pending_warning)
     if st.session_state.get("shared_dataset_error"):
-        st.warning(f"⚠️ Could not load clinic data: {st.session_state['shared_dataset_error']}")
+        error_text = str(st.session_state["shared_dataset_error"])
+        if "missing its file link" in error_text:
+            st.warning(f"⚠️ {error_text}")
+        else:
+            st.warning(f"⚠️ Could not load clinic data: {error_text}")
     elif not saved_rows and not has_working_dataset() and not st.session_state.get("shared_dataset_loaded"):
         st.caption("No clinic data saved yet — upload a file to start.")
 
