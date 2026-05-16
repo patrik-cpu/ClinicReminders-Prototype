@@ -60,6 +60,19 @@ class AuthSessionTests(unittest.TestCase):
         self.assertEqual(normalized["subject"], "google-subject")
         self.assertEqual(normalized["name"], "Clinic Owner")
 
+    def test_google_user_info_requires_real_google_identity(self):
+        class UserProxyLike:
+            is_logged_in = object()
+
+            def __iter__(self):
+                return iter(())
+
+        normalized = self.app.get_google_user_info(UserProxyLike())
+
+        self.assertFalse(normalized["is_logged_in"])
+        self.assertEqual(normalized["email"], "")
+        self.assertEqual(normalized["subject"], "")
+
     def test_google_identity_matches_by_subject_or_email(self):
         google_user = {
             "is_logged_in": True,

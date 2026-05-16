@@ -3896,7 +3896,7 @@ def normalize_email(value: str) -> str:
 
 def get_google_user_info(user_info=None) -> dict:
     user_info = st.user if user_info is None else user_info
-    is_logged_in_attr = bool(getattr(user_info, "is_logged_in", False))
+    is_logged_in_attr = getattr(user_info, "is_logged_in", False)
     try:
         data = dict(user_info)
     except Exception:
@@ -3905,7 +3905,8 @@ def get_google_user_info(user_info=None) -> dict:
     email = normalize_email(data.get("email", ""))
     subject = str(data.get("sub") or data.get("user_id") or "").strip()
     name = str(data.get("name") or data.get("given_name") or email).strip()
-    is_logged_in = is_logged_in_attr or bool(data.get("is_logged_in")) or bool(email or subject)
+    has_google_identity = bool(email or subject)
+    is_logged_in = has_google_identity and (is_logged_in_attr is True or data.get("is_logged_in") is True)
     return {
         "is_logged_in": is_logged_in,
         "email": email,
