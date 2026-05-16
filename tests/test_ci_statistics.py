@@ -109,6 +109,18 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(item_rows["Rabies"]["Sent"], 1)
         self.assertEqual(item_rows["Librela"]["Declined"], 1)
 
+    def test_statistics_exclusion_fingerprint_tracks_filter_changes(self):
+        state = self.app.st.session_state
+        state["exclusions"] = ["Rabies"]
+        state["client_exclusions"] = ["Client A"]
+        state["patient_exclusions"] = [{"client": "Client B", "patient": "Pet B"}]
+        original_fp = self.app.statistics_exclusion_fp()
+
+        state["patient_exclusions"] = [{"client": "Client B", "patient": "Pet C"}]
+        changed_fp = self.app.statistics_exclusion_fp()
+
+        self.assertNotEqual(original_fp, changed_fp)
+
 
 if __name__ == "__main__":
     unittest.main()

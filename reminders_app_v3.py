@@ -46,6 +46,7 @@ from googleapiclient.errors import HttpError
 from io import BytesIO
 PREPARED_SCHEMA_VERSION = 5
 SESSION_BUNDLE_SCHEMA_VERSION = 1
+STATISTICS_GENERATED_SCHEMA_VERSION = 1
 PRECOMPUTE_ANALYTICS_BUNDLE = False
 UPLOAD_SUMMARY_SCHEMA_VERSION = 2
 DRIVE_SCOPE = [
@@ -6438,8 +6439,7 @@ def map_intervals_vec(df, rules):
     reminder_2 = pd.Series(pd.NA, index=df.index, dtype="Float64")
     overdue_reminder = pd.Series(pd.NA, index=df.index, dtype="Float64")
 
-    matched = np.empty(n, dtype=object)
-    matched[:] = [[] for _ in range(n)]
+    matched = pd.Series([[] for _ in range(n)], index=df.index, dtype=object)
 
     item_norm = df["ItemNorm"].astype(str)
 
@@ -6482,11 +6482,11 @@ def map_intervals_vec(df, rules):
         vis = settings.get("visible_text", "").strip()
         idxs = df.index[mask]
         if vis:
-            for i in idxs: matched[i].append(vis)
+            for i in idxs: matched.at[i].append(vis)
         else:
-            for i in idxs: matched[i].append(df.at[i, "Item Name"])
+            for i in idxs: matched.at[i].append(df.at[i, "Item Name"])
 
-    df["MatchedItems"] = [list({x.strip() for x in lst if str(x).strip()}) for lst in matched]
+    df["MatchedItems"] = [list({x.strip() for x in lst if str(x).strip()}) for lst in matched.tolist()]
     df["IntervalDays"] = interval_qty
     df["BaseIntervalDays"] = interval_base
     df["Reminder1Days"] = reminder_1
@@ -8214,6 +8214,31 @@ STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
 STATISTICS_GENERATED_COLUMNS = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
 
 
+def statistics_exclusion_fp() -> str:
+    def normalized_text_list(values) -> list[str]:
+        return sorted(
+            _SPACE_RX.sub(" ", str(value or "").strip()).lower()
+            for value in values or []
+            if str(value or "").strip()
+        )
+
+    patient_exclusions = []
+    for item in st.session_state.get("patient_exclusions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        client = _SPACE_RX.sub(" ", str(item.get("client", "") or "").strip()).lower()
+        patient = _SPACE_RX.sub(" ", str(item.get("patient", "") or "").strip()).lower()
+        if client and patient:
+            patient_exclusions.append({"client": client, "patient": patient})
+
+    payload = {
+        "items": normalized_text_list(st.session_state.get("exclusions", [])),
+        "clients": normalized_text_list(st.session_state.get("client_exclusions", [])),
+        "patients": sorted(patient_exclusions, key=lambda row: (row["client"], row["patient"])),
+    }
+    return hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
 def empty_statistics_generated_frame() -> pd.DataFrame:
     return pd.DataFrame(columns=STATISTICS_GENERATED_COLUMNS)
 
@@ -8324,6 +8349,29 @@ def build_statistics_generated_rows(
     if filtered.empty:
         return empty_statistics_generated_frame()
     return bundle_client_reminders_by_window(filtered, window_days=group_days, rules=rules)
+
+
+@st.cache_data(show_spinner=False)
+def cached_statistics_generated_rows(
+    _prepared: pd.DataFrame,
+    _rules: dict,
+    group_days: int,
+    period: str,
+    today_iso: str,
+    data_version: int,
+    rules_fp: str,
+    exclusion_fp: str,
+    schema_version: int,
+) -> pd.DataFrame:
+    today = pd.to_datetime(today_iso, errors="coerce")
+    today_date = today.date() if pd.notna(today) else date.today()
+    return build_statistics_generated_rows(
+        _prepared,
+        _rules,
+        group_days=group_days,
+        period=period,
+        today=today_date,
+    )
 
 
 def statistics_current_action_records() -> list[dict]:
@@ -8521,12 +8569,26 @@ def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
             label_visibility="collapsed",
         )
 
+    try:
+        statistics_group_days = max(0, int(st.session_state.get("client_group_days", 1) or 0))
+    except (TypeError, ValueError):
+        statistics_group_days = 1
+    try:
+        statistics_data_version = int(st.session_state.get("data_version", 0) or 0)
+    except (TypeError, ValueError):
+        statistics_data_version = 0
+
     with st.spinner("Calculating statistics..."):
-        generated_df = build_statistics_generated_rows(
+        generated_df = cached_statistics_generated_rows(
             prepared,
             rules,
-            group_days=st.session_state.get("client_group_days", 1),
+            group_days=statistics_group_days,
             period=selected_period,
+            today_iso=date.today().isoformat(),
+            data_version=statistics_data_version,
+            rules_fp=_rules_fp(rules),
+            exclusion_fp=statistics_exclusion_fp(),
+            schema_version=STATISTICS_GENERATED_SCHEMA_VERSION,
         )
         action_records = statistics_current_action_records()
 

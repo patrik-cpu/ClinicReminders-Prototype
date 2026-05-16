@@ -94,6 +94,32 @@ class ReminderGroupingTests(unittest.TestCase):
         self.assertEqual(set(expanded["DueDateFmt"]), {"01 Apr 2025"})
         self.assertEqual(set(expanded["ReminderDateFmt"]), {"01 Apr 2025", "11 Apr 2025"})
 
+    def test_interval_mapping_handles_non_contiguous_filtered_index(self):
+        df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01", "2025-01-02"]),
+                "Client Name": ["A Client", "B Client"],
+                "Animal Name": ["A Patient", "B Patient"],
+                "Item Name": ["Rabies Vaccine", "Dental Exam"],
+                "Qty": [1, 1],
+                "Amount": [100, 200],
+            },
+            index=[5, 9],
+        )
+        rules = {
+            "rabies": {
+                "days": 365,
+                "use_qty": False,
+                "visible_text": "Rabies Vaccine",
+            }
+        }
+
+        mapped = self.app.map_intervals_vec(df, rules)
+
+        self.assertEqual(mapped.at[5, "MatchedItems"], ["Rabies Vaccine"])
+        self.assertEqual(int(mapped.at[5, "IntervalDays"]), 365)
+        self.assertTrue(pd.isna(mapped.at[9, "IntervalDays"]))
+
     def test_loading_clinic_without_dataset_clears_stale_session_data(self):
         dataset_file_id_col = self.app.SHEET_COL_DATASET_FILE_ID
         dataset_file_name_col = self.app.SHEET_COL_DATASET_FILE_NAME
