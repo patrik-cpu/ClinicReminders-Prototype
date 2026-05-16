@@ -109,6 +109,17 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(item_rows["Rabies"]["Sent"], 1)
         self.assertEqual(item_rows["Librela"]["Declined"], 1)
 
+    def test_statistics_completion_labels_follow_selected_period(self):
+        self.assertEqual(
+            self.app.statistics_completion_metric_labels("All time"),
+            [
+                "All time Generated",
+                "All time Actioned",
+                "All time Remaining",
+                "All time Ring",
+            ],
+        )
+
     def test_statistics_exclusion_fingerprint_tracks_filter_changes(self):
         state = self.app.st.session_state
         state["exclusions"] = ["Rabies"]

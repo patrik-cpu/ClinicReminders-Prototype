@@ -8628,6 +8628,16 @@ def render_statistics_metric_card(label: str, value: str):
     st.metric(label, value)
 
 
+def statistics_completion_metric_labels(period: str) -> list[str]:
+    period_label = str(period or "Today").strip() or "Today"
+    return [
+        f"{period_label} Generated",
+        f"{period_label} Actioned",
+        f"{period_label} Remaining",
+        f"{period_label} Ring",
+    ]
+
+
 def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
     st.markdown("<div id='statistics' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("## Statistics")
@@ -8730,14 +8740,15 @@ def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
             st.dataframe(item_frame.head(25), hide_index=True, use_container_width=True)
 
     with completion_tab:
-        today_summary = statistics_summary_for_period(generated_df, action_records, "Today")
-        completion_pct = today_summary["completion_rate"]
+        completion_summary = summary
+        completion_pct = completion_summary["completion_rate"]
         comp_cols = st.columns(4)
+        generated_label, actioned_label, remaining_label, ring_label = statistics_completion_metric_labels(selected_period)
         completion_metrics = [
-            ("Today Generated", f"{today_summary['generated']:,}"),
-            ("Today Actioned", f"{today_summary['actioned']:,}"),
-            ("Remaining", f"{today_summary['remaining']:,}"),
-            ("Ring", f"{completion_pct:.0%}"),
+            (generated_label, f"{completion_summary['generated']:,}"),
+            (actioned_label, f"{completion_summary['actioned']:,}"),
+            (remaining_label, f"{completion_summary['remaining']:,}"),
+            (ring_label, f"{completion_pct:.0%}"),
         ]
         for col, (label, value) in zip(comp_cols, completion_metrics):
             with col:
