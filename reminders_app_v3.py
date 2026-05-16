@@ -10,6 +10,7 @@ import gspread
 from settings_pointer_utils import update_dataset_pointer_cells
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta
+from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 import hashlib
 import base64
@@ -1704,6 +1705,52 @@ st.markdown(
     .column-help:hover::after {
         display: block;
     }
+    .cr-busy-overlay {
+        align-items: center;
+        background: rgba(246, 250, 247, 0.72);
+        backdrop-filter: blur(2px);
+        display: flex;
+        inset: 0;
+        justify-content: center;
+        position: fixed;
+        z-index: 2147483000;
+    }
+    .cr-busy-card {
+        align-items: center;
+        background: #ffffff;
+        border: 1px solid rgba(41, 210, 114, 0.24);
+        border-radius: 14px;
+        box-shadow: 0 20px 56px rgba(15, 23, 42, 0.14);
+        color: var(--cr-text);
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        min-width: min(22rem, calc(100vw - 2rem));
+        padding: 1.25rem 1.45rem;
+        text-align: center;
+    }
+    .cr-busy-spinner {
+        animation: cr-spin 0.85s linear infinite;
+        border: 4px solid rgba(41, 210, 114, 0.18);
+        border-radius: 999px;
+        border-top-color: var(--cr-primary);
+        height: 2.75rem;
+        width: 2.75rem;
+    }
+    .cr-busy-title {
+        font-size: 1rem;
+        font-weight: 800;
+        line-height: 1.25;
+    }
+    .cr-busy-copy {
+        color: var(--cr-muted);
+        font-size: 0.88rem;
+        line-height: 1.35;
+        max-width: 19rem;
+    }
+    @keyframes cr-spin {
+        to { transform: rotate(360deg); }
+    }
     </style>
     ''',
     unsafe_allow_html=True,
@@ -1715,6 +1762,34 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
+
+
+def render_busy_overlay(target, message: str, detail: str = ""):
+    safe_message = html_lib.escape(str(message or "Working..."))
+    safe_detail = html_lib.escape(str(detail or ""))
+    detail_html = f"<div class='cr-busy-copy'>{safe_detail}</div>" if safe_detail else ""
+    target.markdown(
+        f"""
+        <div class="cr-busy-overlay" role="status" aria-live="polite">
+          <div class="cr-busy-card">
+            <div class="cr-busy-spinner"></div>
+            <div class="cr-busy-title">{safe_message}</div>
+            {detail_html}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+@contextmanager
+def busy_overlay(message: str, detail: str = ""):
+    overlay_slot = st.empty()
+    render_busy_overlay(overlay_slot, message, detail)
+    try:
+        yield overlay_slot
+    finally:
+        overlay_slot.empty()
 
 
 def render_field_label(container, label: str, help_text: str):
@@ -2025,28 +2100,29 @@ def load_shared_dataset_for_clinic():
 
     load_started = time.perf_counter()
     try:
-        file_bytes = drive_download_bytes(file_id)
+        with busy_overlay("Loading saved clinic data", "Getting the latest saved data for this clinic."):
+            file_bytes = drive_download_bytes(file_id)
 
-        # Reuse your existing pipeline so schema normalization still happens
-        # Filename is just for detect logic; use stored name if present, else default
-        filename = rec.get(SHEET_COL_DATASET_FILE_NAME, "shared_dataset.csv") or "shared_dataset.csv"
-        df, pms_name, amount_col = process_file(file_bytes, filename)
-        
-        st.session_state["working_df"] = sanitize_working_df(df)
-        st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1  # invalidate downstream caches
-        st.session_state["shared_dataset_loaded"] = True
-        st.session_state["shared_dataset_name"] = filename
-        st.session_state["shared_dataset_updated_at"] = rec.get(SHEET_COL_DATASET_UPDATED_AT, "")
-        load_duration_ms = (time.perf_counter() - load_started) * 1000
-        if load_duration_ms >= PERFORMANCE_TRACKER_SLOW_LOAD_MS:
-            record_performance_tracker_event(
-                "shared_dataset_load",
-                load_duration_ms,
-                rows=len(df),
-                status="slow",
-                message=filename,
-                source="load_shared_dataset_for_clinic",
-            )
+            # Reuse your existing pipeline so schema normalization still happens
+            # Filename is just for detect logic; use stored name if present, else default
+            filename = rec.get(SHEET_COL_DATASET_FILE_NAME, "shared_dataset.csv") or "shared_dataset.csv"
+            df, pms_name, amount_col = process_file(file_bytes, filename)
+
+            st.session_state["working_df"] = sanitize_working_df(df)
+            st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1  # invalidate downstream caches
+            st.session_state["shared_dataset_loaded"] = True
+            st.session_state["shared_dataset_name"] = filename
+            st.session_state["shared_dataset_updated_at"] = rec.get(SHEET_COL_DATASET_UPDATED_AT, "")
+            load_duration_ms = (time.perf_counter() - load_started) * 1000
+            if load_duration_ms >= PERFORMANCE_TRACKER_SLOW_LOAD_MS:
+                record_performance_tracker_event(
+                    "shared_dataset_load",
+                    load_duration_ms,
+                    rows=len(df),
+                    status="slow",
+                    message=filename,
+                    source="load_shared_dataset_for_clinic",
+                )
 
     except Exception as e:
         st.session_state["shared_dataset_loaded"] = False
@@ -5814,7 +5890,8 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
                 key=f"remove_dataset_upload_button_{idx}_{row_key}",
                 help="Remove this data file",
             ):
-                remove_dataset_upload_at_index(idx)
+                with busy_overlay("Removing saved data file", "Updating the clinic dataset."):
+                    remove_dataset_upload_at_index(idx)
                 st.rerun()
 
 
@@ -7160,7 +7237,7 @@ with data_tab:
     
                     st.rerun()
     
-                with st.spinner("Saving clinic data. Larger exports can take a moment."):
+                with busy_overlay("Saving clinic data", "Larger exports can take a moment."):
                     save_uploaded_dataset()
     
     # -------------------------------------
@@ -7181,36 +7258,37 @@ with data_tab:
         if not clinic_id:
             st.error("Not logged in.")
             st.stop()
-    
-        # Grab current pointer so we can optionally trash it
-        try:
-            existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
-        except Exception as e:
-            existing_file_id, existing_name = "", ""
-            st.warning(f"Could not read existing dataset pointer (will still reset). ({type(e).__name__})")
-    
-        # 1) Clear pointer in settings sheet (THIS is the key)
-        clear_clinic_dataset_pointer(clinic_id)
-    
-        # 2) Optional: trash the old file in Drive
-        # drive_trash_file(existing_file_id)
-    
-        # 3) Clear local state so UI resets immediately
-        reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
-    
-        st.session_state["shared_dataset_loaded"] = False
-        st.session_state["shared_dataset_name"] = None
-        st.session_state["shared_dataset_error"] = None
-        st.session_state["dataset_upload_history"] = []
-        save_settings_quietly()
-        record_dataset_tracker_event(
-            "dataset_cleared",
-            "success",
-            drive_file_id=existing_file_id,
-            drive_file_name=existing_name,
-            message="Clinic data cleared",
-            source="clear_clinic_data",
-        )
+
+        with busy_overlay("Clearing clinic data", "Removing the saved dataset for this clinic."):
+            # Grab current pointer so we can optionally trash it
+            try:
+                existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+            except Exception as e:
+                existing_file_id, existing_name = "", ""
+                st.warning(f"Could not read existing dataset pointer (will still reset). ({type(e).__name__})")
+
+            # 1) Clear pointer in settings sheet (THIS is the key)
+            clear_clinic_dataset_pointer(clinic_id)
+
+            # 2) Optional: trash the old file in Drive
+            # drive_trash_file(existing_file_id)
+
+            # 3) Clear local state so UI resets immediately
+            reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
+
+            st.session_state["shared_dataset_loaded"] = False
+            st.session_state["shared_dataset_name"] = None
+            st.session_state["shared_dataset_error"] = None
+            st.session_state["dataset_upload_history"] = []
+            save_settings_quietly()
+            record_dataset_tracker_event(
+                "dataset_cleared",
+                "success",
+                drive_file_id=existing_file_id,
+                drive_file_name=existing_name,
+                message="Clinic data cleared",
+                source="clear_clinic_data",
+            )
 
         st.rerun()
     
@@ -7329,12 +7407,13 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
 
     message = build_whatsapp_message_for_row(row_data)
     st.session_state[msg_key] = message
-    if hidden_action != REMINDER_ACTION_SENT:
-        record_wa_reminder_click(client_name, now=now, row=row_data, save=False)
-        record_action_tracker(row_data, REMINDER_ACTION_SENT, message=message, source=f"{key_prefix}_sent", now=now)
-    rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
-    hide_revealed_reminders_after_action(key_prefix)
-    save_settings_quietly()
+    with busy_overlay("Saving reminder action", "Recording this reminder as sent."):
+        if hidden_action != REMINDER_ACTION_SENT:
+            record_wa_reminder_click(client_name, now=now, row=row_data, save=False)
+            record_action_tracker(row_data, REMINDER_ACTION_SENT, message=message, source=f"{key_prefix}_sent", now=now)
+        rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
+        hide_revealed_reminders_after_action(key_prefix)
+        save_settings_quietly()
     st.session_state["_pending_reminder_action_status"] = {
         "message": f"Reminder for {normalize_display_case(rec['Animal Name'])} marked sent.",
     }
@@ -7344,13 +7423,14 @@ def decline_reminder_action(row_data: dict, key_prefix: str):
     now = datetime.utcnow()
     hidden_record = get_hidden_reminder_record(row_data)
     hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
-    if hidden_action == REMINDER_ACTION_SENT:
-        remove_wa_reminder_click_for_row(row_data)
-    if hidden_action != REMINDER_ACTION_DECLINED:
-        record_action_tracker(row_data, REMINDER_ACTION_DECLINED, source=f"{key_prefix}_declined", now=now)
-    rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=now)
-    hide_revealed_reminders_after_action(key_prefix)
-    save_settings_quietly()
+    with busy_overlay("Saving reminder action", "Recording this reminder as declined."):
+        if hidden_action == REMINDER_ACTION_SENT:
+            remove_wa_reminder_click_for_row(row_data)
+        if hidden_action != REMINDER_ACTION_DECLINED:
+            record_action_tracker(row_data, REMINDER_ACTION_DECLINED, source=f"{key_prefix}_declined", now=now)
+        rec = upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=now)
+        hide_revealed_reminders_after_action(key_prefix)
+        save_settings_quietly()
     st.session_state["_pending_reminder_action_status"] = {
         "message": f"Reminder for {normalize_display_case(rec['Animal Name'])} declined.",
     }
@@ -7359,11 +7439,12 @@ def decline_reminder_action(row_data: dict, key_prefix: str):
 def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
     hidden_record = get_hidden_reminder_record(row_data) or row_data
     hidden_action = str(hidden_record.get("Action", "")).strip().lower()
-    if hidden_action == REMINDER_ACTION_SENT:
-        remove_wa_reminder_click_for_row(row_data)
-    record_action_tracker(row_data, "active", source=f"{key_prefix}_undo", now=datetime.utcnow())
-    remove_actioned_reminder(row_data)
-    save_settings_quietly()
+    with busy_overlay("Saving reminder action", "Returning this reminder to Active Reminders."):
+        if hidden_action == REMINDER_ACTION_SENT:
+            remove_wa_reminder_click_for_row(row_data)
+        record_action_tracker(row_data, "active", source=f"{key_prefix}_undo", now=datetime.utcnow())
+        remove_actioned_reminder(row_data)
+        save_settings_quietly()
     st.session_state["_pending_reminder_action_status"] = {
         "message": f"Reminder for {normalize_display_case(row_data.get('Animal Name', ''))} returned to Active Reminders.",
     }
