@@ -351,6 +351,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "wa_template",
     "client_group_days",
     "reminder_window_days",
+    "reminder_lookback_days",
     "reminder_warning_days",
     "wa_reminder_log",
     "deleted_reminders",
@@ -2186,6 +2187,11 @@ def load_settings():
             st.session_state["reminder_window_days"] = max(0, int(raw_window_days if raw_window_days not in (None, "") else 1))
         except (TypeError, ValueError):
             st.session_state["reminder_window_days"] = 1
+        raw_lookback_days = settings.get("reminder_lookback_days", 5)
+        try:
+            st.session_state["reminder_lookback_days"] = max(0, int(raw_lookback_days if raw_lookback_days not in (None, "") else 5))
+        except (TypeError, ValueError):
+            st.session_state["reminder_lookback_days"] = 5
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
         migrated_legacy_actions = False
         legacy_wa_log = settings.get("wa_reminder_log", [])
@@ -2222,6 +2228,7 @@ def load_settings():
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
         st.session_state["client_group_days"] = 1
         st.session_state["reminder_window_days"] = 1
+        st.session_state["reminder_lookback_days"] = 5
         st.session_state["reminder_warning_days"] = 0
         st.session_state["wa_reminder_log"] = []
         st.session_state["deleted_reminders"] = []
@@ -2487,6 +2494,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
         "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
         "reminder_window_days": max(0, int_setting_for_save("reminder_window_days", 1)),
+        "reminder_lookback_days": max(0, int_setting_for_save("reminder_lookback_days", 5)),
         "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", 0)),
         "search_terms_reviewed": bool(setting_for_save("search_terms_reviewed", False)),
         "search_term_added": bool(setting_for_save("search_term_added", False)),
@@ -3672,6 +3680,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "user_template": DEFAULT_WA_TEMPLATE,
         "client_group_days": 1,
         "reminder_window_days": 1,
+        "reminder_lookback_days": 5,
         "reminder_warning_days": 0,
         "action_tracker_migrated_at": "",
         "search_terms_reviewed": False,
@@ -5109,25 +5118,40 @@ def reminder_row_has_date(row: dict, target_date: date) -> bool:
     return target_date in reminder_row_dates(row)
 
 
-def _reminder_badge_window_days() -> int:
+def normalized_reminder_window_days(value=None) -> int:
+    value = st.session_state.get("reminder_window_days", 1) if value is None else value
     try:
-        return min(30, max(0, int(st.session_state.get("reminder_window_days", 1))))
+        return min(30, max(0, int(value)))
     except (TypeError, ValueError):
         return 1
 
 
-def _reminder_badge_group_days() -> int:
+def normalized_reminder_lookback_days(value=None) -> int:
+    value = st.session_state.get("reminder_lookback_days", 5) if value is None else value
     try:
-        return max(0, int(st.session_state.get("client_group_days", 1)))
+        return min(30, max(0, int(value)))
+    except (TypeError, ValueError):
+        return 5
+
+
+def normalized_reminder_group_days(value=None) -> int:
+    value = st.session_state.get("client_group_days", 1) if value is None else value
+    try:
+        return max(0, int(value))
     except (TypeError, ValueError):
         return 1
 
 
-def get_today_active_reminder_count(today: date | None = None) -> int:
+def reminder_row_in_date_range(row: dict, start_date: date, end_date: date) -> bool:
+    return any(start_date <= reminder_date <= end_date for reminder_date in reminder_row_dates(row))
+
+
+def get_active_reminder_badge_count(today: date | None = None) -> int:
     working_df = st.session_state.get("working_df")
     if working_df is None or getattr(working_df, "empty", True):
         return 0
     today = today or date.today()
+    lookback_start_date = today - timedelta(days=normalized_reminder_lookback_days())
     try:
         rules = get_applied_reminder_rules()
         prepared = get_prepared_df(working_df, rules)
@@ -5137,30 +5161,34 @@ def get_today_active_reminder_count(today: date | None = None) -> int:
         if reminder_ts is None:
             reminder_ts = pd.to_datetime(prepared["NextDueDate"], errors="coerce")
 
-        start_ts = pd.Timestamp(today)
-        end_ts = pd.Timestamp(today + timedelta(days=_reminder_badge_window_days()))
+        start_ts = pd.Timestamp(lookback_start_date)
+        end_ts = pd.Timestamp(today)
         due = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
         due = apply_reminder_exclusion_filters(due, rules)
         if due.empty:
             return 0
 
-        grouped = bundle_client_reminders_by_window(due, window_days=_reminder_badge_group_days(), rules=rules)
+        grouped = bundle_client_reminders_by_window(due, window_days=normalized_reminder_group_days(), rules=rules)
         if grouped.empty:
             return 0
-        grouped_today = grouped[
-            [reminder_row_has_date(row, today) for row in grouped.to_dict("records")]
+        grouped_badge_range = grouped[
+            [reminder_row_in_date_range(row, lookback_start_date, today) for row in grouped.to_dict("records")]
         ].copy()
-        active_today = filter_hidden_reminders(grouped_today)
-        return len(active_today.index)
+        active_badge_range = filter_hidden_reminders(grouped_badge_range)
+        return len(active_badge_range.index)
     except Exception:
         return 0
 
 
+def get_today_active_reminder_count(today: date | None = None) -> int:
+    return get_active_reminder_badge_count(today=today)
+
+
 def reminders_badge_label(count: int | None = None) -> str:
-    count = get_today_active_reminder_count() if count is None else int(count or 0)
+    count = get_active_reminder_badge_count() if count is None else int(count or 0)
     if count <= 0:
         return "Reminders"
-    return tab_badge_label("Reminders", count, f"{count} active reminders today")
+    return tab_badge_label("Reminders", count, f"{count} active reminders in the look-back window")
 
 
 st.markdown(
@@ -6888,24 +6916,39 @@ if st.session_state.get("working_df") is not None:
             st.rerun()
 
         default_start = date.today()
-        current_window_days = st.session_state.get("reminder_window_days", 1)
-        try:
-            current_window_days = min(30, max(0, int(current_window_days)))
-        except (TypeError, ValueError):
-            current_window_days = 1
+        current_window_days = normalized_reminder_window_days()
         if st.session_state.get("reminder_window_days") != current_window_days:
             st.session_state["reminder_window_days"] = current_window_days
+        current_lookback_days = normalized_reminder_lookback_days()
+        if st.session_state.get("reminder_lookback_days") != current_lookback_days:
+            st.session_state["reminder_lookback_days"] = current_lookback_days
 
-        start_col, window_col, group_col, warning_col = st.columns(4)
+        start_col, lookback_col, window_col, group_col, warning_col = st.columns(5)
         with start_col:
             render_field_label(
                 st,
                 "Today",
-                "Choose the first date to show reminders for. It defaults to today, but you can pick another date."
+                "Choose the anchor date to show reminders around. It defaults to today, but you can pick another date."
             )
             start_date = st.date_input(
                 "Today",
                 value=default_start,
+                label_visibility="collapsed",
+            )
+        with lookback_col:
+            render_field_label(
+                st,
+                "Days to look back",
+                "0 shows the selected day only. 1 includes the selected day plus the previous day."
+            )
+            reminder_lookback_days = st.number_input(
+                "Days to look back",
+                min_value=0,
+                max_value=30,
+                value=current_lookback_days,
+                step=1,
+                key="reminder_lookback_days",
+                on_change=save_settings_quietly,
                 label_visibility="collapsed",
             )
         with window_col:
@@ -6957,6 +7000,7 @@ if st.session_state.get("working_df") is not None:
     
         render_search_criteria_refresh_notice()
     
+        lookback_start_date = start_date - timedelta(days=reminder_lookback_days)
         end_date = start_date + timedelta(days=reminder_window_days)
     
         reminder_ts = prepared.get("ReminderDateTs")
@@ -6964,7 +7008,7 @@ if st.session_state.get("working_df") is not None:
             reminder_ts = prepared.get("NextDueDateTs")
         if reminder_ts is None:
             reminder_ts = pd.to_datetime(prepared["NextDueDate"], errors="coerce")
-        start_ts = pd.Timestamp(start_date)
+        start_ts = pd.Timestamp(lookback_start_date)
         end_ts = pd.Timestamp(end_date)
         due2 = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
         reminders_before_exclusions = len(due2)
@@ -6973,7 +7017,7 @@ if st.session_state.get("working_df") is not None:
         if not due2.empty:
             grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=applied_rules)
     
-            render_table(grouped, f"{start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
+            render_table(grouped, f"{lookback_start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
         else:
             if reminders_before_exclusions:
                 st.info("All reminders in the selected date range are hidden by exclusions.")

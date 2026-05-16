@@ -25,10 +25,10 @@ class RemindersBadgeTests(unittest.TestCase):
         label = self.app.reminders_badge_label(count=3)
 
         self.assertIn("Reminders", label)
-        self.assertIn("3 active reminders today", label)
+        self.assertIn("3 active reminders in the look-back window", label)
         self.assertIn("data:image/svg+xml;base64", label)
 
-    def test_today_active_reminder_count_excludes_actioned_rows(self):
+    def test_badge_count_includes_lookback_days_and_excludes_actioned_rows(self):
         today_row = {
             "Reminder Date": "16 May 2026",
             "Due Date": "16 May 2026",
@@ -36,12 +36,26 @@ class RemindersBadgeTests(unittest.TestCase):
             "Animal Name": "Pet A",
             "Plan Item": "Rabies",
         }
+        lookback_row = {
+            "Reminder Date": "11 May 2026",
+            "Due Date": "11 May 2026",
+            "Client Name": "Client D",
+            "Animal Name": "Pet D",
+            "Plan Item": "Dental",
+        }
         actioned_today_row = {
             "Reminder Date": "16 May 2026",
             "Due Date": "16 May 2026",
             "Client Name": "Client B",
             "Animal Name": "Pet B",
             "Plan Item": "Librela",
+        }
+        outside_lookback_row = {
+            "Reminder Date": "10 May 2026",
+            "Due Date": "10 May 2026",
+            "Client Name": "Client E",
+            "Animal Name": "Pet E",
+            "Plan Item": "Nail Clip",
         }
         tomorrow_row = {
             "Reminder Date": "17 May 2026",
@@ -51,25 +65,30 @@ class RemindersBadgeTests(unittest.TestCase):
             "Plan Item": "Annual Exam",
         }
         prepared = pd.DataFrame({
-            "ReminderDateTs": pd.to_datetime(["2026-05-16"]),
-            "NextDueDate": pd.to_datetime(["2026-05-16"]),
+            "ReminderDateTs": pd.to_datetime(["2026-05-11", "2026-05-16", "2026-05-17"]),
+            "NextDueDate": pd.to_datetime(["2026-05-11", "2026-05-16", "2026-05-17"]),
         })
-        grouped = pd.DataFrame([today_row, actioned_today_row, tomorrow_row])
+        grouped = pd.DataFrame([today_row, lookback_row, actioned_today_row, outside_lookback_row, tomorrow_row])
 
         state = self.app.st.session_state
         state["working_df"] = pd.DataFrame({"row": [1]})
+        state["reminder_lookback_days"] = 5
         state["deleted_reminders"] = [
             {**actioned_today_row, "Action": self.app.REMINDER_ACTION_SENT},
         ]
+        mock_bundle = mock.Mock(return_value=grouped)
 
         with (
             mock.patch.object(self.app, "get_applied_reminder_rules", return_value={}),
             mock.patch.object(self.app, "get_prepared_df", return_value=prepared),
-            mock.patch.object(self.app, "bundle_client_reminders_by_window", return_value=grouped),
+            mock.patch.object(self.app, "bundle_client_reminders_by_window", mock_bundle),
         ):
-            count = self.app.get_today_active_reminder_count(today=date(2026, 5, 16))
+            count = self.app.get_active_reminder_badge_count(today=date(2026, 5, 16))
 
-        self.assertEqual(count, 1)
+        due_df = mock_bundle.call_args.args[0]
+        self.assertEqual(due_df["ReminderDateTs"].min(), pd.Timestamp("2026-05-11"))
+        self.assertEqual(due_df["ReminderDateTs"].max(), pd.Timestamp("2026-05-16"))
+        self.assertEqual(count, 2)
 
 
 if __name__ == "__main__":

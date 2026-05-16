@@ -124,6 +124,14 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertNotIn("deleted_reminders", saved)
         self.assertNotIn("wa_reminder_log", saved)
 
+    def test_save_settings_persists_reminder_lookback_days(self):
+        self.app.cache_remote_settings("Clinic Save State", {})
+        self.app.st.session_state["reminder_lookback_days"] = 7
+
+        saved = self.run_save_with_remote({})
+
+        self.assertEqual(saved["reminder_lookback_days"], 7)
+
     def test_action_tracker_reduce_keeps_other_actions_when_one_is_undone(self):
         hidden_a = {
             "Client Name": "Client A",
