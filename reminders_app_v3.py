@@ -1079,16 +1079,22 @@ st.markdown(
         min-height: 2.75rem !important;
         width: 100% !important;
     }
-    .st-key-clinic_login_form div[data-testid="stForm"] {
-        border: 0 !important;
-        padding: 0 !important;
-    }
     .login-title {
         color: var(--cr-text);
         font-size: 1.75rem;
         font-weight: 800;
         line-height: 1.25;
         margin: 0 0 1.55rem 15px;
+    }
+    div[data-testid="stForm"]:has(.login-form-marker) {
+        background: transparent !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        padding: 0 15px !important;
+    }
+    .login-form-marker {
+        display: none;
     }
     div[data-testid="stHorizontalBlock"]:has(.st-key-google_signup_button) {
         padding-left: 15px !important;
@@ -4594,6 +4600,7 @@ if not st.session_state["logged_in"]:
         if logout_notice:
             st.success(logout_notice)
         with st.form("clinic_login_form"):
+            st.markdown("<span class='login-form-marker'></span>", unsafe_allow_html=True)
             username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
             password = st.text_input("Password", type="password", value="", key="login_password_input")
             login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
