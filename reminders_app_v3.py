@@ -1039,6 +1039,44 @@ st.markdown(
         margin: 0.35rem 0 0.4rem;
         padding: 0.9rem 1rem 0.75rem;
     }
+    .reminders-caught-up-banner {
+        align-items: center;
+        background: linear-gradient(135deg, rgba(41, 210, 114, 0.18), rgba(255, 255, 255, 0.92));
+        border: 1px solid rgba(29, 167, 89, 0.32);
+        border-radius: 8px;
+        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+        color: #0f5130;
+        display: flex;
+        gap: 0.8rem;
+        margin: 0.35rem 0 0.95rem;
+        padding: 0.85rem 1rem;
+    }
+    .reminders-caught-up-icon {
+        align-items: center;
+        background: var(--cr-primary);
+        border-radius: 999px;
+        color: #062d19;
+        display: inline-flex;
+        flex: 0 0 auto;
+        font-size: 1rem;
+        font-weight: 900;
+        height: 2rem;
+        justify-content: center;
+        width: 2rem;
+    }
+    .reminders-caught-up-title {
+        color: #0b3d26;
+        font-size: 1rem;
+        font-weight: 800;
+        line-height: 1.25;
+        margin: 0;
+    }
+    .reminders-caught-up-copy {
+        color: #37624b;
+        font-size: 0.9rem;
+        line-height: 1.35;
+        margin: 0.18rem 0 0;
+    }
     .st-key-dataset_summary_box [data-testid="stVerticalBlock"] {
         gap: 0.35rem !important;
     }
@@ -5224,6 +5262,52 @@ def reminders_badge_label(count: int | None = None) -> str:
     return tab_badge_label("Reminders", count, f"{count} active reminders in the look-back window")
 
 
+def reminders_caught_up_period_text(lookback_days: int) -> str:
+    try:
+        lookback_days = max(0, int(lookback_days))
+    except (TypeError, ValueError):
+        lookback_days = 5
+    if lookback_days == 0:
+        return "today"
+    if lookback_days == 1:
+        return "today and yesterday"
+    return f"today and the previous {lookback_days} days"
+
+
+def reminders_caught_up_banner_copy(active_count: int, lookback_days: int) -> tuple[str, str] | None:
+    try:
+        active_count = int(active_count or 0)
+    except (TypeError, ValueError):
+        active_count = 0
+    if active_count > 0:
+        return None
+    return (
+        "Good job! All due reminders have been actioned.",
+        f"Your Reminders notification is clear for {reminders_caught_up_period_text(lookback_days)}.",
+    )
+
+
+def render_reminders_caught_up_banner(active_count: int | None = None, lookback_days: int | None = None):
+    count = get_active_reminder_badge_count() if active_count is None else active_count
+    lookback = normalized_reminder_lookback_days() if lookback_days is None else lookback_days
+    copy = reminders_caught_up_banner_copy(count, lookback)
+    if not copy:
+        return
+    title, body = copy
+    st.markdown(
+        f"""
+        <div class="reminders-caught-up-banner">
+          <div class="reminders-caught-up-icon">&#10003;</div>
+          <div>
+            <p class="reminders-caught-up-title">{html_lib.escape(title)}</p>
+            <p class="reminders-caught-up-copy">{html_lib.escape(body)}</p>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 st.markdown(
     """
     <style>
@@ -7095,6 +7179,11 @@ if st.session_state.get("working_df") is not None:
                 on_change=save_settings_quietly,
                 label_visibility="collapsed",
             )
+
+        render_reminders_caught_up_banner(
+            active_count=get_active_reminder_badge_count(today=date.today()),
+            lookback_days=reminder_lookback_days,
+        )
     
         render_search_criteria_refresh_notice()
     

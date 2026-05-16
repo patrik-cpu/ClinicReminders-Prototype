@@ -90,6 +90,18 @@ class RemindersBadgeTests(unittest.TestCase):
         self.assertEqual(due_df["ReminderDateTs"].max(), pd.Timestamp("2026-05-16"))
         self.assertEqual(count, 2)
 
+    def test_caught_up_banner_copy_only_when_notification_count_is_zero(self):
+        self.assertIsNone(self.app.reminders_caught_up_banner_copy(active_count=2, lookback_days=5))
+
+        title, body = self.app.reminders_caught_up_banner_copy(active_count=0, lookback_days=5)
+
+        self.assertEqual(title, "Good job! All due reminders have been actioned.")
+        self.assertIn("today and the previous 5 days", body)
+
+    def test_caught_up_banner_period_copy_handles_short_windows(self):
+        self.assertEqual(self.app.reminders_caught_up_period_text(0), "today")
+        self.assertEqual(self.app.reminders_caught_up_period_text(1), "today and yesterday")
+
 
 if __name__ == "__main__":
     unittest.main()
