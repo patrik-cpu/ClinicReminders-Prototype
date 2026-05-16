@@ -3568,6 +3568,34 @@ def close_data_privacy_dialog():
     st.session_state["show_data_privacy_dialog"] = False
 
 
+ACCOUNT_DIALOG_STATE_KEYS = (
+    "show_profile_dialog",
+    "show_data_privacy_dialog",
+    "show_delete_account_dialog",
+)
+
+
+def close_account_dialogs():
+    for key in ACCOUNT_DIALOG_STATE_KEYS:
+        st.session_state[key] = False
+
+
+def account_dialog_is_open() -> bool:
+    return any(st.session_state.get(key, False) for key in ACCOUNT_DIALOG_STATE_KEYS)
+
+
+def upload_widget_has_files() -> bool:
+    for key, value in st.session_state.items():
+        if not str(key).startswith("file_uploader_main_"):
+            continue
+        if isinstance(value, (list, tuple)):
+            if len(value) > 0:
+                return True
+        elif value:
+            return True
+    return bool(st.session_state.get("last_uploaded_files"))
+
+
 def open_account_dialog(dialog_name: str):
     st.session_state["show_profile_dialog"] = dialog_name == "profile"
     st.session_state["show_data_privacy_dialog"] = dialog_name == "privacy"
@@ -5008,6 +5036,7 @@ def finish_authenticated_session(
     google_user: dict | None = None,
 ):
     clinic_id = str(clinic_id or "").strip()
+    close_account_dialogs()
     st.session_state["clinic_id"] = clinic_id
     st.session_state["logged_in"] = True
     st.session_state["show_top_change_password"] = False
@@ -5180,6 +5209,7 @@ remember_token = get_query_param("remember")
 if remember_token and not st.session_state["logged_in"]:
     remembered_clinic_id = validate_remember_login_token(remember_token)
     if remembered_clinic_id:
+        close_account_dialogs()
         st.session_state["clinic_id"] = remembered_clinic_id
         st.session_state["logged_in"] = True
         st.session_state["show_top_change_password"] = False
@@ -5237,6 +5267,7 @@ if (
     st.session_state["auto_login_attempted"] = True
     user_row = get_clinic_row(default_username)
     if user_row:
+        close_account_dialogs()
         st.session_state["clinic_id"] = default_username
         st.session_state["logged_in"] = True
         st.session_state["show_top_change_password"] = False
@@ -5309,6 +5340,7 @@ if not st.session_state["logged_in"]:
         if login_submitted:
             user_row = authenticate_user(username, password)
             if user_row:
+                close_account_dialogs()
                 st.session_state["clinic_id"] = username
                 st.session_state["logged_in"] = True
                 st.session_state["show_top_change_password"] = False
@@ -5354,6 +5386,7 @@ if not st.session_state["logged_in"]:
                 else:
                     try:
                         password_hash = create_clinic_account(new_clinic, country, new_password)
+                        close_account_dialogs()
                         st.session_state["clinic_id"] = new_clinic
                         st.session_state["logged_in"] = True
                         st.session_state["show_top_change_password"] = False
@@ -5421,6 +5454,9 @@ else:
                         )
                         st.session_state["show_top_change_password"] = False
                         st.success("Password updated.")
+
+if upload_widget_has_files() and account_dialog_is_open():
+    close_account_dialogs()
 
 if st.session_state.get("show_delete_account_dialog", False):
     render_delete_account_dialog()
@@ -6787,7 +6823,8 @@ with data_tab:
     # Detect any file addition, deletion, or rename
     if set(current_files) != set(st.session_state["last_uploaded_files"]):
         st.toast("🔄 File change detected — clearing cache and refreshing data...")
-    
+
+        close_account_dialogs()
         st.session_state["last_uploaded_files"] = current_files
         st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
         reset_uploaded_data_state(clear_cache=False)
