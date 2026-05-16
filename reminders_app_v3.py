@@ -5809,18 +5809,10 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
             row_cols[2].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(row_count)}</div>", unsafe_allow_html=True)
             row_cols[3].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(formatted_history_range(row))}</div>", unsafe_allow_html=True)
             row_key = hashlib.md5(json.dumps(row, sort_keys=True).encode("utf-8")).hexdigest()[:10]
-            overlaps_other_upload = dataset_history_row_overlaps_other(normalized_rows, idx)
-            remove_help = (
-                "This upload overlaps another saved upload, so individual removal is not available. "
-                "Use Clear clinic data and re-upload the files you want to keep."
-                if overlaps_other_upload
-                else "Remove this data file"
-            )
             if row_cols[4].button(
                 "Remove",
                 key=f"remove_dataset_upload_button_{idx}_{row_key}",
-                help=remove_help,
-                disabled=overlaps_other_upload,
+                help="Remove this data file",
             ):
                 remove_dataset_upload_at_index(idx)
                 st.rerun()
@@ -5916,6 +5908,16 @@ def render_dataset_date_range(extra_rows: list[dict] | None = None, saved_rows: 
     rows = (saved_rows if saved_rows is not None else get_saved_dataset_summary_rows()) + normalize_dataset_upload_history(extra_rows or [])
     render_dataset_summary_box("Saved clinic data", rows)
 
+def date_mask_covered_by_history(charge_dates: pd.Series, history_rows: list[dict]) -> pd.Series:
+    covered = pd.Series(False, index=charge_dates.index)
+    for row in normalize_dataset_upload_history(history_rows):
+        start = parse_history_date(row.get("from"))
+        end = parse_history_date(row.get("to"))
+        if start is None or end is None:
+            continue
+        covered = covered | ((charge_dates >= start) & (charge_dates <= end))
+    return covered
+
 def remove_dataset_upload_at_index(remove_idx: int):
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id:
@@ -5930,23 +5932,6 @@ def remove_dataset_upload_at_index(remove_idx: int):
 
     target = rows[remove_idx]
     remaining_history = history[:remove_idx] + history[remove_idx + 1:] if using_history else []
-    if using_history and dataset_history_row_overlaps_other(history, remove_idx):
-        st.session_state["_pending_dataset_warning"] = (
-            "That upload overlaps another saved upload, so it was not removed. "
-            "Use Clear clinic data and re-upload the files you want to keep."
-        )
-        record_dataset_tracker_event(
-            "dataset_file_remove_blocked",
-            "warning",
-            file_name=target.get("file_name", ""),
-            pms=target.get("pms", ""),
-            rows=target.get("rows", ""),
-            from_date=target.get("from", ""),
-            to_date=target.get("to", ""),
-            message="Overlapping saved upload range",
-            source="remove_dataset_upload",
-        )
-        return
 
     existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
 
@@ -5957,10 +5942,15 @@ def remove_dataset_upload_at_index(remove_idx: int):
     target_start = parse_history_date(target.get("from"))
     target_end = parse_history_date(target.get("to"))
     remaining_df = pd.DataFrame()
-    if current_df is not None and not getattr(current_df, "empty", True) and target_start is not None and target_end is not None and "ChargeDate" in current_df.columns:
+    if current_df is not None and not getattr(current_df, "empty", True) and "ChargeDate" in current_df.columns:
         source_df = current_df.copy()
         charge_dates = parse_dates(source_df["ChargeDate"])
-        keep_mask = charge_dates.isna() | (charge_dates < target_start) | (charge_dates > target_end)
+        if target_start is not None and target_end is not None:
+            target_mask = (charge_dates >= target_start) & (charge_dates <= target_end)
+            covered_by_remaining_upload = date_mask_covered_by_history(charge_dates, remaining_history)
+            keep_mask = charge_dates.isna() | ~target_mask | (target_mask & covered_by_remaining_upload)
+        else:
+            keep_mask = pd.Series(bool(remaining_history), index=source_df.index)
         remaining_df = source_df.loc[keep_mask].copy()
 
     if remaining_df.empty:

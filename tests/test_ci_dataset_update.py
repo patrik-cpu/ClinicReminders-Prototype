@@ -263,6 +263,55 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertTrue(self.app.dataset_history_row_overlaps_other(rows, 1))
         self.assertFalse(self.app.dataset_history_row_overlaps_other(rows, 2))
 
+    def test_remove_overlapping_upload_keeps_rows_covered_by_remaining_history(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        state["clinic_id"] = "Clinic Save State"
+        state["dataset_upload_history"] = [
+            {
+                "file_name": "january-partial.csv",
+                "pms": "CSV",
+                "rows": 1,
+                "from": "2025-01-01",
+                "to": "2025-01-01",
+                "status": "Saved",
+            },
+            {
+                "file_name": "january-full.csv",
+                "pms": "CSV",
+                "rows": 2,
+                "from": "2025-01-01",
+                "to": "2025-01-31",
+                "status": "Saved",
+            },
+        ]
+        state["working_df"] = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01", "2025-01-15"]),
+                "Client Name": ["Client A", "Client B"],
+                "Animal Name": ["Pet A", "Pet B"],
+                "Item Name": ["Rabies", "Dental"],
+                "Qty": [1, 1],
+                "Amount": [10, 20],
+            }
+        )
+
+        with (
+            patch.object(self.app, "get_existing_dataset_pointer", return_value=("file-id", "clinic_shared_dataset.csv")),
+            patch.object(self.app, "drive_upsert_csv_bytes", return_value="file-id"),
+            patch.object(self.app, "update_clinic_dataset_pointer", return_value="2026-05-16T00:00:00"),
+            patch.object(self.app, "save_settings_quietly", return_value=True),
+            patch.object(self.app, "record_dataset_tracker_event"),
+        ):
+            self.app.remove_dataset_upload_at_index(0)
+
+        self.assertEqual(
+            [row["file_name"] for row in state["dataset_upload_history"]],
+            ["january-full.csv"],
+        )
+        self.assertEqual(len(state["working_df"]), 2)
+
     def test_upload_history_drops_overlapping_rows_when_replacing_dates(self):
         existing = [
             {
