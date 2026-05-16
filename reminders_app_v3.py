@@ -8364,6 +8364,309 @@ def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
                 render_statistics_metric_card(label, value)
         st.progress(min(max(completion_pct, 0.0), 1.0))
 
+def render_search_terms_editor():
+    # Rules editor (unchanged UI; behavior preserved)
+    st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("## 📝 Search Terms")
+
+    def column_header(label, help_text):
+        safe_label = html_lib.escape(label)
+        safe_help = html_lib.escape(help_text)
+        st.markdown(
+            f"**{safe_label}** <span class='column-help' data-tooltip='{safe_help}'>?</span>",
+            unsafe_allow_html=True,
+        )
+
+    def invalidate_reminder_rule_cache():
+        st.session_state["search_criteria_changed"] = search_criteria_have_pending_changes()
+
+    def save_rule_days(rule, key):
+        days_raw = str(st.session_state.get(key, "")).strip()
+        if not days_raw.isdigit() or int(days_raw) <= 0:
+            st.session_state["_search_terms_autosave_error"] = f"Reminder 3 (Due Date) must be a positive integer for: {rule}"
+            return
+        old_value = st.session_state["rules"][rule].get("days", "")
+        st.session_state["rules"][rule]["days"] = int(days_raw)
+        save_settings_quietly()
+        if str(old_value) != str(int(days_raw)):
+            record_settings_audit_event("search_term_changed", "search_terms", rule, "days", old_value, int(days_raw), "search_terms_tab")
+        invalidate_reminder_rule_cache()
+
+    def save_rule_reminder_day(rule, field, key):
+        days_raw = str(st.session_state.get(key, "")).strip()
+        old_value = st.session_state["rules"][rule].get(field, "")
+        if days_raw == "":
+            st.session_state["rules"][rule].pop(field, None)
+            new_value = ""
+        elif days_raw.isdigit() and int(days_raw) > 0:
+            st.session_state["rules"][rule][field] = int(days_raw)
+            new_value = int(days_raw)
+        else:
+            label = {
+                "reminder_1": "Reminder 1",
+                "reminder_2": "Reminder 2",
+                "overdue_reminder": "Overdue Reminder",
+            }.get(field, "Reminder")
+            st.session_state["_search_terms_autosave_error"] = f"{label} must be blank or a positive integer for: {rule}"
+            return
+        save_settings_quietly()
+        if str(old_value) != str(new_value):
+            record_settings_audit_event("search_term_changed", "search_terms", rule, field, old_value, new_value, "search_terms_tab")
+        invalidate_reminder_rule_cache()
+
+    def save_rule_visible_text(rule, key):
+        visible_text = str(st.session_state.get(key, "")).strip()
+        old_value = st.session_state["rules"][rule].get("visible_text", "")
+        if visible_text:
+            st.session_state["rules"][rule]["visible_text"] = visible_text
+        else:
+            st.session_state["rules"][rule].pop("visible_text", None)
+        save_settings_quietly()
+        if str(old_value) != str(visible_text):
+            record_settings_audit_event("search_term_changed", "search_terms", rule, "visible_text", old_value, visible_text, "search_terms_tab")
+        invalidate_reminder_rule_cache()
+
+    def toggle_use_qty(rule, key):
+        old_value = st.session_state["rules"][rule].get("use_qty", "")
+        st.session_state["rules"][rule]["use_qty"] = st.session_state[key]
+        save_settings_quietly()
+        if bool(old_value) != bool(st.session_state[key]):
+            record_settings_audit_event("search_term_changed", "search_terms", rule, "use_qty", old_value, st.session_state[key], "search_terms_tab")
+        invalidate_reminder_rule_cache()
+
+    st.markdown("### Add New Search Term")
+    row_id = st.session_state['new_rule_counter']
+    rule_col_widths = [3, 1, 1, 1.35, 1.35, 0.7, 2, 0.7]
+    header_cols = st.columns(rule_col_widths, gap="small")
+    with header_cols[0]: column_header("Search Term", "The product or service text to match in uploaded item names, such as bravecto, rabies, or librela.")
+    with header_cols[1]: column_header("Reminder 1", "Optional early reminder date, counted in days after the billed date.")
+    with header_cols[2]: column_header("Reminder 2", "Optional second early reminder date, counted in days after the billed date.")
+    with header_cols[3]: column_header("Reminder 3 (Due Date)", "The main due date, counted in days after the billed date.")
+    with header_cols[4]: column_header("Overdue Reminder", "Optional overdue reminder date, counted in days after the billed date. Example: due at 90, overdue at 100.")
+    with header_cols[5]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
+    with header_cols[6]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
+
+    def field_examples(first_example: str, second_example: str, extra_class: str = ""):
+        classes = f"field-examples {extra_class}".strip()
+        st.markdown(
+            f"""
+            <div class="{classes}">
+              <div>{first_example}</div>
+              <div>{second_example}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(rule_col_widths, gap="small")
+    with c1:
+        new_rule_name = st.text_input(
+            "Search Term",
+            key=f"new_rule_name_{row_id}",
+            label_visibility="collapsed",
+            help="Text to look for in the PMS item name, such as bravecto, rabies, or librela."
+        )
+        field_examples(
+            "Example 1: Canine Annual Vaccine Package",
+            "Example 2: stride-joint-supplement-120ml-small",
+        )
+    with c2:
+        new_rule_reminder_1 = st.text_input(
+            "Reminder 1",
+            key=f"new_rule_reminder_1_{row_id}",
+            label_visibility="collapsed",
+            help="Optional first reminder date, in days after the billed date."
+        )
+        field_examples("335", "blank")
+    with c3:
+        new_rule_reminder_2 = st.text_input(
+            "Reminder 2",
+            key=f"new_rule_reminder_2_{row_id}",
+            label_visibility="collapsed",
+            help="Optional second reminder date, in days after the billed date."
+        )
+        field_examples("357", "50")
+    with c4:
+        new_rule_days = st.text_input(
+            "Reminder 3 (Due Date)",
+            key=f"new_rule_days_{row_id}",
+            label_visibility="collapsed",
+            help="Positive integer number of days until this item should be due again."
+        )
+        field_examples("365", "60")
+    with c5:
+        new_rule_overdue = st.text_input(
+            "Overdue Reminder",
+            key=f"new_rule_overdue_{row_id}",
+            label_visibility="collapsed",
+            help="Optional overdue reminder date, counted in days after the billed date."
+        )
+        field_examples("375", "70")
+    with c6:
+        new_rule_use_qty = st.checkbox(
+            "Use Qty",
+            key=f"new_rule_useqty_{row_id}",
+            label_visibility="collapsed",
+            help="Use when quantity should extend the reminder interval."
+        )
+        field_examples(
+            "Unticked",
+            "Ticked",
+            "use-qty-examples",
+        )
+    with c7:
+        new_rule_visible = st.text_input(
+            "Message Text (optional)",
+            key=f"new_rule_vis_{row_id}",
+            label_visibility="collapsed",
+            help="Friendly wording to show users and clients, such as Bravecto Tablet."
+        )
+        field_examples(
+            "Annual vaccination and check-up",
+            "Stride joint health supplement",
+        )
+    with c8:
+        if st.button("➕ Add", key=f"add_{row_id}"):
+            safe_rule = str(new_rule_name or "").strip().lower()
+            if safe_rule and str(new_rule_days).isdigit() and int(new_rule_days) > 0:
+                rule_data = {"days": int(new_rule_days), "use_qty": bool(new_rule_use_qty)}
+                invalid_reminder = ""
+                for raw_value, field, label in [
+                    (new_rule_reminder_1, "reminder_1", "Reminder 1"),
+                    (new_rule_reminder_2, "reminder_2", "Reminder 2"),
+                    (new_rule_overdue, "overdue_reminder", "Overdue Reminder"),
+                ]:
+                    raw_value = str(raw_value or "").strip()
+                    if raw_value:
+                        if not raw_value.isdigit() or int(raw_value) <= 0:
+                            invalid_reminder = label
+                            break
+                        rule_data[field] = int(raw_value)
+                if invalid_reminder:
+                    st.error(f"{invalid_reminder} must be blank or a positive integer")
+                else:
+                    if new_rule_visible.strip():
+                        rule_data["visible_text"] = new_rule_visible.strip()
+                    if safe_rule in st.session_state["rules"]:
+                        st.info("This search term already exists. Edit it in Current Search Terms.")
+                    else:
+                        st.session_state["rules"][safe_rule] = rule_data
+                        st.session_state["search_term_added"] = True
+                        st.session_state["search_term_added_at"] = datetime.utcnow().isoformat()
+                        save_settings_quietly()
+                        record_settings_audit_event("search_term_added", "search_terms", safe_rule, "rule", "", rule_data, "search_terms_tab")
+                        st.session_state["new_rule_counter"] += 1
+                        invalidate_reminder_rule_cache()
+                        st.rerun()
+            else:
+                st.error("Enter a name and valid positive integer for Reminder 3 (Due Date)")
+
+
+    st.divider()
+    st.markdown("### Current Search Terms")
+
+    cols = st.columns(rule_col_widths)
+    with cols[0]: column_header("Search Term", "The product or service text matched against uploaded item names.")
+    with cols[1]: column_header("Reminder 1", "Optional early reminder date, counted in days after the billed date.")
+    with cols[2]: column_header("Reminder 2", "Optional second early reminder date, counted in days after the billed date.")
+    with cols[3]: column_header("Reminder 3 (Due Date)", "The main due date, counted in days after the billed date.")
+    with cols[4]: column_header("Overdue Reminder", "Optional extra reminder after the due date, counted in days after the billed date.")
+    with cols[5]: column_header("Use Qty", "When enabled, quantity extends the due date.")
+    with cols[6]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
+    with cols[7]: column_header("Delete", "Remove this search term from matching.")
+
+    to_delete = []
+
+    autosave_error = st.session_state.pop("_search_terms_autosave_error", "")
+    if autosave_error:
+        st.error(autosave_error)
+
+
+    for rule, settings in sorted(st.session_state["rules"].items(), key=lambda x: x[0]):
+        ver = st.session_state["form_version"]
+        safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
+        with st.container():
+            cols = st.columns(rule_col_widths, gap="small")
+            with cols[0]:
+                st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
+            with cols[1]:
+                st.text_input(
+                    "Reminder 1", value=str(settings.get("reminder_1", "") or ""),
+                    key=f"reminder_1_{safe_rule}_{ver}", label_visibility="collapsed",
+                    on_change=save_rule_reminder_day,
+                    args=(rule, "reminder_1", f"reminder_1_{safe_rule}_{ver}",),
+                    help="Optional first reminder date, in days after the billed date."
+                )
+            with cols[2]:
+                st.text_input(
+                    "Reminder 2", value=str(settings.get("reminder_2", "") or ""),
+                    key=f"reminder_2_{safe_rule}_{ver}", label_visibility="collapsed",
+                    on_change=save_rule_reminder_day,
+                    args=(rule, "reminder_2", f"reminder_2_{safe_rule}_{ver}",),
+                    help="Optional second reminder date, in days after the billed date."
+                )
+            with cols[3]:
+                st.text_input(
+                    "Reminder 3 (Due Date)", value=str(settings["days"]),
+                    key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
+                    on_change=save_rule_days,
+                    args=(rule, f"days_{safe_rule}_{ver}",),
+                    help="Exact due date in days after the billed date. If Reminder 1 and 2 are blank, the reminder appears on this due date."
+                )
+            with cols[4]:
+                st.text_input(
+                    "Overdue Reminder", value=str(settings.get("overdue_reminder", "") or ""),
+                    key=f"overdue_reminder_{safe_rule}_{ver}", label_visibility="collapsed",
+                    on_change=save_rule_reminder_day,
+                    args=(rule, "overdue_reminder", f"overdue_reminder_{safe_rule}_{ver}",),
+                    help="Optional overdue reminder date, counted in days after the billed date."
+                )
+            with cols[5]:
+                st.checkbox(
+                    "Use Qty", value=settings["use_qty"],
+                    key=f"useqty_{safe_rule}_{ver}",
+                    label_visibility="collapsed",
+                    on_change=toggle_use_qty,
+                    args=(rule, f"useqty_{safe_rule}_{ver}",),
+                )
+            with cols[6]:
+                st.text_input(
+                    "Message Text", value=settings.get("visible_text",""),
+                    key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
+                    on_change=save_rule_visible_text,
+                    args=(rule, f"vis_{safe_rule}_{ver}",),
+                    help="Optional friendly wording shown in tables and WhatsApp messages."
+                )
+            with cols[7]:
+                if st.button("❌", key=f"del_{safe_rule}_{ver}"):
+                    to_delete.append(rule)
+
+    if to_delete:
+        for rule in to_delete:
+            old_rule = st.session_state["rules"].pop(rule, None)
+            record_settings_audit_event("search_term_deleted", "search_terms", rule, "rule", old_rule, "", "search_terms_tab")
+        save_settings_quietly()
+        invalidate_reminder_rule_cache()
+        st.rerun()
+
+    if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
+        st.session_state["rules"] = DEFAULT_RULES.copy()
+        st.session_state["exclusions"] = []
+        st.session_state["client_exclusions"] = []
+        st.session_state["patient_exclusions"] = []
+        st.session_state["search_terms_reviewed"] = False
+        st.session_state["search_term_added"] = False
+        st.session_state["search_term_added_at"] = ""
+        st.session_state["form_version"] += 1
+        st.session_state["_replace_search_settings_once"] = True
+        save_settings_quietly()
+        record_settings_audit_event("search_terms_reset_defaults", "search_terms", "all", "rules", "custom", "default", "search_terms_tab")
+        invalidate_reminder_rule_cache()
+        st.rerun()
+
+    # --------------------------------
+
+
 # --------------------------------
 # Main
 # --------------------------------
@@ -8502,307 +8805,6 @@ if st.session_state.get("working_df") is not None:
     with statistics_tab:
         render_statistics_tab(prepared, applied_rules)
 
-    with search_terms_tab:
-        # Rules editor (unchanged UI; behavior preserved)
-        st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
-        st.markdown("## 📝 Search Terms")
-    
-        def column_header(label, help_text):
-            safe_label = html_lib.escape(label)
-            safe_help = html_lib.escape(help_text)
-            st.markdown(
-                f"**{safe_label}** <span class='column-help' data-tooltip='{safe_help}'>?</span>",
-                unsafe_allow_html=True,
-            )
-    
-        def invalidate_reminder_rule_cache():
-            st.session_state["search_criteria_changed"] = search_criteria_have_pending_changes()
-    
-        def save_rule_days(rule, key):
-            days_raw = str(st.session_state.get(key, "")).strip()
-            if not days_raw.isdigit() or int(days_raw) <= 0:
-                st.session_state["_search_terms_autosave_error"] = f"Reminder 3 (Due Date) must be a positive integer for: {rule}"
-                return
-            old_value = st.session_state["rules"][rule].get("days", "")
-            st.session_state["rules"][rule]["days"] = int(days_raw)
-            save_settings_quietly()
-            if str(old_value) != str(int(days_raw)):
-                record_settings_audit_event("search_term_changed", "search_terms", rule, "days", old_value, int(days_raw), "search_terms_tab")
-            invalidate_reminder_rule_cache()
-
-        def save_rule_reminder_day(rule, field, key):
-            days_raw = str(st.session_state.get(key, "")).strip()
-            old_value = st.session_state["rules"][rule].get(field, "")
-            if days_raw == "":
-                st.session_state["rules"][rule].pop(field, None)
-                new_value = ""
-            elif days_raw.isdigit() and int(days_raw) > 0:
-                st.session_state["rules"][rule][field] = int(days_raw)
-                new_value = int(days_raw)
-            else:
-                label = {
-                    "reminder_1": "Reminder 1",
-                    "reminder_2": "Reminder 2",
-                    "overdue_reminder": "Overdue Reminder",
-                }.get(field, "Reminder")
-                st.session_state["_search_terms_autosave_error"] = f"{label} must be blank or a positive integer for: {rule}"
-                return
-            save_settings_quietly()
-            if str(old_value) != str(new_value):
-                record_settings_audit_event("search_term_changed", "search_terms", rule, field, old_value, new_value, "search_terms_tab")
-            invalidate_reminder_rule_cache()
-    
-        def save_rule_visible_text(rule, key):
-            visible_text = str(st.session_state.get(key, "")).strip()
-            old_value = st.session_state["rules"][rule].get("visible_text", "")
-            if visible_text:
-                st.session_state["rules"][rule]["visible_text"] = visible_text
-            else:
-                st.session_state["rules"][rule].pop("visible_text", None)
-            save_settings_quietly()
-            if str(old_value) != str(visible_text):
-                record_settings_audit_event("search_term_changed", "search_terms", rule, "visible_text", old_value, visible_text, "search_terms_tab")
-            invalidate_reminder_rule_cache()
-    
-        def toggle_use_qty(rule, key):
-            old_value = st.session_state["rules"][rule].get("use_qty", "")
-            st.session_state["rules"][rule]["use_qty"] = st.session_state[key]
-            save_settings_quietly()
-            if bool(old_value) != bool(st.session_state[key]):
-                record_settings_audit_event("search_term_changed", "search_terms", rule, "use_qty", old_value, st.session_state[key], "search_terms_tab")
-            invalidate_reminder_rule_cache()
-    
-        st.markdown("### Add New Search Term")
-        row_id = st.session_state['new_rule_counter']
-        rule_col_widths = [3, 1, 1, 1.35, 1.35, 0.7, 2, 0.7]
-        header_cols = st.columns(rule_col_widths, gap="small")
-        with header_cols[0]: column_header("Search Term", "The product or service text to match in uploaded item names, such as bravecto, rabies, or librela.")
-        with header_cols[1]: column_header("Reminder 1", "Optional early reminder date, counted in days after the billed date.")
-        with header_cols[2]: column_header("Reminder 2", "Optional second early reminder date, counted in days after the billed date.")
-        with header_cols[3]: column_header("Reminder 3 (Due Date)", "The main due date, counted in days after the billed date.")
-        with header_cols[4]: column_header("Overdue Reminder", "Optional overdue reminder date, counted in days after the billed date. Example: due at 90, overdue at 100.")
-        with header_cols[5]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
-        with header_cols[6]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
-
-        def field_examples(first_example: str, second_example: str, extra_class: str = ""):
-            classes = f"field-examples {extra_class}".strip()
-            st.markdown(
-                f"""
-                <div class="{classes}">
-                  <div>{first_example}</div>
-                  <div>{second_example}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(rule_col_widths, gap="small")
-        with c1:
-            new_rule_name = st.text_input(
-                "Search Term",
-                key=f"new_rule_name_{row_id}",
-                label_visibility="collapsed",
-                help="Text to look for in the PMS item name, such as bravecto, rabies, or librela."
-            )
-            field_examples(
-                "Example 1: Canine Annual Vaccine Package",
-                "Example 2: stride-joint-supplement-120ml-small",
-            )
-        with c2:
-            new_rule_reminder_1 = st.text_input(
-                "Reminder 1",
-                key=f"new_rule_reminder_1_{row_id}",
-                label_visibility="collapsed",
-                help="Optional first reminder date, in days after the billed date."
-            )
-            field_examples("335", "blank")
-        with c3:
-            new_rule_reminder_2 = st.text_input(
-                "Reminder 2",
-                key=f"new_rule_reminder_2_{row_id}",
-                label_visibility="collapsed",
-                help="Optional second reminder date, in days after the billed date."
-            )
-            field_examples("357", "50")
-        with c4:
-            new_rule_days = st.text_input(
-                "Reminder 3 (Due Date)",
-                key=f"new_rule_days_{row_id}",
-                label_visibility="collapsed",
-                help="Positive integer number of days until this item should be due again."
-            )
-            field_examples("365", "60")
-        with c5:
-            new_rule_overdue = st.text_input(
-                "Overdue Reminder",
-                key=f"new_rule_overdue_{row_id}",
-                label_visibility="collapsed",
-                help="Optional overdue reminder date, counted in days after the billed date."
-            )
-            field_examples("375", "70")
-        with c6:
-            new_rule_use_qty = st.checkbox(
-                "Use Qty",
-                key=f"new_rule_useqty_{row_id}",
-                label_visibility="collapsed",
-                help="Use when quantity should extend the reminder interval."
-            )
-            field_examples(
-                "Unticked",
-                "Ticked",
-                "use-qty-examples",
-            )
-        with c7:
-            new_rule_visible = st.text_input(
-                "Message Text (optional)",
-                key=f"new_rule_vis_{row_id}",
-                label_visibility="collapsed",
-                help="Friendly wording to show users and clients, such as Bravecto Tablet."
-            )
-            field_examples(
-                "Annual vaccination and check-up",
-                "Stride joint health supplement",
-            )
-        with c8:
-            if st.button("➕ Add", key=f"add_{row_id}"):
-                safe_rule = str(new_rule_name or "").strip().lower()
-                if safe_rule and str(new_rule_days).isdigit() and int(new_rule_days) > 0:
-                    rule_data = {"days": int(new_rule_days), "use_qty": bool(new_rule_use_qty)}
-                    invalid_reminder = ""
-                    for raw_value, field, label in [
-                        (new_rule_reminder_1, "reminder_1", "Reminder 1"),
-                        (new_rule_reminder_2, "reminder_2", "Reminder 2"),
-                        (new_rule_overdue, "overdue_reminder", "Overdue Reminder"),
-                    ]:
-                        raw_value = str(raw_value or "").strip()
-                        if raw_value:
-                            if not raw_value.isdigit() or int(raw_value) <= 0:
-                                invalid_reminder = label
-                                break
-                            rule_data[field] = int(raw_value)
-                    if invalid_reminder:
-                        st.error(f"{invalid_reminder} must be blank or a positive integer")
-                    else:
-                        if new_rule_visible.strip():
-                            rule_data["visible_text"] = new_rule_visible.strip()
-                        if safe_rule in st.session_state["rules"]:
-                            st.info("This search term already exists. Edit it in Current Search Terms.")
-                        else:
-                            st.session_state["rules"][safe_rule] = rule_data
-                            st.session_state["search_term_added"] = True
-                            st.session_state["search_term_added_at"] = datetime.utcnow().isoformat()
-                            save_settings_quietly()
-                            record_settings_audit_event("search_term_added", "search_terms", safe_rule, "rule", "", rule_data, "search_terms_tab")
-                            st.session_state["new_rule_counter"] += 1
-                            invalidate_reminder_rule_cache()
-                            st.rerun()
-                else:
-                    st.error("Enter a name and valid positive integer for Reminder 3 (Due Date)")
-    
-
-        st.divider()
-        st.markdown("### Current Search Terms")
-
-        cols = st.columns(rule_col_widths)
-        with cols[0]: column_header("Search Term", "The product or service text matched against uploaded item names.")
-        with cols[1]: column_header("Reminder 1", "Optional early reminder date, counted in days after the billed date.")
-        with cols[2]: column_header("Reminder 2", "Optional second early reminder date, counted in days after the billed date.")
-        with cols[3]: column_header("Reminder 3 (Due Date)", "The main due date, counted in days after the billed date.")
-        with cols[4]: column_header("Overdue Reminder", "Optional extra reminder after the due date, counted in days after the billed date.")
-        with cols[5]: column_header("Use Qty", "When enabled, quantity extends the due date.")
-        with cols[6]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
-        with cols[7]: column_header("Delete", "Remove this search term from matching.")
-    
-        to_delete = []
-    
-        autosave_error = st.session_state.pop("_search_terms_autosave_error", "")
-        if autosave_error:
-            st.error(autosave_error)
-    
-
-        for rule, settings in sorted(st.session_state["rules"].items(), key=lambda x: x[0]):
-            ver = st.session_state["form_version"]
-            safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
-            with st.container():
-                cols = st.columns(rule_col_widths, gap="small")
-                with cols[0]:
-                    st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
-                with cols[1]:
-                    st.text_input(
-                        "Reminder 1", value=str(settings.get("reminder_1", "") or ""),
-                        key=f"reminder_1_{safe_rule}_{ver}", label_visibility="collapsed",
-                        on_change=save_rule_reminder_day,
-                        args=(rule, "reminder_1", f"reminder_1_{safe_rule}_{ver}",),
-                        help="Optional first reminder date, in days after the billed date."
-                    )
-                with cols[2]:
-                    st.text_input(
-                        "Reminder 2", value=str(settings.get("reminder_2", "") or ""),
-                        key=f"reminder_2_{safe_rule}_{ver}", label_visibility="collapsed",
-                        on_change=save_rule_reminder_day,
-                        args=(rule, "reminder_2", f"reminder_2_{safe_rule}_{ver}",),
-                        help="Optional second reminder date, in days after the billed date."
-                    )
-                with cols[3]:
-                    st.text_input(
-                        "Reminder 3 (Due Date)", value=str(settings["days"]),
-                        key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
-                        on_change=save_rule_days,
-                        args=(rule, f"days_{safe_rule}_{ver}",),
-                        help="Exact due date in days after the billed date. If Reminder 1 and 2 are blank, the reminder appears on this due date."
-                    )
-                with cols[4]:
-                    st.text_input(
-                        "Overdue Reminder", value=str(settings.get("overdue_reminder", "") or ""),
-                        key=f"overdue_reminder_{safe_rule}_{ver}", label_visibility="collapsed",
-                        on_change=save_rule_reminder_day,
-                        args=(rule, "overdue_reminder", f"overdue_reminder_{safe_rule}_{ver}",),
-                        help="Optional overdue reminder date, counted in days after the billed date."
-                    )
-                with cols[5]:
-                    st.checkbox(
-                        "Use Qty", value=settings["use_qty"],
-                        key=f"useqty_{safe_rule}_{ver}",
-                        label_visibility="collapsed",
-                        on_change=toggle_use_qty,
-                        args=(rule, f"useqty_{safe_rule}_{ver}",),
-                    )
-                with cols[6]:
-                    st.text_input(
-                        "Message Text", value=settings.get("visible_text",""),
-                        key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
-                        on_change=save_rule_visible_text,
-                        args=(rule, f"vis_{safe_rule}_{ver}",),
-                        help="Optional friendly wording shown in tables and WhatsApp messages."
-                    )
-                with cols[7]:
-                    if st.button("❌", key=f"del_{safe_rule}_{ver}"):
-                        to_delete.append(rule)
-    
-        if to_delete:
-            for rule in to_delete:
-                old_rule = st.session_state["rules"].pop(rule, None)
-                record_settings_audit_event("search_term_deleted", "search_terms", rule, "rule", old_rule, "", "search_terms_tab")
-            save_settings_quietly()
-            invalidate_reminder_rule_cache()
-            st.rerun()
-    
-        if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
-            st.session_state["rules"] = DEFAULT_RULES.copy()
-            st.session_state["exclusions"] = []
-            st.session_state["client_exclusions"] = []
-            st.session_state["patient_exclusions"] = []
-            st.session_state["search_terms_reviewed"] = False
-            st.session_state["search_term_added"] = False
-            st.session_state["search_term_added_at"] = ""
-            st.session_state["form_version"] += 1
-            st.session_state["_replace_search_settings_once"] = True
-            save_settings_quietly()
-            record_settings_audit_event("search_terms_reset_defaults", "search_terms", "all", "rules", "custom", "default", "search_terms_tab")
-            invalidate_reminder_rule_cache()
-            st.rerun()
-    
-        # --------------------------------
     with exclusions_tab:
         # Exclusions
         # --------------------------------
@@ -8994,12 +8996,14 @@ if st.session_state.get("working_df") is not None:
 else:
     with reminders_page_tab:
         st.info("Upload data in the Upload Data tab to generate reminders.")
-    with search_terms_tab:
-        st.info("Upload data in the Upload Data tab to manage search terms.")
     with exclusions_tab:
         st.info("Upload data in the Upload Data tab to manage exclusions.")
     with statistics_tab:
         st.info("Upload data in the Upload Data tab to view statistics.")
+
+if st.session_state.get("logged_in", False):
+    with search_terms_tab:
+        render_search_terms_editor()
 
 # --------------------------------
 # 📊 Factoids Section (temporarily hidden)
