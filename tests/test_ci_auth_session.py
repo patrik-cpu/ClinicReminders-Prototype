@@ -5,6 +5,7 @@ import io
 import json
 import time
 import unittest
+from unittest.mock import patch
 
 
 class AuthSessionTests(unittest.TestCase):
@@ -151,6 +152,29 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn("&lt;Clinic&gt;", html)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", html)
         self.assertNotIn("<script>alert(1)</script>", html)
+
+    def test_delete_rows_matching_clinic_id_deletes_matching_rows_bottom_up(self):
+        class FakeWorksheet:
+            def __init__(self):
+                self.deleted_rows = []
+
+            def get_all_values(self):
+                return [
+                    ["ClinicID", "Event"],
+                    ["Clinic A", "one"],
+                    ["Clinic B", "two"],
+                    ["clinic a", "three"],
+                ]
+
+            def delete_rows(self, row_idx):
+                self.deleted_rows.append(row_idx)
+
+        worksheet = FakeWorksheet()
+        with patch.object(self.app, "_gspread_retry", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)):
+            deleted = self.app.delete_rows_matching_clinic_id(worksheet, {"Clinic A"})
+
+        self.assertEqual(deleted, 2)
+        self.assertEqual(worksheet.deleted_rows, [4, 2])
 
 
 if __name__ == "__main__":

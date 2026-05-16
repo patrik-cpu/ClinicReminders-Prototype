@@ -405,6 +405,9 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_wa_reminder_remove_keys_once",
     "_replace_search_settings_once",
     "show_data_privacy_dialog",
+    "show_profile_dialog",
+    "show_delete_account_dialog",
+    "delete_account_confirm_text",
     "_scroll_to_whatsapp_composer",
     "_settings_row_cache",
     "_remote_settings_cache",
@@ -612,6 +615,27 @@ def update_cached_settings_row_fields(clinic_id: str, values_by_header: dict[str
     cached["row_values"] = row_values
 
 
+def update_settings_row_fields(
+    clinic_id: str,
+    values_by_header: dict[str, object],
+    required_columns: list[str] | None = None,
+) -> tuple[object, list[str], int]:
+    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+    headers = ensure_settings_sheet_columns(sheet, headers, required_columns or [])
+    updates = []
+    for header, value in values_by_header.items():
+        if header in headers:
+            col_idx = _settings_col_index(headers, header)
+            updates.append({
+                "range": _row_range_a1(row_idx, col_idx, col_idx),
+                "values": [[value]],
+            })
+    if updates:
+        _gspread_retry(sheet.batch_update, updates)
+    st.session_state.pop("_settings_row_cache", None)
+    return sheet, headers, row_idx
+
+
 def get_fresh_settings_row_values(clinic_id: str) -> tuple[object, list[str], int, list[str]]:
     """Read the clinic row directly from Sheets and refresh the session cache."""
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
@@ -655,6 +679,17 @@ def drive_trash_file(file_id: str):
         fileId=file_id,
         body={"trashed": True},
         supportsAllDrives=True
+    ).execute()
+
+
+def drive_rename_file(file_id: str, filename: str):
+    if not file_id or not filename:
+        return
+    service = get_drive_service()
+    service.files().update(
+        fileId=file_id,
+        body={"name": filename},
+        supportsAllDrives=True,
     ).execute()
 
 # -----------------------
@@ -4441,6 +4476,293 @@ def render_google_onboarding_dialog(google_user: dict):
             _render_dialog_body()
 
 
+def get_clinic_profile(clinic_id: str) -> dict:
+    row = get_clinic_row(clinic_id) or {}
+    return {
+        "clinic_id": str(row.get("ClinicID") or clinic_id or "").strip(),
+        "email": normalize_email(row.get(SHEET_COL_GOOGLE_EMAIL, "")),
+        "auth_provider": str(row.get(SHEET_COL_AUTH_PROVIDER, "")).strip(),
+    }
+
+
+def update_rows_with_clinic_id(old_clinic_id: str, new_clinic_id: str) -> int:
+    old_key = str(old_clinic_id or "").strip().lower()
+    new_clinic_id = str(new_clinic_id or "").strip()
+    if not old_key or not new_clinic_id:
+        return 0
+
+    updated = 0
+    spreadsheet = get_settings_spreadsheet()
+    for worksheet in spreadsheet.worksheets():
+        values = _gspread_retry(worksheet.get_all_values) or []
+        if not values or "ClinicID" not in values[0]:
+            continue
+        headers = values[0]
+        clinic_col = headers.index("ClinicID") + 1
+        updates = []
+        for row_idx, row_values in enumerate(values[1:], start=2):
+            current = row_values[clinic_col - 1] if len(row_values) >= clinic_col else ""
+            if str(current or "").strip().lower() == old_key:
+                updates.append({
+                    "range": _row_range_a1(row_idx, clinic_col, clinic_col),
+                    "values": [[new_clinic_id]],
+                })
+        if updates:
+            _gspread_retry(worksheet.batch_update, updates)
+            updated += len(updates)
+    st.session_state.pop("_settings_row_cache", None)
+    return updated
+
+
+def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) -> dict:
+    old_clinic_id = str(old_clinic_id or "").strip()
+    new_clinic_id = str(new_clinic_id or "").strip()
+    email = normalize_email(email)
+    if not new_clinic_id:
+        raise ValueError("Enter a clinic name.")
+    if email and ("@" not in email or "." not in email.split("@")[-1]):
+        raise ValueError("Enter a valid email address.")
+
+    existing = get_clinic_row(new_clinic_id)
+    if existing and new_clinic_id.lower() != old_clinic_id.lower():
+        raise ValueError("That clinic name is already registered.")
+
+    old_row = get_clinic_row(old_clinic_id) or {}
+    updated_at = datetime.utcnow().isoformat()
+    values_by_header = {
+        "ClinicID": new_clinic_id,
+        SHEET_COL_GOOGLE_EMAIL: email,
+        "UpdatedAt": updated_at,
+    }
+    file_id = str(old_row.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
+    if file_id and new_clinic_id.lower() != old_clinic_id.lower():
+        new_filename = f"{new_clinic_id}_shared_dataset.csv"
+        try:
+            drive_rename_file(file_id, new_filename)
+            values_by_header[SHEET_COL_DATASET_FILE_NAME] = new_filename
+        except Exception:
+            pass
+
+    update_settings_row_fields(old_clinic_id, values_by_header, GOOGLE_ACCOUNT_COLUMNS)
+    if new_clinic_id.lower() != old_clinic_id.lower():
+        update_rows_with_clinic_id(old_clinic_id, new_clinic_id)
+    return {"clinic_id": new_clinic_id, "email": email}
+
+
+def delete_rows_matching_clinic_id(worksheet, clinic_ids: set[str]) -> int:
+    clinic_keys = {str(value or "").strip().lower() for value in clinic_ids if str(value or "").strip()}
+    if not clinic_keys:
+        return 0
+
+    values = _gspread_retry(worksheet.get_all_values) or []
+    if not values or "ClinicID" not in values[0]:
+        return 0
+    clinic_col = values[0].index("ClinicID") + 1
+    rows_to_delete = []
+    for row_idx, row_values in enumerate(values[1:], start=2):
+        current = row_values[clinic_col - 1] if len(row_values) >= clinic_col else ""
+        if str(current or "").strip().lower() in clinic_keys:
+            rows_to_delete.append(row_idx)
+
+    for row_idx in reversed(rows_to_delete):
+        _gspread_retry(worksheet.delete_rows, row_idx)
+    return len(rows_to_delete)
+
+
+def delete_clinic_account_and_data(clinic_id: str) -> dict:
+    clinic_id = str(clinic_id or "").strip()
+    if not clinic_id:
+        raise ValueError("No clinic is currently signed in.")
+
+    row = get_clinic_row(clinic_id)
+    if not row:
+        raise ValueError("This clinic account could not be found.")
+
+    file_id = str(row.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
+    if file_id:
+        drive_trash_file(file_id)
+
+    spreadsheet = get_settings_spreadsheet()
+    deleted_rows = 0
+    for worksheet in spreadsheet.worksheets():
+        deleted_rows += delete_rows_matching_clinic_id(worksheet, {clinic_id})
+
+    st.session_state.pop("_settings_row_cache", None)
+    st.session_state.pop("_remote_settings_cache", None)
+    st.session_state.pop("_tracker_sheet_cache", None)
+    return {"deleted_rows": deleted_rows, "trashed_dataset": bool(file_id)}
+
+
+def profile_dialog_html(profile: dict) -> str:
+    provider = str(profile.get("auth_provider", "")).strip()
+    sign_in_copy = (
+        "This clinic signs in with Google. Use Continue with Google next time; your Google password is never entered here."
+        if provider == GOOGLE_AUTH_PROVIDER
+        else "This clinic can sign in with its clinic username and password."
+    )
+    return f"""
+    <style>
+      .profile-dialog-note {{
+        background: #f8fafc;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 8px;
+        color: #526174;
+        font-size: 0.92rem;
+        line-height: 1.45;
+        margin-bottom: 0.95rem;
+        padding: 0.8rem 0.9rem;
+      }}
+    </style>
+    <div class="profile-dialog-note">{html_lib.escape(sign_in_copy)}</div>
+    """
+
+
+def close_profile_dialog():
+    st.session_state["show_profile_dialog"] = False
+
+
+def render_profile_dialog():
+    if not st.session_state.get("show_profile_dialog", False):
+        return
+
+    clinic_id = st.session_state.get("clinic_id", "")
+    profile = get_clinic_profile(clinic_id)
+
+    def _render_dialog_body():
+        st.markdown(profile_dialog_html(profile), unsafe_allow_html=True)
+        with st.form("profile_form"):
+            new_clinic_id = st.text_input("Clinic name", value=profile.get("clinic_id", ""))
+            new_email = st.text_input("Email", value=profile.get("email", ""))
+            submitted = st.form_submit_button("Save profile", type="primary", use_container_width=True)
+
+        if submitted:
+            try:
+                updated = update_clinic_profile(clinic_id, new_clinic_id, new_email)
+                st.session_state["clinic_id"] = updated["clinic_id"]
+                if st.session_state.get("auth_provider") != GOOGLE_AUTH_PROVIDER:
+                    user_row = get_clinic_row(updated["clinic_id"])
+                    set_remember_login_token(create_remember_login_token(updated["clinic_id"], user_row))
+                load_settings()
+                close_profile_dialog()
+                st.success("Profile updated.")
+                st.rerun()
+            except ValueError as e:
+                st.error(str(e))
+            except Exception:
+                st.error("Could not update profile. Please try again or contact support.")
+
+        if st.button("Close", key="profile_dialog_close", use_container_width=True):
+            close_profile_dialog()
+            st.rerun()
+
+    if hasattr(st, "dialog"):
+        @st.dialog("Profile")
+        def _profile_dialog():
+            _render_dialog_body()
+        _profile_dialog()
+    elif hasattr(st, "experimental_dialog"):
+        @st.experimental_dialog("Profile")
+        def _profile_dialog():
+            _render_dialog_body()
+        _profile_dialog()
+    else:
+        with st.expander("Profile", expanded=True):
+            _render_dialog_body()
+
+
+def delete_account_dialog_html(clinic_id: str) -> str:
+    return f"""
+    <style>
+      .delete-account-warning {{
+        background: #fff1f2;
+        border: 1px solid #fda4af;
+        border-radius: 8px;
+        color: #7f1d1d;
+        line-height: 1.45;
+        margin-bottom: 1rem;
+        padding: 1rem;
+      }}
+      .delete-account-warning h3 {{
+        color: #7f1d1d;
+        font-size: 1.1rem;
+        font-weight: 850;
+        margin: 0 0 0.35rem;
+      }}
+      .delete-account-warning p {{
+        margin: 0.35rem 0 0;
+      }}
+      .st-key-delete_account_form div[data-testid="stFormSubmitButton"] button {{
+        background: #dc2626 !important;
+        border-color: #dc2626 !important;
+        color: #ffffff !important;
+      }}
+      .st-key-delete_account_form div[data-testid="stFormSubmitButton"] button:hover {{
+        background: #b91c1c !important;
+        border-color: #b91c1c !important;
+        color: #ffffff !important;
+      }}
+    </style>
+    <div class="delete-account-warning">
+      <h3>This is permanent.</h3>
+      <p>Deleting <strong>{html_lib.escape(clinic_id)}</strong> removes the clinic account row, Google link, saved settings, action/history rows tied to this clinic, and the saved uploaded dataset file.</p>
+      <p>This cannot be undone from the app.</p>
+    </div>
+    """
+
+
+def close_delete_account_dialog():
+    st.session_state["show_delete_account_dialog"] = False
+
+
+def render_delete_account_dialog():
+    if not st.session_state.get("show_delete_account_dialog", False):
+        return
+
+    clinic_id = str(st.session_state.get("clinic_id", "")).strip()
+    confirmation = f"DELETE {clinic_id}"
+
+    def _render_dialog_body():
+        st.markdown(delete_account_dialog_html(clinic_id), unsafe_allow_html=True)
+        with st.form("delete_account_form"):
+            st.caption(f"Type `{confirmation}` to confirm.")
+            typed = st.text_input("Confirmation", key="delete_account_confirm_text")
+            submitted = st.form_submit_button("Delete account and data", type="primary", use_container_width=True)
+
+        if submitted:
+            if typed.strip() != confirmation:
+                st.error("Confirmation did not match. Nothing was deleted.")
+                return
+            try:
+                delete_clinic_account_and_data(clinic_id)
+                google_session_active = get_google_user_info().get("is_logged_in", False)
+                clear_remember_login_token()
+                clear_account_session_state()
+                st.session_state["logout_notice"] = "The clinic account and saved data were deleted."
+                st.session_state["pending_google_signup"] = google_session_active
+                close_delete_account_dialog()
+                st.rerun()
+            except Exception:
+                st.error("Could not delete the account. Please try again or contact support before retrying.")
+
+        if st.button("Cancel", key="delete_account_cancel", use_container_width=True):
+            close_delete_account_dialog()
+            st.rerun()
+
+    if hasattr(st, "dialog"):
+        @st.dialog("Delete Account And Data")
+        def _delete_dialog():
+            _render_dialog_body()
+        _delete_dialog()
+    elif hasattr(st, "experimental_dialog"):
+        @st.experimental_dialog("Delete Account And Data")
+        def _delete_dialog():
+            _render_dialog_body()
+        _delete_dialog()
+    else:
+        with st.expander("Delete Account And Data", expanded=True):
+            _render_dialog_body()
+
+
 def update_clinic_password(clinic_id: str, new_password: str):
     """Update the password hash for the current clinic login."""
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
@@ -4816,12 +5138,18 @@ else:
     clinic_id = st.session_state.get("clinic_id", "")
     with top_account_slot.container():
         with st.popover("Account", use_container_width=False):
+            if st.button("Profile", key="top_account_profile", use_container_width=True):
+                st.session_state["show_profile_dialog"] = True
+
             if st.button("Data & Privacy", key="top_account_data_privacy", use_container_width=True):
                 st.session_state["show_data_privacy_dialog"] = True
 
             if st.session_state.get("auth_provider") != GOOGLE_AUTH_PROVIDER:
                 if st.button("Change password", key="top_account_show_change_password", use_container_width=True):
                     st.session_state["show_top_change_password"] = not st.session_state.get("show_top_change_password", False)
+
+            if st.button("Delete account and data", key="top_account_delete", use_container_width=True):
+                st.session_state["show_delete_account_dialog"] = True
 
             if st.button("Logout", key="top_account_logout", use_container_width=True):
                 google_session_active = get_google_user_info().get("is_logged_in", False)
@@ -4861,7 +5189,9 @@ else:
                         st.session_state["show_top_change_password"] = False
                         st.success("Password updated.")
 
+render_profile_dialog()
 render_data_privacy_dialog()
+render_delete_account_dialog()
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:
