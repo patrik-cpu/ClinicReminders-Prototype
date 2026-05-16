@@ -142,6 +142,30 @@ class AuthSessionTests(unittest.TestCase):
 
         self.assertEqual(row, ["Clinic A", "", "{}", "owner@example.com", "google-subject"])
 
+    def test_settings_schema_has_named_tab_and_account_metadata(self):
+        self.assertEqual(self.app.SETTINGS_WORKSHEET_NAME, "Clinic settings")
+        for column in [
+            "ClinicID",
+            "SettingsJSON",
+            "DatasetFileId",
+            "AuthProvider",
+            "GoogleEmail",
+            "Country",
+            "CreatedAtGST",
+            "LastLoginAtGST",
+            "LastLoginProvider",
+            "AccountStatus",
+        ]:
+            self.assertIn(column, self.app.SETTINGS_REQUIRED_COLUMNS)
+
+        self.assertTrue(
+            self.app.worksheet_values_have_settings_schema([
+                ["ClinicID", "SettingsJSON"],
+                ["Clinic A", "{}"],
+            ])
+        )
+        self.assertFalse(self.app.worksheet_values_have_settings_schema([["ClinicID", "Name"]]))
+
     def test_data_privacy_copy_is_clear_about_storage_and_use(self):
         content = self.app.data_privacy_policy_content()
         text = " ".join(

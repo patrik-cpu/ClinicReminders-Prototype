@@ -196,6 +196,13 @@ top_account_slot = tut_col.empty()
 DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive folder URL
 
 # === Sheet columns you created ===
+SETTINGS_WORKSHEET_NAME = "Clinic settings"
+LEGACY_SETTINGS_WORKSHEET_NAMES = ("Sheet1",)
+SHEET_COL_CLINIC_ID = "ClinicID"
+SHEET_COL_PLAIN_PASSWORD = "PlainPassword"
+SHEET_COL_PASSWORD_HASH = "PasswordHash"
+SHEET_COL_SETTINGS_JSON = "SettingsJSON"
+SHEET_COL_UPDATED_AT = "UpdatedAt"
 SHEET_COL_DATASET_FILE_ID = "DatasetFileId"
 SHEET_COL_DATASET_FILE_NAME = "DatasetFileName"
 SHEET_COL_DATASET_UPDATED_AT = "DatasetUpdatedAt"
@@ -203,13 +210,38 @@ SHEET_COL_AUTH_PROVIDER = "AuthProvider"
 SHEET_COL_GOOGLE_EMAIL = "GoogleEmail"
 SHEET_COL_GOOGLE_SUBJECT = "GoogleSubject"
 SHEET_COL_GOOGLE_NAME = "GoogleName"
+SHEET_COL_COUNTRY = "Country"
+SHEET_COL_CREATED_AT_GST = "CreatedAtGST"
+SHEET_COL_LAST_LOGIN_AT_GST = "LastLoginAtGST"
+SHEET_COL_LAST_LOGIN_PROVIDER = "LastLoginProvider"
+SHEET_COL_ACCOUNT_STATUS = "AccountStatus"
 GOOGLE_AUTH_PROVIDER = "google"
+SETTINGS_BASE_COLUMNS = [
+    SHEET_COL_CLINIC_ID,
+    SHEET_COL_PLAIN_PASSWORD,
+    SHEET_COL_PASSWORD_HASH,
+    SHEET_COL_SETTINGS_JSON,
+    SHEET_COL_UPDATED_AT,
+]
+DATASET_POINTER_COLUMNS = [
+    SHEET_COL_DATASET_FILE_ID,
+    SHEET_COL_DATASET_FILE_NAME,
+    SHEET_COL_DATASET_UPDATED_AT,
+]
 GOOGLE_ACCOUNT_COLUMNS = [
     SHEET_COL_AUTH_PROVIDER,
     SHEET_COL_GOOGLE_EMAIL,
     SHEET_COL_GOOGLE_SUBJECT,
     SHEET_COL_GOOGLE_NAME,
 ]
+ACCOUNT_METADATA_COLUMNS = [
+    SHEET_COL_COUNTRY,
+    SHEET_COL_CREATED_AT_GST,
+    SHEET_COL_LAST_LOGIN_AT_GST,
+    SHEET_COL_LAST_LOGIN_PROVIDER,
+    SHEET_COL_ACCOUNT_STATUS,
+]
+SETTINGS_REQUIRED_COLUMNS = SETTINGS_BASE_COLUMNS + DATASET_POINTER_COLUMNS + GOOGLE_ACCOUNT_COLUMNS + ACCOUNT_METADATA_COLUMNS
 GST_TZ = ZoneInfo("Asia/Dubai")
 ACTION_TRACKER_WORKSHEET = "Action tracker"
 WA_TRACKER_WORKSHEET = "WA button tracker"  # Legacy sheet name; kept for backwards compatibility.
@@ -499,7 +531,7 @@ def ensure_settings_sheet_columns(
     sheet = sheet or get_settings_sheet()
     if headers is None:
         all_vals = _gspread_retry(sheet.get_all_values) or []
-        headers = list(all_vals[0]) if all_vals else ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        headers = list(all_vals[0]) if all_vals else list(SETTINGS_REQUIRED_COLUMNS)
     else:
         headers = list(headers)
 
@@ -512,6 +544,67 @@ def ensure_settings_sheet_columns(
     _gspread_retry(sheet.update, values=[updated_headers], range_name=f"A1:{end_col}1")
     st.session_state.pop("_settings_row_cache", None)
     return updated_headers
+
+
+def worksheet_values_have_settings_schema(values: list[list[str]] | None) -> bool:
+    if not values:
+        return False
+    headers = list(values[0] or [])
+    return SHEET_COL_CLINIC_ID in headers and SHEET_COL_SETTINGS_JSON in headers
+
+
+def copy_worksheet_values(destination, values: list[list[str]]) -> None:
+    values = values or [list(SETTINGS_REQUIRED_COLUMNS)]
+    max_cols = max(len(SETTINGS_REQUIRED_COLUMNS), max((len(row) for row in values), default=0), 8)
+    max_rows = max(len(values), 1000)
+    padded_values = [list(row) + [""] * max(0, max_cols - len(row)) for row in values]
+    try:
+        _gspread_retry(destination.resize, rows=max_rows, cols=max_cols)
+    except Exception:
+        pass
+    end_col = _column_number_to_letter(max_cols)
+    _gspread_retry(destination.update, values=padded_values, range_name=f"A1:{end_col}{len(padded_values)}")
+
+
+def get_or_create_settings_worksheet(spreadsheet):
+    try:
+        worksheet = spreadsheet.worksheet(SETTINGS_WORKSHEET_NAME)
+    except Exception:
+        worksheet = spreadsheet.add_worksheet(
+            title=SETTINGS_WORKSHEET_NAME,
+            rows=1000,
+            cols=max(len(SETTINGS_REQUIRED_COLUMNS), 8),
+        )
+
+    values = _gspread_retry(worksheet.get_all_values) or []
+    if not worksheet_values_have_settings_schema(values):
+        legacy_values = []
+        for legacy_name in LEGACY_SETTINGS_WORKSHEET_NAMES:
+            try:
+                legacy = spreadsheet.worksheet(legacy_name)
+                if legacy.title != SETTINGS_WORKSHEET_NAME:
+                    legacy_values = _gspread_retry(legacy.get_all_values) or []
+            except Exception:
+                legacy_values = []
+            if worksheet_values_have_settings_schema(legacy_values):
+                break
+        if not worksheet_values_have_settings_schema(legacy_values):
+            try:
+                legacy = spreadsheet.sheet1
+                if legacy.title != SETTINGS_WORKSHEET_NAME:
+                    legacy_values = _gspread_retry(legacy.get_all_values) or []
+            except Exception:
+                legacy_values = []
+        if worksheet_values_have_settings_schema(legacy_values):
+            copy_worksheet_values(worksheet, legacy_values)
+            values = legacy_values
+        elif not values:
+            copy_worksheet_values(worksheet, [list(SETTINGS_REQUIRED_COLUMNS)])
+            values = [list(SETTINGS_REQUIRED_COLUMNS)]
+
+    headers = list(values[0]) if values else list(SETTINGS_REQUIRED_COLUMNS)
+    ensure_settings_sheet_columns(worksheet, headers, SETTINGS_REQUIRED_COLUMNS)
+    return worksheet
 
 
 def gst_now(now: datetime | None = None) -> datetime:
@@ -2488,9 +2581,9 @@ def load_settings():
         clinic_key = normalize_clinic_id_key(clinic_id)
         rec = next((r for r in records if normalize_clinic_id_key(r.get("ClinicID", "")) == clinic_key), None)
 
-    if rec and rec["SettingsJSON"]:
+    if rec and rec.get(SHEET_COL_SETTINGS_JSON):
         try:
-            settings = json.loads(rec["SettingsJSON"])
+            settings = json.loads(rec.get(SHEET_COL_SETTINGS_JSON, "{}"))
         except Exception:
             settings = {}
         cache_remote_settings(clinic_id, settings)
@@ -2842,13 +2935,40 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
                 "values": [[settings_json, updated_at]],
             }]
             _gspread_retry(sheet.batch_update, payload)
+        if settings_data.get("country"):
+            update_settings_row_fields(
+                clinic_id,
+                {
+                    SHEET_COL_COUNTRY: settings_data.get("country", ""),
+                    SHEET_COL_ACCOUNT_STATUS: "active",
+                },
+                SETTINGS_REQUIRED_COLUMNS,
+            )
     else:
-        sheet.append_row([clinic_id, "", settings_json, updated_at])
+        headers = ensure_settings_sheet_columns(sheet, headers, SETTINGS_REQUIRED_COLUMNS)
+        _gspread_retry(
+            sheet.append_row,
+            settings_row_values(
+                headers,
+                {
+                    SHEET_COL_CLINIC_ID: clinic_id,
+                    SHEET_COL_PLAIN_PASSWORD: "",
+                    SHEET_COL_PASSWORD_HASH: "",
+                    SHEET_COL_SETTINGS_JSON: settings_json,
+                    SHEET_COL_UPDATED_AT: updated_at,
+                    SHEET_COL_COUNTRY: settings_data.get("country", ""),
+                    SHEET_COL_ACCOUNT_STATUS: "active",
+                },
+            ),
+            value_input_option="USER_ENTERED",
+        )
     update_cached_settings_row_fields(
         clinic_id,
         {
-            "SettingsJSON": settings_json,
-            "UpdatedAt": updated_at,
+            SHEET_COL_SETTINGS_JSON: settings_json,
+            SHEET_COL_UPDATED_AT: updated_at,
+            SHEET_COL_COUNTRY: settings_data.get("country", ""),
+            SHEET_COL_ACCOUNT_STATUS: "active",
         },
     )
     cache_remote_settings(clinic_id, settings_data)
@@ -3847,7 +3967,7 @@ def get_settings_spreadsheet():
 @st.cache_resource
 def get_settings_sheet():
     """Connect to the shared ClinicReminders_Settings_Master sheet."""
-    return get_settings_spreadsheet().sheet1
+    return get_or_create_settings_worksheet(get_settings_spreadsheet())
 
 
 def get_or_create_tracker_sheet(title: str, headers: list[str]):
@@ -4342,6 +4462,33 @@ def upsert_user_tracker(clinic_id: str, country: str = "", event: str = "updated
         return
 
 
+def record_settings_account_event(
+    clinic_id: str,
+    event: str,
+    auth_provider: str = "",
+    country: str = "",
+    now: datetime | None = None,
+) -> None:
+    clinic_id = str(clinic_id or "").strip()
+    if not clinic_id:
+        return
+
+    values_by_header = {SHEET_COL_ACCOUNT_STATUS: "active"}
+    country = str(country or "").strip()
+    if country:
+        values_by_header[SHEET_COL_COUNTRY] = country
+    if event in LOGIN_TRACKER_EVENTS:
+        values_by_header[SHEET_COL_LAST_LOGIN_AT_GST] = gst_now_iso(now)
+        values_by_header[SHEET_COL_LAST_LOGIN_PROVIDER] = auth_provider or event
+    if not values_by_header:
+        return
+
+    try:
+        update_settings_row_fields(clinic_id, values_by_header, SETTINGS_REQUIRED_COLUMNS)
+    except Exception:
+        return
+
+
 def create_clinic_account(clinic_id: str, country: str, password: str):
     clinic_id = str(clinic_id or "").strip()
     country = str(country or "").strip()
@@ -4350,15 +4497,22 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
 
     sheet = get_settings_sheet()
     all_vals = _gspread_retry(sheet.get_all_values)
-    headers = all_vals[0] if all_vals else ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+    headers = all_vals[0] if all_vals else list(SETTINGS_REQUIRED_COLUMNS)
+    headers = ensure_settings_sheet_columns(sheet, headers, SETTINGS_REQUIRED_COLUMNS)
     settings_json = json.dumps(default_settings_for_country(country))
     password_hash = password_hash_for_storage(password)
+    created_at_gst = gst_now_iso()
     values_by_header = {
-        "ClinicID": clinic_id,
-        "PlainPassword": "",
-        "PasswordHash": password_hash,
-        "SettingsJSON": settings_json,
-        "UpdatedAt": datetime.utcnow().isoformat(),
+        SHEET_COL_CLINIC_ID: clinic_id,
+        SHEET_COL_PLAIN_PASSWORD: "",
+        SHEET_COL_PASSWORD_HASH: password_hash,
+        SHEET_COL_SETTINGS_JSON: settings_json,
+        SHEET_COL_UPDATED_AT: datetime.utcnow().isoformat(),
+        SHEET_COL_COUNTRY: country,
+        SHEET_COL_CREATED_AT_GST: created_at_gst,
+        SHEET_COL_LAST_LOGIN_AT_GST: created_at_gst,
+        SHEET_COL_LAST_LOGIN_PROVIDER: "password",
+        SHEET_COL_ACCOUNT_STATUS: "active",
     }
     _gspread_retry(sheet.append_row, settings_row_values(headers, values_by_header), value_input_option="USER_ENTERED")
     upsert_user_tracker(clinic_id, country=country, event="created")
@@ -4387,19 +4541,25 @@ def create_google_clinic_account(clinic_id: str, country: str, google_user: dict
 
     sheet = get_settings_sheet()
     all_vals = _gspread_retry(sheet.get_all_values)
-    headers = all_vals[0] if all_vals else ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
-    headers = ensure_settings_sheet_columns(sheet, headers, GOOGLE_ACCOUNT_COLUMNS)
+    headers = all_vals[0] if all_vals else list(SETTINGS_REQUIRED_COLUMNS)
+    headers = ensure_settings_sheet_columns(sheet, headers, SETTINGS_REQUIRED_COLUMNS)
     settings_json = json.dumps(default_settings_for_country(country))
+    created_at_gst = gst_now_iso()
     values_by_header = {
-        "ClinicID": clinic_id,
-        "PlainPassword": "",
-        "PasswordHash": "",
-        "SettingsJSON": settings_json,
-        "UpdatedAt": datetime.utcnow().isoformat(),
+        SHEET_COL_CLINIC_ID: clinic_id,
+        SHEET_COL_PLAIN_PASSWORD: "",
+        SHEET_COL_PASSWORD_HASH: "",
+        SHEET_COL_SETTINGS_JSON: settings_json,
+        SHEET_COL_UPDATED_AT: datetime.utcnow().isoformat(),
         SHEET_COL_AUTH_PROVIDER: GOOGLE_AUTH_PROVIDER,
         SHEET_COL_GOOGLE_EMAIL: email,
         SHEET_COL_GOOGLE_SUBJECT: str(google_user.get("subject", "")).strip(),
         SHEET_COL_GOOGLE_NAME: str(google_user.get("name", "")).strip(),
+        SHEET_COL_COUNTRY: country,
+        SHEET_COL_CREATED_AT_GST: created_at_gst,
+        SHEET_COL_LAST_LOGIN_AT_GST: created_at_gst,
+        SHEET_COL_LAST_LOGIN_PROVIDER: GOOGLE_AUTH_PROVIDER,
+        SHEET_COL_ACCOUNT_STATUS: "active",
     }
     _gspread_retry(sheet.append_row, settings_row_values(headers, values_by_header), value_input_option="USER_ENTERED")
     upsert_user_tracker(clinic_id, country=country, event="google_created")
@@ -4859,6 +5019,12 @@ def finish_authenticated_session(
     reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
     load_settings()
     load_shared_dataset_for_clinic()
+    record_settings_account_event(
+        clinic_id,
+        event=event,
+        auth_provider=auth_provider,
+        country=st.session_state.get("user_country", ""),
+    )
     upsert_user_tracker(
         clinic_id,
         country=st.session_state.get("user_country", ""),
@@ -5021,6 +5187,12 @@ if remember_token and not st.session_state["logged_in"]:
         reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
         load_settings()
         load_shared_dataset_for_clinic()
+        record_settings_account_event(
+            remembered_clinic_id,
+            event="remembered_login",
+            auth_provider="remembered_password",
+            country=st.session_state.get("user_country", ""),
+        )
         upsert_user_tracker(
             remembered_clinic_id,
             country=st.session_state.get("user_country", ""),
@@ -5071,6 +5243,12 @@ if (
         reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
         load_settings()
         load_shared_dataset_for_clinic()
+        record_settings_account_event(
+            default_username,
+            event="login",
+            auth_provider="dev_auto_login",
+            country=st.session_state.get("user_country", ""),
+        )
         rerun_app()
 
 pending_google_signup = bool(st.session_state.get("pending_google_signup") and google_user.get("is_logged_in"))
@@ -5140,6 +5318,12 @@ if not st.session_state["logged_in"]:
                 load_settings()
                 # ✅ Auto-load shared dataset from Drive into working_df
                 load_shared_dataset_for_clinic()
+                record_settings_account_event(
+                    username,
+                    event="login",
+                    auth_provider="password",
+                    country=st.session_state.get("user_country", ""),
+                )
                 upsert_user_tracker(
                     username,
                     country=st.session_state.get("user_country", ""),
