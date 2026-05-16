@@ -7364,8 +7364,6 @@ def render_sender_name_input(key_suffix: str):
         st.session_state["user_name"] = new_name
         st.session_state["user_name_updated_at"] = datetime.utcnow().isoformat()
         save_settings_quietly()
-        record_settings_audit_event("sender_name_updated", "template", "whatsapp", "user_name", prev_name, new_name, "reminders_tab")
-        st.toast("Name saved to settings.")
 
 
 def build_whatsapp_message_for_row(row) -> str:
