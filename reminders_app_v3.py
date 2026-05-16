@@ -8229,6 +8229,11 @@ def normalize_display_case(text: str) -> str:
     return " ".join(fixed)
 
 STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
+STATISTICS_GENERATED_COLUMNS = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
+
+
+def empty_statistics_generated_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=STATISTICS_GENERATED_COLUMNS)
 
 
 def statistics_period_start(period: str, today: date | None = None) -> date | None:
@@ -8293,17 +8298,49 @@ def statistics_row_key(row: dict) -> tuple[str, ...]:
     return hidden_reminder_key(row)
 
 
-def build_statistics_generated_rows(prepared: pd.DataFrame, rules: dict, group_days: int | None = None) -> pd.DataFrame:
+def filter_prepared_for_statistics_period(
+    prepared: pd.DataFrame,
+    period: str,
+    today: date | None = None,
+) -> pd.DataFrame:
     if prepared is None or getattr(prepared, "empty", True):
-        return pd.DataFrame(columns=["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"])
+        return prepared
+    start = statistics_period_start(period, today)
+    if start is None:
+        return prepared
+    today = today or date.today()
+    reminder_ts = prepared.get("ReminderDateTs")
+    if reminder_ts is None:
+        reminder_ts = prepared.get("NextDueDateTs")
+    if reminder_ts is None:
+        reminder_ts = pd.to_datetime(prepared.get("NextDueDate"), errors="coerce")
+    else:
+        reminder_ts = pd.to_datetime(reminder_ts, errors="coerce")
+    start_ts = pd.Timestamp(start)
+    end_ts = pd.Timestamp(today)
+    return prepared.loc[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
+
+
+def build_statistics_generated_rows(
+    prepared: pd.DataFrame,
+    rules: dict,
+    group_days: int | None = None,
+    period: str = "All time",
+    today: date | None = None,
+) -> pd.DataFrame:
+    if prepared is None or getattr(prepared, "empty", True):
+        return empty_statistics_generated_frame()
     group_days = st.session_state.get("client_group_days", 1) if group_days is None else group_days
     try:
         group_days = max(0, int(group_days))
     except (TypeError, ValueError):
         group_days = 1
-    filtered = apply_reminder_exclusion_filters(prepared, rules)
+    prepared_period = filter_prepared_for_statistics_period(prepared, period, today)
+    if prepared_period is None or getattr(prepared_period, "empty", True):
+        return empty_statistics_generated_frame()
+    filtered = apply_reminder_exclusion_filters(prepared_period, rules)
     if filtered.empty:
-        return pd.DataFrame(columns=["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"])
+        return empty_statistics_generated_frame()
     return bundle_client_reminders_by_window(filtered, window_days=group_days, rules=rules)
 
 
@@ -8481,13 +8518,6 @@ def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
     st.markdown("<div id='statistics' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("## Statistics")
 
-    generated_df = build_statistics_generated_rows(
-        prepared,
-        rules,
-        group_days=st.session_state.get("client_group_days", 1),
-    )
-    action_records = statistics_current_action_records()
-
     if not STATISTICS_PERIODS:
         selected_period = "Today"
     elif hasattr(st, "segmented_control"):
@@ -8508,6 +8538,15 @@ def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
             key="statistics_period",
             label_visibility="collapsed",
         )
+
+    with st.spinner("Calculating statistics..."):
+        generated_df = build_statistics_generated_rows(
+            prepared,
+            rules,
+            group_days=st.session_state.get("client_group_days", 1),
+            period=selected_period,
+        )
+        action_records = statistics_current_action_records()
 
     summary = statistics_summary_for_period(generated_df, action_records, selected_period)
     overview_tab, team_tab, items_tab, completion_tab = st.tabs(["Overview", "Team", "Items", "Completion"])
