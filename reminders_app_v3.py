@@ -399,6 +399,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_deleted_reminder_remove_keys_once",
     "_wa_reminder_remove_keys_once",
     "_replace_search_settings_once",
+    "show_data_privacy_dialog",
     "_scroll_to_whatsapp_composer",
     "_settings_row_cache",
     "_remote_settings_cache",
@@ -3100,6 +3101,175 @@ def show_recent_reminder_warning(message: str, key: str):
     else:
         st.warning(message)
 
+
+def data_privacy_policy_content() -> dict:
+    return {
+        "headline": "Your clinic data stays your clinic data.",
+        "intro": (
+            "Clinic Reminders uses uploaded sales exports only to run the workflows your clinic chooses: "
+            "reminder generation, statistics, search terms, exclusions, and setup checks. We treat owner, "
+            "patient, item, billed date, quantity, and amount fields as sensitive clinic operations data."
+        ),
+        "sections": [
+            {
+                "title": "What the app stores",
+                "body": (
+                    "When your clinic uploads data, the app saves a clinic-level working dataset so your team "
+                    "can return to the same reminders and statistics. Account settings, search rules, exclusions, "
+                    "and reminder action history are also saved so the app can remember your workflow."
+                ),
+            },
+            {
+                "title": "Where it is kept",
+                "body": (
+                    "Saved datasets are stored in the app's managed Google Drive storage. Clinic settings, audit "
+                    "events, reminder actions, and upload history are stored in managed Google Sheets used by the app."
+                ),
+            },
+            {
+                "title": "How it is used",
+                "body": (
+                    "Data is used to calculate reminders, show clinic statistics, prevent duplicate reminder work, "
+                    "and record actions such as sent or declined reminders. We do not sell clinic data or use clinic "
+                    "financial data for advertising."
+                ),
+            },
+            {
+                "title": "Who can see it",
+                "body": (
+                    "People signed into the same clinic workspace can see that clinic's saved dataset, settings, "
+                    "reminders, and statistics. Keep clinic logins and linked Google accounts limited to team members "
+                    "who should have access."
+                ),
+            },
+            {
+                "title": "Your control",
+                "body": (
+                    "You can clear active clinic data from the Upload Data tab. For export, retention, or permanent "
+                    "deletion requests, contact support so the backing storage can be handled carefully."
+                ),
+            },
+            {
+                "title": "Practical upload guidance",
+                "body": (
+                    "Upload only the sales and reminder data your clinic needs for this tool. Avoid uploading unrelated "
+                    "medical notes, payment card numbers, government IDs, or files that are not needed for reminders."
+                ),
+            },
+        ],
+        "footer": (
+            "Our approach is simple: use clinic data to run the clinic's reminder workflow, keep it tied to the clinic "
+            "workspace, and avoid secondary uses that do not benefit the clinic."
+        ),
+    }
+
+
+def data_privacy_dialog_html(content: dict | None = None) -> str:
+    content = content or data_privacy_policy_content()
+    sections_html = []
+    for section in content.get("sections", []):
+        sections_html.append(
+            "<section class='cr-privacy-card'>"
+            f"<h4>{html_lib.escape(section.get('title', ''))}</h4>"
+            f"<p>{html_lib.escape(section.get('body', ''))}</p>"
+            "</section>"
+        )
+    return f"""
+    <style>
+      .cr-privacy-dialog {{
+        color: #0f172a;
+      }}
+      .cr-privacy-hero {{
+        background: linear-gradient(135deg, rgba(41, 210, 114, 0.16), rgba(255, 255, 255, 0.96));
+        border: 1px solid rgba(29, 167, 89, 0.26);
+        border-radius: 8px;
+        margin-bottom: 0.9rem;
+        padding: 1rem 1.05rem;
+      }}
+      .cr-privacy-hero h3 {{
+        color: #082f1f;
+        font-size: 1.25rem;
+        font-weight: 850;
+        letter-spacing: 0;
+        line-height: 1.2;
+        margin: 0 0 0.45rem;
+      }}
+      .cr-privacy-hero p,
+      .cr-privacy-card p,
+      .cr-privacy-footer {{
+        color: #475569;
+        font-size: 0.94rem;
+        line-height: 1.45;
+        margin: 0;
+      }}
+      .cr-privacy-grid {{
+        display: grid;
+        gap: 0.65rem;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }}
+      .cr-privacy-card {{
+        background: #ffffff;
+        border: 1px solid rgba(15, 23, 42, 0.11);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
+        padding: 0.8rem 0.85rem;
+      }}
+      .cr-privacy-card h4 {{
+        color: #0f172a;
+        font-size: 0.98rem;
+        font-weight: 800;
+        letter-spacing: 0;
+        margin: 0 0 0.32rem;
+      }}
+      .cr-privacy-footer {{
+        background: #f8fafc;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 8px;
+        margin-top: 0.75rem;
+        padding: 0.78rem 0.85rem;
+      }}
+    </style>
+    <div class='cr-privacy-dialog'>
+      <div class='cr-privacy-hero'>
+        <h3>{html_lib.escape(content.get('headline', ''))}</h3>
+        <p>{html_lib.escape(content.get('intro', ''))}</p>
+      </div>
+      <div class='cr-privacy-grid'>
+        {''.join(sections_html)}
+      </div>
+      <div class='cr-privacy-footer'>{html_lib.escape(content.get('footer', ''))}</div>
+    </div>
+    """
+
+
+def close_data_privacy_dialog():
+    st.session_state["show_data_privacy_dialog"] = False
+
+
+def render_data_privacy_dialog():
+    if not st.session_state.get("show_data_privacy_dialog", False):
+        return
+
+    def _render_dialog_body():
+        st.markdown(data_privacy_dialog_html(), unsafe_allow_html=True)
+        if st.button("Close", key="close_data_privacy_dialog_button", use_container_width=True):
+            close_data_privacy_dialog()
+            st.rerun()
+
+    if hasattr(st, "dialog"):
+        @st.dialog("Data & Privacy", width="large", on_dismiss=close_data_privacy_dialog)
+        def _privacy_dialog():
+            _render_dialog_body()
+        _privacy_dialog()
+    elif hasattr(st, "experimental_dialog"):
+        @st.experimental_dialog("Data & Privacy")
+        def _privacy_dialog():
+            _render_dialog_body()
+        _privacy_dialog()
+    else:
+        with st.expander("Data & Privacy", expanded=True):
+            _render_dialog_body()
+
 # --------------------------------
 # PMS definitions
 # --------------------------------
@@ -4377,6 +4547,9 @@ else:
     clinic_id = st.session_state.get("clinic_id", "")
     with top_account_slot.container():
         with st.popover("Account", use_container_width=False):
+            if st.button("Data & Privacy", key="top_account_data_privacy", use_container_width=True):
+                st.session_state["show_data_privacy_dialog"] = True
+
             if st.session_state.get("auth_provider") != GOOGLE_AUTH_PROVIDER:
                 if st.button("Change password", key="top_account_show_change_password", use_container_width=True):
                     st.session_state["show_top_change_password"] = not st.session_state.get("show_top_change_password", False)
@@ -4418,6 +4591,8 @@ else:
                         )
                         st.session_state["show_top_change_password"] = False
                         st.success("Password updated.")
+
+render_data_privacy_dialog()
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:

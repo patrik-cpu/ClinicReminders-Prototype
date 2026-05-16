@@ -107,6 +107,33 @@ class AuthSessionTests(unittest.TestCase):
 
         self.assertEqual(row, ["Clinic A", "", "{}", "owner@example.com", "google-subject"])
 
+    def test_data_privacy_copy_is_clear_about_storage_and_use(self):
+        content = self.app.data_privacy_policy_content()
+        text = " ".join(
+            [content["headline"], content["intro"], content["footer"]]
+            + [section["title"] + " " + section["body"] for section in content["sections"]]
+        )
+
+        self.assertIn("managed Google Drive storage", text)
+        self.assertIn("managed Google Sheets", text)
+        self.assertIn("We do not sell clinic data", text)
+        self.assertIn("clinic financial data", text)
+        self.assertIn("permanent deletion requests", text)
+
+    def test_data_privacy_dialog_html_escapes_policy_text(self):
+        html = self.app.data_privacy_dialog_html(
+            {
+                "headline": "<Clinic>",
+                "intro": "Safe & clear",
+                "sections": [{"title": "Use", "body": "<script>alert(1)</script>"}],
+                "footer": "Done",
+            }
+        )
+
+        self.assertIn("&lt;Clinic&gt;", html)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", html)
+        self.assertNotIn("<script>alert(1)</script>", html)
+
 
 if __name__ == "__main__":
     unittest.main()
