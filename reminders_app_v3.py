@@ -1083,6 +1083,17 @@ st.markdown(
         border: 0 !important;
         padding: 0 !important;
     }
+    .login-title {
+        color: var(--cr-text);
+        font-size: 1.75rem;
+        font-weight: 800;
+        line-height: 1.25;
+        margin: 0 0 1.55rem 15px;
+    }
+    div[data-testid="stHorizontalBlock"]:has(.st-key-google_signup_button) {
+        padding-left: 15px !important;
+        padding-right: 15px !important;
+    }
     .st-key-google_signup_button,
     .st-key-toggle_create_account {
         width: 100% !important;
@@ -1123,37 +1134,8 @@ st.markdown(
         border: 0 !important;
         box-shadow: none !important;
     }
-    div[data-testid="stTextInput"] [data-baseweb="base-input"] > div,
-    div[data-testid="stTextInput"] [data-baseweb="base-input"] > div > div,
-    div[data-testid="stTextInput"] [data-baseweb="base-input"] span {
-        background: #f6f8fb !important;
-    }
-    div[data-testid="stTextInput"] button {
-        align-items: center !important;
-        display: flex !important;
-        background: #f6f8fb !important;
-        border: 0 !important;
-        border-left: 1px solid #d8dee8 !important;
-        border-radius: 0 !important;
-        box-shadow: none !important;
-        color: #1f2937 !important;
-        height: 2.5rem !important;
-        justify-content: center !important;
-        min-height: 2.5rem !important;
-        padding-bottom: 0 !important;
-        padding-top: 0 !important;
-        width: 2.75rem !important;
-    }
-    div[data-testid="stTextInput"] button:hover,
-    div[data-testid="stTextInput"] button:focus,
-    div[data-testid="stTextInput"] button:active {
-        background: #eef3f8 !important;
-        color: #101828 !important;
-    }
-    div[data-testid="stTextInput"] button svg {
-        display: block !important;
-        fill: none !important;
-        stroke: #1f2937 !important;
+    .st-key-login_password_input button {
+        display: none !important;
     }
     .st-key-google_signup_button button {
         background: #ffffff !important;
@@ -4598,13 +4580,13 @@ if (
 if not st.session_state["logged_in"]:
     login_col, _ = st.columns([0.36, 0.64])
     with login_col:
-        st.markdown("### Clinic Login")
+        st.markdown("<div class='login-title'>Clinic Login</div>", unsafe_allow_html=True)
         logout_notice = st.session_state.pop("logout_notice", "")
         if logout_notice:
             st.success(logout_notice)
         with st.form("clinic_login_form"):
             username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
-            password = st.text_input("Password", type="password", value="")
+            password = st.text_input("Password", type="password", value="", key="login_password_input")
             login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
 
         google_auth_ready = authlib_available()
