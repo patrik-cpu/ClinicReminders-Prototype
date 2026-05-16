@@ -5725,7 +5725,7 @@ def get_setup_checklist_steps() -> list[dict]:
             "done": has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", "")),
             "title": "Set sender name",
             "copy": "This fills [Your Name] in WhatsApp messages. Example: Mary from Bob's Test Vet Clinic.",
-            "where": "Where: WhatsApp Composer in the Reminders tab",
+            "where": "Where: Reminders tab, above the reminder list",
         },
         {
             "number": 4,
@@ -7344,6 +7344,30 @@ def render_table(df, title, key_prefix, msg_key, rules):
         render_actioned_reminders_tab(key_prefix)
 
 
+def render_sender_name_input(key_suffix: str):
+    prev_name = st.session_state.get("user_name", "")
+    render_field_label(
+        st,
+        "Your name / clinic",
+        "This fills [Your Name] in prepared WhatsApp messages and records who actioned reminders.",
+        class_name="reminder-control-label",
+    )
+    new_name = st.text_input(
+        "Your name / clinic (appears in WhatsApp messages):",
+        value=prev_name,
+        key=f"user_name_input_{key_suffix}",
+        placeholder="e.g. Mary from Neighbourhood Veterinary Clinic",
+        label_visibility="collapsed",
+    )
+
+    if new_name != prev_name:
+        st.session_state["user_name"] = new_name
+        st.session_state["user_name_updated_at"] = datetime.utcnow().isoformat()
+        save_settings_quietly()
+        record_settings_audit_event("sender_name_updated", "template", "whatsapp", "user_name", prev_name, new_name, "reminders_tab")
+        st.toast("Name saved to settings.")
+
+
 def build_whatsapp_message_for_row(row) -> str:
     client_name = row.get("Client Name", "")
     first_name = normalize_display_case(client_name).split()[0].strip() if client_name else "there"
@@ -7489,7 +7513,7 @@ REMINDER_TABLE_SORTABLE_COLUMNS = ("Reminder Date", "Due Date", "Charge Date", "
 REMINDER_TABLE_HEADER_LABELS = {"Charge Date": "Billed Date", "Plan Item": "Item"}
 REMINDER_TABLE_COLUMN_HELP = {
     "Actioned Date": "When this reminder was marked Sent or Declined.",
-    "Actioned By": "The name saved in the WhatsApp Composer when the reminder was actioned.",
+    "Actioned By": "The sender name saved in the Reminders tab when the reminder was actioned.",
     "Reminder Date": "The date this reminder is scheduled to appear in this workflow.",
     "Due Date": "The date the product, service, or vaccine is due again.",
     "Charge Date": "The original billed date from the uploaded sales data.",
@@ -8005,29 +8029,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     comp_main, comp_tip = st.columns([4, 1])
     with comp_main:
         st.write("### WhatsApp Composer")
-        st.caption("Set this once so prepared messages sound like they are coming from your clinic.")
-
-        prev_name = st.session_state.get("user_name", "")
-        render_field_label(
-            st,
-            "Your name / clinic",
-            "This fills [Your Name] in prepared WhatsApp messages."
-        )
-        new_name = st.text_input(
-            "Your name / clinic (appears in WhatsApp messages):",
-            value=prev_name,
-            key=f"user_name_input_{key_prefix}",
-            placeholder="e.g. Mary from Neighbourhood Veterinary Clinic",
-            label_visibility="collapsed",
-        )
-        
-        # Auto-save to Google Sheets when the name changes
-        if new_name != prev_name:
-            st.session_state["user_name"] = new_name
-            st.session_state["user_name_updated_at"] = datetime.utcnow().isoformat()
-            save_settings_quietly()
-            record_settings_audit_event("sender_name_updated", "template", "whatsapp", "user_name", prev_name, new_name, "reminders_tab")
-            st.toast("✅ Name saved to settings.")
+        st.caption("Review and edit the prepared message before opening WhatsApp.")
 
 
         if msg_key not in st.session_state:
@@ -8913,6 +8915,10 @@ if st.session_state.get("working_df") is not None:
     with reminders_page_tab:
         st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
         st.markdown("## 📅 Reminders")
+
+        sender_col, _sender_spacer = st.columns([2, 3], gap="large")
+        with sender_col:
+            render_sender_name_input("reminders_top")
 
         # ✅ safety: if schema changed but cache is stale, rebuild
         if "BaseIntervalDays" not in prepared.columns:
