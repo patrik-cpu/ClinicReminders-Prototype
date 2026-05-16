@@ -1108,44 +1108,56 @@ st.markdown(
     .st-key-toggle_create_account {
         width: 100% !important;
     }
-    div[data-testid="stTextInput"] {
+    .st-key-login_username_input,
+    .st-key-login_password_input {
         width: 100% !important;
     }
-    .stTextInput label,
-    div[data-testid="stTextInput"] label,
-    div[data-testid="stTextInput"] label p {
+    .st-key-login_username_input label,
+    .st-key-login_password_input label,
+    .st-key-login_username_input label p,
+    .st-key-login_password_input label p {
         color: var(--cr-text) !important;
+        font-size: 0.9rem !important;
+        font-weight: 700 !important;
+        margin-bottom: 0.3rem !important;
     }
-    div[data-testid="stTextInput"] input {
-        background: #f6f8fb !important;
-        border: 1px solid #e1e7ef !important;
-        color: #101828 !important;
-        -webkit-text-fill-color: #101828 !important;
-        caret-color: #101828 !important;
-    }
-    div[data-testid="stTextInput"] input:focus {
-        background: #ffffff !important;
-        border-color: #29D272 !important;
-        box-shadow: 0 0 0 1px rgba(41, 210, 114, 0.35) !important;
-    }
-    div[data-testid="stTextInput"] input::placeholder {
-        color: #667085 !important;
-        -webkit-text-fill-color: #667085 !important;
-    }
-    div[data-testid="stTextInput"] [data-baseweb="base-input"] {
+    .st-key-login_username_input [data-baseweb="input"],
+    .st-key-login_username_input [data-baseweb="base-input"],
+    .st-key-login_password_input [data-baseweb="input"],
+    .st-key-login_password_input [data-baseweb="base-input"] {
         align-items: center !important;
-        background: #f6f8fb !important;
-        border: 1px solid #1f2937 !important;
-        border-radius: 6px !important;
+        background: #f8fafc !important;
+        border: 1px solid #d9e3ec !important;
+        border-radius: 8px !important;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+        min-height: 2.75rem !important;
         overflow: hidden !important;
-        min-height: 2.5rem !important;
+        width: 100% !important;
     }
-    div[data-testid="stTextInput"] [data-baseweb="base-input"] input {
+    .st-key-login_username_input input,
+    .st-key-login_password_input input {
+        background: transparent !important;
         border: 0 !important;
         box-shadow: none !important;
+        color: #101828 !important;
+        height: 2.75rem !important;
+        outline: 0 !important;
+        padding-left: 0.85rem !important;
+        padding-right: 0.85rem !important;
+        -webkit-text-fill-color: #101828 !important;
+        width: 100% !important;
     }
-    .st-key-login_password_input button {
-        display: none !important;
+    .st-key-login_password_input input {
+        -webkit-text-security: disc !important;
+        text-security: disc !important;
+    }
+    .st-key-login_username_input [data-baseweb="input"]:focus-within,
+    .st-key-login_username_input [data-baseweb="base-input"]:focus-within,
+    .st-key-login_password_input [data-baseweb="input"]:focus-within,
+    .st-key-login_password_input [data-baseweb="base-input"]:focus-within {
+        background: #ffffff !important;
+        border-color: #29D272 !important;
+        box-shadow: 0 0 0 2px rgba(41, 210, 114, 0.16) !important;
     }
     .st-key-google_signup_button button {
         background: #ffffff !important;
@@ -4717,8 +4729,8 @@ if not st.session_state["logged_in"]:
             st.success(logout_notice)
         with st.form("clinic_login_form"):
             st.markdown("<span class='login-form-marker'></span>", unsafe_allow_html=True)
-            username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0])
-            password = st.text_input("Password", type="password", value="", key="login_password_input")
+            username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0], key="login_username_input")
+            password = st.text_input("Password", value="", key="login_password_input")
             login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
 
         google_auth_ready = authlib_available()
