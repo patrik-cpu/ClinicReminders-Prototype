@@ -11,6 +11,7 @@ class VisualThemeCssTests(unittest.TestCase):
 
         for selector in [
             'div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"]',
+            '[data-baseweb="base-input"]',
             'div[data-testid="stNumberInput"] [data-baseweb="input"]',
             'div[data-testid="stCheckbox"] label',
             'div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) div[data-testid="stPopover"] button',
@@ -18,8 +19,15 @@ class VisualThemeCssTests(unittest.TestCase):
             with self.subTest(selector=selector):
                 self.assertIn(selector, source)
 
+        self.assertIn("color-scheme: light !important;", source)
         self.assertIn("background: #ffffff !important;", source)
         self.assertIn("-webkit-text-fill-color: #101828 !important;", source)
+
+    def test_streamlit_theme_defaults_to_light(self):
+        config = (REPO_ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
+
+        self.assertIn('base = "light"', config)
+        self.assertIn('backgroundColor = "#f6faf7"', config)
 
 
 if __name__ == "__main__":

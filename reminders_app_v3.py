@@ -1338,7 +1338,11 @@ st.markdown(
     }
     .stApp, [data-testid="stAppViewContainer"] {
         background: var(--cr-app-bg) !important;
+        color-scheme: light !important;
         color: var(--cr-text);
+    }
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], [data-baseweb] {
+        color-scheme: light !important;
     }
     header[data-testid="stHeader"],
     [data-testid="stHeader"],
@@ -1434,9 +1438,50 @@ st.markdown(
     div[data-testid="InputInstructions"] {
         display: none !important;
     }
+    [data-baseweb="input"],
+    [data-baseweb="base-input"],
+    [data-baseweb="textarea"],
+    [data-baseweb="select"] > div {
+        background-color: #ffffff !important;
+        border-color: #d0d7e2 !important;
+        color: #101828 !important;
+        box-shadow: none !important;
+    }
+    [data-baseweb="input"] *,
+    [data-baseweb="base-input"] *,
+    [data-baseweb="textarea"] *,
+    [data-baseweb="select"] *,
+    [data-baseweb="checkbox"] * {
+        color-scheme: light !important;
+    }
+    [data-baseweb="input"] input,
+    [data-baseweb="base-input"] input,
+    [data-baseweb="textarea"] textarea {
+        background-color: transparent !important;
+        color: #101828 !important;
+        -webkit-text-fill-color: #101828 !important;
+    }
+    [data-baseweb="input"] input::placeholder,
+    [data-baseweb="base-input"] input::placeholder,
+    [data-baseweb="textarea"] textarea::placeholder {
+        color: #667085 !important;
+        -webkit-text-fill-color: #667085 !important;
+        opacity: 1 !important;
+    }
+    [data-baseweb="checkbox"] {
+        color: #101828 !important;
+    }
+    [data-baseweb="checkbox"] > div,
+    [data-baseweb="checkbox"] span:first-child {
+        border-color: #667085 !important;
+        color-scheme: light !important;
+    }
     div[data-testid="stTextInput"] [data-baseweb="input"],
+    div[data-testid="stTextInput"] [data-baseweb="base-input"],
     div[data-testid="stNumberInput"] [data-baseweb="input"],
+    div[data-testid="stNumberInput"] [data-baseweb="base-input"],
     div[data-testid="stDateInput"] [data-baseweb="input"],
+    div[data-testid="stDateInput"] [data-baseweb="base-input"],
     div[data-testid="stTextArea"] [data-baseweb="textarea"],
     div[data-testid="stSelectbox"] [data-baseweb="select"] > div {
         background: #ffffff !important;
