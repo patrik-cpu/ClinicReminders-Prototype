@@ -9105,9 +9105,6 @@ def render_whatsapp_tools(key_prefix: str, msg_key: str):
             """,
             unsafe_allow_html=True,
         )
-        st.caption(
-            "Example: Hi [Client Name], this is [Your Name] reminding you that [Pet Name] is due for their [Item] on the [Due Date]."
-        )
 
 def normalize_display_case(text: str) -> str:
     if not isinstance(text, str):
