@@ -5307,8 +5307,8 @@ def google_identity_matches_row(row: dict, google_user: dict) -> bool:
     row_email = normalize_email(row.get(SHEET_COL_GOOGLE_EMAIL, ""))
     google_subject = str(google_user.get("subject", "")).strip()
     google_email = normalize_email(google_user.get("email", ""))
-    if row_subject and google_subject and hmac.compare_digest(row_subject, google_subject):
-        return True
+    if row_subject:
+        return bool(google_subject and hmac.compare_digest(row_subject, google_subject))
     return bool(row_email and google_email and hmac.compare_digest(row_email, google_email))
 
 
@@ -5794,12 +5794,21 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
 
     old_clinic_id = require_authenticated_tenant_access(old_clinic_id)
     old_row = get_clinic_row(old_clinic_id) or {}
+    stored_auth_provider = str(old_row.get(SHEET_COL_AUTH_PROVIDER, "")).strip()
+    stored_google_subject = str(old_row.get(SHEET_COL_GOOGLE_SUBJECT, "")).strip()
+    stored_google_email = normalize_email(old_row.get(SHEET_COL_GOOGLE_EMAIL, ""))
+    google_identity_locked = stored_auth_provider == GOOGLE_AUTH_PROVIDER or bool(stored_google_subject)
+    if google_identity_locked:
+        if email and email != stored_google_email:
+            raise ValueError("Google sign-in email is managed by Google and cannot be changed here.")
+        email = stored_google_email
     updated_at = utc_now_iso()
     values_by_header = {
         "ClinicID": new_clinic_id,
-        SHEET_COL_GOOGLE_EMAIL: email,
         "UpdatedAt": updated_at,
     }
+    if not google_identity_locked:
+        values_by_header[SHEET_COL_GOOGLE_EMAIL] = email
     file_id = str(old_row.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
     if file_id and new_clinic_id.lower() != old_clinic_id.lower():
         new_filename = f"{new_clinic_id}_shared_dataset.csv"
@@ -5875,7 +5884,8 @@ def delete_clinic_account_and_data(clinic_id: str) -> dict:
 def profile_dialog_html(profile: dict) -> str:
     provider = str(profile.get("auth_provider", "")).strip()
     sign_in_copy = (
-        "This clinic signs in with Google. Use Continue with Google next time; your Google password is never entered here."
+        "This clinic signs in with Google. Use Continue with Google next time; your Google password is never entered here. "
+        "The Google sign-in email is managed by Google and cannot be changed in this profile."
         if provider == GOOGLE_AUTH_PROVIDER
         else "This clinic can sign in with its clinic username and password."
     )
@@ -5909,9 +5919,14 @@ def render_profile_dialog():
 
     def _render_dialog_body():
         st.markdown(profile_dialog_html(profile), unsafe_allow_html=True)
+        google_profile = profile.get("auth_provider") == GOOGLE_AUTH_PROVIDER
         with st.form("profile_form"):
             new_clinic_id = st.text_input("Clinic name", value=profile.get("clinic_id", ""))
-            new_email = st.text_input("Email", value=profile.get("email", ""))
+            new_email = st.text_input(
+                "Google sign-in email" if google_profile else "Email",
+                value=profile.get("email", ""),
+                disabled=google_profile,
+            )
             submitted = st.form_submit_button("Save profile", type="primary", use_container_width=True)
 
         if submitted:

@@ -369,10 +369,21 @@ class AuthSessionTests(unittest.TestCase):
         )
         self.assertFalse(
             self.app.google_identity_matches_row(
-                {"GoogleSubject": "other", "GoogleEmail": "other@example.com"},
+                {"GoogleSubject": "other", "GoogleEmail": "owner@example.com"},
                 google_user,
             )
         )
+
+    def test_google_profile_copy_makes_email_read_only(self):
+        html = self.app.profile_dialog_html(
+            {
+                "auth_provider": self.app.GOOGLE_AUTH_PROVIDER,
+                "email": "owner@example.com",
+            }
+        )
+
+        self.assertIn("Google sign-in email is managed by Google", html)
+        self.assertIn("cannot be changed", html)
 
     def test_clinic_row_lookup_handles_non_string_sheet_values(self):
         class FakeSheet:

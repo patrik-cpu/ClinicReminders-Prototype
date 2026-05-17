@@ -225,6 +225,31 @@ class AuditCharacterizationTests(unittest.TestCase):
         )
         update_rows.assert_called_once_with("Clinic A", "Clinic Renamed")
 
+    def test_update_clinic_profile_rejects_google_sign_in_email_change(self):
+        old_row = {
+            "ClinicID": "Clinic A",
+            self.app.SHEET_COL_AUTH_PROVIDER: self.app.GOOGLE_AUTH_PROVIDER,
+            self.app.SHEET_COL_GOOGLE_EMAIL: "owner@example.com",
+            self.app.SHEET_COL_GOOGLE_SUBJECT: "google-subject",
+        }
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+
+        with (
+            patch.object(self.app, "get_clinic_row", return_value=old_row),
+            patch.object(self.app, "update_settings_row_fields") as update_fields,
+            patch.object(self.app, "update_rows_with_clinic_id") as update_rows,
+        ):
+            with self.assertRaisesRegex(ValueError, "Google sign-in email"):
+                self.app.update_clinic_profile(
+                    "Clinic A",
+                    "Clinic A",
+                    "other@example.com",
+                )
+
+        update_fields.assert_not_called()
+        update_rows.assert_not_called()
+
     def test_profile_rename_revalidates_dataset_pointer_before_identity_update(self):
         old_row = {
             "ClinicID": "Clinic A",
