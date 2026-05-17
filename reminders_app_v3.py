@@ -125,8 +125,17 @@ with title_col:
             padding-top: 0.25rem;
         }
         div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) div[data-testid="stPopover"] button {
+            background: #ffffff !important;
+            border: 1px solid #d0d7e2 !important;
+            border-radius: 8px !important;
+            color: #101828 !important;
             min-width: 7.5rem;
             width: auto !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) div[data-testid="stPopover"] button p {
+            color: #101828 !important;
+            font-weight: 700 !important;
+            margin: 0 !important;
         }
         .cr-brand-card {
             background: transparent;
@@ -1424,6 +1433,72 @@ st.markdown(
     }
     div[data-testid="InputInstructions"] {
         display: none !important;
+    }
+    div[data-testid="stTextInput"] [data-baseweb="input"],
+    div[data-testid="stNumberInput"] [data-baseweb="input"],
+    div[data-testid="stDateInput"] [data-baseweb="input"],
+    div[data-testid="stTextArea"] [data-baseweb="textarea"],
+    div[data-testid="stSelectbox"] [data-baseweb="select"] > div {
+        background: #ffffff !important;
+        border-color: #d0d7e2 !important;
+        color: #101828 !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stDateInput"] input,
+    div[data-testid="stTextArea"] textarea,
+    div[data-testid="stSelectbox"] div,
+    div[data-testid="stSelectbox"] span {
+        color: #101828 !important;
+        -webkit-text-fill-color: #101828 !important;
+    }
+    div[data-testid="stTextInput"] input::placeholder,
+    div[data-testid="stNumberInput"] input::placeholder,
+    div[data-testid="stDateInput"] input::placeholder,
+    div[data-testid="stTextArea"] textarea::placeholder {
+        color: #667085 !important;
+        -webkit-text-fill-color: #667085 !important;
+        opacity: 1 !important;
+    }
+    div[data-testid="stNumberInput"] button {
+        background: #ffffff !important;
+        border-color: #d0d7e2 !important;
+        color: #334155 !important;
+    }
+    div[data-testid="stNumberInput"] button svg {
+        color: #334155 !important;
+        fill: #334155 !important;
+    }
+    div[data-testid="stCheckbox"] label,
+    div[data-testid="stCheckbox"] label p,
+    div[data-testid="stCheckbox"] label span {
+        color: #101828 !important;
+        -webkit-text-fill-color: #101828 !important;
+    }
+    div[data-testid="stCheckbox"] [data-baseweb="checkbox"] {
+        background: #ffffff !important;
+        border-color: #667085 !important;
+    }
+    div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
+        background: #ffffff !important;
+        border: 1px dashed #b8c7d3 !important;
+        color: #101828 !important;
+    }
+    div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] button {
+        background: #ffffff !important;
+        border: 1px solid #d0d7e2 !important;
+        color: #101828 !important;
+    }
+    div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] button p,
+    div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] p,
+    div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] span {
+        color: #101828 !important;
+        -webkit-text-fill-color: #101828 !important;
+    }
+    div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] svg {
+        color: #29D272 !important;
+        fill: #29D272 !important;
     }
     div[data-testid="stFormSubmitButton"] button[kind="primary"],
     div[data-testid="stButton"] button[kind="primary"] {
