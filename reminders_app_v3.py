@@ -1521,6 +1521,10 @@ st.markdown(
         color: #101828 !important;
         -webkit-text-fill-color: #101828 !important;
     }
+    div[data-testid="stCheckbox"] label p,
+    div[data-testid="stCheckbox"] label div[data-testid="stMarkdownContainer"] {
+        background: transparent !important;
+    }
     div[data-testid="stCheckbox"] label,
     div[data-testid="stCheckbox"] [data-baseweb="checkbox"] {
         background: transparent !important;

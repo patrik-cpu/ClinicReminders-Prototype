@@ -27,6 +27,10 @@ class VisualThemeCssTests(unittest.TestCase):
             source,
             r'div\[data-testid="stCheckbox"\] \[data-baseweb="checkbox"\] \{\s+background: transparent !important;',
         )
+        self.assertRegex(
+            source,
+            r'div\[data-testid="stCheckbox"\] label div\[data-testid="stMarkdownContainer"\] \{\s+background: transparent !important;',
+        )
         self.assertNotIn(
             'div[data-testid="stCheckbox"] [data-baseweb="checkbox"] {\n        background: #ffffff !important;',
             source,
