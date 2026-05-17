@@ -3238,6 +3238,27 @@ def dataset_summary_checks(rows: list[dict]) -> list[dict]:
         },
     ]
 
+
+def dataset_summary_checks_html(rows: list[dict]) -> str:
+    checks = dataset_summary_checks(rows)
+    check_items = []
+    for check in checks:
+        status_class = "good" if check.get("good") else "bad"
+        icon = "✅" if check.get("good") else "⚠️"
+        text = html_lib.escape(str(check.get("text", "")))
+        check_items.append(
+            f"<div class='dataset-check {status_class}'>{icon} {text}</div>"
+        )
+    return f"<div class='dataset-check-grid'>{''.join(check_items)}</div>"
+
+
+def render_dataset_summary_checks(rows: list[dict]):
+    normalized_rows = normalize_dataset_upload_history(rows)
+    if not normalized_rows:
+        return
+    st.markdown(dataset_summary_checks_html(normalized_rows), unsafe_allow_html=True)
+
+
 def date_ranges_overlap(
     first_min: pd.Timestamp | None,
     first_max: pd.Timestamp | None,
@@ -7924,6 +7945,7 @@ with data_tab:
     dataset_summary_slot = st.empty()
     with dataset_summary_slot.container():
         render_dataset_date_range(saved_rows=saved_dataset_rows)
+        render_dataset_summary_checks(saved_dataset_rows)
     st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
     st.markdown(data_assurance_box_html(), unsafe_allow_html=True)
 

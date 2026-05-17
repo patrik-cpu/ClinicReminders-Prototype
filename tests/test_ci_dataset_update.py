@@ -50,6 +50,28 @@ class DatasetUpdateTests(unittest.TestCase):
 
         self.assertEqual(list(merged["Client Name"]), ["Jan", "Feb"])
 
+    def test_dataset_summary_checks_html_renders_three_status_boxes(self):
+        rows = [
+            {
+                "file_name": "full-year.csv",
+                "pms": "VetPORT",
+                "rows": 100,
+                "from": "2025-01-01",
+                "to": "2025-12-31",
+                "status": "Saved",
+            }
+        ]
+
+        with patch.object(self.app, "user_today", return_value=pd.Timestamp("2026-01-01").date()):
+            html = self.app.dataset_summary_checks_html(rows)
+
+        self.assertIn("dataset-check-grid", html)
+        self.assertEqual(html.count("dataset-check "), 3)
+        self.assertIn("Same supported PMS", html)
+        self.assertIn("Most impactful (previous 30-365) days present", html)
+        self.assertIn("No 3+ day gaps between CSVs", html)
+        self.assertEqual(html.count("dataset-check good"), 3)
+
     def test_overlapping_upload_dedupes_by_billed_item_identity(self):
         existing = pd.DataFrame(
             {
