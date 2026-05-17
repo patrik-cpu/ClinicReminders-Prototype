@@ -220,7 +220,6 @@ SHEET_COL_ACCOUNT_STATUS = "AccountStatus"
 GOOGLE_AUTH_PROVIDER = "google"
 SETTINGS_BASE_COLUMNS = [
     SHEET_COL_CLINIC_ID,
-    SHEET_COL_PLAIN_PASSWORD,
     SHEET_COL_PASSWORD_HASH,
     SHEET_COL_SETTINGS_JSON,
     SHEET_COL_UPDATED_AT,
@@ -554,6 +553,33 @@ def ensure_settings_sheet_columns(
     return updated_headers
 
 
+def clear_legacy_plain_password_column(sheet=None, headers: list[str] | None = None) -> int:
+    sheet = sheet or get_settings_sheet()
+    values = _gspread_retry(sheet.get_all_values) or []
+    if headers is None:
+        headers = list(values[0]) if values else []
+    else:
+        headers = list(headers)
+
+    if SHEET_COL_PLAIN_PASSWORD not in headers:
+        return 0
+
+    plain_password_idx = _settings_col_index(headers, SHEET_COL_PLAIN_PASSWORD)
+    updates = []
+    for row_idx, row in enumerate(values[1:], start=2):
+        current = row[plain_password_idx - 1] if len(row) >= plain_password_idx else ""
+        if str(current or "").strip():
+            updates.append({
+                "range": _row_range_a1(row_idx, plain_password_idx, plain_password_idx),
+                "values": [[""]],
+            })
+
+    if updates:
+        _gspread_retry(sheet.batch_update, updates)
+        st.session_state.pop("_settings_row_cache", None)
+    return len(updates)
+
+
 def worksheet_values_have_settings_schema(values: list[list[str]] | None) -> bool:
     if not values:
         return False
@@ -612,6 +638,7 @@ def get_or_create_settings_worksheet(spreadsheet):
 
     headers = list(values[0]) if values else list(SETTINGS_REQUIRED_COLUMNS)
     ensure_settings_sheet_columns(worksheet, headers, SETTINGS_REQUIRED_COLUMNS)
+    clear_legacy_plain_password_column(worksheet, headers)
     return worksheet
 
 
@@ -653,9 +680,9 @@ def _update_settings_cells(sheet, headers, row_idx, settings_json, updated_at):
 def _update_password_cells(sheet, headers, row_idx, plain_password, password_hash, updated_at):
     updates = []
     for col_name, value in (
-        ("PlainPassword", plain_password),
-        ("PasswordHash", password_hash),
-        ("UpdatedAt", updated_at),
+        (SHEET_COL_PLAIN_PASSWORD, plain_password),
+        (SHEET_COL_PASSWORD_HASH, password_hash),
+        (SHEET_COL_UPDATED_AT, updated_at),
     ):
         if col_name in headers:
             col_idx = _settings_col_index(headers, col_name)
@@ -772,10 +799,72 @@ def get_cached_remote_settings(clinic_id: str) -> dict:
     if isinstance(cached, dict) and cached.get("clinic_key") == clinic_key:
         return _copy_settings_dict(cached.get("settings", {}))
     return {}
-    
-def drive_trash_file(file_id: str):
+
+
+TENANT_AUTHORIZATION_MESSAGE = "This action is not authorized for the signed-in clinic."
+
+
+class TenantAuthorizationError(PermissionError):
+    pass
+
+
+def require_authenticated_tenant_access(clinic_id: str) -> str:
+    target_clinic_id = str(clinic_id or "").strip()
+    current_clinic_id = str(st.session_state.get("clinic_id", "") or "").strip()
+    if (
+        not target_clinic_id
+        or not st.session_state.get("logged_in")
+        or normalize_clinic_id_key(current_clinic_id) != normalize_clinic_id_key(target_clinic_id)
+    ):
+        raise TenantAuthorizationError(TENANT_AUTHORIZATION_MESSAGE)
+    return target_clinic_id
+
+
+def drive_file_owner_key(file_id: str) -> str:
+    if not file_id:
+        return ""
+    service = get_drive_service()
+    metadata = service.files().get(
+        fileId=file_id,
+        fields="id,appProperties",
+        supportsAllDrives=True,
+    ).execute()
+    app_properties = metadata.get("appProperties", {}) or {}
+    return normalize_clinic_id_key(
+        app_properties.get("clinic_id")
+        or app_properties.get("ClinicID")
+        or app_properties.get("clinicId")
+        or ""
+    )
+
+
+def require_clinic_dataset_file_access(
+    clinic_id: str,
+    file_id: str,
+    current_file_id: str | None = None,
+) -> str:
+    clinic_id = require_authenticated_tenant_access(clinic_id)
+    file_id = str(file_id or "").strip()
+    if not file_id:
+        return clinic_id
+
+    if current_file_id is None:
+        current_file_id, _ = get_existing_dataset_pointer(clinic_id)
+    current_file_id = str(current_file_id or "").strip()
+    if current_file_id and str(current_file_id).strip() != file_id:
+        raise TenantAuthorizationError(TENANT_AUTHORIZATION_MESSAGE)
+
+    owner_key = drive_file_owner_key(file_id)
+    if owner_key and owner_key != normalize_clinic_id_key(clinic_id):
+        raise TenantAuthorizationError(TENANT_AUTHORIZATION_MESSAGE)
+    return clinic_id
+
+
+def drive_trash_file(file_id: str, clinic_id: str | None = None, current_file_id: str | None = None):
     if not file_id:
         return
+    if clinic_id is not None:
+        require_clinic_dataset_file_access(clinic_id, file_id, current_file_id=current_file_id)
     service = get_drive_service()
     service.files().update(
         fileId=file_id,
@@ -784,9 +873,11 @@ def drive_trash_file(file_id: str):
     ).execute()
 
 
-def drive_rename_file(file_id: str, filename: str):
+def drive_rename_file(file_id: str, filename: str, clinic_id: str | None = None, current_file_id: str | None = None):
     if not file_id or not filename:
         return
+    if clinic_id is not None:
+        require_clinic_dataset_file_access(clinic_id, file_id, current_file_id=current_file_id)
     service = get_drive_service()
     service.files().update(
         fileId=file_id,
@@ -1820,6 +1911,21 @@ def render_field_label(container, label: str, help_text: str, class_name: str = 
         unsafe_allow_html=True,
     )
 
+
+def safe_html_text(value) -> str:
+    return html_lib.escape(str(value or ""))
+
+
+def padded_html_text(value) -> str:
+    return f"<div style='padding-top:8px;'>{safe_html_text(value)}</div>"
+
+
+def patient_exclusion_label_html(client_name: str, patient_name: str) -> str:
+    return (
+        f"<div style='padding-top:8px;'>{safe_html_text(client_name)}"
+        f" - {safe_html_text(patient_name)}</div>"
+    )
+
 # --------------------------------
 # Defaults
 # --------------------------------
@@ -1870,19 +1976,174 @@ DEFAULT_WA_TEMPLATE = (
 # === CONFIGURATION ===
 SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ← your ClinicReminders_Settings_Master Sheet ID
 SETTINGS_SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-REMEMBER_LOGIN_DAYS = 3650
+REMEMBER_LOGIN_DAYS = 30
+REMEMBER_LOGIN_QUERY_PARAM = "remember"
 PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 260_000
 PASSWORD_SALT_BYTES = 16
+PASSWORD_MIN_LENGTH = 12
+COMMON_PASSWORD_KEYS = {
+    "123456789012",
+    "admin123456",
+    "changeme123456",
+    "clinicreminders",
+    "letmein123456",
+    "password",
+    "password123",
+    "password1234",
+    "password12345",
+    "password123456",
+    "qwerty123456",
+    "welcome123456",
+}
 LOGIN_TRACKER_EVENTS = {"login", "google_login", "remembered_login"}
+AUTH_ABUSE_STATE_KEY = "_auth_abuse_controls"
+LOGIN_FAILURE_LIMIT = 5
+LOGIN_FAILURE_WINDOW_SECONDS = 10 * 60
+LOGIN_LOCKOUT_SECONDS = 15 * 60
+SIGNUP_ATTEMPT_LIMIT = 3
+SIGNUP_ATTEMPT_WINDOW_SECONDS = 60 * 60
+SIGNUP_LOCKOUT_SECONDS = 60 * 60
 
 # === DEV AUTO-LOGIN ===
 DEV_AUTO_LOGIN = False
 DEV_AUTO_LOGIN_CREDENTIALS = ("", "")
 AUTO_LOGIN_ALLOWED_USERNAME = "PatTest"
 
+
 def auto_login_allowed(username: str) -> bool:
-    return str(username or "").strip().lower() == AUTO_LOGIN_ALLOWED_USERNAME.lower()
+    return (
+        str(username or "").strip().lower()
+        == AUTO_LOGIN_ALLOWED_USERNAME.lower()
+    )
+
+
+def _auth_abuse_state(state=None) -> dict:
+    state = st.session_state if state is None else state
+    return state.setdefault(
+        AUTH_ABUSE_STATE_KEY,
+        {
+            "login": {},
+            "signup": {"attempts": [], "locked_until": 0.0},
+        },
+    )
+
+
+def _timestamp(now=None) -> float:
+    if now is None:
+        return time.time()
+    if isinstance(now, datetime):
+        return now.timestamp()
+    return float(now)
+
+
+def _retry_after_seconds(locked_until: float, now: float) -> int:
+    return max(0, int(locked_until - now + 0.999))
+
+
+def _recent_timestamps(
+    values: list,
+    now: float,
+    window_seconds: int,
+) -> list[float]:
+    cutoff = now - window_seconds
+    return [float(value) for value in values if float(value) >= cutoff]
+
+
+def login_attempt_allowed(
+    username: str,
+    now=None,
+    state=None,
+) -> tuple[bool, int]:
+    abuse_state = _auth_abuse_state(state)
+    key = normalize_clinic_id_key(username) or "<blank>"
+    entry = abuse_state["login"].setdefault(
+        key,
+        {"failures": [], "locked_until": 0.0},
+    )
+    current = _timestamp(now)
+    locked_until = float(entry.get("locked_until", 0.0) or 0.0)
+    if locked_until > current:
+        return False, _retry_after_seconds(locked_until, current)
+
+    entry["failures"] = _recent_timestamps(
+        entry.get("failures", []),
+        current,
+        LOGIN_FAILURE_WINDOW_SECONDS,
+    )
+    return True, 0
+
+
+def record_failed_login_attempt(username: str, now=None, state=None) -> None:
+    abuse_state = _auth_abuse_state(state)
+    key = normalize_clinic_id_key(username) or "<blank>"
+    entry = abuse_state["login"].setdefault(
+        key,
+        {"failures": [], "locked_until": 0.0},
+    )
+    current = _timestamp(now)
+    failures = _recent_timestamps(
+        entry.get("failures", []),
+        current,
+        LOGIN_FAILURE_WINDOW_SECONDS,
+    )
+    failures.append(current)
+    entry["failures"] = failures
+    if len(failures) >= LOGIN_FAILURE_LIMIT:
+        entry["locked_until"] = current + LOGIN_LOCKOUT_SECONDS
+
+
+def record_successful_login_attempt(username: str, state=None) -> None:
+    abuse_state = _auth_abuse_state(state)
+    abuse_state["login"].pop(
+        normalize_clinic_id_key(username) or "<blank>",
+        None,
+    )
+
+
+def signup_attempt_allowed(now=None, state=None) -> tuple[bool, int]:
+    abuse_state = _auth_abuse_state(state)
+    entry = abuse_state.setdefault(
+        "signup",
+        {"attempts": [], "locked_until": 0.0},
+    )
+    current = _timestamp(now)
+    locked_until = float(entry.get("locked_until", 0.0) or 0.0)
+    if locked_until > current:
+        return False, _retry_after_seconds(locked_until, current)
+
+    attempts = _recent_timestamps(
+        entry.get("attempts", []),
+        current,
+        SIGNUP_ATTEMPT_WINDOW_SECONDS,
+    )
+    entry["attempts"] = attempts
+    if len(attempts) >= SIGNUP_ATTEMPT_LIMIT:
+        entry["locked_until"] = current + SIGNUP_LOCKOUT_SECONDS
+        return False, SIGNUP_LOCKOUT_SECONDS
+    return True, 0
+
+
+def record_signup_attempt(now=None, state=None) -> None:
+    abuse_state = _auth_abuse_state(state)
+    entry = abuse_state.setdefault(
+        "signup",
+        {"attempts": [], "locked_until": 0.0},
+    )
+    current = _timestamp(now)
+    attempts = _recent_timestamps(
+        entry.get("attempts", []),
+        current,
+        SIGNUP_ATTEMPT_WINDOW_SECONDS,
+    )
+    attempts.append(current)
+    entry["attempts"] = attempts
+
+
+def auth_retry_message(action: str, retry_after_seconds: int) -> str:
+    minutes = max(1, int((retry_after_seconds + 59) / 60))
+    unit = "minute" if minutes == 1 else "minutes"
+    return f"Too many {action} attempts. Try again in about {minutes} {unit}."
 
 # === GOOGLE DRIVE CONFIG ===
 @st.cache_resource
@@ -1896,7 +2157,9 @@ def get_drive_service():
 
     return build("drive", "v3", credentials=creds)
 
-def drive_download_bytes(file_id: str) -> bytes:
+def drive_download_bytes(file_id: str, clinic_id: str | None = None, current_file_id: str | None = None) -> bytes:
+    if clinic_id is not None:
+        require_clinic_dataset_file_access(clinic_id, file_id, current_file_id=current_file_id)
     service = get_drive_service()
     try:
         request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
@@ -1907,12 +2170,13 @@ def drive_download_bytes(file_id: str) -> bytes:
             _, done = downloader.next_chunk()
         return fh.getvalue()
     except HttpError as e:
-        # Show useful info in Streamlit
-        st.error(f"Drive download failed. HTTP {getattr(e.resp, 'status', '?')}")
-        try:
-            st.code(e.content.decode("utf-8"))
-        except Exception:
-            pass
+        record_error_tracker_event(
+            "drive_download_failed",
+            stage="drive_download_bytes",
+            error=e,
+            source="drive_download_bytes",
+        )
+        st.error("Drive download failed. Please try again or contact support.")
         raise
 
 def drive_query_literal(value: str) -> str:
@@ -2055,6 +2319,7 @@ def load_shared_dataset_for_clinic():
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id:
         return
+    clinic_id = require_authenticated_tenant_access(clinic_id)
 
     rec = None
     try:
@@ -2121,7 +2386,7 @@ def load_shared_dataset_for_clinic():
     load_started = time.perf_counter()
     try:
         with busy_overlay("Loading saved clinic data", "Getting the latest saved data for this clinic."):
-            file_bytes = drive_download_bytes(file_id)
+            file_bytes = drive_download_bytes(file_id, clinic_id=clinic_id, current_file_id=file_id)
 
             # Reuse your existing pipeline so schema normalization still happens
             # Filename is just for detect logic; use stored name if present, else default
@@ -2146,7 +2411,7 @@ def load_shared_dataset_for_clinic():
 
     except Exception as e:
         st.session_state["shared_dataset_loaded"] = False
-        st.session_state["shared_dataset_error"] = str(e)
+        st.session_state["shared_dataset_error"] = "Please try again or contact support."
         record_error_tracker_event(
             "shared_dataset_load_failed",
             stage="load_shared_dataset_for_clinic",
@@ -2190,7 +2455,7 @@ def shared_dataset_load_attempt_token(clinic_id: str) -> str:
 
 def ensure_shared_dataset_loaded_for_session():
     clinic_id = st.session_state.get("clinic_id")
-    if not clinic_id or st.session_state.get("working_df") is not None:
+    if not clinic_id or not st.session_state.get("logged_in") or st.session_state.get("working_df") is not None:
         return
     attempt_token = shared_dataset_load_attempt_token(clinic_id)
     if st.session_state.get("_shared_dataset_load_attempted_for") == attempt_token:
@@ -2203,6 +2468,7 @@ def drive_upsert_csv_bytes(
     filename: str,
     folder_id: str,
     existing_file_id: str | None,
+    clinic_id: str | None = None,
 ) -> str:
     """
     If existing_file_id is provided -> update that file in-place.
@@ -2210,19 +2476,29 @@ def drive_upsert_csv_bytes(
     Uses resumable upload to reduce BrokenPipe issues.
     Returns the fileId.
     """
+    if clinic_id is not None:
+        require_authenticated_tenant_access(clinic_id)
+        if existing_file_id:
+            require_clinic_dataset_file_access(clinic_id, existing_file_id)
     service = get_drive_service()
     media = MediaIoBaseUpload(BytesIO(file_bytes), mimetype="text/csv", resumable=True)
 
     if existing_file_id:
+        update_body: dict[str, object] = {}
+        if clinic_id is not None:
+            update_body["appProperties"] = {"clinic_id": require_authenticated_tenant_access(clinic_id)}
         req = service.files().update(
             fileId=existing_file_id,
+            body=update_body,
             media_body=media,
             supportsAllDrives=True,
         )
     else:
-        body = {"name": filename, "parents": [folder_id]}
+        create_body: dict[str, object] = {"name": filename, "parents": [folder_id]}
+        if clinic_id is not None:
+            create_body["appProperties"] = {"clinic_id": require_authenticated_tenant_access(clinic_id)}
         req = service.files().create(
-            body=body,
+            body=create_body,
             media_body=media,
             fields="id",
             supportsAllDrives=True,
@@ -2254,11 +2530,13 @@ def drive_check_folder_access(folder_id: str):
         ).execute()
         st.caption(f"Folder children visible: {len(resp.get('files', []))}")
     except HttpError as e:
-        st.error(f"Cannot access the Drive folder. HTTP {getattr(e.resp, 'status', '?')}")
-        try:
-            st.code(e.content.decode("utf-8"))
-        except Exception:
-            pass
+        record_error_tracker_event(
+            "drive_folder_access_failed",
+            stage="drive_check_folder_access",
+            error=e,
+            source="drive_check_folder_access",
+        )
+        st.error("Cannot access the Drive folder. Please check configuration or contact support.")
         raise
         
 def get_drive_service_uncached():
@@ -2386,7 +2664,7 @@ def get_existing_dataset_pointer(clinic_id: str) -> tuple[str, str]:
         return "", ""
     return str(current_row[fileid_ix]).strip(), str(current_row[fname_ix]).strip()
 
-def load_existing_shared_df(file_id: str, filename: str) -> pd.DataFrame | None:
+def load_existing_shared_df(file_id: str, filename: str, clinic_id: str | None = None) -> pd.DataFrame | None:
     """
     Loads an existing shared dataset from Drive (if file_id exists),
     then normalizes it through process_file so schema matches.
@@ -2395,7 +2673,7 @@ def load_existing_shared_df(file_id: str, filename: str) -> pd.DataFrame | None:
     if not file_id:
         return None
 
-    existing_bytes = drive_download_bytes(file_id)
+    existing_bytes = drive_download_bytes(file_id, clinic_id=clinic_id, current_file_id=file_id)
 
     # Normalize through your pipeline to guarantee canonical columns
     df_existing, _, _ = process_file(existing_bytes, filename or "shared_dataset.csv")
@@ -2716,17 +2994,21 @@ def publish_dataset_for_clinic(
     Returns:
       (merged_df, new_file_id, out_name)
     """
+    clinic_id = require_authenticated_tenant_access(clinic_id)
+
     # 1) Get current pointer (if any)
     if existing_file_id is None or existing_name is None:
         existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+    if existing_file_id:
+        require_clinic_dataset_file_access(clinic_id, existing_file_id)
 
     # 2) Load existing dataset if present
     if existing_df is None:
         try:
-            existing_df = load_existing_shared_df(existing_file_id, existing_name)
-        except Exception as e:
+            existing_df = load_existing_shared_df(existing_file_id, existing_name, clinic_id=clinic_id)
+        except Exception:
             # show signal but still allow publish
-            st.warning(f"Could not load existing shared dataset; saving upload as new. ({e})")
+            st.warning("Could not load existing shared dataset; saving upload as new.")
             existing_df = None
 
     # 3) Merge according to the clinic update rule
@@ -2746,6 +3028,7 @@ def publish_dataset_for_clinic(
         filename=out_name,
         folder_id=datasets_folder_id,
         existing_file_id=(existing_file_id or None),
+        clinic_id=clinic_id,
     )
     
     # ✅ Only update pointer after upload success
@@ -3151,7 +3434,6 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
                 headers,
                 {
                     SHEET_COL_CLINIC_ID: clinic_id,
-                    SHEET_COL_PLAIN_PASSWORD: "",
                     SHEET_COL_PASSWORD_HASH: "",
                     SHEET_COL_SETTINGS_JSON: settings_json,
                     SHEET_COL_UPDATED_AT: updated_at,
@@ -3590,7 +3872,7 @@ def record_wa_reminder_click(client_name: str, now: datetime | None = None, row=
         save_settings_quietly()
 
 
-def remove_wa_reminder_click_for_row(row):
+def remove_wa_reminder_click_for_row(row, queue_settings_removal: bool = True):
     target_key = list(hidden_reminder_key(row))
     if not any(target_key):
         return
@@ -3598,8 +3880,9 @@ def remove_wa_reminder_click_for_row(row):
         entry for entry in st.session_state.get("wa_reminder_log", [])
         if not (isinstance(entry, dict) and entry.get("ReminderKey") == target_key)
     ]
-    remove_keys = st.session_state.setdefault("_wa_reminder_remove_keys_once", [])
-    remove_keys.append(target_key)
+    if queue_settings_removal:
+        remove_keys = st.session_state.setdefault("_wa_reminder_remove_keys_once", [])
+        remove_keys.append(target_key)
 
 
 def record_action_tracker(row, action: str, message: str = "", source: str = "", now: datetime | None = None):
@@ -3990,7 +4273,15 @@ class UploadValidationError(ValueError):
     pass
 
 
+class UploadResourceLimitError(UploadValidationError):
+    pass
+
+
 REQUIRED_UPLOAD_COLUMNS = ["ChargeDate", "Client Name", "Animal Name", "Item Name"]
+MAX_UPLOAD_FILES = 5
+MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_ROWS = 250_000
+MAX_UPLOAD_COLUMNS = 200
 DATE_COLUMN_CANDIDATES = [
     "ChargeDate", "DateTime", "Date Time", "Date", "Invoice Date",
     "Planitem Performed", "PlanItem Performed", "Plan Item Performed",
@@ -4010,6 +4301,43 @@ VETPORT_ALIAS_COLUMNS = {
     "Item ID": "Plan Item ID",
     "Plan Item ID": "Plan Item ID",
 }
+
+
+def format_file_size(num_bytes: int) -> str:
+    mb = num_bytes / (1024 * 1024)
+    return f"{mb:.0f} MB" if mb >= 10 else f"{mb:.1f} MB"
+
+
+def validate_upload_file_size(file_bytes, filename: str) -> None:
+    size = len(file_bytes or b"")
+    if size > MAX_UPLOAD_FILE_BYTES:
+        raise UploadResourceLimitError(
+            f"{filename} is too large. Maximum upload size is "
+            f"{format_file_size(MAX_UPLOAD_FILE_BYTES)} per file."
+        )
+
+
+def validate_upload_file_collection(file_blobs) -> None:
+    if len(file_blobs or []) > MAX_UPLOAD_FILES:
+        raise UploadResourceLimitError(
+            f"Upload at most {MAX_UPLOAD_FILES} files at a time."
+        )
+    for fb in file_blobs or []:
+        validate_upload_file_size(fb.get("bytes", b""), fb.get("name", "upload"))
+
+
+def validate_upload_dataframe_limits(df: pd.DataFrame, filename: str) -> None:
+    row_count = len(df.index)
+    column_count = len(df.columns)
+    if row_count > MAX_UPLOAD_ROWS:
+        raise UploadResourceLimitError(
+            f"{filename} has too many rows. Maximum is {MAX_UPLOAD_ROWS:,} rows."
+        )
+    if column_count > MAX_UPLOAD_COLUMNS:
+        raise UploadResourceLimitError(
+            f"{filename} has too many columns. Maximum is "
+            f"{MAX_UPLOAD_COLUMNS:,} columns."
+        )
 
 
 def find_column_ci(columns, candidates):
@@ -4032,6 +4360,7 @@ def apply_vetport_alias_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def validate_upload_dataframe(df: pd.DataFrame, filename: str):
+    validate_upload_dataframe_limits(df, filename)
     missing = [col for col in REQUIRED_UPLOAD_COLUMNS if col not in df.columns]
     if missing:
         raise UploadValidationError(
@@ -4055,6 +4384,7 @@ def has_readable_canonical_upload_schema(df: pd.DataFrame) -> bool:
 
 def finalize_processed_upload_df(df: pd.DataFrame, filename: str) -> pd.DataFrame:
     df = sanitize_working_df(df)
+    validate_upload_dataframe_limits(df, filename)
     validate_upload_dataframe(df, filename)
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
@@ -4074,6 +4404,7 @@ def process_file(file_bytes, filename):
     """
 
     from io import BytesIO
+    validate_upload_file_size(file_bytes, filename)
     file = BytesIO(file_bytes)
     lowerfn = filename.lower()
 
@@ -4090,6 +4421,7 @@ def process_file(file_bytes, filename):
         df = pd.read_excel(file, dtype=str)
     else:
         raise ValueError("Unsupported file type")
+    validate_upload_dataframe_limits(df, filename)
     
     # Drop rows that are completely empty or whitespace-only
     df = df.replace(r"^\s*$", "", regex=True)
@@ -4276,6 +4608,51 @@ def tracker_cell_value(value, limit: int = TRACKER_CELL_TEXT_LIMIT) -> str:
     return value[: max(0, limit - 3)] + "..."
 
 
+_SENSITIVE_DIAGNOSTIC_KEYS = (
+    "access_token",
+    "api_key",
+    "apikey",
+    "client_secret",
+    "credential",
+    "credentials",
+    "password",
+    "passwd",
+    "pwd",
+    "refresh_token",
+    "remember",
+    "secret",
+    "signature",
+    "token",
+)
+_SENSITIVE_DIAGNOSTIC_KEY_PATTERN = "|".join(re.escape(key) for key in _SENSITIVE_DIAGNOSTIC_KEYS)
+_SENSITIVE_QUOTED_KV_RX = re.compile(
+    rf"(?i)([\"']?(?:{_SENSITIVE_DIAGNOSTIC_KEY_PATTERN})[\"']?\s*[:=]\s*[\"'])([^\"']*)([\"'])"
+)
+_SENSITIVE_BARE_KV_RX = re.compile(
+    rf"(?i)\b((?:{_SENSITIVE_DIAGNOSTIC_KEY_PATTERN})\s*[:=]\s*)([^,\s;&\]\}}]+)"
+)
+_AUTHORIZATION_BEARER_RX = re.compile(r"(?i)\b(Authorization\s*[:=]\s*)Bearer\s+[A-Za-z0-9._~+/=-]+")
+_AUTHORIZATION_VALUE_RX = re.compile(r"(?i)\b(Authorization\s*[:=]\s*)(?!Bearer\b)[^,\s;&\]\}}]+")
+_BEARER_TOKEN_RX = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
+_EMAIL_DIAGNOSTIC_RX = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+_LONG_OPAQUE_DIAGNOSTIC_RX = re.compile(r"\b[A-Za-z0-9_-]{20,}\b")
+
+
+def sanitize_diagnostic_message(value, limit: int = TRACKER_CELL_TEXT_LIMIT) -> str:
+    message = tracker_cell_value(value, limit=max(limit * 2, limit))
+    if not message:
+        return ""
+
+    message = _SENSITIVE_QUOTED_KV_RX.sub(r"\1[redacted]\3", message)
+    message = _SENSITIVE_BARE_KV_RX.sub(r"\1[redacted]", message)
+    message = _AUTHORIZATION_BEARER_RX.sub(r"\1Bearer [redacted]", message)
+    message = _AUTHORIZATION_VALUE_RX.sub(r"\1[redacted]", message)
+    message = _BEARER_TOKEN_RX.sub("Bearer [redacted]", message)
+    message = _EMAIL_DIAGNOSTIC_RX.sub("[redacted-email]", message)
+    message = _LONG_OPAQUE_DIAGNOSTIC_RX.sub("[redacted]", message)
+    return tracker_cell_value(message, limit=limit)
+
+
 def record_dataset_tracker_event(
     event: str,
     status: str,
@@ -4292,6 +4669,8 @@ def record_dataset_tracker_event(
     now: datetime | None = None,
 ) -> bool:
     now = now or datetime.utcnow()
+    safe_drive_file_id = sanitize_diagnostic_message(drive_file_id)
+    safe_message = sanitize_diagnostic_message(message)
     return append_tracker_row(DATASET_TRACKER_WORKSHEET, DATASET_TRACKER_HEADERS, [
         gst_now_iso(now),
         tracker_cell_value(event),
@@ -4304,9 +4683,9 @@ def record_dataset_tracker_event(
         tracker_cell_value(from_date),
         tracker_cell_value(to_date),
         tracker_cell_value(replace_overlapping_dates),
-        tracker_cell_value(drive_file_id),
+        tracker_cell_value(safe_drive_file_id),
         tracker_cell_value(drive_file_name),
-        tracker_cell_value(message),
+        tracker_cell_value(safe_message),
         tracker_cell_value(source),
     ])
 
@@ -4346,7 +4725,7 @@ def record_error_tracker_event(
 ) -> bool:
     now = now or datetime.utcnow()
     error_type = type(error).__name__ if error is not None else ""
-    error_message = message or (str(error) if error is not None else "")
+    error_message = sanitize_diagnostic_message(message or (str(error) if error is not None else ""))
     return append_tracker_row(ERROR_TRACKER_WORKSHEET, ERROR_TRACKER_HEADERS, [
         gst_now_iso(now),
         tracker_cell_value(st.session_state.get("clinic_id", "")),
@@ -4373,6 +4752,7 @@ def record_performance_tracker_event(
         duration_value = str(int(round(float(duration_ms))))
     except (TypeError, ValueError):
         duration_value = tracker_cell_value(duration_ms)
+    safe_message = sanitize_diagnostic_message(message)
     return append_tracker_row(PERFORMANCE_TRACKER_WORKSHEET, PERFORMANCE_TRACKER_HEADERS, [
         gst_now_iso(now),
         tracker_cell_value(st.session_state.get("clinic_id", "")),
@@ -4381,7 +4761,7 @@ def record_performance_tracker_event(
         duration_value,
         tracker_cell_value(rows),
         tracker_cell_value(status),
-        tracker_cell_value(message),
+        tracker_cell_value(safe_message),
         tracker_cell_value(source),
     ])
 
@@ -4452,6 +4832,36 @@ def verify_password(password: str, stored_hash: str) -> bool:
         return hmac.compare_digest(digest_b64, expected)
 
     return hmac.compare_digest(stored_hash, hash_pw(password))
+
+
+def password_policy_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def password_policy_error(password: str, clinic_id: str = "") -> str:
+    password_text = str(password or "")
+    if len(password_text) < PASSWORD_MIN_LENGTH:
+        return f"Password must be at least {PASSWORD_MIN_LENGTH} characters."
+
+    password_key = password_policy_key(password_text)
+    if not password_key:
+        return "Password must include letters or numbers."
+
+    for common_key in COMMON_PASSWORD_KEYS:
+        if password_key == common_key or password_key.startswith(common_key):
+            return "Choose a less common password."
+
+    clinic_key = password_policy_key(clinic_id)
+    if len(clinic_key) >= 4 and clinic_key in password_key:
+        return "Password cannot include the clinic name."
+
+    return ""
+
+
+def validate_password_policy(password: str, clinic_id: str = "") -> None:
+    error = password_policy_error(password, clinic_id)
+    if error:
+        raise ValueError(error)
 
 
 def normalize_email(value: str) -> str:
@@ -4628,12 +5038,19 @@ def clear_query_param(name: str):
 
 
 def set_remember_login_token(token: str):
-    if token:
-        set_query_param("remember", token)
+    """Legacy compatibility wrapper. Remember tokens must not be stored in URLs."""
+    clear_remember_login_token()
 
 
 def clear_remember_login_token():
-    clear_query_param("remember")
+    clear_query_param(REMEMBER_LOGIN_QUERY_PARAM)
+
+
+def discard_remember_login_query_param() -> bool:
+    if get_query_param(REMEMBER_LOGIN_QUERY_PARAM):
+        clear_remember_login_token()
+        return True
+    return False
 
 
 def default_settings_for_country(country: str = "") -> dict:
@@ -4739,6 +5156,10 @@ def record_settings_account_event(
 def create_clinic_account(clinic_id: str, country: str, password: str):
     clinic_id = str(clinic_id or "").strip()
     country = str(country or "").strip()
+    password = str(password or "")
+    if not clinic_id:
+        raise ValueError("Enter a clinic name.")
+    validate_password_policy(password, clinic_id)
     if get_clinic_row(clinic_id):
         raise ValueError("That clinic name is already registered.")
 
@@ -4751,7 +5172,6 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
     created_at_gst = gst_now_iso()
     values_by_header = {
         SHEET_COL_CLINIC_ID: clinic_id,
-        SHEET_COL_PLAIN_PASSWORD: "",
         SHEET_COL_PASSWORD_HASH: password_hash,
         SHEET_COL_SETTINGS_JSON: settings_json,
         SHEET_COL_UPDATED_AT: datetime.utcnow().isoformat(),
@@ -4794,7 +5214,6 @@ def create_google_clinic_account(clinic_id: str, country: str, google_user: dict
     created_at_gst = gst_now_iso()
     values_by_header = {
         SHEET_COL_CLINIC_ID: clinic_id,
-        SHEET_COL_PLAIN_PASSWORD: "",
         SHEET_COL_PASSWORD_HASH: "",
         SHEET_COL_SETTINGS_JSON: settings_json,
         SHEET_COL_UPDATED_AT: datetime.utcnow().isoformat(),
@@ -4884,22 +5303,27 @@ def render_google_onboarding_dialog(google_user: dict):
             google_submitted = st.form_submit_button(submit_label, type="primary", use_container_width=True)
 
         if google_submitted:
-            try:
-                create_google_clinic_account(google_clinic, google_country, google_user)
-                st.session_state["user_country"] = google_country
-                st.session_state.pop("pending_google_signup", None)
-                st.session_state.pop("google_onboarding_mode", None)
-                finish_authenticated_session(
-                    google_clinic,
-                    event="google_login",
-                    auth_provider=GOOGLE_AUTH_PROVIDER,
-                    google_user=google_user,
-                )
-                st.rerun()
-            except ValueError as e:
-                st.error(str(e))
-            except Exception:
-                st.error("Could not create your clinic workspace. Please try again or contact support.")
+            signup_allowed, retry_after = signup_attempt_allowed()
+            if not signup_allowed:
+                st.error(auth_retry_message("sign-up", retry_after))
+            else:
+                record_signup_attempt()
+                try:
+                    create_google_clinic_account(google_clinic, google_country, google_user)
+                    st.session_state["user_country"] = google_country
+                    st.session_state.pop("pending_google_signup", None)
+                    st.session_state.pop("google_onboarding_mode", None)
+                    finish_authenticated_session(
+                        google_clinic,
+                        event="google_login",
+                        auth_provider=GOOGLE_AUTH_PROVIDER,
+                        google_user=google_user,
+                    )
+                    st.rerun()
+                except ValueError as e:
+                    st.error(str(e))
+                except Exception:
+                    st.error("Could not create your clinic workspace. Please try again or contact support.")
 
         if st.button("Use another Google account", key="google_onboarding_logout", use_container_width=True):
             st.session_state.pop("pending_google_signup", None)
@@ -4975,6 +5399,7 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
     if existing and new_clinic_id.lower() != old_clinic_id.lower():
         raise ValueError("That clinic name is already registered.")
 
+    old_clinic_id = require_authenticated_tenant_access(old_clinic_id)
     old_row = get_clinic_row(old_clinic_id) or {}
     updated_at = datetime.utcnow().isoformat()
     values_by_header = {
@@ -4986,10 +5411,20 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
     if file_id and new_clinic_id.lower() != old_clinic_id.lower():
         new_filename = f"{new_clinic_id}_shared_dataset.csv"
         try:
-            drive_rename_file(file_id, new_filename)
+            require_clinic_dataset_file_access(old_clinic_id, file_id)
+            drive_rename_file(
+                file_id,
+                new_filename,
+                clinic_id=old_clinic_id,
+                current_file_id=file_id,
+            )
+            require_clinic_dataset_file_access(old_clinic_id, file_id)
             values_by_header[SHEET_COL_DATASET_FILE_NAME] = new_filename
-        except Exception:
-            pass
+        except Exception as e:
+            raise RuntimeError(
+                "Could not rename the saved dataset for this clinic. "
+                "Please try again before changing the clinic name."
+            ) from e
 
     update_settings_row_fields(old_clinic_id, values_by_header, GOOGLE_ACCOUNT_COLUMNS)
     if new_clinic_id.lower() != old_clinic_id.lower():
@@ -5021,6 +5456,7 @@ def delete_clinic_account_and_data(clinic_id: str) -> dict:
     clinic_id = str(clinic_id or "").strip()
     if not clinic_id:
         raise ValueError("No clinic is currently signed in.")
+    clinic_id = require_authenticated_tenant_access(clinic_id)
 
     row = get_clinic_row(clinic_id)
     if not row:
@@ -5028,12 +5464,14 @@ def delete_clinic_account_and_data(clinic_id: str) -> dict:
 
     file_id = str(row.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
     if file_id:
-        drive_trash_file(file_id)
-
+        require_clinic_dataset_file_access(clinic_id, file_id, current_file_id=file_id)
     spreadsheet = get_settings_spreadsheet()
     deleted_rows = 0
     for worksheet in spreadsheet.worksheets():
         deleted_rows += delete_rows_matching_clinic_id(worksheet, {clinic_id})
+
+    if file_id:
+        drive_trash_file(file_id, clinic_id=clinic_id, current_file_id=file_id)
 
     st.session_state.pop("_settings_row_cache", None)
     st.session_state.pop("_remote_settings_cache", None)
@@ -5088,8 +5526,7 @@ def render_profile_dialog():
                 updated = update_clinic_profile(clinic_id, new_clinic_id, new_email)
                 st.session_state["clinic_id"] = updated["clinic_id"]
                 if st.session_state.get("auth_provider") != GOOGLE_AUTH_PROVIDER:
-                    user_row = get_clinic_row(updated["clinic_id"])
-                    set_remember_login_token(create_remember_login_token(updated["clinic_id"], user_row))
+                    clear_remember_login_token()
                 load_settings()
                 close_profile_dialog()
                 st.success("Profile updated.")
@@ -5215,6 +5652,7 @@ def render_delete_account_dialog():
 
 def update_clinic_password(clinic_id: str, new_password: str):
     """Update the password hash for the current clinic login."""
+    validate_password_policy(new_password, clinic_id)
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
     password_hash = password_hash_for_storage(new_password)
     updated_at = datetime.utcnow().isoformat()
@@ -5226,19 +5664,27 @@ def update_clinic_password(clinic_id: str, new_password: str):
     update_cached_settings_row_fields(
         clinic_id,
         {
-            "PlainPassword": "",
-            "PasswordHash": password_hash,
-            "UpdatedAt": updated_at,
+            SHEET_COL_PLAIN_PASSWORD: "",
+            SHEET_COL_PASSWORD_HASH: password_hash,
+            SHEET_COL_UPDATED_AT: updated_at,
         },
     )
     return password_hash
 
 def _to_blob(uploaded):
     # Deterministic blob for caching; avoids .read() side effects
+    declared_size = getattr(uploaded, "size", None)
+    if declared_size is not None and int(declared_size) > MAX_UPLOAD_FILE_BYTES:
+        raise UploadResourceLimitError(
+            f"{uploaded.name} is too large. Maximum upload size is "
+            f"{format_file_size(MAX_UPLOAD_FILE_BYTES)} per file."
+        )
     b = uploaded.getvalue()
+    validate_upload_file_size(b, uploaded.name)
     return {"name": uploaded.name, "bytes": b}
 
 def upload_fingerprint(file_blobs) -> str:
+    validate_upload_file_collection(file_blobs)
     h = hashlib.sha256()
     for fb in file_blobs:
         h.update(str(fb["name"]).encode("utf-8"))
@@ -5282,6 +5728,7 @@ def finish_authenticated_session(
 
 @st.cache_data(show_spinner=False)
 def summarize_uploads(file_blobs, cache_version: int = UPLOAD_SUMMARY_SCHEMA_VERSION):
+    validate_upload_file_collection(file_blobs)
     datasets, summary_rows = [], []
     for fb in file_blobs:
         df, pms_name, amount_col = process_file(fb["bytes"], fb["name"])
@@ -5424,32 +5871,7 @@ if "auto_login_attempted" not in st.session_state:
 st.session_state.setdefault("show_top_change_password", False)
 google_user = get_google_user_info()
 
-remember_token = get_query_param("remember")
-if remember_token and not st.session_state["logged_in"]:
-    remembered_clinic_id = validate_remember_login_token(remember_token)
-    if remembered_clinic_id:
-        close_account_dialogs()
-        st.session_state["clinic_id"] = remembered_clinic_id
-        st.session_state["logged_in"] = True
-        st.session_state["show_top_change_password"] = False
-        set_remember_login_token(create_remember_login_token(remembered_clinic_id))
-        reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
-        load_settings()
-        load_shared_dataset_for_clinic()
-        record_settings_account_event(
-            remembered_clinic_id,
-            event="remembered_login",
-            auth_provider="remembered_password",
-            country=st.session_state.get("user_country", ""),
-        )
-        upsert_user_tracker(
-            remembered_clinic_id,
-            country=st.session_state.get("user_country", ""),
-            event="remembered_login",
-        )
-        rerun_app()
-    else:
-        clear_remember_login_token()
+discard_remember_login_query_param()
 
 if google_user.get("is_logged_in") and not st.session_state["logged_in"]:
     try:
@@ -5548,8 +5970,14 @@ if not st.session_state["logged_in"]:
         with manual_signup_col:
             if "show_create_account" not in st.session_state:
                 st.session_state["show_create_account"] = False
-            if st.button("Sign Up", key="toggle_create_account", use_container_width=True):
-                st.session_state["show_create_account"] = not st.session_state["show_create_account"]
+            if st.button(
+                "Sign Up",
+                key="toggle_create_account",
+                use_container_width=True,
+            ):
+                st.session_state["show_create_account"] = (
+                    not st.session_state["show_create_account"]
+                )
         if not google_auth_ready:
             st.warning(
                 "Google sign-up needs the Authlib package. Run `pip install -r requirements.txt` "
@@ -5557,34 +5985,42 @@ if not st.session_state["logged_in"]:
             )
 
         if login_submitted:
-            user_row = authenticate_user(username, password)
-            if user_row:
-                close_account_dialogs()
-                st.session_state["clinic_id"] = username
-                st.session_state["logged_in"] = True
-                st.session_state["show_top_change_password"] = False
-                set_remember_login_token(create_remember_login_token(username, user_row))
-
-                reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
-                load_settings()
-                # ✅ Auto-load shared dataset from Drive into working_df
-                load_shared_dataset_for_clinic()
-                record_settings_account_event(
-                    username,
-                    event="login",
-                    auth_provider="password",
-                    country=st.session_state.get("user_country", ""),
-                )
-                upsert_user_tracker(
-                    username,
-                    country=st.session_state.get("user_country", ""),
-                    event="login",
-                )
-
-                st.success(f"✅ Welcome, {username}!")
-                st.rerun()
+            login_allowed, retry_after = login_attempt_allowed(
+                username,
+            )
+            if not login_allowed:
+                st.error(auth_retry_message("login", retry_after))
             else:
-                st.error("❌ Invalid username or password.")
+                user_row = authenticate_user(username, password)
+                if user_row:
+                    record_successful_login_attempt(username)
+                    close_account_dialogs()
+                    st.session_state["clinic_id"] = username
+                    st.session_state["logged_in"] = True
+                    st.session_state["show_top_change_password"] = False
+                    clear_remember_login_token()
+
+                    reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
+                    load_settings()
+                    # ✅ Auto-load shared dataset from Drive into working_df
+                    load_shared_dataset_for_clinic()
+                    record_settings_account_event(
+                        username,
+                        event="login",
+                        auth_provider="password",
+                        country=st.session_state.get("user_country", ""),
+                    )
+                    upsert_user_tracker(
+                        username,
+                        country=st.session_state.get("user_country", ""),
+                        event="login",
+                    )
+
+                    st.success(f"✅ Welcome, {username}!")
+                    st.rerun()
+                else:
+                    record_failed_login_attempt(username)
+                    st.error("❌ Invalid username or password.")
 
         if st.session_state["show_create_account"]:
             st.markdown("### Sign Up")
@@ -5593,32 +6029,50 @@ if not st.session_state["logged_in"]:
                 country = st.selectbox("Country", COUNTRY_OPTIONS)
                 new_password = st.text_input("Set password", type="password")
                 confirm_password = st.text_input("Confirm password", type="password")
-                create_submitted = st.form_submit_button("Sign Up", type="primary", use_container_width=True)
+                create_submitted = st.form_submit_button(
+                    "Sign Up",
+                    type="primary",
+                    use_container_width=True,
+                )
 
             if create_submitted:
                 if not new_clinic or not new_password or not confirm_password:
                     st.error("Enter a clinic name and password twice.")
-                elif len(new_password) < 6:
-                    st.error("Password must be at least 6 characters.")
+                elif password_policy_error(new_password, new_clinic):
+                    st.error(password_policy_error(new_password, new_clinic))
                 elif new_password != confirm_password:
                     st.error("Passwords do not match.")
                 else:
-                    try:
-                        password_hash = create_clinic_account(new_clinic, country, new_password)
-                        close_account_dialogs()
-                        st.session_state["clinic_id"] = new_clinic
-                        st.session_state["logged_in"] = True
-                        st.session_state["show_top_change_password"] = False
-                        set_remember_login_token(create_remember_login_token(new_clinic, {"PasswordHash": password_hash}))
-                        reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
-                        load_settings()
-                        st.session_state["user_country"] = country
-                        st.success(f"✅ Account created. Welcome, {new_clinic}!")
-                        st.rerun()
-                    except ValueError as e:
-                        st.error(str(e))
-                    except Exception:
-                        st.error("Could not create account. Please try again or contact support.")
+                    signup_allowed, retry_after = signup_attempt_allowed()
+                    if not signup_allowed:
+                        st.error(auth_retry_message("sign-up", retry_after))
+                    else:
+                        record_signup_attempt()
+                        try:
+                            password_hash = create_clinic_account(
+                                new_clinic,
+                                country,
+                                new_password,
+                            )
+                            close_account_dialogs()
+                            st.session_state["clinic_id"] = new_clinic
+                            st.session_state["logged_in"] = True
+                            st.session_state["show_top_change_password"] = False
+                            clear_remember_login_token()
+                            reset_uploaded_data_state(
+                                clear_cache=False,
+                                reset_uploader=True,
+                            )
+                            load_settings()
+                            st.session_state["user_country"] = country
+                            st.success(
+                                f"✅ Account created. Welcome, {new_clinic}!"
+                            )
+                            st.rerun()
+                        except ValueError as e:
+                            st.error(str(e))
+                        except Exception:
+                            st.error("Could not create account. Please try again or contact support.")
 else:
     clinic_id = st.session_state.get("clinic_id", "")
     with top_account_slot.container():
@@ -5659,13 +6113,13 @@ else:
                         st.error("Enter the current password and the new password twice.")
                     elif new_password != confirm_password:
                         st.error("New passwords do not match.")
-                    elif len(new_password) < 6:
-                        st.error("New password must be at least 6 characters.")
+                    elif password_policy_error(new_password, clinic_id):
+                        st.error(password_policy_error(new_password, clinic_id))
                     elif not authenticate_user(clinic_id, current_password):
                         st.error("Current password is incorrect.")
                     else:
                         password_hash = update_clinic_password(clinic_id, new_password)
-                        set_remember_login_token(create_remember_login_token(clinic_id, {"PasswordHash": password_hash}))
+                        clear_remember_login_token()
                         upsert_user_tracker(
                             clinic_id,
                             country=st.session_state.get("user_country", ""),
@@ -5872,7 +6326,7 @@ def render_dataset_status(saved_rows: list[dict] | None = None):
         if "missing its file link" in error_text:
             st.warning(f"⚠️ {error_text}")
         else:
-            st.warning(f"⚠️ Could not load clinic data: {error_text}")
+            st.warning("⚠️ Could not load clinic data. Please try again or contact support.")
     elif not saved_rows and not has_working_dataset() and not st.session_state.get("shared_dataset_loaded"):
         st.caption("No clinic data saved yet — upload a file to start.")
 
@@ -6038,6 +6492,7 @@ def remove_dataset_upload_at_index(remove_idx: int):
     if not clinic_id:
         st.error("Not logged in.")
         st.stop()
+    clinic_id = require_authenticated_tenant_access(clinic_id)
 
     history = normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", []))
     using_history = bool(history)
@@ -6052,7 +6507,7 @@ def remove_dataset_upload_at_index(remove_idx: int):
 
     current_df = st.session_state.get("working_df")
     if (current_df is None or getattr(current_df, "empty", True)) and existing_file_id:
-        current_df = load_existing_shared_df(existing_file_id, existing_name)
+        current_df = load_existing_shared_df(existing_file_id, existing_name, clinic_id=clinic_id)
 
     target_start = parse_history_date(target.get("from"))
     target_end = parse_history_date(target.get("to"))
@@ -6082,6 +6537,7 @@ def remove_dataset_upload_at_index(remove_idx: int):
             filename=out_name,
             folder_id=DATASETS_FOLDER_ID,
             existing_file_id=(existing_file_id or None),
+            clinic_id=clinic_id,
         )
         updated_at = update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
         st.session_state["working_df"] = sanitize_working_df(remaining_df)
@@ -6110,16 +6566,7 @@ def consume_dataset_upload_removal():
     remove_idx_raw = get_query_param_value("remove_dataset_upload")
     if remove_idx_raw == "":
         return
-    try:
-        remove_idx = int(remove_idx_raw)
-    except ValueError:
-        remove_idx = -1
-    try:
-        del st.query_params["remove_dataset_upload"]
-    except Exception:
-        pass
-    if remove_idx >= 0:
-        remove_dataset_upload_at_index(remove_idx)
+    clear_query_param("remove_dataset_upload")
     st.rerun()
 
 def render_setup_checklist():
@@ -7124,8 +7571,26 @@ with data_tab:
     # File upload handling
     # --------------------------------
     if files:
-        file_blobs = tuple(_to_blob(f) for f in files)
-        current_upload_key = upload_fingerprint(file_blobs)
+        try:
+            file_blobs = tuple(_to_blob(f) for f in files)
+            current_upload_key = upload_fingerprint(file_blobs)
+        except UploadResourceLimitError as e:
+            record_dataset_tracker_event(
+                "upload_parse_failed",
+                "error",
+                file_name=", ".join(current_files),
+                message=str(e),
+                source="file_uploader",
+            )
+            record_error_tracker_event(
+                "upload_parse_failed",
+                stage="prepare_upload_blobs",
+                error=e,
+                source="file_uploader",
+            )
+            st.toast("Upload is too large.")
+            st.warning(str(e))
+            st.stop()
     
         if st.session_state.get("last_saved_upload_key") == current_upload_key:
             try:
@@ -7141,6 +7606,30 @@ with data_tab:
             parse_started = time.perf_counter()
             try:
                 datasets, summary_rows = load_persistent_dataset(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
+            except UploadResourceLimitError as e:
+                record_dataset_tracker_event(
+                    "upload_parse_failed",
+                    "error",
+                    file_name=", ".join(current_files),
+                    message=str(e),
+                    source="file_uploader",
+                )
+                record_error_tracker_event(
+                    "upload_parse_failed",
+                    stage="load_persistent_dataset",
+                    error=e,
+                    source="file_uploader",
+                )
+                record_performance_tracker_event(
+                    "upload_parse",
+                    (time.perf_counter() - parse_started) * 1000,
+                    status="error",
+                    message=str(e),
+                    source="file_uploader",
+                )
+                st.toast("Upload is too large.")
+                st.warning(str(e))
+                st.stop()
             except UploadValidationError as e:
                 record_dataset_tracker_event(
                     "upload_parse_failed",
@@ -7225,8 +7714,8 @@ with data_tab:
                     else:
                         st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
     
-                except Exception as e:
-                    st.warning(f"⚠️ PMS mismatch or undetected files. Reminders cannot be generated. ({e})")
+                except Exception:
+                    st.warning("⚠️ PMS mismatch or undetected files. Reminders cannot be generated.")
                     st.session_state.pop("working_df", None)
     
             if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
@@ -7243,7 +7732,7 @@ with data_tab:
                 existing_df = None
                 if existing_file_id:
                     try:
-                        existing_df = load_existing_shared_df(existing_file_id, existing_name)
+                        existing_df = load_existing_shared_df(existing_file_id, existing_name, clinic_id=clinic_id)
                     except Exception as e:
                         record_error_tracker_event(
                             "existing_dataset_load_failed",
@@ -7260,7 +7749,7 @@ with data_tab:
                         )
                         st.error(
                             "Could not load the existing clinic dataset, so this upload was not saved. "
-                            f"Please try again before replacing clinic data. ({e})"
+                            "Please try again before replacing clinic data."
                         )
                         st.stop()
     
@@ -7540,27 +8029,23 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
 
     message = build_whatsapp_message_for_row(row_data)
     st.session_state[msg_key] = message
-    with busy_overlay("Saving reminder action", "Recording this reminder as sent."):
-        if hidden_action != REMINDER_ACTION_SENT:
-            record_wa_reminder_click(client_name, now=now, row=row_data, save=False)
-            record_action_tracker(row_data, REMINDER_ACTION_SENT, message=message, source=f"{key_prefix}_sent", now=now)
-        upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
-        hide_revealed_reminders_after_action(key_prefix)
-        save_settings_quietly()
+    if hidden_action != REMINDER_ACTION_SENT:
+        record_wa_reminder_click(client_name, now=now, row=row_data, save=False)
+        record_action_tracker(row_data, REMINDER_ACTION_SENT, message=message, source=f"{key_prefix}_sent", now=now)
+    upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
+    hide_revealed_reminders_after_action(key_prefix)
 
 
 def decline_reminder_action(row_data: dict, key_prefix: str):
     now = datetime.utcnow()
     hidden_record = get_hidden_reminder_record(row_data)
     hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
-    with busy_overlay("Saving reminder action", "Recording this reminder as declined."):
-        if hidden_action == REMINDER_ACTION_SENT:
-            remove_wa_reminder_click_for_row(row_data)
-        if hidden_action != REMINDER_ACTION_DECLINED:
-            record_action_tracker(row_data, REMINDER_ACTION_DECLINED, source=f"{key_prefix}_declined", now=now)
-        upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=now)
-        hide_revealed_reminders_after_action(key_prefix)
-        save_settings_quietly()
+    if hidden_action == REMINDER_ACTION_SENT:
+        remove_wa_reminder_click_for_row(row_data, queue_settings_removal=False)
+    if hidden_action != REMINDER_ACTION_DECLINED:
+        record_action_tracker(row_data, REMINDER_ACTION_DECLINED, source=f"{key_prefix}_declined", now=now)
+    upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=now)
+    hide_revealed_reminders_after_action(key_prefix)
 
 
 def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
@@ -8574,8 +9059,18 @@ def build_statistics_team_frame(action_records: list[dict], period: str, today: 
     if not rows:
         return pd.DataFrame(columns=["User", "Actioned", "Sent", "Declined", "Last Actioned"])
     df_actions = pd.DataFrame(rows)
-    df_actions["User"] = df_actions.get("Actioned By", "").fillna("").astype(str).str.strip().replace("", "Unknown")
-    df_actions["ActionNorm"] = df_actions.get("Action", "").fillna("").astype(str).str.lower()
+    actioned_by = (
+        df_actions["Actioned By"]
+        if "Actioned By" in df_actions.columns
+        else pd.Series("", index=df_actions.index)
+    )
+    action_values = (
+        df_actions["Action"]
+        if "Action" in df_actions.columns
+        else pd.Series("", index=df_actions.index)
+    )
+    df_actions["User"] = actioned_by.fillna("").astype(str).str.strip().replace("", "Unknown")
+    df_actions["ActionNorm"] = action_values.fillna("").astype(str).str.lower()
     df_actions["ActionedAtParsed"] = df_actions.apply(
         lambda row: _parse_reminder_log_time(row.get("ActionedAt", "") or row.get("DeletedAt", "")),
         axis=1,
@@ -8979,7 +9474,7 @@ def render_search_terms_editor():
         with st.container():
             cols = st.columns(rule_col_widths, gap="small")
             with cols[0]:
-                st.markdown(f"<div style='padding-top:8px;'>{rule}</div>", unsafe_allow_html=True)
+                st.markdown(padded_html_text(rule), unsafe_allow_html=True)
             with cols[1]:
                 st.text_input(
                     "Reminder 1", value=str(settings.get("reminder_1", "") or ""),
@@ -9221,7 +9716,7 @@ if st.session_state.get("working_df") is not None:
                 with st.container():
                     cols = st.columns([1.4, 0.18, 6], gap="small")
                     with cols[0]:
-                        st.markdown(f"<div style='padding-top:8px;'>{client_name}</div>", unsafe_allow_html=True)
+                        st.markdown(padded_html_text(client_name), unsafe_allow_html=True)
                     with cols[1]:
                         if st.button("×", key=f"del_client_excl_{safe_client}", help="Remove client exclusion"):
                             st.session_state["client_exclusions"].remove(client_name)
@@ -9287,7 +9782,7 @@ if st.session_state.get("working_df") is not None:
                 with st.container():
                     cols = st.columns([1.4, 0.18, 6], gap="small")
                     with cols[0]:
-                        st.markdown(f"<div style='padding-top:8px;'>{client_name} - {patient_name}</div>", unsafe_allow_html=True)
+                        st.markdown(patient_exclusion_label_html(client_name, patient_name), unsafe_allow_html=True)
                     with cols[1]:
                         if st.button("×", key=f"del_patient_excl_{safe_pair}", help="Remove patient exclusion"):
                             st.session_state["patient_exclusions"].remove(exclusion)
@@ -9355,7 +9850,7 @@ if st.session_state.get("working_df") is not None:
                 with st.container():
                     cols = st.columns([1.4, 0.18, 6], gap="small")
                     with cols[0]:
-                        st.markdown(f"<div style='padding-top:8px;'>{term}</div>", unsafe_allow_html=True)
+                        st.markdown(padded_html_text(term), unsafe_allow_html=True)
                     with cols[1]:
                         if st.button("×", key=f"del_excl_{safe_term}", help="Remove item exclusion"):
                             st.session_state["exclusions"].remove(term)
@@ -10757,7 +11252,12 @@ if False and st.session_state.get("clinic_id") == "Admin":
                 st.success(f"✅ Updated password for clinic '{new_clinic}'.")
             else:
                 # Add a new clinic row
-                sheet.append_row([new_clinic, "", hashed, "{}", datetime.utcnow().isoformat()])
+                sheet.append_row(settings_row_values(headers, {
+                    SHEET_COL_CLINIC_ID: new_clinic,
+                    SHEET_COL_PASSWORD_HASH: hashed,
+                    SHEET_COL_SETTINGS_JSON: "{}",
+                    SHEET_COL_UPDATED_AT: datetime.utcnow().isoformat(),
+                }))
                 upsert_user_tracker(new_clinic, event="admin_created")
                 st.success(f"✅ Added new clinic '{new_clinic}'.")
 

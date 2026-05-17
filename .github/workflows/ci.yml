@@ -24,8 +24,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Dependency consistency
+        run: python -m pip check
+
       - name: Compile check
-        run: python -m py_compile reminders_app_v3.py
+        run: python -m py_compile reminders_app_v3.py settings_pointer_utils.py
 
       - name: Unit tests
         run: python -m unittest discover -s tests -p "test_ci_*.py"

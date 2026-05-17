@@ -3,6 +3,7 @@ import contextlib
 import importlib
 import io
 import json
+from pathlib import Path
 import time
 import unittest
 from unittest.mock import patch
@@ -14,7 +15,9 @@ class AuthSessionTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             cls.app = importlib.import_module("reminders_app_v3")
 
-    def test_remember_login_token_default_is_long_lived(self):
+    def test_remember_login_token_default_is_short_lived(self):
+        self.assertLessEqual(self.app.REMEMBER_LOGIN_DAYS, 30)
+
         token = self.app.create_remember_login_token(
             "Clinic Login",
             {"PasswordHash": self.app.hash_pw("secret-password")},
@@ -22,8 +25,56 @@ class AuthSessionTests(unittest.TestCase):
 
         payload = json.loads(base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8"))
 
-        min_expected_expiry = int(time.time()) + (self.app.REMEMBER_LOGIN_DAYS - 1) * 24 * 60 * 60
-        self.assertGreaterEqual(payload["expires_at"], min_expected_expiry)
+        max_expected_expiry = int(time.time()) + 31 * 24 * 60 * 60
+        self.assertLessEqual(payload["expires_at"], max_expected_expiry)
+
+    def test_remember_login_token_is_not_written_to_query_params(self):
+        with (
+            patch.object(self.app, "set_query_param") as set_query_param,
+            patch.object(self.app, "clear_query_param") as clear_query_param,
+        ):
+            self.app.set_remember_login_token("unsafe-token")
+
+        set_query_param.assert_not_called()
+        clear_query_param.assert_called_once_with(self.app.REMEMBER_LOGIN_QUERY_PARAM)
+
+    def test_incoming_remember_login_query_param_is_discarded_without_validation(self):
+        with (
+            patch.object(self.app, "get_query_param", return_value="unsafe-token"),
+            patch.object(self.app, "clear_remember_login_token") as clear_token,
+            patch.object(self.app, "validate_remember_login_token") as validate_token,
+        ):
+            discarded = self.app.discard_remember_login_query_param()
+
+        self.assertTrue(discarded)
+        clear_token.assert_called_once()
+        validate_token.assert_not_called()
+
+    def test_dataset_upload_removal_query_param_is_cleared_without_mutation(self):
+        with (
+            patch.object(self.app, "get_query_param_value", return_value="0"),
+            patch.object(self.app, "clear_query_param") as clear_query_param,
+            patch.object(self.app, "remove_dataset_upload_at_index") as remove_upload,
+            patch.object(self.app.st, "rerun") as rerun,
+        ):
+            self.app.consume_dataset_upload_removal()
+
+        clear_query_param.assert_called_once_with("remove_dataset_upload")
+        remove_upload.assert_not_called()
+        rerun.assert_called_once()
+
+    def test_invalid_dataset_upload_removal_query_param_is_ignored_without_mutation(self):
+        with (
+            patch.object(self.app, "get_query_param_value", return_value="not-an-index"),
+            patch.object(self.app, "clear_query_param") as clear_query_param,
+            patch.object(self.app, "remove_dataset_upload_at_index") as remove_upload,
+            patch.object(self.app.st, "rerun") as rerun,
+        ):
+            self.app.consume_dataset_upload_removal()
+
+        clear_query_param.assert_called_once_with("remove_dataset_upload")
+        remove_upload.assert_not_called()
+        rerun.assert_called_once()
 
     def test_password_storage_uses_salted_hash_and_keeps_legacy_md5_login(self):
         stored_hash = self.app.password_hash_for_storage("secret-password")
@@ -33,6 +84,130 @@ class AuthSessionTests(unittest.TestCase):
         self.assertTrue(self.app.verify_password("secret-password", stored_hash))
         self.assertFalse(self.app.verify_password("wrong-password", stored_hash))
         self.assertTrue(self.app.verify_password("secret-password", self.app.hash_pw("secret-password")))
+
+    def test_password_policy_rejects_short_common_and_clinic_derived_passwords(self):
+        self.assertEqual(
+            self.app.password_policy_error("short", "Clinic New"),
+            "Password must be at least 12 characters.",
+        )
+        self.assertEqual(
+            self.app.password_policy_error("password123456", "Clinic New"),
+            "Choose a less common password.",
+        )
+        self.assertEqual(
+            self.app.password_policy_error("Clinic New 2026!", "Clinic New"),
+            "Password cannot include the clinic name.",
+        )
+        self.assertEqual(
+            self.app.password_policy_error(
+                "better-random-passphrase-2026",
+                "Clinic New",
+            ),
+            "",
+        )
+
+    def test_create_clinic_account_rejects_weak_password_before_writing(self):
+        with (
+            patch.object(self.app, "get_clinic_row") as get_row,
+            patch.object(self.app, "get_settings_sheet") as get_sheet,
+        ):
+            with self.assertRaisesRegex(ValueError, "less common"):
+                self.app.create_clinic_account(
+                    "Clinic New",
+                    "United States",
+                    "password123456",
+                )
+
+        get_row.assert_not_called()
+        get_sheet.assert_not_called()
+
+    def test_update_clinic_password_rejects_weak_password_before_writing(self):
+        with patch.object(self.app, "_get_settings_row_for_clinic") as get_row:
+            with self.assertRaisesRegex(ValueError, "clinic name"):
+                self.app.update_clinic_password(
+                    "Clinic New",
+                    "Clinic New 2026!",
+                )
+
+        get_row.assert_not_called()
+
+    def test_settings_schema_excludes_legacy_plain_password_column(self):
+        self.assertNotIn(
+            self.app.SHEET_COL_PLAIN_PASSWORD,
+            self.app.SETTINGS_REQUIRED_COLUMNS,
+        )
+
+    def test_update_clinic_password_clears_legacy_plaintext_cell(self):
+        headers = [
+            self.app.SHEET_COL_CLINIC_ID,
+            self.app.SHEET_COL_PLAIN_PASSWORD,
+            self.app.SHEET_COL_PASSWORD_HASH,
+            self.app.SHEET_COL_UPDATED_AT,
+        ]
+
+        class FakeSheet:
+            def __init__(self):
+                self.updates = None
+
+            def batch_update(self, updates):
+                self.updates = updates
+
+        sheet = FakeSheet()
+        with (
+            patch.object(
+                self.app,
+                "_get_settings_row_for_clinic",
+                return_value=(sheet, headers, 2),
+            ),
+            patch.object(self.app, "_gspread_retry", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        ):
+            password_hash = self.app.update_clinic_password(
+                "Clinic New",
+                "better-random-passphrase-2026",
+            )
+
+        updates_by_range = {
+            update["range"]: update["values"][0][0]
+            for update in sheet.updates
+        }
+        self.assertEqual(updates_by_range["B2:B2"], "")
+        self.assertEqual(updates_by_range["C2:C2"], password_hash)
+        self.assertNotEqual(updates_by_range["C2:C2"], "better-random-passphrase-2026")
+
+    def test_legacy_plain_password_migration_clears_nonblank_values(self):
+        headers = [
+            self.app.SHEET_COL_CLINIC_ID,
+            self.app.SHEET_COL_PLAIN_PASSWORD,
+            self.app.SHEET_COL_PASSWORD_HASH,
+        ]
+
+        class FakeSheet:
+            def __init__(self):
+                self.updates = None
+
+            def get_all_values(self):
+                return [
+                    headers,
+                    ["Clinic A", "plaintext-one", "hash-a"],
+                    ["Clinic B", "", "hash-b"],
+                    ["Clinic C", " plaintext-two ", "hash-c"],
+                ]
+
+            def batch_update(self, updates):
+                self.updates = updates
+
+        sheet = FakeSheet()
+        with patch.object(self.app, "_gspread_retry", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+            cleared = self.app.clear_legacy_plain_password_column(sheet, headers)
+
+        self.assertEqual(cleared, 2)
+        self.assertEqual(
+            sheet.updates,
+            [
+                {"range": "B2:B2", "values": [[""]]},
+                {"range": "B4:B4", "values": [[""]]},
+            ],
+        )
 
     def test_remember_login_signature_depends_on_password_hash_secret(self):
         clinic_id = "Clinic Login"
@@ -50,6 +225,80 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn("login", self.app.LOGIN_TRACKER_EVENTS)
         self.assertIn("google_login", self.app.LOGIN_TRACKER_EVENTS)
         self.assertIn("remembered_login", self.app.LOGIN_TRACKER_EVENTS)
+
+    def test_failed_login_attempts_lock_username_temporarily(self):
+        state = {}
+        username = "Clinic Login"
+        now = 1_000.0
+
+        for offset in range(self.app.LOGIN_FAILURE_LIMIT):
+            allowed, retry_after = self.app.login_attempt_allowed(
+                username,
+                now=now + offset,
+                state=state,
+            )
+            self.assertTrue(allowed)
+            self.assertEqual(retry_after, 0)
+            self.app.record_failed_login_attempt(
+                username,
+                now=now + offset,
+                state=state,
+            )
+
+        allowed, retry_after = self.app.login_attempt_allowed(
+            " clinic login ",
+            now=now + self.app.LOGIN_FAILURE_LIMIT,
+            state=state,
+        )
+
+        self.assertFalse(allowed)
+        self.assertGreater(retry_after, 0)
+
+    def test_successful_login_resets_failed_attempt_counter(self):
+        state = {}
+        username = "Clinic Login"
+
+        for offset in range(self.app.LOGIN_FAILURE_LIMIT - 1):
+            self.app.record_failed_login_attempt(
+                username,
+                now=2_000.0 + offset,
+                state=state,
+            )
+
+        self.app.record_successful_login_attempt(" clinic login ", state=state)
+        self.assertNotIn(
+            self.app.normalize_clinic_id_key(username),
+            state[self.app.AUTH_ABUSE_STATE_KEY]["login"],
+        )
+        allowed, retry_after = self.app.login_attempt_allowed(
+            username,
+            now=2_010.0,
+            state=state,
+        )
+
+        self.assertTrue(allowed)
+        self.assertEqual(retry_after, 0)
+
+    def test_signup_attempts_are_rate_limited(self):
+        state = {}
+        now = 3_000.0
+
+        for offset in range(self.app.SIGNUP_ATTEMPT_LIMIT):
+            allowed, retry_after = self.app.signup_attempt_allowed(
+                now=now + offset,
+                state=state,
+            )
+            self.assertTrue(allowed)
+            self.assertEqual(retry_after, 0)
+            self.app.record_signup_attempt(now=now + offset, state=state)
+
+        allowed, retry_after = self.app.signup_attempt_allowed(
+            now=now + self.app.SIGNUP_ATTEMPT_LIMIT,
+            state=state,
+        )
+
+        self.assertFalse(allowed)
+        self.assertGreater(retry_after, 0)
 
     def test_google_user_info_normalizes_identity_fields(self):
         user = {
@@ -192,6 +441,29 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn("&lt;Clinic&gt;", html)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", html)
         self.assertNotIn("<script>alert(1)</script>", html)
+
+    def test_user_controlled_html_labels_escape_stored_xss_payloads(self):
+        payload = '<img src=x onerror=alert(1)>'
+
+        rule_html = self.app.padded_html_text(payload)
+        patient_html = self.app.patient_exclusion_label_html(payload, payload)
+
+        self.assertIn("&lt;img src=x onerror=alert(1)&gt;", rule_html)
+        self.assertIn("&lt;img src=x onerror=alert(1)&gt;", patient_html)
+        self.assertNotIn(payload, rule_html)
+        self.assertNotIn(payload, patient_html)
+
+    def test_authlib_requirement_is_patched_for_oidc_advisory(self):
+        requirements = Path("requirements.txt").read_text(encoding="utf-8").splitlines()
+        authlib_pins = [
+            line.strip()
+            for line in requirements
+            if line.strip().lower().startswith("authlib==")
+        ]
+
+        self.assertEqual(authlib_pins, ["authlib==1.6.12"])
+        version = tuple(int(part) for part in authlib_pins[0].split("==", 1)[1].split("."))
+        self.assertGreaterEqual(version, (1, 6, 12))
 
     def test_delete_rows_matching_clinic_id_deletes_matching_rows_bottom_up(self):
         class FakeWorksheet:

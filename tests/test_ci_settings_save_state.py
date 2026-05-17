@@ -200,6 +200,74 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(record["MessageCreated"], "Hi Client A, Pet A is due.")
         self.assertEqual(record["Actioned By"], "Nurse")
 
+    def test_sent_action_skips_redundant_settings_save_and_overlay(self):
+        row = {
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies",
+            "Reminder Date": "01 Jun 2026",
+            "Due Date": "01 Jun 2026",
+            "Charge Date": "01 Jun 2025",
+            "Qty": "1",
+            "Days": "365",
+        }
+        state = self.app.st.session_state
+        state["user_name"] = "Nurse"
+        state["deleted_reminders"] = []
+        state["wa_reminder_log"] = []
+
+        with (
+            patch.object(self.app, "build_whatsapp_message_for_row", return_value="Reminder message"),
+            patch.object(self.app, "record_action_tracker") as record_action,
+            patch.object(self.app, "save_settings_quietly") as save_settings,
+            patch.object(self.app, "busy_overlay") as overlay,
+        ):
+            self.app.mark_reminder_sent_action(row, "daily", "wa_message", 0)
+
+        record_action.assert_called_once()
+        save_settings.assert_not_called()
+        overlay.assert_not_called()
+        self.assertEqual(state["wa_message"], "Reminder message")
+        self.assertEqual(state["deleted_reminders"][-1]["Action"], self.app.REMINDER_ACTION_SENT)
+        self.assertEqual(state["wa_reminder_log"][-1]["ReminderKey"], list(self.app.hidden_reminder_key(row)))
+        self.assertFalse(state["daily_reveal_hidden_reminders"])
+
+    def test_decline_action_skips_redundant_settings_save_and_overlay(self):
+        row = {
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies",
+            "Reminder Date": "01 Jun 2026",
+            "Due Date": "01 Jun 2026",
+            "Charge Date": "01 Jun 2025",
+            "Qty": "1",
+            "Days": "365",
+        }
+        sent_record = dict(row, Action=self.app.REMINDER_ACTION_SENT, ActionedAt="2026-05-15T10:00:00")
+        state = self.app.st.session_state
+        state["user_name"] = "Nurse"
+        state["deleted_reminders"] = [sent_record]
+        state["wa_reminder_log"] = [{
+            "Client Name": "Client A",
+            "RemindedAt": "2026-05-15T10:00:00",
+            "ReminderKey": list(self.app.hidden_reminder_key(row)),
+        }]
+
+        with (
+            patch.object(self.app, "record_action_tracker") as record_action,
+            patch.object(self.app, "save_settings_quietly") as save_settings,
+            patch.object(self.app, "busy_overlay") as overlay,
+        ):
+            self.app.decline_reminder_action(row, "daily")
+
+        record_action.assert_called_once()
+        save_settings.assert_not_called()
+        overlay.assert_not_called()
+        self.assertEqual(state["deleted_reminders"][-1]["Action"], self.app.REMINDER_ACTION_DECLINED)
+        self.assertEqual(state["wa_reminder_log"], [])
+        self.assertNotIn("_wa_reminder_remove_keys_once", state)
+        self.assertFalse(state["daily_reveal_hidden_reminders"])
+
     def test_final_sheet_layout_includes_seven_expected_tabs(self):
         tracker_titles = {title for title, _headers in self.app.TRACKER_SHEET_DEFINITIONS}
         expected_titles = {

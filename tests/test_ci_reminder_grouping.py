@@ -145,6 +145,7 @@ class ReminderGroupingTests(unittest.TestCase):
             "shared_dataset_error",
         ]
         self.app.st.session_state["clinic_id"] = "Fresh Clinic"
+        self.app.st.session_state["logged_in"] = True
         self.app.st.session_state["working_df"] = pd.DataFrame({"old": [1]})
         self.app.st.session_state["prepared_df"] = pd.DataFrame({"old": [1]})
         self.app.st.session_state["shared_dataset_loaded"] = True

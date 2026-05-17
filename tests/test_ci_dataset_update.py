@@ -300,6 +300,7 @@ class DatasetUpdateTests(unittest.TestCase):
         for key in list(state.keys()):
             del state[key]
         state["clinic_id"] = "Clinic Save State"
+        state["logged_in"] = True
         state["dataset_upload_history"] = [
             {
                 "file_name": "january-partial.csv",
@@ -410,6 +411,7 @@ class DatasetUpdateTests(unittest.TestCase):
     def test_ensure_shared_dataset_loads_when_logged_session_lacks_dataframe(self):
         state = self.app.st.session_state
         state["clinic_id"] = "Clinic With Saved Data"
+        state["logged_in"] = True
         state["dataset_upload_history"] = []
         state.pop("working_df", None)
         state.pop("_shared_dataset_load_attempted_for", None)
@@ -423,6 +425,7 @@ class DatasetUpdateTests(unittest.TestCase):
     def test_saved_history_retries_shared_dataset_load_after_prior_empty_attempt(self):
         state = self.app.st.session_state
         state["clinic_id"] = "Clinic With Saved Data"
+        state["logged_in"] = True
         state.pop("working_df", None)
         state["dataset_upload_history"] = []
         state["_shared_dataset_load_attempted_for"] = self.app.shared_dataset_load_attempt_token("Clinic With Saved Data")
@@ -446,6 +449,7 @@ class DatasetUpdateTests(unittest.TestCase):
         ]
         state = self.app.st.session_state
         state["clinic_id"] = "Clinic With Saved Data"
+        state["logged_in"] = True
         state["_settings_row_cache"] = {
             "clinic_key": "clinic with saved data",
             "headers": headers,
@@ -486,7 +490,11 @@ class DatasetUpdateTests(unittest.TestCase):
         ):
             self.app.load_shared_dataset_for_clinic()
 
-        download.assert_called_once_with("fresh-drive-file-id")
+        download.assert_called_once_with(
+            "fresh-drive-file-id",
+            clinic_id="Clinic With Saved Data",
+            current_file_id="fresh-drive-file-id",
+        )
         self.assertIn("working_df", state)
         self.assertEqual(len(state["working_df"]), 1)
         self.assertEqual(state["_settings_row_cache"]["row_values"][4], "fresh-drive-file-id")
