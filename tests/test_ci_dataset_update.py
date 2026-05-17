@@ -437,6 +437,53 @@ class DatasetUpdateTests(unittest.TestCase):
         )
         self.assertEqual(len(state["working_df"]), 2)
 
+    def test_remove_last_upload_clears_stale_uploader_selection(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        state["clinic_id"] = "Clinic Remove Last"
+        state["logged_in"] = True
+        state["dataset_upload_history"] = [
+            {
+                "file_name": "sample.csv",
+                "pms": "CSV",
+                "rows": 1,
+                "from": "2025-01-01",
+                "to": "2025-01-01",
+                "status": "Saved",
+            }
+        ]
+        state["working_df"] = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01"]),
+                "Client Name": ["Client A"],
+                "Animal Name": ["Pet A"],
+                "Item Name": ["Rabies"],
+                "Qty": [1],
+                "Amount": [10],
+            }
+        )
+        state["file_uploader_main_3"] = ["sample.csv"]
+        state["file_uploader_reset_version"] = 3
+        state["last_uploaded_files"] = ["sample.csv"]
+        state["last_saved_upload_key"] = "saved-key"
+
+        with (
+            patch.object(self.app, "get_existing_dataset_pointer", return_value=("file-id", "clinic_shared_dataset.csv")),
+            patch.object(self.app, "clear_clinic_dataset_pointer"),
+            patch.object(self.app, "save_settings_quietly", return_value=True),
+            patch.object(self.app, "record_dataset_tracker_event"),
+        ):
+            self.app.remove_dataset_upload_at_index(0)
+
+        self.assertEqual(state["dataset_upload_history"], [])
+        self.assertFalse(state["shared_dataset_loaded"])
+        self.assertNotIn("working_df", state)
+        self.assertNotIn("file_uploader_main_3", state)
+        self.assertEqual(state["last_uploaded_files"], [])
+        self.assertNotIn("last_saved_upload_key", state)
+        self.assertGreater(state["file_uploader_reset_version"], 3)
+
     def test_upload_history_drops_overlapping_rows_when_replacing_dates(self):
         existing = [
             {

@@ -412,6 +412,20 @@ COUNTRY_OPTIONS = [
     "Vietnam", "Zimbabwe", "Other",
 ]
 
+def reset_file_uploader_selection():
+    """Force Streamlit's file uploader to remount without stale selected files."""
+    uploader_keys = [
+        key for key in list(st.session_state.keys())
+        if str(key).startswith("file_uploader_main_")
+    ]
+    st.session_state["file_uploader_reset_version"] = st.session_state.get("file_uploader_reset_version", 0) + 1
+    st.session_state["last_uploaded_files"] = []
+    st.session_state.pop("last_saved_upload_key", None)
+    st.session_state.pop("pending_overlap_upload_key", None)
+    for key in uploader_keys:
+        st.session_state.pop(key, None)
+
+
 def reset_uploaded_data_state(clear_cache: bool = True, reset_uploader: bool = False):
     """Single reset helper used by upload/reset flows."""
     for key in [
@@ -427,10 +441,7 @@ def reset_uploaded_data_state(clear_cache: bool = True, reset_uploader: bool = F
     ]:
         st.session_state.pop(key, None)
     if reset_uploader:
-        st.session_state["file_uploader_reset_version"] = st.session_state.get("file_uploader_reset_version", 0) + 1
-        st.session_state["last_uploaded_files"] = []
-        st.session_state.pop("last_saved_upload_key", None)
-        st.session_state.pop("pending_overlap_upload_key", None)
+        reset_file_uploader_selection()
     if clear_cache:
         st.cache_data.clear()
 
@@ -6855,6 +6866,7 @@ def remove_dataset_upload_at_index(remove_idx: int):
         st.session_state["shared_dataset_updated_at"] = updated_at
 
     st.session_state["dataset_upload_history"] = remaining_history
+    reset_file_uploader_selection()
     save_settings_quietly()
     record_dataset_tracker_event(
         "dataset_file_removed",
