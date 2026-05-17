@@ -28,6 +28,33 @@ class GoogleResourceConfigTests(unittest.TestCase):
         with patch.dict(os.environ, {"SETTINGS_SHEET_ID": " env-settings-id "}, clear=False):
             self.assertEqual(self.app.config_value("SETTINGS_SHEET_ID", "default-id"), "env-settings-id")
 
+    def test_production_redirect_uri_defaults_to_live_worksheet_suffix(self):
+        secrets = {
+            "auth": {
+                "redirect_uri": "https://clinic-reminders.streamlit.app/oauth2callback",
+            }
+        }
+
+        with patch.object(self.app.st, "secrets", secrets):
+            self.assertEqual(self.app.default_worksheet_name_suffix(), "-live")
+            self.assertEqual(
+                self.app.config_value(
+                    "WORKSHEET_NAME_SUFFIX",
+                    self.app.default_worksheet_name_suffix(),
+                ),
+                "-live",
+            )
+
+    def test_nonproduction_redirect_uri_does_not_default_to_live_worksheet_suffix(self):
+        secrets = {
+            "auth": {
+                "redirect_uri": "https://clinicreminders-dev.streamlit.app/oauth2callback",
+            }
+        }
+
+        with patch.object(self.app.st, "secrets", secrets):
+            self.assertEqual(self.app.default_worksheet_name_suffix(), "")
+
     def test_smoke_script_resource_id_uses_nested_streamlit_secrets(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             secrets_path = Path(temp_dir) / "secrets.toml"

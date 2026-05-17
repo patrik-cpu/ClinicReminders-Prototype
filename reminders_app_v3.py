@@ -16,6 +16,7 @@ import hashlib
 import base64
 import hmac
 import uuid
+from urllib.parse import urlparse
 import numpy as np
 from gspread.exceptions import APIError
 import random
@@ -100,6 +101,23 @@ def config_value(name: str, default: str) -> str:
 def suffixed_name(base_name: str, suffix: str) -> str:
     suffix = str(suffix or "").strip()
     return f"{base_name}{suffix}" if suffix else base_name
+
+
+def default_worksheet_name_suffix() -> str:
+    """Use live worksheet tabs automatically for the production Streamlit URL."""
+    try:
+        auth_config = st.secrets.get("auth", {})
+        redirect_uri = str(auth_config.get("redirect_uri", "") if isinstance(auth_config, dict) else "").strip()
+    except Exception:
+        redirect_uri = ""
+
+    try:
+        host = urlparse(redirect_uri).netloc.lower()
+    except Exception:
+        host = ""
+    if host == "clinic-reminders.streamlit.app":
+        return "-live"
+    return ""
 
 # --------------------------------
 # Title (retention change))
@@ -235,7 +253,7 @@ DEFAULT_DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive f
 DATASETS_FOLDER_ID = config_value("DATASETS_FOLDER_ID", DEFAULT_DATASETS_FOLDER_ID)
 
 # === Sheet columns you created ===
-WORKSHEET_NAME_SUFFIX = config_value("WORKSHEET_NAME_SUFFIX", "")
+WORKSHEET_NAME_SUFFIX = config_value("WORKSHEET_NAME_SUFFIX", default_worksheet_name_suffix())
 BASE_SETTINGS_WORKSHEET_NAME = "Clinic settings"
 SETTINGS_WORKSHEET_NAME = suffixed_name(BASE_SETTINGS_WORKSHEET_NAME, WORKSHEET_NAME_SUFFIX)
 LEGACY_SETTINGS_WORKSHEET_NAMES = ("Sheet1",)
