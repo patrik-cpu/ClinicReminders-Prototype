@@ -6759,6 +6759,25 @@ def render_dataset_status(saved_rows: list[dict] | None = None):
     elif not saved_rows and not has_working_dataset() and not st.session_state.get("shared_dataset_loaded"):
         st.caption("No clinic data saved yet — upload a file to start.")
 
+
+def format_dataset_saved_summary(row_count: int, start_date, end_date) -> str:
+    try:
+        rows_text = f"{int(row_count):,}"
+    except (TypeError, ValueError):
+        rows_text = "0"
+
+    if start_date is None or end_date is None or pd.isna(start_date) or pd.isna(end_date):
+        date_range = "Dates not detected"
+    else:
+        start_ts = pd.Timestamp(start_date)
+        end_ts = pd.Timestamp(end_date)
+        date_range = f"{start_ts:%d %b %Y} → {end_ts:%d %b %Y}"
+
+    return (
+        f"**Total rows:** {rows_text}  \n"
+        f"**Total date range (all uploaded CSVs):** {date_range}"
+    )
+
 def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
     if df is None or df.empty:
         return None, None
@@ -8260,8 +8279,11 @@ with data_tab:
                     st.session_state["file_uploader_reset_version"] = st.session_state.get("file_uploader_reset_version", 0) + 1
                     st.session_state["last_uploaded_files"] = []
                     set_main_section_tab("Upload Data")
-                    st.session_state["_pending_dataset_success"] = (
-                        f"Clinic data saved. The active dataset now has {len(merged_df):,} rows after duplicate rows are ignored."
+                    merged_min, merged_max = dataset_date_bounds(merged_df)
+                    st.session_state["_pending_dataset_success"] = format_dataset_saved_summary(
+                        len(merged_df),
+                        merged_min,
+                        merged_max,
                     )
                     save_settings_quietly()
     

@@ -72,6 +72,17 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertIn("No 3+ day gaps between CSVs", html)
         self.assertEqual(html.count("dataset-check good"), 3)
 
+    def test_dataset_saved_summary_shows_total_rows_and_date_range(self):
+        summary = self.app.format_dataset_saved_summary(
+            54489,
+            pd.Timestamp("2024-01-01"),
+            pd.Timestamp("2025-09-30"),
+        )
+
+        self.assertIn("**Total rows:** 54,489", summary)
+        self.assertIn("**Total date range (all uploaded CSVs):** 01 Jan 2024 → 30 Sep 2025", summary)
+        self.assertNotIn("duplicate rows are ignored", summary)
+
     def test_overlapping_upload_dedupes_by_billed_item_identity(self):
         existing = pd.DataFrame(
             {
