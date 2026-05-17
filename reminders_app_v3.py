@@ -8328,6 +8328,7 @@ def show_pending_recent_reminder_warning():
 
 
 def prepare_whatsapp_action(row_data: dict, key_prefix: str, msg_key: str, idx):
+    set_main_section_tab("Reminders")
     client_name = row_data.get("Client Name", "")
     now = utc_now()
     warning_message = get_recent_reminder_warning(client_name, now=now)
@@ -8339,6 +8340,7 @@ def prepare_whatsapp_action(row_data: dict, key_prefix: str, msg_key: str, idx):
 
 
 def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx):
+    set_main_section_tab("Reminders")
     client_name = row_data.get("Client Name", "")
     now = utc_now()
     hidden_record = get_hidden_reminder_record(row_data)
@@ -8357,6 +8359,7 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
 
 
 def decline_reminder_action(row_data: dict, key_prefix: str):
+    set_main_section_tab("Reminders")
     now = utc_now()
     hidden_record = get_hidden_reminder_record(row_data)
     hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
@@ -8369,6 +8372,7 @@ def decline_reminder_action(row_data: dict, key_prefix: str):
 
 
 def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
+    set_main_section_tab("Reminders")
     hidden_record = get_hidden_reminder_record(row_data) or row_data
     hidden_action = str(hidden_record.get("Action", "")).strip().lower()
     with busy_overlay("Saving reminder action", "Returning this reminder to Active Reminders."):

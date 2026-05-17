@@ -24,6 +24,7 @@ class ReminderWorkflowTests(unittest.TestCase):
             deleted_reminders=[],
             wa_reminder_log=[],
             reminder_warning_days=0,
+            main_section_tab="Upload Data",
         )
 
     def test_sent_declined_and_undo_workflow_records_tracker_rows_and_session_state(self):
@@ -62,6 +63,7 @@ class ReminderWorkflowTests(unittest.TestCase):
         self.assertIn("Nurse", self.app.st.session_state["wa_message"])
 
         state = self.app.st.session_state
+        self.assertEqual(state["main_section_tab"], "Reminders")
         self.assertEqual(state["deleted_reminders"], [])
         self.assertEqual(state["wa_reminder_log"], [])
         self.assertEqual(
