@@ -77,21 +77,36 @@ def authlib_available() -> bool:
     return importlib.util.find_spec("authlib") is not None
 
 
+def read_raw_config_entry(container, name: str, default=""):
+    try:
+        if hasattr(container, "get"):
+            value = container.get(name, default)
+        else:
+            value = getattr(container, name, default)
+    except Exception:
+        value = default
+    return value
+
+
+def read_config_entry(container, name: str, default: str = "") -> str:
+    value = read_raw_config_entry(container, name, default)
+    return str(value or "").strip()
+
+
 def config_value(name: str, default: str) -> str:
     env_value = os.environ.get(name)
     if str(env_value or "").strip():
         return str(env_value).strip()
 
     try:
-        secret_value = st.secrets.get(name, "")
-        if str(secret_value or "").strip():
-            return str(secret_value).strip()
+        secret_value = read_config_entry(st.secrets, name)
+        if secret_value:
+            return secret_value
 
-        google_resources = st.secrets.get("google_resources", {})
-        if isinstance(google_resources, dict):
-            nested_value = google_resources.get(name, "")
-            if str(nested_value or "").strip():
-                return str(nested_value).strip()
+        google_resources = read_raw_config_entry(st.secrets, "google_resources", {})
+        nested_value = read_config_entry(google_resources, name)
+        if nested_value:
+            return nested_value
     except Exception:
         pass
 
@@ -106,8 +121,8 @@ def suffixed_name(base_name: str, suffix: str) -> str:
 def default_worksheet_name_suffix() -> str:
     """Use live worksheet tabs automatically for the production Streamlit URL."""
     try:
-        auth_config = st.secrets.get("auth", {})
-        redirect_uri = str(auth_config.get("redirect_uri", "") if isinstance(auth_config, dict) else "").strip()
+        auth_config = read_raw_config_entry(st.secrets, "auth", {})
+        redirect_uri = read_config_entry(auth_config, "redirect_uri")
     except Exception:
         redirect_uri = ""
 

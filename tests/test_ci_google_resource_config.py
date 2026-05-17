@@ -10,6 +10,14 @@ from unittest.mock import patch
 from scripts import live_google_smoke_check
 
 
+class SecretSection:
+    def __init__(self, **values):
+        self._values = values
+
+    def get(self, name, default=None):
+        return self._values.get(name, default)
+
+
 class GoogleResourceConfigTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -42,6 +50,23 @@ class GoogleResourceConfigTests(unittest.TestCase):
                     "WORKSHEET_NAME_SUFFIX",
                     self.app.default_worksheet_name_suffix(),
                 ),
+                "-live",
+            )
+
+    def test_streamlit_like_secrets_sections_drive_live_worksheet_suffix(self):
+        secrets = SecretSection(
+            auth=SecretSection(
+                redirect_uri="https://clinic-reminders.streamlit.app/oauth2callback",
+            ),
+            google_resources=SecretSection(
+                WORKSHEET_NAME_SUFFIX="-live",
+            ),
+        )
+
+        with patch.object(self.app.st, "secrets", secrets):
+            self.assertEqual(self.app.default_worksheet_name_suffix(), "-live")
+            self.assertEqual(
+                self.app.config_value("WORKSHEET_NAME_SUFFIX", ""),
                 "-live",
             )
 
