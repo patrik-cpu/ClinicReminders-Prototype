@@ -26,6 +26,20 @@ Do not run destructive checks against a real clinic.
 
 ## Automated Read-Only Preflight
 
+For the full limited-pilot gate, run:
+
+```bash
+scripts/pilot_release_check.sh
+```
+
+That runs local compile/tests/dependency checks first. If Google credentials are
+available, it also runs the live Google smoke check and the legacy auth audit.
+Set `PILOT_TEST_CLINIC_ID` to include the clinic pointer check:
+
+```bash
+PILOT_TEST_CLINIC_ID="Test Clinic" scripts/pilot_release_check.sh
+```
+
 Run from the repo root:
 
 ```bash
@@ -44,6 +58,21 @@ Optional clinic pointer check:
 ```bash
 python scripts/live_google_smoke_check.py --clinic-id "Test Clinic"
 ```
+
+Optional legacy auth data check:
+
+```bash
+python scripts/auth_legacy_audit.py --fail-on-risk --show-clinics
+```
+
+The auth audit reports counts only by default. It never prints password values.
+
+Google resource IDs can be overridden through environment variables or
+`[google_resources]` in `.streamlit/secrets.toml`:
+
+- `SETTINGS_SHEET_ID`
+- `DATASETS_FOLDER_ID`
+- `FEEDBACK_SHEET_ID`
 
 What the script verifies:
 
@@ -176,8 +205,10 @@ Only run if the test account is disposable.
 
 Before production `main`, all of these must pass:
 
+- `scripts/pilot_release_check.sh`
 - `python scripts/live_google_smoke_check.py`
 - `python scripts/live_google_smoke_check.py --clinic-id "<test clinic>"`
+- `python scripts/auth_legacy_audit.py --fail-on-risk`
 - app startup
 - password login
 - invalid password safe failure

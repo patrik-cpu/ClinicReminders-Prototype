@@ -1,3 +1,4 @@
+--constraint requirements-constraints.txt
 streamlit==1.56.0
 pandas>=1.5
 numpy

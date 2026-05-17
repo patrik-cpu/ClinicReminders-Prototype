@@ -75,6 +75,27 @@ def get_query_param_value(key: str) -> str:
 def authlib_available() -> bool:
     return importlib.util.find_spec("authlib") is not None
 
+
+def config_value(name: str, default: str) -> str:
+    env_value = os.environ.get(name)
+    if str(env_value or "").strip():
+        return str(env_value).strip()
+
+    try:
+        secret_value = st.secrets.get(name, "")
+        if str(secret_value or "").strip():
+            return str(secret_value).strip()
+
+        google_resources = st.secrets.get("google_resources", {})
+        if isinstance(google_resources, dict):
+            nested_value = google_resources.get(name, "")
+            if str(nested_value or "").strip():
+                return str(nested_value).strip()
+    except Exception:
+        pass
+
+    return default
+
 # --------------------------------
 # Title (retention change))
 # --------------------------------
@@ -196,7 +217,8 @@ with title_col:
 top_account_slot = tut_col.empty()
 
 # === Drive folder where canonical datasets live ===
-DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive folder URL
+DEFAULT_DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive folder URL
+DATASETS_FOLDER_ID = config_value("DATASETS_FOLDER_ID", DEFAULT_DATASETS_FOLDER_ID)
 
 # === Sheet columns you created ===
 SETTINGS_WORKSHEET_NAME = "Clinic settings"
@@ -2069,7 +2091,8 @@ DEFAULT_WA_TEMPLATE = (
 # --------------------------------
 
 # === CONFIGURATION ===
-SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ← your ClinicReminders_Settings_Master Sheet ID
+DEFAULT_SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"  # ClinicReminders_Settings_Master Sheet ID
+SETTINGS_SHEET_ID = config_value("SETTINGS_SHEET_ID", DEFAULT_SETTINGS_SHEET_ID)
 SETTINGS_SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 REMEMBER_LOGIN_DAYS = 30
 REMEMBER_LOGIN_QUERY_PARAM = "remember"
@@ -11297,7 +11320,8 @@ if False and st.session_state["factoids_unlocked"]:
 # ============================================================
 # 💬 Feedback (Single source of truth)
 # ============================================================
-FEEDBACK_SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
+DEFAULT_FEEDBACK_SHEET_ID = "1LUK2lAmGww40aZzFpx1TSKPLvXsqmm_R5WkqXQVkf98"
+FEEDBACK_SHEET_ID = config_value("FEEDBACK_SHEET_ID", DEFAULT_FEEDBACK_SHEET_ID)
 FEEDBACK_SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
 @st.cache_resource(show_spinner=False)

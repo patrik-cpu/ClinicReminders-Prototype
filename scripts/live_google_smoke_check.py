@@ -21,8 +21,10 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 
-SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"
-DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"
+DEFAULT_SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"
+DEFAULT_DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"
+SETTINGS_SHEET_ID = DEFAULT_SETTINGS_SHEET_ID
+DATASETS_FOLDER_ID = DEFAULT_DATASETS_FOLDER_ID
 SETTINGS_WORKSHEET_NAME = "Clinic settings"
 
 SCOPES = [
@@ -134,6 +136,47 @@ class SmokeFailure(RuntimeError):
     pass
 
 
+def load_streamlit_secrets(secrets_toml: str | None = None) -> dict[str, Any]:
+    secrets_path = Path(secrets_toml or ".streamlit/secrets.toml")
+    if not secrets_path.exists():
+        return {}
+    with secrets_path.open("rb") as handle:
+        return tomllib.load(handle)
+
+
+def configured_resource_id(name: str, default: str, secrets_toml: str | None = None) -> str:
+    env_value = os.environ.get(name)
+    if normalize(env_value):
+        return normalize(env_value)
+
+    secrets = load_streamlit_secrets(secrets_toml)
+    root_value = secrets.get(name)
+    if normalize(root_value):
+        return normalize(root_value)
+
+    google_resources = secrets.get("google_resources")
+    if isinstance(google_resources, dict):
+        nested_value = google_resources.get(name)
+        if normalize(nested_value):
+            return normalize(nested_value)
+
+    return default
+
+
+def apply_resource_config(args: argparse.Namespace) -> None:
+    global SETTINGS_SHEET_ID, DATASETS_FOLDER_ID
+    SETTINGS_SHEET_ID = configured_resource_id(
+        "SETTINGS_SHEET_ID",
+        DEFAULT_SETTINGS_SHEET_ID,
+        args.secrets_toml,
+    )
+    DATASETS_FOLDER_ID = configured_resource_id(
+        "DATASETS_FOLDER_ID",
+        DEFAULT_DATASETS_FOLDER_ID,
+        args.secrets_toml,
+    )
+
+
 def load_credentials_info(args: argparse.Namespace) -> tuple[dict[str, Any], str]:
     candidates = []
     if args.credentials_json:
@@ -148,12 +191,10 @@ def load_credentials_info(args: argparse.Namespace) -> tuple[dict[str, Any], str
                 return json.load(handle), source
 
     secrets_path = Path(args.secrets_toml or ".streamlit/secrets.toml")
-    if secrets_path.exists():
-        with secrets_path.open("rb") as handle:
-            secrets = tomllib.load(handle)
-        service_account = secrets.get("gcp_service_account")
-        if isinstance(service_account, dict):
-            return dict(service_account), f"Streamlit secrets file {secrets_path}"
+    secrets = load_streamlit_secrets(args.secrets_toml)
+    service_account = secrets.get("gcp_service_account")
+    if isinstance(service_account, dict):
+        return dict(service_account), f"Streamlit secrets file {secrets_path}"
 
     raise SmokeFailure(
         "No Google service-account credentials found. Provide --credentials-json, "
@@ -280,6 +321,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
+        apply_resource_config(args)
         creds, source = build_credentials(args)
         print(f"OK Credentials: loaded service-account credentials from {source}")
         clinic_record = check_settings_spreadsheet(creds, args.clinic_id)
