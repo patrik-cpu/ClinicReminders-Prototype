@@ -9,7 +9,7 @@ import streamlit.components.v1 as components
 import gspread
 from settings_pointer_utils import update_dataset_pointer_cells
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 import hashlib
@@ -19,7 +19,7 @@ import numpy as np
 from gspread.exceptions import APIError
 import random
 import html as html_lib
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 try:
     from streamlit.runtime.scriptrunner import RerunException
@@ -243,6 +243,7 @@ ACCOUNT_METADATA_COLUMNS = [
     SHEET_COL_ACCOUNT_STATUS,
 ]
 SETTINGS_REQUIRED_COLUMNS = SETTINGS_BASE_COLUMNS + DATASET_POINTER_COLUMNS + GOOGLE_ACCOUNT_COLUMNS + ACCOUNT_METADATA_COLUMNS
+DEFAULT_USER_TIMEZONE = "UTC"
 GST_TZ = ZoneInfo("Asia/Dubai")
 ACTION_TRACKER_WORKSHEET = "Action tracker"
 WA_TRACKER_WORKSHEET = "WA button tracker"  # Legacy sheet name; kept for backwards compatibility.
@@ -642,15 +643,53 @@ def get_or_create_settings_worksheet(spreadsheet):
     return worksheet
 
 
-def gst_now(now: datetime | None = None) -> datetime:
-    now = now or datetime.utcnow()
+def user_timezone_name() -> str:
+    try:
+        browser_timezone = getattr(st.context, "timezone", None)
+    except Exception:
+        browser_timezone = None
+    browser_timezone = str(browser_timezone or "").strip()
+    return browser_timezone or DEFAULT_USER_TIMEZONE
+
+
+def user_timezone() -> ZoneInfo:
+    try:
+        return ZoneInfo(user_timezone_name())
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo(DEFAULT_USER_TIMEZONE)
+
+
+def utc_now(now: datetime | None = None) -> datetime:
+    if now is None:
+        return datetime.now(timezone.utc).replace(tzinfo=None)
     if now.tzinfo is None:
-        now = now.replace(tzinfo=ZoneInfo("UTC"))
-    return now.astimezone(GST_TZ)
+        return now
+    return now.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def user_now(now: datetime | None = None) -> datetime:
+    utc_value = utc_now(now).replace(tzinfo=timezone.utc)
+    return utc_value.astimezone(user_timezone()).replace(tzinfo=None)
+
+
+def user_today(now: datetime | None = None) -> date:
+    return user_now(now).date()
+
+
+def user_now_iso(now: datetime | None = None) -> str:
+    return user_now(now).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def utc_now_iso(now: datetime | None = None) -> str:
+    return utc_now(now).isoformat()
+
+
+def gst_now(now: datetime | None = None) -> datetime:
+    return user_now(now)
 
 
 def gst_now_iso(now: datetime | None = None) -> str:
-    return gst_now(now).strftime("%Y-%m-%d %H:%M:%S")
+    return user_now_iso(now)
 
 
 def _update_dataset_pointer_cells(sheet, headers, row_idx, file_id, filename, updated_at):
@@ -2579,7 +2618,7 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
     return merged
 
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
-    updated_at = datetime.utcnow().isoformat()
+    updated_at = utc_now_iso()
     update_settings_row_fields(
         clinic_id,
         {
@@ -2887,7 +2926,7 @@ def dataset_summary_checks(rows: list[dict]) -> list[dict]:
     unsupported_pms = {"", "-", "unknown", "undetected", "csv"}
     supported_pms = bool(pms_values) and all(pms.lower() not in unsupported_pms for pms in pms_values)
     same_pms = len({pms.lower() for pms in pms_values}) <= 1
-    today = pd.Timestamp(date.today())
+    today = pd.Timestamp(user_today())
     impact_start = today - pd.Timedelta(days=365)
     impact_end = today - pd.Timedelta(days=30)
     has_impact_window = date_ranges_cover_window(normalized_rows, impact_start, impact_end)
@@ -3092,7 +3131,7 @@ def load_settings():
         legacy_deleted_reminders = settings.get("deleted_reminders", [])
         if legacy_deleted_reminders and not settings.get("action_tracker_migrated_at"):
             if migrate_legacy_actions_to_tracker(clinic_id, legacy_deleted_reminders):
-                settings["action_tracker_migrated_at"] = datetime.utcnow().isoformat()
+                settings["action_tracker_migrated_at"] = utc_now_iso()
                 migrated_legacy_actions = True
         tracked_actions = load_action_tracker_records_for_clinic(clinic_id)
         st.session_state["deleted_reminders"] = merge_deleted_reminders(legacy_deleted_reminders, tracked_actions)
@@ -3403,7 +3442,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "action_tracker_migrated_at": setting_for_save("action_tracker_migrated_at", remote_settings.get("action_tracker_migrated_at", "")),
     }
     settings_json = json.dumps(settings_data)
-    updated_at = datetime.utcnow().isoformat()
+    updated_at = utc_now_iso()
 
     # Update existing row or append a new one
     if row:
@@ -3632,11 +3671,11 @@ def _action_tracker_time(entry: dict) -> datetime:
 
 
 def action_tracker_row_values(row, action: str, message: str = "", source: str = "", now: datetime | None = None) -> list[str]:
-    now = now or datetime.utcnow()
+    event_now = now or utc_now()
     reminder_key = list(hidden_reminder_key(row))
     return [
-        gst_now_iso(now),
-        now.isoformat(),
+        gst_now_iso(event_now),
+        utc_now_iso(event_now),
         str(st.session_state.get("clinic_id", "")).strip(),
         str(st.session_state.get("user_name", "")).strip(),
         str(action or "").strip().lower(),
@@ -3751,7 +3790,7 @@ def migrate_legacy_actions_to_tracker(clinic_id: str, legacy_deleted: list[dict]
             continue
         actioned_at = _hidden_reminder_action_time(entry)
         if actioned_at == datetime.min:
-            actioned_at = datetime.utcnow()
+            actioned_at = utc_now()
         rows.append(action_tracker_row_values(
             entry,
             action,
@@ -3770,7 +3809,7 @@ def get_hidden_reminder_record(row) -> dict | None:
 
 
 def upsert_hidden_reminder(row, action: str, message: str = "", now: datetime | None = None) -> dict:
-    now = now or datetime.utcnow()
+    now = user_now(now)
     actioned_by = str(st.session_state.get("user_name", "") or "").strip()
     rec = {
         "Reminder Date": row.get("Reminder Date", ""),
@@ -3837,7 +3876,7 @@ def get_recent_reminder_warning(client_name: str, now: datetime | None = None, s
     if warning_days <= 0:
         return None
 
-    now = now or datetime.utcnow()
+    now = user_now(now)
     if sync_remote:
         st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(
             get_remote_wa_reminder_log(),
@@ -3858,7 +3897,7 @@ def get_recent_reminder_warning(client_name: str, now: datetime | None = None, s
     return None
 
 def record_wa_reminder_click(client_name: str, now: datetime | None = None, row=None, save: bool = True):
-    now = now or datetime.utcnow()
+    now = user_now(now)
     entry = {
         "Client Name": str(client_name or "").strip(),
         "RemindedAt": now.isoformat(),
@@ -4668,7 +4707,7 @@ def record_dataset_tracker_event(
     source: str = "",
     now: datetime | None = None,
 ) -> bool:
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     safe_drive_file_id = sanitize_diagnostic_message(drive_file_id)
     safe_message = sanitize_diagnostic_message(message)
     return append_tracker_row(DATASET_TRACKER_WORKSHEET, DATASET_TRACKER_HEADERS, [
@@ -4700,7 +4739,7 @@ def record_settings_audit_event(
     source: str = "",
     now: datetime | None = None,
 ) -> bool:
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     return append_tracker_row(SETTINGS_AUDIT_WORKSHEET, SETTINGS_AUDIT_HEADERS, [
         gst_now_iso(now),
         tracker_cell_value(st.session_state.get("clinic_id", "")),
@@ -4723,7 +4762,7 @@ def record_error_tracker_event(
     source: str = "",
     now: datetime | None = None,
 ) -> bool:
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     error_type = type(error).__name__ if error is not None else ""
     error_message = sanitize_diagnostic_message(message or (str(error) if error is not None else ""))
     return append_tracker_row(ERROR_TRACKER_WORKSHEET, ERROR_TRACKER_HEADERS, [
@@ -4747,7 +4786,7 @@ def record_performance_tracker_event(
     source: str = "",
     now: datetime | None = None,
 ) -> bool:
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     try:
         duration_value = str(int(round(float(duration_ms))))
     except (TypeError, ValueError):
@@ -5174,7 +5213,7 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
         SHEET_COL_CLINIC_ID: clinic_id,
         SHEET_COL_PASSWORD_HASH: password_hash,
         SHEET_COL_SETTINGS_JSON: settings_json,
-        SHEET_COL_UPDATED_AT: datetime.utcnow().isoformat(),
+        SHEET_COL_UPDATED_AT: utc_now_iso(),
         SHEET_COL_COUNTRY: country,
         SHEET_COL_CREATED_AT_GST: created_at_gst,
         SHEET_COL_LAST_LOGIN_AT_GST: created_at_gst,
@@ -5216,7 +5255,7 @@ def create_google_clinic_account(clinic_id: str, country: str, google_user: dict
         SHEET_COL_CLINIC_ID: clinic_id,
         SHEET_COL_PASSWORD_HASH: "",
         SHEET_COL_SETTINGS_JSON: settings_json,
-        SHEET_COL_UPDATED_AT: datetime.utcnow().isoformat(),
+        SHEET_COL_UPDATED_AT: utc_now_iso(),
         SHEET_COL_AUTH_PROVIDER: GOOGLE_AUTH_PROVIDER,
         SHEET_COL_GOOGLE_EMAIL: email,
         SHEET_COL_GOOGLE_SUBJECT: str(google_user.get("subject", "")).strip(),
@@ -5401,7 +5440,7 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
 
     old_clinic_id = require_authenticated_tenant_access(old_clinic_id)
     old_row = get_clinic_row(old_clinic_id) or {}
-    updated_at = datetime.utcnow().isoformat()
+    updated_at = utc_now_iso()
     values_by_header = {
         "ClinicID": new_clinic_id,
         SHEET_COL_GOOGLE_EMAIL: email,
@@ -5655,7 +5694,7 @@ def update_clinic_password(clinic_id: str, new_password: str):
     validate_password_policy(new_password, clinic_id)
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
     password_hash = password_hash_for_storage(new_password)
-    updated_at = datetime.utcnow().isoformat()
+    updated_at = utc_now_iso()
     if callable(globals().get("_update_password_cells", None)):
         _update_password_cells(sheet, headers, row_idx, "", password_hash, updated_at)
     else:
@@ -6606,7 +6645,7 @@ def render_setup_checklist():
     reset_col, _ = st.columns([0.85, 5], gap="small")
     with reset_col:
         if st.button("↻ Reset", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
-            st.session_state["get_started_reset_at"] = datetime.utcnow().isoformat()
+            st.session_state["get_started_reset_at"] = user_now().isoformat()
             save_settings_quietly()
             st.success("Get Started guide reset.")
             st.rerun()
@@ -7272,7 +7311,7 @@ def get_active_reminder_badge_count(today: date | None = None) -> int:
     working_df = st.session_state.get("working_df")
     if working_df is None or getattr(working_df, "empty", True):
         return 0
-    today = today or date.today()
+    today = today or user_today()
     lookback_start_date = today - timedelta(days=normalized_reminder_lookback_days())
     try:
         rules = get_applied_reminder_rules()
@@ -7937,7 +7976,7 @@ def render_sender_name_input(key_suffix: str):
 
     if new_name != prev_name:
         st.session_state["user_name"] = new_name
-        st.session_state["user_name_updated_at"] = datetime.utcnow().isoformat()
+        st.session_state["user_name_updated_at"] = user_now().isoformat()
         save_settings_quietly()
 
 
@@ -8009,7 +8048,7 @@ def show_pending_recent_reminder_warning():
 
 def prepare_whatsapp_action(row_data: dict, key_prefix: str, msg_key: str, idx):
     client_name = row_data.get("Client Name", "")
-    now = datetime.utcnow()
+    now = utc_now()
     warning_message = get_recent_reminder_warning(client_name, now=now)
     queue_recent_reminder_warning(warning_message, key=f"{key_prefix}_recent_reminder_ok_{idx}")
 
@@ -8020,7 +8059,7 @@ def prepare_whatsapp_action(row_data: dict, key_prefix: str, msg_key: str, idx):
 
 def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx):
     client_name = row_data.get("Client Name", "")
-    now = datetime.utcnow()
+    now = utc_now()
     hidden_record = get_hidden_reminder_record(row_data)
     hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
 
@@ -8037,7 +8076,7 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
 
 
 def decline_reminder_action(row_data: dict, key_prefix: str):
-    now = datetime.utcnow()
+    now = utc_now()
     hidden_record = get_hidden_reminder_record(row_data)
     hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
     if hidden_action == REMINDER_ACTION_SENT:
@@ -8054,7 +8093,7 @@ def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
     with busy_overlay("Saving reminder action", "Returning this reminder to Active Reminders."):
         if hidden_action == REMINDER_ACTION_SENT:
             remove_wa_reminder_click_for_row(row_data)
-        record_action_tracker(row_data, "active", source=f"{key_prefix}_undo", now=datetime.utcnow())
+        record_action_tracker(row_data, "active", source=f"{key_prefix}_undo", now=utc_now())
         remove_actioned_reminder(row_data)
         save_settings_quietly()
 
@@ -8263,7 +8302,7 @@ def format_actioned_reminder_date(row) -> str:
 
 
 def actioned_reminder_period_start(period: str, now: datetime | None = None) -> datetime | None:
-    now = now or datetime.utcnow()
+    now = user_now(now)
     today_start = datetime.combine(now.date(), datetime.min.time())
     if period == "Daily":
         return today_start
@@ -8728,7 +8767,7 @@ def render_whatsapp_tools(key_prefix: str, msg_key: str):
                     st.session_state["user_template"] = new_template
                     st.session_state["wa_template_reviewed"] = True
                     st.session_state["wa_template_updated"] = True
-                    st.session_state["wa_template_updated_at"] = datetime.utcnow().isoformat()
+                    st.session_state["wa_template_updated_at"] = user_now().isoformat()
                     save_settings_quietly()
                     record_settings_audit_event("template_updated", "template", "whatsapp", "user_template", old_template, new_template, "reminders_tab")
                     st.success("Template updated successfully!")
@@ -8813,7 +8852,7 @@ def empty_statistics_generated_frame() -> pd.DataFrame:
 
 
 def statistics_period_start(period: str, today: date | None = None) -> date | None:
-    today = today or date.today()
+    today = today or user_today()
     if period == "Today":
         return today
     if period == "7 days":
@@ -8858,7 +8897,7 @@ def statistics_actioned_date(row: dict) -> date | None:
 def statistics_date_in_period(value_date: date | None, period: str, today: date | None = None) -> bool:
     if value_date is None:
         return False
-    today = today or date.today()
+    today = today or user_today()
     start = statistics_period_start(period, today)
     if start is None:
         return True
@@ -8884,7 +8923,7 @@ def filter_prepared_for_statistics_period(
     start = statistics_period_start(period, today)
     if start is None:
         return prepared
-    today = today or date.today()
+    today = today or user_today()
     reminder_ts = prepared.get("ReminderDateTs")
     if reminder_ts is None:
         reminder_ts = prepared.get("NextDueDateTs")
@@ -8933,7 +8972,7 @@ def cached_statistics_generated_rows(
     schema_version: int,
 ) -> pd.DataFrame:
     today = pd.to_datetime(today_iso, errors="coerce")
-    today_date = today.date() if pd.notna(today) else date.today()
+    today_date = today.date() if pd.notna(today) else user_today()
     return build_statistics_generated_rows(
         _prepared,
         _rules,
@@ -9015,7 +9054,7 @@ def build_statistics_daily_frame(
     period: str,
     today: date | None = None,
 ) -> pd.DataFrame:
-    today = today or date.today()
+    today = today or user_today()
     generated_counts = {}
     for row in filter_generated_for_statistics_period(generated_df, period, today).to_dict("records"):
         row_date = statistics_primary_reminder_date(row)
@@ -9173,7 +9212,7 @@ def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
             rules,
             group_days=statistics_group_days,
             period=selected_period,
-            today_iso=date.today().isoformat(),
+            today_iso=user_today().isoformat(),
             data_version=statistics_data_version,
             rules_fp=_rules_fp(rules),
             exclusion_fp=statistics_exclusion_fp(),
@@ -9438,7 +9477,7 @@ def render_search_terms_editor():
                     else:
                         st.session_state["rules"][safe_rule] = rule_data
                         st.session_state["search_term_added"] = True
-                        st.session_state["search_term_added_at"] = datetime.utcnow().isoformat()
+                        st.session_state["search_term_added_at"] = user_now().isoformat()
                         save_settings_quietly()
                         record_settings_audit_event("search_term_added", "search_terms", safe_rule, "rule", "", rule_data, "search_terms_tab")
                         st.session_state["new_rule_counter"] += 1
@@ -9582,7 +9621,7 @@ if st.session_state.get("working_df") is not None:
             # st.cache_data.clear()
             st.rerun()
 
-        default_start = date.today()
+        default_start = user_today()
         current_window_days = normalized_reminder_window_days()
         if st.session_state.get("reminder_window_days") != current_window_days:
             st.session_state["reminder_window_days"] = current_window_days
@@ -9671,7 +9710,7 @@ if st.session_state.get("working_df") is not None:
             )
 
         render_reminders_caught_up_banner(
-            active_count=get_active_reminder_badge_count(today=date.today()),
+            active_count=get_active_reminder_badge_count(today=user_today()),
             lookback_days=reminder_lookback_days,
         )
     
@@ -10576,7 +10615,7 @@ if False and st.session_state["factoids_unlocked"]:
             latest_date   = pd.to_datetime(df_full["ChargeDate"], errors="coerce").max()
             earliest_date = pd.to_datetime(df_full["ChargeDate"], errors="coerce").min()
             if pd.isna(latest_date):
-                latest_date = pd.Timestamp.today()
+                latest_date = pd.Timestamp(user_today())
             if pd.isna(earliest_date):
                 earliest_date = latest_date - pd.DateOffset(years=1)
         
@@ -11179,7 +11218,7 @@ def insert_feedback(name: str, email: str, message: str):
         st.error("⚠ Could not connect to Feedback Sheet. Check credentials or try again later.")
         return
 
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # robust next id
     try:
@@ -11247,7 +11286,7 @@ if False and st.session_state.get("clinic_id") == "Admin":
 
             if row:
                 # Update existing clinic row
-                _update_password_cells(sheet, headers, row, "", hashed, datetime.utcnow().isoformat())
+                _update_password_cells(sheet, headers, row, "", hashed, utc_now_iso())
                 upsert_user_tracker(new_clinic, event="admin_password_update")
                 st.success(f"✅ Updated password for clinic '{new_clinic}'.")
             else:
@@ -11256,7 +11295,7 @@ if False and st.session_state.get("clinic_id") == "Admin":
                     SHEET_COL_CLINIC_ID: new_clinic,
                     SHEET_COL_PASSWORD_HASH: hashed,
                     SHEET_COL_SETTINGS_JSON: "{}",
-                    SHEET_COL_UPDATED_AT: datetime.utcnow().isoformat(),
+                    SHEET_COL_UPDATED_AT: utc_now_iso(),
                 }))
                 upsert_user_tracker(new_clinic, event="admin_created")
                 st.success(f"✅ Added new clinic '{new_clinic}'.")

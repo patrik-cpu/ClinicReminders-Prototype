@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import time
 import unittest
+from datetime import date, datetime
 from unittest.mock import patch
 
 
@@ -14,6 +15,25 @@ class AuthSessionTests(unittest.TestCase):
     def setUpClass(cls):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             cls.app = importlib.import_module("reminders_app_v3")
+
+    def test_user_today_uses_browser_timezone_when_available(self):
+        utc_midday = datetime(2026, 5, 16, 12, 0, 0)
+
+        with patch.object(self.app, "user_timezone_name", return_value="Pacific/Auckland"):
+            self.assertEqual(self.app.user_today(utc_midday), date(2026, 5, 17))
+
+        with patch.object(self.app, "user_timezone_name", return_value="America/Los_Angeles"):
+            self.assertEqual(self.app.user_today(utc_midday), date(2026, 5, 16))
+
+    def test_user_timezone_falls_back_to_utc_for_unknown_browser_timezone(self):
+        utc_midday = datetime(2026, 5, 16, 12, 0, 0)
+
+        with patch.object(self.app, "user_timezone_name", return_value="Not/AZone"):
+            self.assertEqual(self.app.user_now(utc_midday), utc_midday)
+
+    def test_statistics_default_today_uses_user_timezone_helper(self):
+        with patch.object(self.app, "user_today", return_value=date(2026, 5, 17)):
+            self.assertEqual(self.app.statistics_period_start("Today"), date(2026, 5, 17))
 
     def test_remember_login_token_default_is_short_lived(self):
         self.assertLessEqual(self.app.REMEMBER_LOGIN_DAYS, 30)
