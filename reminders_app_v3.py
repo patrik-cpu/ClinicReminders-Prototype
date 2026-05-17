@@ -489,7 +489,8 @@ def drop_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
     
 def clear_clinic_dataset_pointer(clinic_id: str):
-    update_settings_row_fields(
+    clinic_id = require_authenticated_tenant_access(clinic_id)
+    update_authorized_settings_row_fields(
         clinic_id,
         {
             SHEET_COL_DATASET_FILE_ID: "",
@@ -783,7 +784,7 @@ def update_cached_settings_row_fields(clinic_id: str, values_by_header: dict[str
     cached["row_values"] = row_values
 
 
-def update_settings_row_fields(
+def _raw_update_settings_row_fields(
     clinic_id: str,
     values_by_header: dict[str, object],
     required_columns: list[str] | None = None,
@@ -804,18 +805,71 @@ def update_settings_row_fields(
     return sheet, headers, row_idx
 
 
+class SettingsRepository:
+    def get_fresh_row_values(self, clinic_id: str) -> tuple[object, list[str], int, list[str]]:
+        sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+        row_values = list(_gspread_retry(sheet.row_values, row_idx))
+        clinic_key = normalize_clinic_id_key(clinic_id)
+        st.session_state["_settings_row_cache"] = {
+            "clinic_key": clinic_key,
+            "headers": list(headers),
+            "row_idx": row_idx,
+            "row_values": list(row_values),
+        }
+        return sheet, list(headers), row_idx, row_values
+
+    def get_authorized_fresh_row_values(self, clinic_id: str) -> tuple[object, list[str], int, list[str]]:
+        clinic_id = require_authenticated_tenant_access(clinic_id)
+        return self.get_fresh_row_values(clinic_id)
+
+    def update_fields(
+        self,
+        clinic_id: str,
+        values_by_header: dict[str, object],
+        required_columns: list[str] | None = None,
+    ) -> tuple[object, list[str], int]:
+        return _raw_update_settings_row_fields(clinic_id, values_by_header, required_columns)
+
+    def update_authorized_fields(
+        self,
+        clinic_id: str,
+        values_by_header: dict[str, object],
+        required_columns: list[str] | None = None,
+    ) -> tuple[object, list[str], int]:
+        clinic_id = require_authenticated_tenant_access(clinic_id)
+        return self.update_fields(clinic_id, values_by_header, required_columns)
+
+
+def settings_repository() -> SettingsRepository:
+    return SettingsRepository()
+
+
+def update_settings_row_fields(
+    clinic_id: str,
+    values_by_header: dict[str, object],
+    required_columns: list[str] | None = None,
+) -> tuple[object, list[str], int]:
+    return settings_repository().update_fields(clinic_id, values_by_header, required_columns)
+
+
+def update_authorized_settings_row_fields(
+    clinic_id: str,
+    values_by_header: dict[str, object],
+    required_columns: list[str] | None = None,
+) -> tuple[object, list[str], int]:
+    return settings_repository().update_authorized_fields(clinic_id, values_by_header, required_columns)
+
+
 def get_fresh_settings_row_values(clinic_id: str) -> tuple[object, list[str], int, list[str]]:
     """Read the clinic row directly from Sheets and refresh the session cache."""
-    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
-    row_values = list(_gspread_retry(sheet.row_values, row_idx))
-    clinic_key = normalize_clinic_id_key(clinic_id)
-    st.session_state["_settings_row_cache"] = {
-        "clinic_key": clinic_key,
-        "headers": list(headers),
-        "row_idx": row_idx,
-        "row_values": list(row_values),
-    }
-    return sheet, list(headers), row_idx, row_values
+    return settings_repository().get_fresh_row_values(clinic_id)
+
+
+def get_authorized_fresh_settings_row_values(clinic_id: str) -> tuple[object, list[str], int, list[str]]:
+    """Read the signed-in clinic row directly from Sheets and refresh the session cache."""
+    return settings_repository().get_authorized_fresh_row_values(clinic_id)
+
+
 
 
 def _copy_settings_dict(settings: dict | None) -> dict:
@@ -2618,8 +2672,9 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
     return merged
 
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
+    clinic_id = require_authenticated_tenant_access(clinic_id)
     updated_at = utc_now_iso()
-    update_settings_row_fields(
+    update_authorized_settings_row_fields(
         clinic_id,
         {
             SHEET_COL_DATASET_FILE_ID: file_id,
@@ -2628,7 +2683,7 @@ def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
         },
         SETTINGS_REQUIRED_COLUMNS,
     )
-    _, fresh_headers, _, fresh_row = get_fresh_settings_row_values(clinic_id)
+    _, fresh_headers, _, fresh_row = get_authorized_fresh_settings_row_values(clinic_id)
     file_id_idx = fresh_headers.index(SHEET_COL_DATASET_FILE_ID)
     saved_file_id = str(fresh_row[file_id_idx]).strip() if len(fresh_row) > file_id_idx else ""
     if saved_file_id != str(file_id).strip():

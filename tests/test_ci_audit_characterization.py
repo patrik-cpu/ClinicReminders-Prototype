@@ -371,6 +371,74 @@ class AuditCharacterizationTests(unittest.TestCase):
         get_spreadsheet.assert_not_called()
         trash_file.assert_not_called()
 
+    def test_tenant_guard_blocks_cross_tenant_dataset_pointer_clear_before_writes(self):
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+
+        with (
+            patch.object(self.app, "update_authorized_settings_row_fields") as update_fields,
+            patch.object(self.app, "update_cached_settings_row_fields") as update_cache,
+        ):
+            with self.assertRaises(self.app.TenantAuthorizationError):
+                self.app.clear_clinic_dataset_pointer("Clinic B")
+
+        update_fields.assert_not_called()
+        update_cache.assert_not_called()
+
+    def test_clear_clinic_dataset_pointer_only_clears_signed_in_clinic_pointer(self):
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+
+        with (
+            patch.object(self.app, "update_authorized_settings_row_fields") as update_fields,
+            patch.object(self.app, "update_cached_settings_row_fields") as update_cache,
+        ):
+            self.app.clear_clinic_dataset_pointer(" Clinic A ")
+
+        expected_values = {
+            self.app.SHEET_COL_DATASET_FILE_ID: "",
+            self.app.SHEET_COL_DATASET_FILE_NAME: "",
+            self.app.SHEET_COL_DATASET_UPDATED_AT: "",
+        }
+        update_fields.assert_called_once_with(
+            "Clinic A",
+            expected_values,
+            self.app.SETTINGS_REQUIRED_COLUMNS,
+        )
+        update_cache.assert_called_once_with("Clinic A", expected_values)
+
+    def test_authorized_settings_repository_update_blocks_cross_tenant_raw_write(self):
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+
+        with patch.object(self.app, "_raw_update_settings_row_fields") as raw_update:
+            with self.assertRaises(self.app.TenantAuthorizationError):
+                self.app.update_authorized_settings_row_fields(
+                    "Clinic B",
+                    {self.app.SHEET_COL_ACCOUNT_STATUS: "active"},
+                    self.app.SETTINGS_REQUIRED_COLUMNS,
+                )
+
+        raw_update.assert_not_called()
+
+    def test_authorized_settings_repository_update_allows_signed_in_clinic(self):
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+
+        with patch.object(self.app, "_raw_update_settings_row_fields", return_value=("sheet", ["ClinicID"], 2)) as raw_update:
+            result = self.app.update_authorized_settings_row_fields(
+                " Clinic A ",
+                {self.app.SHEET_COL_ACCOUNT_STATUS: "active"},
+                self.app.SETTINGS_REQUIRED_COLUMNS,
+            )
+
+        self.assertEqual(result, ("sheet", ["ClinicID"], 2))
+        raw_update.assert_called_once_with(
+            "Clinic A",
+            {self.app.SHEET_COL_ACCOUNT_STATUS: "active"},
+            self.app.SETTINGS_REQUIRED_COLUMNS,
+        )
+
     def test_dataset_publish_rejects_existing_file_id_not_owned_by_signed_in_clinic(self):
         self.app.st.session_state["logged_in"] = True
         self.app.st.session_state["clinic_id"] = "Clinic A"
