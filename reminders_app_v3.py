@@ -1470,10 +1470,11 @@ st.markdown(
     }
     [data-baseweb="checkbox"] {
         color: #101828 !important;
+        background: transparent !important;
+        color-scheme: light !important;
     }
-    [data-baseweb="checkbox"] > div,
-    [data-baseweb="checkbox"] span:first-child {
-        border-color: #667085 !important;
+    [data-baseweb="checkbox"] input[type="checkbox"] {
+        accent-color: #29D272 !important;
         color-scheme: light !important;
     }
     div[data-testid="stTextInput"] [data-baseweb="input"],
@@ -1516,14 +1517,13 @@ st.markdown(
         fill: #334155 !important;
     }
     div[data-testid="stCheckbox"] label,
-    div[data-testid="stCheckbox"] label p,
-    div[data-testid="stCheckbox"] label span {
+    div[data-testid="stCheckbox"] label p {
         color: #101828 !important;
         -webkit-text-fill-color: #101828 !important;
     }
+    div[data-testid="stCheckbox"] label,
     div[data-testid="stCheckbox"] [data-baseweb="checkbox"] {
-        background: #ffffff !important;
-        border-color: #667085 !important;
+        background: transparent !important;
     }
     div[data-testid="stFileUploader"] section[data-testid="stFileUploaderDropzone"] {
         background: #ffffff !important;

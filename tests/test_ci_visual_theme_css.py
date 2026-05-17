@@ -22,6 +22,15 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("color-scheme: light !important;", source)
         self.assertIn("background: #ffffff !important;", source)
         self.assertIn("-webkit-text-fill-color: #101828 !important;", source)
+        self.assertIn('[data-baseweb="checkbox"] input[type="checkbox"]', source)
+        self.assertRegex(
+            source,
+            r'div\[data-testid="stCheckbox"\] \[data-baseweb="checkbox"\] \{\s+background: transparent !important;',
+        )
+        self.assertNotIn(
+            'div[data-testid="stCheckbox"] [data-baseweb="checkbox"] {\n        background: #ffffff !important;',
+            source,
+        )
 
     def test_streamlit_theme_defaults_to_light(self):
         config = (REPO_ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
