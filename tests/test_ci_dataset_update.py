@@ -98,6 +98,98 @@ class DatasetUpdateTests(unittest.TestCase):
             20,
         )
 
+    def test_publish_dataset_records_repairable_operation_success(self):
+        state = self.app.st.session_state
+        state["clinic_id"] = "Clinic A"
+        state["logged_in"] = True
+        new_df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01"]),
+                "Client Name": ["Client A"],
+                "Animal Name": ["Pet A"],
+                "Item Name": ["Rabies"],
+            }
+        )
+        call_order = []
+        tracker_events = []
+
+        def capture_tracker(event, status, **kwargs):
+            tracker_events.append({"event": event, "status": status, **kwargs})
+            call_order.append(f"tracker:{status}")
+            return True
+
+        def drive_upload(**kwargs):
+            call_order.append("drive")
+            return "new-drive-file"
+
+        def update_pointer(clinic_id, file_id, filename):
+            call_order.append("pointer")
+            return "2026-05-16T00:00:00"
+
+        with (
+            patch.object(self.app, "make_dataset_publish_operation_id", return_value="op-123"),
+            patch.object(self.app, "record_dataset_tracker_event", side_effect=capture_tracker),
+            patch.object(self.app, "drive_upsert_csv_bytes", side_effect=drive_upload),
+            patch.object(self.app, "update_clinic_dataset_pointer", side_effect=update_pointer),
+        ):
+            merged, file_id, filename = self.app.publish_dataset_for_clinic(
+                "Clinic A",
+                new_df,
+                "datasets-folder",
+                existing_file_id="",
+                existing_name="",
+                existing_df=pd.DataFrame(),
+            )
+
+        self.assertEqual(file_id, "new-drive-file")
+        self.assertEqual(filename, "Clinic A_shared_dataset.csv")
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(call_order, ["tracker:started", "drive", "pointer", "tracker:success"])
+        self.assertEqual([event["status"] for event in tracker_events], ["started", "success"])
+        self.assertEqual({event["operation_id"] for event in tracker_events}, {"op-123"})
+        self.assertEqual(tracker_events[0]["message"], "stage=drive_upload")
+        self.assertEqual(tracker_events[1]["message"], "stage=complete")
+        self.assertEqual(tracker_events[1]["drive_file_id"], "new-drive-file")
+
+    def test_publish_dataset_records_pointer_update_failure_with_uploaded_file_id(self):
+        state = self.app.st.session_state
+        state["clinic_id"] = "Clinic A"
+        state["logged_in"] = True
+        new_df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01"]),
+                "Client Name": ["Client A"],
+                "Animal Name": ["Pet A"],
+                "Item Name": ["Rabies"],
+            }
+        )
+        tracker_events = []
+
+        def capture_tracker(event, status, **kwargs):
+            tracker_events.append({"event": event, "status": status, **kwargs})
+            return True
+
+        with (
+            patch.object(self.app, "make_dataset_publish_operation_id", return_value="op-456"),
+            patch.object(self.app, "record_dataset_tracker_event", side_effect=capture_tracker),
+            patch.object(self.app, "drive_upsert_csv_bytes", return_value="orphan-drive-file"),
+            patch.object(self.app, "update_clinic_dataset_pointer", side_effect=RuntimeError("sheet unavailable")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "sheet unavailable"):
+                self.app.publish_dataset_for_clinic(
+                    "Clinic A",
+                    new_df,
+                    "datasets-folder",
+                    existing_file_id="",
+                    existing_name="",
+                    existing_df=pd.DataFrame(),
+                )
+
+        self.assertEqual([event["status"] for event in tracker_events], ["started", "error"])
+        self.assertEqual({event["operation_id"] for event in tracker_events}, {"op-456"})
+        self.assertEqual(tracker_events[1]["drive_file_id"], "orphan-drive-file")
+        self.assertIn("stage=settings_pointer_update", tracker_events[1]["message"])
+
     def test_history_row_count_accepts_float_string(self):
         self.assertEqual(self.app.parse_history_int("56,123.0"), 56123)
 

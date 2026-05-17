@@ -15,6 +15,7 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import base64
 import hmac
+import uuid
 import numpy as np
 from gspread.exceptions import APIError
 import random
@@ -307,6 +308,7 @@ DATASET_TRACKER_HEADERS = [
     "DriveFileName",
     "Message",
     "Source",
+    "OperationId",
 ]
 SETTINGS_AUDIT_HEADERS = [
     "DateTimeGST",
@@ -3115,18 +3117,63 @@ def publish_dataset_for_clinic(
     # 4) Upload merged dataset to Drive
     out_name  = f"{clinic_id}_shared_dataset.csv"
     out_bytes = merged_df.to_csv(index=False).encode("utf-8")
-    
-    # ✅ Update existing file if it exists; otherwise create first time
-    new_file_id = drive_upsert_csv_bytes(
-        file_bytes=out_bytes,
-        filename=out_name,
-        folder_id=datasets_folder_id,
-        existing_file_id=(existing_file_id or None),
-        clinic_id=clinic_id,
+
+    operation_id = make_dataset_publish_operation_id()
+    record_dataset_tracker_event(
+        "dataset_publish",
+        "started",
+        operation_id=operation_id,
+        file_name=out_name,
+        rows=len(merged_df),
+        replace_overlapping_dates=replace_overlapping_dates,
+        drive_file_id=existing_file_id or "",
+        drive_file_name=existing_name or "",
+        message="stage=drive_upload",
+        source="publish_dataset_for_clinic",
     )
-    
-    # ✅ Only update pointer after upload success
-    dataset_updated_at = update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
+
+    new_file_id = ""
+    stage = "drive_upload"
+    try:
+        # ✅ Update existing file if it exists; otherwise create first time
+        new_file_id = drive_upsert_csv_bytes(
+            file_bytes=out_bytes,
+            filename=out_name,
+            folder_id=datasets_folder_id,
+            existing_file_id=(existing_file_id or None),
+            clinic_id=clinic_id,
+        )
+
+        # ✅ Only update pointer after upload success
+        stage = "settings_pointer_update"
+        dataset_updated_at = update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
+    except Exception as e:
+        record_dataset_tracker_event(
+            "dataset_publish",
+            "error",
+            operation_id=operation_id,
+            file_name=out_name,
+            rows=len(merged_df),
+            replace_overlapping_dates=replace_overlapping_dates,
+            drive_file_id=new_file_id or existing_file_id or "",
+            drive_file_name=out_name,
+            message=f"stage={stage}; {e}",
+            source="publish_dataset_for_clinic",
+        )
+        raise
+
+    record_dataset_tracker_event(
+        "dataset_publish",
+        "success",
+        operation_id=operation_id,
+        file_name=out_name,
+        rows=len(merged_df),
+        replace_overlapping_dates=replace_overlapping_dates,
+        drive_file_id=new_file_id,
+        drive_file_name=out_name,
+        message="stage=complete",
+        source="publish_dataset_for_clinic",
+    )
     st.session_state["shared_dataset_updated_at"] = dataset_updated_at
     st.session_state.pop("_shared_dataset_load_attempted_for", None)
 
@@ -4760,6 +4807,7 @@ def record_dataset_tracker_event(
     drive_file_name: str = "",
     message: str = "",
     source: str = "",
+    operation_id: str = "",
     now: datetime | None = None,
 ) -> bool:
     now = now or utc_now()
@@ -4781,6 +4829,7 @@ def record_dataset_tracker_event(
         tracker_cell_value(drive_file_name),
         tracker_cell_value(safe_message),
         tracker_cell_value(source),
+        tracker_cell_value(operation_id),
     ])
 
 
@@ -4807,6 +4856,10 @@ def record_settings_audit_event(
         tracker_cell_value(new_value),
         tracker_cell_value(source),
     ])
+
+
+def make_dataset_publish_operation_id() -> str:
+    return f"dataset-publish-{uuid.uuid4().hex[:12]}"
 
 
 def record_error_tracker_event(
