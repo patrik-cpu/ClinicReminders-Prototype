@@ -73,6 +73,18 @@ Google resource IDs can be overridden through environment variables or
 - `SETTINGS_SHEET_ID`
 - `DATASETS_FOLDER_ID`
 - `FEEDBACK_SHEET_ID`
+- `WORKSHEET_NAME_SUFFIX`
+
+For the live app to share the same spreadsheet file but use separate tabs from
+dev, set:
+
+```toml
+[google_resources]
+WORKSHEET_NAME_SUFFIX = "-live"
+```
+
+That makes the app use tabs such as `Clinic settings-live`,
+`Action tracker-live`, and `Dataset tracker-live`.
 
 What the script verifies:
 

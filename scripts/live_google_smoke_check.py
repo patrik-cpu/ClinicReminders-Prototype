@@ -25,7 +25,9 @@ DEFAULT_SETTINGS_SHEET_ID = "1JQgF268JyHZZRHg0V-p3chBu5jhANIMnUvkb7M0Fxs8"
 DEFAULT_DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"
 SETTINGS_SHEET_ID = DEFAULT_SETTINGS_SHEET_ID
 DATASETS_FOLDER_ID = DEFAULT_DATASETS_FOLDER_ID
-SETTINGS_WORKSHEET_NAME = "Clinic settings"
+WORKSHEET_NAME_SUFFIX = ""
+BASE_SETTINGS_WORKSHEET_NAME = "Clinic settings"
+SETTINGS_WORKSHEET_NAME = BASE_SETTINGS_WORKSHEET_NAME
 
 SCOPES = [
     "https://www.googleapis.com/auth/drive",
@@ -51,7 +53,7 @@ SETTINGS_REQUIRED_COLUMNS = [
     "AccountStatus",
 ]
 
-TRACKER_SHEETS = {
+BASE_TRACKER_SHEETS = {
     "User tracker": [
         "ClinicID",
         "Country",
@@ -95,6 +97,7 @@ TRACKER_SHEETS = {
         "DriveFileName",
         "Message",
         "Source",
+        "OperationId",
     ],
     "Settings audit": [
         "DateTimeGST",
@@ -130,6 +133,7 @@ TRACKER_SHEETS = {
         "Source",
     ],
 }
+TRACKER_SHEETS = dict(BASE_TRACKER_SHEETS)
 
 
 class SmokeFailure(RuntimeError):
@@ -163,8 +167,17 @@ def configured_resource_id(name: str, default: str, secrets_toml: str | None = N
     return default
 
 
+def configured_value(name: str, default: str, secrets_toml: str | None = None) -> str:
+    return configured_resource_id(name, default, secrets_toml)
+
+
+def suffixed_name(base_name: str, suffix: str) -> str:
+    suffix = str(suffix or "").strip()
+    return f"{base_name}{suffix}" if suffix else base_name
+
+
 def apply_resource_config(args: argparse.Namespace) -> None:
-    global SETTINGS_SHEET_ID, DATASETS_FOLDER_ID
+    global SETTINGS_SHEET_ID, DATASETS_FOLDER_ID, WORKSHEET_NAME_SUFFIX, SETTINGS_WORKSHEET_NAME, TRACKER_SHEETS
     SETTINGS_SHEET_ID = configured_resource_id(
         "SETTINGS_SHEET_ID",
         DEFAULT_SETTINGS_SHEET_ID,
@@ -175,6 +188,12 @@ def apply_resource_config(args: argparse.Namespace) -> None:
         DEFAULT_DATASETS_FOLDER_ID,
         args.secrets_toml,
     )
+    WORKSHEET_NAME_SUFFIX = configured_value("WORKSHEET_NAME_SUFFIX", "", args.secrets_toml)
+    SETTINGS_WORKSHEET_NAME = suffixed_name(BASE_SETTINGS_WORKSHEET_NAME, WORKSHEET_NAME_SUFFIX)
+    TRACKER_SHEETS = {
+        suffixed_name(title, WORKSHEET_NAME_SUFFIX): headers
+        for title, headers in BASE_TRACKER_SHEETS.items()
+    }
 
 
 def load_credentials_info(args: argparse.Namespace) -> tuple[dict[str, Any], str]:

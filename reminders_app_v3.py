@@ -96,6 +96,11 @@ def config_value(name: str, default: str) -> str:
 
     return default
 
+
+def suffixed_name(base_name: str, suffix: str) -> str:
+    suffix = str(suffix or "").strip()
+    return f"{base_name}{suffix}" if suffix else base_name
+
 # --------------------------------
 # Title (retention change))
 # --------------------------------
@@ -221,7 +226,9 @@ DEFAULT_DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive f
 DATASETS_FOLDER_ID = config_value("DATASETS_FOLDER_ID", DEFAULT_DATASETS_FOLDER_ID)
 
 # === Sheet columns you created ===
-SETTINGS_WORKSHEET_NAME = "Clinic settings"
+WORKSHEET_NAME_SUFFIX = config_value("WORKSHEET_NAME_SUFFIX", "")
+BASE_SETTINGS_WORKSHEET_NAME = "Clinic settings"
+SETTINGS_WORKSHEET_NAME = suffixed_name(BASE_SETTINGS_WORKSHEET_NAME, WORKSHEET_NAME_SUFFIX)
 LEGACY_SETTINGS_WORKSHEET_NAMES = ("Sheet1",)
 SHEET_COL_CLINIC_ID = "ClinicID"
 SHEET_COL_PLAIN_PASSWORD = "PlainPassword"
@@ -268,13 +275,19 @@ ACCOUNT_METADATA_COLUMNS = [
 SETTINGS_REQUIRED_COLUMNS = SETTINGS_BASE_COLUMNS + DATASET_POINTER_COLUMNS + GOOGLE_ACCOUNT_COLUMNS + ACCOUNT_METADATA_COLUMNS
 DEFAULT_USER_TIMEZONE = "UTC"
 GST_TZ = ZoneInfo("Asia/Dubai")
-ACTION_TRACKER_WORKSHEET = "Action tracker"
+BASE_ACTION_TRACKER_WORKSHEET = "Action tracker"
 WA_TRACKER_WORKSHEET = "WA button tracker"  # Legacy sheet name; kept for backwards compatibility.
-USER_TRACKER_WORKSHEET = "User tracker"
-DATASET_TRACKER_WORKSHEET = "Dataset tracker"
-SETTINGS_AUDIT_WORKSHEET = "Settings audit"
-ERROR_TRACKER_WORKSHEET = "Error tracker"
-PERFORMANCE_TRACKER_WORKSHEET = "Performance tracker"
+BASE_USER_TRACKER_WORKSHEET = "User tracker"
+BASE_DATASET_TRACKER_WORKSHEET = "Dataset tracker"
+BASE_SETTINGS_AUDIT_WORKSHEET = "Settings audit"
+BASE_ERROR_TRACKER_WORKSHEET = "Error tracker"
+BASE_PERFORMANCE_TRACKER_WORKSHEET = "Performance tracker"
+ACTION_TRACKER_WORKSHEET = suffixed_name(BASE_ACTION_TRACKER_WORKSHEET, WORKSHEET_NAME_SUFFIX)
+USER_TRACKER_WORKSHEET = suffixed_name(BASE_USER_TRACKER_WORKSHEET, WORKSHEET_NAME_SUFFIX)
+DATASET_TRACKER_WORKSHEET = suffixed_name(BASE_DATASET_TRACKER_WORKSHEET, WORKSHEET_NAME_SUFFIX)
+SETTINGS_AUDIT_WORKSHEET = suffixed_name(BASE_SETTINGS_AUDIT_WORKSHEET, WORKSHEET_NAME_SUFFIX)
+ERROR_TRACKER_WORKSHEET = suffixed_name(BASE_ERROR_TRACKER_WORKSHEET, WORKSHEET_NAME_SUFFIX)
+PERFORMANCE_TRACKER_WORKSHEET = suffixed_name(BASE_PERFORMANCE_TRACKER_WORKSHEET, WORKSHEET_NAME_SUFFIX)
 ACTION_TRACKER_HEADERS = [
     "DateTimeGST",
     "ActionedAtUTC",
@@ -639,26 +652,27 @@ def get_or_create_settings_worksheet(spreadsheet):
     values = _gspread_retry(worksheet.get_all_values) or []
     if not worksheet_values_have_settings_schema(values):
         legacy_values = []
-        for legacy_name in LEGACY_SETTINGS_WORKSHEET_NAMES:
-            try:
-                legacy = spreadsheet.worksheet(legacy_name)
-                if legacy.title != SETTINGS_WORKSHEET_NAME:
-                    legacy_values = _gspread_retry(legacy.get_all_values) or []
-            except Exception:
-                legacy_values = []
-            if worksheet_values_have_settings_schema(legacy_values):
-                break
-        if not worksheet_values_have_settings_schema(legacy_values):
-            try:
-                legacy = spreadsheet.sheet1
-                if legacy.title != SETTINGS_WORKSHEET_NAME:
-                    legacy_values = _gspread_retry(legacy.get_all_values) or []
-            except Exception:
-                legacy_values = []
+        if not WORKSHEET_NAME_SUFFIX:
+            for legacy_name in LEGACY_SETTINGS_WORKSHEET_NAMES:
+                try:
+                    legacy = spreadsheet.worksheet(legacy_name)
+                    if legacy.title != SETTINGS_WORKSHEET_NAME:
+                        legacy_values = _gspread_retry(legacy.get_all_values) or []
+                except Exception:
+                    legacy_values = []
+                if worksheet_values_have_settings_schema(legacy_values):
+                    break
+            if not worksheet_values_have_settings_schema(legacy_values):
+                try:
+                    legacy = spreadsheet.sheet1
+                    if legacy.title != SETTINGS_WORKSHEET_NAME:
+                        legacy_values = _gspread_retry(legacy.get_all_values) or []
+                except Exception:
+                    legacy_values = []
         if worksheet_values_have_settings_schema(legacy_values):
             copy_worksheet_values(worksheet, legacy_values)
             values = legacy_values
-        elif not values:
+        elif not values or WORKSHEET_NAME_SUFFIX:
             copy_worksheet_values(worksheet, [list(SETTINGS_REQUIRED_COLUMNS)])
             values = [list(SETTINGS_REQUIRED_COLUMNS)]
 

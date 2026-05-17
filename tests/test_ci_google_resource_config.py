@@ -32,7 +32,7 @@ class GoogleResourceConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             secrets_path = Path(temp_dir) / "secrets.toml"
             secrets_path.write_text(
-                '[google_resources]\nSETTINGS_SHEET_ID = "secret-settings-id"\n',
+                '[google_resources]\nSETTINGS_SHEET_ID = "secret-settings-id"\nWORKSHEET_NAME_SUFFIX = "-live"\n',
                 encoding="utf-8",
             )
 
@@ -44,6 +44,13 @@ class GoogleResourceConfigTests(unittest.TestCase):
                 ),
                 "secret-settings-id",
             )
+
+            class Args:
+                secrets_toml = str(secrets_path)
+
+            live_google_smoke_check.apply_resource_config(Args())
+            self.assertEqual(live_google_smoke_check.SETTINGS_WORKSHEET_NAME, "Clinic settings-live")
+            self.assertIn("Action tracker-live", live_google_smoke_check.TRACKER_SHEETS)
 
 
 if __name__ == "__main__":

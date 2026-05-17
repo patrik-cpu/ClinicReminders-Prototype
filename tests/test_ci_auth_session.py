@@ -413,6 +413,8 @@ class AuthSessionTests(unittest.TestCase):
 
     def test_settings_schema_has_named_tab_and_account_metadata(self):
         self.assertEqual(self.app.SETTINGS_WORKSHEET_NAME, "Clinic settings")
+        self.assertEqual(self.app.suffixed_name("Clinic settings", "-live"), "Clinic settings-live")
+        self.assertEqual(self.app.suffixed_name("Clinic settings", ""), "Clinic settings")
         for column in [
             "ClinicID",
             "SettingsJSON",
@@ -434,6 +436,62 @@ class AuthSessionTests(unittest.TestCase):
             ])
         )
         self.assertFalse(self.app.worksheet_values_have_settings_schema([["ClinicID", "Name"]]))
+
+    def test_suffixed_settings_tab_starts_blank_instead_of_copying_dev_sheet(self):
+        class FakeWorksheet:
+            def __init__(self, title, values=None):
+                self.title = title
+                self.values = values or []
+                self.updated = []
+
+            def get_all_values(self):
+                return [list(row) for row in self.values]
+
+            def update(self, values=None, range_name=None, **_kwargs):
+                self.updated.append({"values": values, "range_name": range_name})
+                self.values = [list(row) for row in values]
+
+            def resize(self, rows=None, cols=None):
+                self.resized = {"rows": rows, "cols": cols}
+
+            def row_values(self, index):
+                return self.values[index - 1] if index - 1 < len(self.values) else []
+
+            def batch_update(self, updates):
+                self.batch_updates = updates
+
+        class FakeSpreadsheet:
+            def __init__(self):
+                self.worksheets_by_title = {
+                    "Clinic settings": FakeWorksheet(
+                        "Clinic settings",
+                        [["ClinicID", "SettingsJSON"], ["Dev Clinic", "{}"]],
+                    ),
+                    "Clinic settings-live": FakeWorksheet("Clinic settings-live", []),
+                }
+                self.sheet1 = self.worksheets_by_title["Clinic settings"]
+
+            def worksheet(self, title):
+                return self.worksheets_by_title[title]
+
+            def add_worksheet(self, title, rows, cols):
+                worksheet = FakeWorksheet(title, [])
+                self.worksheets_by_title[title] = worksheet
+                return worksheet
+
+        spreadsheet = FakeSpreadsheet()
+        live_sheet = spreadsheet.worksheets_by_title["Clinic settings-live"]
+
+        with (
+            patch.object(self.app, "WORKSHEET_NAME_SUFFIX", "-live"),
+            patch.object(self.app, "SETTINGS_WORKSHEET_NAME", "Clinic settings-live"),
+            patch.object(self.app, "clear_legacy_plain_password_column"),
+        ):
+            worksheet = self.app.get_or_create_settings_worksheet(spreadsheet)
+
+        self.assertIs(worksheet, live_sheet)
+        self.assertEqual(live_sheet.values, [self.app.SETTINGS_REQUIRED_COLUMNS])
+        self.assertNotIn(["Dev Clinic", "{}"], live_sheet.values)
 
     def test_data_privacy_copy_is_clear_about_storage_and_use(self):
         content = self.app.data_privacy_policy_content()
