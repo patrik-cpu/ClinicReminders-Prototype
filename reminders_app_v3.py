@@ -1678,6 +1678,13 @@ st.markdown(
         -webkit-text-security: disc !important;
         text-security: disc !important;
     }
+    .st-key-login_password_input [data-baseweb="input"] > div,
+    .st-key-login_password_input [data-baseweb="base-input"] > div {
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        min-width: 0 !important;
+    }
     .st-key-login_password_input button {
         display: none !important;
     }
@@ -1889,6 +1896,24 @@ st.markdown(
         background: #fff1f2;
         border: 1px solid rgba(248, 113, 113, 0.45);
         color: #9f1239;
+    }
+    .data-assurance-box {
+        background: #ecfdf3;
+        border: 1px solid rgba(22, 163, 74, 0.28);
+        border-radius: 8px;
+        color: #14532d;
+        margin: 0.75rem 0 1rem;
+        padding: 0.9rem 1rem;
+    }
+    .data-assurance-box strong {
+        color: #052e16;
+    }
+    .data-assurance-box ul {
+        margin: 0.45rem 0 0;
+        padding-left: 1.15rem;
+    }
+    .data-assurance-box li {
+        margin: 0.2rem 0;
     }
     .field-examples {
         color: var(--cr-muted);
@@ -4290,7 +4315,7 @@ def data_privacy_policy_content() -> dict:
                 "body": (
                     "Data is used to calculate reminders, show clinic statistics, prevent duplicate reminder work, "
                     "and record actions such as sent or declined reminders. We do not sell clinic data or use clinic "
-                    "financial data for advertising."
+                    "financial data for advertising, resale, or unrelated product work."
                 ),
             },
             {
@@ -4304,8 +4329,9 @@ def data_privacy_policy_content() -> dict:
             {
                 "title": "Your control",
                 "body": (
-                    "You can clear active clinic data from the Upload Data tab. For export, retention, or permanent "
-                    "deletion requests, contact support so the backing storage can be handled carefully."
+                    "You can clear active clinic data from the Upload Data tab. Account > Delete account and data "
+                    "removes the clinic account, saved settings, action history, and the saved uploaded dataset file. "
+                    "For export, retention, or permanent deletion requests, contact support so backing storage can be handled carefully."
                 ),
             },
             {
@@ -4321,6 +4347,21 @@ def data_privacy_policy_content() -> dict:
             "workspace, and avoid secondary uses that do not benefit the clinic."
         ),
     }
+
+
+def data_assurance_box_html() -> str:
+    items = [
+        "Uploads may include clinic financial data, so the app uses them only for your clinic's reminder workflow, setup checks, and statistics.",
+        "Clinic data is not sold, used for advertising, or used for unrelated product work.",
+        "Use Clear Clinic Data to remove the active saved dataset from this workspace. Use Account > Delete account and data to remove the clinic account, saved settings, action history, and saved uploaded dataset file.",
+    ]
+    items_html = "".join(f"<li>{html_lib.escape(item)}</li>" for item in items)
+    return (
+        "<div class='data-assurance-box'>"
+        "<strong>Data & privacy</strong>"
+        f"<ul>{items_html}</ul>"
+        "</div>"
+    )
 
 
 def data_privacy_dialog_html(content: dict | None = None) -> str:
@@ -5942,7 +5983,7 @@ def delete_account_dialog_html(clinic_id: str) -> str:
     <div class="delete-account-warning">
       <h3>This is permanent.</h3>
       <p>Deleting <strong>{html_lib.escape(clinic_id)}</strong> removes the clinic account row, Google link, saved settings, action/history rows tied to this clinic, and the saved uploaded dataset file.</p>
-      <p>This cannot be undone from the app.</p>
+      <p>This is the full in-app deletion path for a clinic that wants everything removed from the active workspace. It cannot be undone from the app.</p>
     </div>
     """
 
@@ -7869,6 +7910,7 @@ with data_tab:
     with dataset_summary_slot.container():
         render_dataset_date_range(saved_rows=saved_dataset_rows)
     st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
+    st.markdown(data_assurance_box_html(), unsafe_allow_html=True)
 
     datasets = []
     summary_rows = []
@@ -8195,6 +8237,10 @@ with data_tab:
     # Clear Clinic Data
     # -------------------------------------
     st.markdown("#### Clear Clinic Data")
+    st.caption(
+        "Clears the active saved dataset for this clinic workspace. To remove the clinic account, saved settings, "
+        "action history, and saved uploaded dataset file, use Account > Delete account and data."
+    )
     confirm_reset = st.checkbox(
         "I understand this will remove clinic data for my clinic",
         key="confirm_reset_dataset",

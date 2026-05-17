@@ -15,6 +15,8 @@ class VisualThemeCssTests(unittest.TestCase):
             'div[data-testid="stNumberInput"] [data-baseweb="input"]',
             'div[data-testid="stCheckbox"] label',
             'div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) div[data-testid="stPopover"] button',
+            '.st-key-login_password_input [data-baseweb="base-input"] > div',
+            '.data-assurance-box',
         ]:
             with self.subTest(selector=selector):
                 self.assertIn(selector, source)
