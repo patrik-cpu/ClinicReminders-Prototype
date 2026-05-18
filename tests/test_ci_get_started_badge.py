@@ -48,6 +48,8 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertIn("sales export from your PMS", html)
         self.assertIn("search terms and template work are not lost", html)
         self.assertNotIn("\n    <section", html)
+        self.assertNotIn("\n        <section", html)
+        self.assertNotIn("I'll explore first", html)
 
     def test_new_account_welcome_pending_flag_is_session_scoped(self):
         self.app.mark_new_account_welcome_pending()

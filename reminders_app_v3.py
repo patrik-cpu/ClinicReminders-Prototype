@@ -4498,7 +4498,8 @@ def new_account_welcome_dialog_html() -> str:
             )
         )
 
-    return textwrap.dedent(f"""
+    step_cards_html = "\n".join(step_cards)
+    return textwrap.dedent("""
     <style>
       .cr-welcome-dialog {{
         color: #0f172a;
@@ -4601,12 +4602,10 @@ def new_account_welcome_dialog_html() -> str:
         <h3>Welcome to Clinic Reminders</h3>
         <p>Set up your first reminders in four calm steps. You can change everything later.</p>
       </div>
-      <div class="cr-welcome-grid">
-        {''.join(step_cards)}
-      </div>
+      <div class="cr-welcome-grid">{step_cards_html}</div>
       <div class="cr-welcome-note">Start with Upload Data. The app will save your setup as you go, so your search terms and template work are not lost between sessions.</div>
     </div>
-    """).strip()
+    """).strip().format(step_cards_html=step_cards_html)
 
 
 def data_privacy_dialog_html(content: dict | None = None) -> str:
@@ -4715,17 +4714,15 @@ def render_new_account_welcome_dialog():
         return
 
     def _render_dialog_body():
-        st.markdown(new_account_welcome_dialog_html(), unsafe_allow_html=True)
-        primary_col, secondary_col = st.columns([1.15, 1], gap="small")
-        with primary_col:
-            if st.button("Get started", key="new_account_welcome_get_started", type="primary", use_container_width=True):
-                close_new_account_welcome_dialog()
-                set_main_section_tab("Upload Data")
-                st.rerun()
-        with secondary_col:
-            if st.button("I'll explore first", key="new_account_welcome_close", use_container_width=True):
-                close_new_account_welcome_dialog()
-                st.rerun()
+        welcome_html = new_account_welcome_dialog_html()
+        if hasattr(st, "html"):
+            st.html(welcome_html)
+        else:
+            st.markdown(welcome_html, unsafe_allow_html=True)
+        if st.button("Get started", key="new_account_welcome_get_started", type="primary", use_container_width=True):
+            close_new_account_welcome_dialog()
+            set_main_section_tab("Upload Data")
+            st.rerun()
 
     if hasattr(st, "dialog"):
         @st.dialog("Welcome to Clinic Reminders", width="large", on_dismiss=close_new_account_welcome_dialog)
