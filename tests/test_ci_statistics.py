@@ -261,6 +261,96 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(str(row["Success Date"].date()), "2026-05-05")
         self.assertEqual(float(row["Revenue"]), 100.0)
 
+    def test_grouped_reminder_outcomes_count_each_detail_as_own_instance(self):
+        actions = [
+            {
+                "Reminder Date": "08 Mar 2026 | 09 Mar 2026",
+                "Due Date": "08 Mar 2026 | 09 Mar 2026",
+                "Charge Date": "09 Jan 2026",
+                "Client Name": "Client A",
+                "Animal Name": "Chester",
+                "Plan Item": "Dermosc... and Revolution",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-03-08T09:00:00",
+                "Actioned By": "Nurse A",
+                "ReminderDetails": [
+                    {
+                        "Reminder Date": "08 Mar 2026",
+                        "Due Date": "08 Mar 2026",
+                        "Charge Date": "09 Jan 2026",
+                        "Animal Name": "Chester",
+                        "Plan Item": "Dermosc...",
+                        "Qty": "1",
+                        "Days": "30",
+                    },
+                    {
+                        "Reminder Date": "09 Mar 2026",
+                        "Due Date": "09 Mar 2026",
+                        "Charge Date": "09 Jan 2026",
+                        "Animal Name": "Chester",
+                        "Plan Item": "Revolution",
+                        "Qty": "1",
+                        "Days": "30",
+                    },
+                ],
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-03-09",
+                    "Client Name": "Client A",
+                    "Animal Name": "Chester",
+                    "Item Name": "Dermosc...",
+                    "Amount": 40,
+                },
+                {
+                    "ChargeDate": "2026-03-10",
+                    "Client Name": "Client A",
+                    "Animal Name": "Chester",
+                    "Item Name": "Revolution",
+                    "Amount": 60,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            today=date(2026, 4, 1),
+        )
+
+        self.assertEqual(len(outcomes), 2)
+        rows = {row["Item"]: row for row in outcomes.to_dict("records")}
+        self.assertEqual(set(rows), {"Dermosc...", "Revolution"})
+        self.assertEqual(rows["Dermosc..."]["Outcome"], "Reminder Success")
+        self.assertEqual(rows["Revolution"]["Outcome"], "Reminder Success")
+        self.assertEqual(float(outcomes["Revenue"].sum()), 100.0)
+
+    def test_action_tracker_preserves_grouped_reminder_details(self):
+        row = {
+            "Reminder Date": "08 Mar 2026 | 09 Mar 2026",
+            "Due Date": "08 Mar 2026 | 09 Mar 2026",
+            "Charge Date": "09 Jan 2026",
+            "Client Name": "Client A",
+            "Animal Name": "Chester",
+            "Plan Item": "Dermosc... and Revolution",
+            "Qty": "NA",
+            "Days": "NA",
+            "ReminderDetails": [
+                {"Reminder Date": "08 Mar 2026", "Due Date": "08 Mar 2026", "Animal Name": "Chester", "Plan Item": "Dermosc..."},
+                {"Reminder Date": "09 Mar 2026", "Due Date": "09 Mar 2026", "Animal Name": "Chester", "Plan Item": "Revolution"},
+            ],
+        }
+
+        values = self.app.action_tracker_row_values(row, self.app.REMINDER_ACTION_SENT, now=self.app.datetime(2026, 3, 8, 9, 0, 0))
+        record = self.app.action_tracker_values_to_record(self.app.ACTION_TRACKER_HEADERS, values)
+
+        self.assertEqual(len(record["ReminderDetails"]), 2)
+        self.assertEqual(record["ReminderDetails"][0]["Plan Item"], "Dermosc...")
+        self.assertEqual(record["ReminderDetails"][1]["Plan Item"], "Revolution")
+
     def test_reminder_outcomes_report_no_match_after_window(self):
         actions = [
             {

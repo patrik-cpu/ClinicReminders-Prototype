@@ -379,6 +379,7 @@ ACTION_TRACKER_HEADERS = [
     "MessageCreated",
     "Source",
     "ReminderKey",
+    "ReminderDetailsJSON",
 ]
 WA_TRACKER_HEADERS = [
     "DateTimeGST",
@@ -4326,6 +4327,33 @@ def hidden_reminder_key(row) -> tuple[str, ...]:
     return tuple(_hidden_reminder_key_part(row.get(field, "")) for field in HIDDEN_REMINDER_KEY_FIELDS)
 
 
+def normalize_reminder_details_for_storage(details) -> list[dict]:
+    if not isinstance(details, list):
+        return []
+    normalized = []
+    fields = ("Animal Name", "Plan Item", "Due Date", "Reminder Date", "Charge Date", "Qty", "Days")
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        clean_detail = {}
+        for field in fields:
+            value = detail.get(field, "")
+            try:
+                if pd.isna(value):
+                    value = ""
+            except (TypeError, ValueError):
+                pass
+            clean_detail[field] = str(value or "").strip()
+        if any(clean_detail.values()):
+            normalized.append(clean_detail)
+    return normalized
+
+
+def reminder_details_json(row) -> str:
+    details = normalize_reminder_details_for_storage(row.get("ReminderDetails", []))
+    return json.dumps(details, ensure_ascii=True) if details else ""
+
+
 def get_hidden_reminders_index() -> dict[tuple[str, ...], dict]:
     deleted = st.session_state.get("deleted_reminders", [])
     cache_key = (id(deleted), len(deleted))
@@ -4400,6 +4428,7 @@ def action_tracker_row_values(row, action: str, message: str = "", source: str =
         str(message or "").strip(),
         str(source or "").strip(),
         json.dumps(reminder_key),
+        reminder_details_json(row),
     ]
 
 
@@ -4427,6 +4456,12 @@ def action_tracker_values_to_record(headers: list[str], values: list[str]) -> di
         "MessageCreated": row.get("MessageCreated", ""),
         "Source": row.get("Source", ""),
     }
+    details_raw = str(row.get("ReminderDetailsJSON", "") or "").strip()
+    if details_raw:
+        try:
+            rec["ReminderDetails"] = normalize_reminder_details_for_storage(json.loads(details_raw))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            rec["ReminderDetails"] = []
     return rec
 
 
@@ -4537,6 +4572,9 @@ def upsert_hidden_reminder(row, action: str, message: str = "", now: datetime | 
     }
     if message:
         rec["MessageCreated"] = str(message or "").strip()
+    details = normalize_reminder_details_for_storage(row.get("ReminderDetails", []))
+    if details:
+        rec["ReminderDetails"] = details
 
     target_key = hidden_reminder_key(rec)
     reminders = [
@@ -8229,6 +8267,10 @@ def _summarize_client_cluster_records(records: list[dict], client_name: str, rul
             "Animal Name": detail_animal,
             "Plan Item": item_name,
             "Due Date": due_value,
+            "Reminder Date": reminder_date,
+            "Charge Date": charge_date,
+            "Qty": str(row.get("Qty", "") or "").strip(),
+            "Days": str(row.get("IntervalDays", "") or "").strip(),
         })
 
     animals = sorted(animals)
@@ -10661,6 +10703,72 @@ def outcome_item_matches(reminder_item, sale_item) -> bool:
     return any(term and (term in sale_key or sale_key in term) for term in outcome_item_terms(reminder_item))
 
 
+def split_grouped_display_parts(value) -> list[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    if "|" in raw:
+        parts = raw.split("|")
+    else:
+        parts = re.split(r"\s*(?:,|\band\b)\s*", raw)
+    return [_SPACE_RX.sub(" ", part.strip()) for part in parts if part and part.strip()]
+
+
+def _broadcast_grouped_part(parts: list[str], index: int) -> str:
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    if index < len(parts):
+        return parts[index]
+    return parts[-1]
+
+
+def expand_grouped_action_record(record: dict) -> list[dict]:
+    details = normalize_reminder_details_for_storage(record.get("ReminderDetails", []))
+    if details:
+        expanded = []
+        for detail in details:
+            row = dict(record)
+            row["Animal Name"] = detail.get("Animal Name", "") or row.get("Animal Name", "")
+            row["Plan Item"] = detail.get("Plan Item", "") or row.get("Plan Item", "")
+            row["Due Date"] = detail.get("Due Date", "") or row.get("Due Date", "")
+            row["Reminder Date"] = detail.get("Reminder Date", "") or row.get("Reminder Date", "")
+            row["Charge Date"] = detail.get("Charge Date", "") or row.get("Charge Date", "")
+            row["Qty"] = detail.get("Qty", "") or row.get("Qty", "")
+            row["Days"] = detail.get("Days", "") or row.get("Days", "")
+            row["ReminderDetails"] = [detail]
+            expanded.append(row)
+        return expanded or [record]
+
+    reminder_dates = split_grouped_display_parts(record.get("Reminder Date", ""))
+    due_dates = split_grouped_display_parts(record.get("Due Date", ""))
+    animals = split_grouped_display_parts(record.get("Animal Name", ""))
+    items = split_grouped_display_parts(record.get("Plan Item", ""))
+    instance_count = max(len(reminder_dates), len(due_dates), len(animals), len(items), 1)
+    if instance_count <= 1:
+        return [record]
+
+    expanded = []
+    for idx in range(instance_count):
+        row = dict(record)
+        row["Reminder Date"] = _broadcast_grouped_part(reminder_dates, idx) or row.get("Reminder Date", "")
+        row["Due Date"] = _broadcast_grouped_part(due_dates, idx) or row.get("Due Date", "")
+        row["Animal Name"] = _broadcast_grouped_part(animals, idx) or row.get("Animal Name", "")
+        row["Plan Item"] = _broadcast_grouped_part(items, idx) or row.get("Plan Item", "")
+        expanded.append(row)
+    return expanded
+
+
+def expand_grouped_action_records(records: list[dict]) -> list[dict]:
+    expanded = []
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        expanded.extend(expand_grouped_action_record(record))
+    return expanded
+
+
 def prepare_sales_for_outcomes(sales_df: pd.DataFrame) -> pd.DataFrame:
     columns = [
         "ChargeDate",
@@ -10732,10 +10840,10 @@ def build_reminder_outcomes(
         record for record in action_records or []
         if isinstance(record, dict)
     ])
-    sent_records = [
+    sent_records = expand_grouped_action_records([
         record for record in reduced_records
         if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT
-    ]
+    ])
     if not sent_records:
         return empty_outcome_frame()
 
