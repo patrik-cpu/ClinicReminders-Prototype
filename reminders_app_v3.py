@@ -2445,9 +2445,22 @@ st.markdown(
         display: flex;
         min-height: 2.25rem;
     }
+    .cr-today-button-spacer {
+        height: 2.35rem;
+    }
+    .st-key-reminders_jump_to_today button {
+        height: 2.5rem;
+        min-height: 2.5rem;
+        min-width: 5.25rem;
+        padding: 0 0.95rem;
+        width: 5.25rem;
+    }
     @media (max-width: 900px) {
         .reminder-control-label {
             min-height: auto;
+        }
+        .cr-today-button-spacer {
+            height: 0;
         }
     }
     .cr-busy-overlay {
@@ -11894,7 +11907,7 @@ if st.session_state.get("logged_in", False):
         if st.session_state.get("reminder_lookback_days") != current_lookback_days:
             st.session_state["reminder_lookback_days"] = current_lookback_days
 
-        start_col, today_button_col, lookback_col, window_col, group_col, warning_col = st.columns([2, 1.05, 2, 2, 2, 2])
+        start_col, today_button_col, lookback_col, window_col, group_col, warning_col = st.columns([2, 0.72, 2, 2, 2, 2])
         with start_col:
             render_field_label(
                 st,
@@ -11910,11 +11923,10 @@ if st.session_state.get("logged_in", False):
             )
             st.session_state["reminders_start_date"] = start_date
         with today_button_col:
-            st.markdown("<div style='height:1.95rem;'></div>", unsafe_allow_html=True)
+            st.markdown("<div class='cr-today-button-spacer'></div>", unsafe_allow_html=True)
             st.button(
                 "Today",
                 key="reminders_jump_to_today",
-                use_container_width=True,
                 help="Reset the reminder date to today.",
                 on_click=set_reminders_start_date_to_today,
             )
