@@ -427,6 +427,7 @@ ACCOUNT_LIFECYCLE_HEADERS = [
     "Event",
     "Status",
     "ClinicRef",
+    "ClinicName",
     "AuthProvider",
     "Country",
     "DeletedRows",
@@ -5458,6 +5459,7 @@ def record_account_lifecycle_event(
     clinic_id: str,
     event: str,
     status: str = "success",
+    clinic_name: str = "",
     auth_provider: str = "",
     country: str = "",
     deleted_rows: int | str = "",
@@ -5475,6 +5477,7 @@ def record_account_lifecycle_event(
         tracker_cell_value(event),
         tracker_cell_value(status),
         tracker_cell_value(clinic_ref),
+        tracker_cell_value(clinic_name or clinic_id),
         tracker_cell_value(auth_provider),
         tracker_cell_value(country),
         tracker_cell_value(deleted_rows),
@@ -5904,6 +5907,7 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
     record_account_lifecycle_event(
         clinic_id,
         "created",
+        clinic_name=clinic_id,
         auth_provider="password",
         country=country,
         source="password_signup",
@@ -5957,6 +5961,7 @@ def create_google_clinic_account(clinic_id: str, country: str, google_user: dict
     record_account_lifecycle_event(
         clinic_id,
         "created",
+        clinic_name=clinic_id,
         auth_provider=GOOGLE_AUTH_PROVIDER,
         country=country,
         source="google_signup",
@@ -6220,6 +6225,7 @@ def delete_clinic_account_and_data(clinic_id: str) -> dict:
     record_account_lifecycle_event(
         clinic_id,
         "deleted",
+        clinic_name=clinic_id,
         auth_provider=auth_provider,
         country=country,
         deleted_rows=deleted_rows,

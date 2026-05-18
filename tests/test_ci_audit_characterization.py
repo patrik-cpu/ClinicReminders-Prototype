@@ -102,6 +102,7 @@ class AuditCharacterizationTests(unittest.TestCase):
         lifecycle_event.assert_called_once_with(
             "Clinic New",
             "created",
+            clinic_name="Clinic New",
             auth_provider="password",
             country="United Arab Emirates",
             source="password_signup",
@@ -354,6 +355,7 @@ class AuditCharacterizationTests(unittest.TestCase):
         lifecycle_event.assert_called_once_with(
             "Clinic A",
             "deleted",
+            clinic_name="Clinic A",
             auth_provider="",
             country="",
             deleted_rows=3,

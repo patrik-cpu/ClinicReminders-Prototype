@@ -391,6 +391,7 @@ class SettingsSaveStateTests(unittest.TestCase):
             saved = self.app.record_account_lifecycle_event(
                 "Clinic Save State",
                 "deleted",
+                clinic_name="Clinic Save State",
                 auth_provider="google",
                 country="United Arab Emirates",
                 deleted_rows=7,
@@ -402,12 +403,14 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(captured["title"], self.app.ACCOUNT_LIFECYCLE_WORKSHEET)
         self.assertEqual(captured["headers"], self.app.ACCOUNT_LIFECYCLE_HEADERS)
         self.assertNotIn("ClinicID", self.app.ACCOUNT_LIFECYCLE_HEADERS)
+        self.assertIn("ClinicName", self.app.ACCOUNT_LIFECYCLE_HEADERS)
         self.assertEqual(captured["values"][1], "deleted")
         self.assertEqual(captured["values"][2], "success")
         self.assertEqual(len(captured["values"][3]), 16)
         self.assertNotEqual(captured["values"][3], "Clinic Save State")
-        self.assertEqual(captured["values"][6], "7")
-        self.assertEqual(captured["values"][7], "True")
+        self.assertEqual(captured["values"][4], "Clinic Save State")
+        self.assertEqual(captured["values"][7], "7")
+        self.assertEqual(captured["values"][8], "True")
 
 
 if __name__ == "__main__":

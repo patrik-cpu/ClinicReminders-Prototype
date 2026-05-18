@@ -137,6 +137,7 @@ BASE_TRACKER_SHEETS = {
         "Event",
         "Status",
         "ClinicRef",
+        "ClinicName",
         "AuthProvider",
         "Country",
         "DeletedRows",
