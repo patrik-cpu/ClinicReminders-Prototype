@@ -86,13 +86,20 @@ WORKSHEET_NAME_SUFFIX = "-live"
 That makes the app use tabs such as `Clinic settings-live`,
 `Action tracker-live`, and `Dataset tracker-live`.
 
+For `https://clinic-reminders.streamlit.app`, the app now defaults to `-live`
+worksheet tabs when no explicit suffix is configured. Keeping
+`WORKSHEET_NAME_SUFFIX = "-live"` in Streamlit secrets is still recommended so
+the deployment intent is obvious.
+
 What the script verifies:
 
 - service-account credentials load
 - settings spreadsheet opens
-- `Clinic settings` worksheet exists
+- configured settings worksheet exists, for example `Clinic settings-live` on
+  the production Streamlit URL
 - required settings columns exist
-- tracker worksheets exist with expected columns
+- configured tracker worksheets exist with expected columns, for example
+  `Action tracker-live` and `Dataset tracker-live`
 - datasets Drive folder opens
 - datasets folder can be listed
 - optional clinic row exists
@@ -184,9 +191,11 @@ Use only a test clinic and test dataset.
 3. Click prepare/send flow for a reminder.
 4. Mark the reminder sent.
 5. Confirm it moves out of Active Reminders.
-6. Confirm the `Action tracker` has a row for the test clinic.
+6. Confirm the `Action tracker-live` tab has a row for the test clinic in the
+   main pilot environment.
 7. Undo the action.
 8. Confirm the reminder returns or no longer appears as actioned.
+9. Confirm the app remains on the Reminders tab after Sent, Declined, and Undo.
 
 ### 8. Clear Clinic Data
 

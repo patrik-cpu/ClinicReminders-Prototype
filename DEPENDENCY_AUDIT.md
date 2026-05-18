@@ -397,3 +397,35 @@ For vulnerability checking after adding tooling:
 ```bash
 python -m pip_audit -r requirements.txt
 ```
+
+## 2026-05-17 Main Pilot Dependency Addendum
+
+Current dependency state:
+
+- `authlib==1.6.12` is pinned in `requirements.txt`.
+- `python -m pip check` passed during the main-pilot QA pass.
+- `scripts/pilot_release_check.sh` includes dependency consistency checking.
+
+Commands run:
+
+```bash
+python -m pip check
+bash scripts/pilot_release_check.sh
+```
+
+Results:
+
+- No broken requirements were found.
+- The pilot script completed local gates successfully.
+
+Remaining dependency work:
+
+- A transitive vulnerability audit is still not installed. Add `pip-audit` or
+  another scanner in a separate PR, then triage findings explicitly.
+- No lockfile or constraints file exists yet. For a broader production launch,
+  generate one from a known-good deploy environment and commit it with a clear
+  update process.
+- `chardet` remains a candidate for removal if upload encoding tests confirm it
+  is unnecessary.
+- `oauth2client` remains a candidate for removal once the hidden/legacy feedback
+  helper path is deleted or migrated.

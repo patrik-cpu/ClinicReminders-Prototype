@@ -620,3 +620,56 @@ Start with tests and security hardening, not broad refactors. The safest sequenc
 5. Quarantine dormant code.
 
 Avoid large modularization until the auth, tenant-boundary, and upload/persistence behavior has stronger characterization coverage.
+
+## 2026-05-17 Main Pilot Addendum
+
+This audit file predates several targeted hardening and QA passes. The original
+risks should still be read as useful historical evidence, but the current
+release-readiness picture has changed.
+
+Current validation evidence:
+
+```bash
+python -m py_compile reminders_app_v3.py settings_pointer_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py
+python -m pip check
+python -m unittest discover -s tests -p "test_ci_*.py"
+python -m unittest discover -s tests
+bash scripts/pre_merge_check.sh
+bash scripts/pilot_release_check.sh
+```
+
+Results:
+
+- Compile passed.
+- Dependency consistency passed.
+- CI-pattern tests passed: 144 tests.
+- Full local test discovery passed: 151 tests.
+- Local pre-merge and pilot release scripts passed.
+- Live Google smoke was skipped locally because this workspace has no
+  service-account credentials.
+
+Key current behavior changes since the original audit:
+
+- Production Streamlit URL defaults to `-live` worksheet tabs.
+- Google-linked identity is locked to `GoogleSubject`; editable profile email
+  no longer changes the login identity.
+- Authlib is pinned at `1.6.12`.
+- Remember-login URL behavior, upload limits, password policy, exception
+  leakage, action-like query params, profile rename, and privacy/deletion copy
+  have targeted fixes and tests.
+- User-facing Upload Data now summarizes total rows and total date range across
+  all uploaded CSVs and restores the dataset health checks.
+- Reminder action buttons no longer navigate the user away from Reminders.
+
+Current top risks:
+
+- P1: No true browser-level E2E suite exists yet.
+- P1: Tenant isolation still depends heavily on application code over shared
+  Google Sheets/Drive resources.
+- P1: Backup/restore is operationally required because Sheets and Drive writes
+  are not transactional.
+- P2: The app remains an oversized Streamlit monolith.
+- P2: Formal lint/type/security scan/secret scan gates are still deferred.
+
+For current release guidance, use `MAIN_QA_REPORT.md`, `FINAL_REVIEW.md`, and
+`LIVE_GOOGLE_SMOKE_TEST.md` before relying on older risk rankings in this file.

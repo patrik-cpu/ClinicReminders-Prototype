@@ -48,6 +48,16 @@ Tracker worksheets:
 - `Error tracker`
 - `Performance tracker`
 
+Main/live deployment note:
+
+- The production Streamlit URL uses worksheet tabs with a `-live` suffix, for
+  example `Clinic settings-live`, `User tracker-live`,
+  `Action tracker-live`, and `Dataset tracker-live`.
+- The app defaults to this suffix for `https://clinic-reminders.streamlit.app`,
+  but an explicit `WORKSHEET_NAME_SUFFIX = "-live"` secret is still preferred.
+- When backing up or restoring main, use the `-live` tabs. Do not mix them with
+  the unsuffixed dev tabs.
+
 Drive storage:
 
 - Dataset folder ID is configured in `reminders_app_v3.py` as
@@ -88,13 +98,12 @@ In Google Sheets:
 
 1. Open the spreadsheet identified by `SETTINGS_SHEET_ID`.
 2. Confirm these tabs exist:
-   - `Clinic settings`
-   - `User tracker`
-   - `Action tracker`
-   - `Dataset tracker`
-   - `Settings audit`
-   - `Error tracker`
-   - `Performance tracker`
+   - For dev: `Clinic settings`, `User tracker`, `Action tracker`,
+     `Dataset tracker`, `Settings audit`, `Error tracker`,
+     `Performance tracker`.
+   - For main/live: `Clinic settings-live`, `User tracker-live`,
+     `Action tracker-live`, `Dataset tracker-live`, `Settings audit-live`,
+     `Error tracker-live`, `Performance tracker-live`.
 3. Use `File > Make a copy`.
 4. Name the copy:
    - `ClinicReminders_Settings_Backup_YYYY-MM-DD_HHMM_UTC`

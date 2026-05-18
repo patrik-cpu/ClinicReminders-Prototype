@@ -435,3 +435,58 @@ Results:
 - Dependency vulnerability audit until `pip-audit` is added and `authlib` advisory is addressed.
 - Bandit/static security scan until findings are triaged.
 - Secret scanning until a scanner is installed or GitHub secret scanning is confirmed.
+
+## 2026-05-17 Main Pilot Quality Gate Addendum
+
+Current status after the main-pilot QA pass:
+
+Implemented and passing locally:
+
+- Python compile gate for `reminders_app_v3.py`, `settings_pointer_utils.py`,
+  `scripts/live_google_smoke_check.py`, and `scripts/auth_legacy_audit.py`.
+- Dependency consistency gate with `python -m pip check`.
+- CI-pattern unit/characterization tests.
+- Full local unittest discovery.
+- Streamlit startup/login smoke tests through unittest modules.
+- Local pre-merge script.
+- Local pilot release script.
+
+Commands and results:
+
+```bash
+python -m py_compile reminders_app_v3.py settings_pointer_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py
+python -m pip check
+python -m unittest discover -s tests -p "test_ci_*.py"
+python -m unittest discover -s tests
+bash scripts/pre_merge_check.sh
+bash scripts/pilot_release_check.sh
+```
+
+Results:
+
+- Compile passed.
+- `pip check` passed with no broken requirements.
+- CI-pattern tests passed: 144 tests.
+- Full local test discovery passed: 151 tests.
+- `scripts/pre_merge_check.sh` passed.
+- `scripts/pilot_release_check.sh` passed local gates and skipped live Google
+  smoke because service-account credentials are not present in this workspace.
+
+Still missing or intentionally deferred:
+
+- Browser-level E2E tests that actually click through the deployed app.
+- Formal format gate.
+- Formal lint gate.
+- Typecheck gate.
+- Dependency vulnerability audit gate.
+- Static security scan.
+- Secret scanning gate.
+- Live Google smoke in CI or another credentialed release environment.
+
+Recommendation:
+
+- Keep the current gates as the required pre-main baseline.
+- Add a browser E2E suite next, scoped first to login, upload, reminder
+  Sent/Declined/Undo, clear data, and delete-account flows.
+- Add vulnerability and secret scanning in separate, low-risk PRs because both
+  are likely to produce triage work.

@@ -658,3 +658,82 @@ For security-related dependency changes, also add and run a dependency audit com
 ```bash
 python -m pip_audit -r requirements.txt
 ```
+
+## 2026-05-17 Remediation Status Addendum
+
+This addendum records the current state after the main-pilot hardening work. The
+original findings above are retained as audit history, but several are no
+longer active in the same form.
+
+Fixed or materially mitigated:
+
+- P0 remember-login URL bearer token: query-param remember tokens are discarded,
+  remember-token lifetime is shortened, and regression coverage exists for
+  blocking URL-based login persistence.
+- P0 tenant/resource configuration: Google resource IDs can be configured from
+  secrets/environment, clinic-owned Drive file metadata is checked, and the
+  production Streamlit redirect URL defaults to `-live` worksheets. Residual
+  shared-service-account risk remains.
+- P1 stored XSS: known user-controlled HTML interpolation paths were escaped or
+  rendered through constrained helpers, with regression tests.
+- P1 Authlib advisory: `requirements.txt` now pins `authlib==1.6.12`, and
+  dependency consistency passes with `python -m pip check`.
+- P1 login/signup abuse controls: local rate-limit and lockout behavior was
+  added for password login/signup paths, with tests.
+- P1 weak password policy: new password paths now require stronger passwords,
+  with tests.
+- P1 upload limits: upload size, row, and resource limits were added, with
+  tests.
+- P1 raw exception leakage: user-facing errors are sanitized while diagnostic
+  details are routed to internal trackers where available, with tests.
+- P2 action-like query parameters: unsafe action-like query state was removed or
+  neutralized for the known active paths, with tests.
+- P2 plain password legacy column: legacy plain-password behavior was removed
+  from active settings handling, with tests.
+- P2 profile rename and Google identity desynchronization: Google-linked
+  profile email is read-only and Google login uses `GoogleSubject` for linked
+  accounts.
+
+Current security posture for the limited pilot:
+
+- No local automated P0 failures were found in the 2026-05-17 QA run.
+- The app is still not approved for broad production because Google Sheets and
+  Drive remain shared backend resources and tenant isolation is mostly enforced
+  by application code.
+- The deployed app still needs live Google OAuth validation and confirmation
+  that main writes to `-live` tabs only.
+- Browser cookies/session behavior is still primarily Streamlit-managed; no
+  separate web security proxy/header layer has been verified.
+
+Current validation evidence:
+
+```bash
+python -m py_compile reminders_app_v3.py settings_pointer_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py
+python -m pip check
+python -m unittest discover -s tests -p "test_ci_*.py"
+python -m unittest discover -s tests
+bash scripts/pre_merge_check.sh
+bash scripts/pilot_release_check.sh
+```
+
+Results:
+
+- Compile passed.
+- Dependency consistency passed.
+- CI-pattern tests passed: 144 tests.
+- Full local test discovery passed: 151 tests.
+- Pre-merge and pilot local gates passed.
+- Live Google smoke and legacy auth audit could not be proven in this workspace
+  because service-account credentials are not present.
+
+Remaining security work before broad production:
+
+1. Run `scripts/pilot_release_check.sh` in an environment with live Google
+   credentials and confirm `-live` tabs.
+2. Review and narrow service-account access to the minimum spreadsheet and
+   Drive folder needed for production.
+3. Add browser-level E2E coverage for login, upload, Sent/Declined/Undo, clear
+   data, and delete-account flows.
+4. Add secret scanning and a dependency vulnerability scanner to CI.
+5. Decide whether the app needs a stronger deployment layer for security
+   headers, rate limiting, and audit retention.

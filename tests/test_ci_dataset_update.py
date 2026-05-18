@@ -72,6 +72,60 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertIn("No 3+ day gaps between CSVs", html)
         self.assertEqual(html.count("dataset-check good"), 3)
 
+    def test_upload_data_badge_matches_failed_dataset_checks(self):
+        rows = [
+            {
+                "file_name": "stale-monthly.csv",
+                "pms": "VetPORT",
+                "rows": 100,
+                "from": "2025-05-31",
+                "to": "2026-05-01",
+                "status": "Saved",
+            }
+        ]
+
+        with patch.object(self.app, "user_today", return_value=pd.Timestamp("2026-05-31").date()):
+            self.assertEqual(self.app.dataset_summary_issue_count(rows), 1)
+            label = self.app.upload_data_badge_label(count=self.app.dataset_summary_issue_count(rows))
+
+        self.assertIn("Upload Data", label)
+        self.assertIn("1 upload data checks need attention", label)
+        self.assertIn("data:image/svg+xml;base64", label)
+
+    def test_dataset_coverage_turns_red_on_day_30_since_last_upload(self):
+        rows = [
+            {
+                "file_name": "monthly.csv",
+                "pms": "VetPORT",
+                "rows": 100,
+                "from": "2025-05-31",
+                "to": "2026-05-01",
+                "status": "Saved",
+            }
+        ]
+
+        with patch.object(self.app, "user_today", return_value=pd.Timestamp("2026-05-31").date()):
+            checks = self.app.dataset_summary_checks(rows)
+
+        self.assertFalse(checks[1]["good"])
+        self.assertEqual(checks[1]["text"], "Most impactful (previous 30-365) days not present")
+
+    def test_upload_data_badge_clears_when_dataset_checks_are_green(self):
+        rows = [
+            {
+                "file_name": "fresh-monthly.csv",
+                "pms": "VetPORT",
+                "rows": 100,
+                "from": "2025-05-31",
+                "to": "2026-05-02",
+                "status": "Saved",
+            }
+        ]
+
+        with patch.object(self.app, "user_today", return_value=pd.Timestamp("2026-05-31").date()):
+            self.assertEqual(self.app.dataset_summary_issue_count(rows), 0)
+            self.assertEqual(self.app.upload_data_badge_label(count=0), "Upload Data")
+
     def test_dataset_saved_summary_shows_total_rows_and_date_range(self):
         summary = self.app.format_dataset_saved_summary(
             54489,

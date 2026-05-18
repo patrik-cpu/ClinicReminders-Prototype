@@ -346,3 +346,47 @@ Allow only a constrained pilot if all of the following are true:
 - Operators accept that some failures may require manual repair.
 
 For broader production, finish the first five tickets above before reassessing.
+
+## 2026-05-17 Main Pilot QA Addendum
+
+Decision update: a limited main-branch pilot is acceptable if the live Google
+OAuth and live Sheets/Drive smoke checks pass in the deployed Streamlit
+environment. This does not change the broader production recommendation above.
+
+Current automated validation:
+
+- `python -m py_compile reminders_app_v3.py settings_pointer_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py` passed.
+- `python -m pip check` passed.
+- `python -m unittest discover -s tests -p "test_ci_*.py"` passed: 144 tests.
+- `python -m unittest discover -s tests` passed: 151 tests.
+- `bash scripts/pre_merge_check.sh` passed.
+- `bash scripts/pilot_release_check.sh` passed local checks and skipped live
+  Google smoke because this workspace has no service-account credentials.
+- `python scripts/auth_legacy_audit.py --fail-on-risk` could not run locally
+  without service-account credentials.
+
+Important changes since the original review:
+
+- Production Streamlit URL now defaults to `-live` worksheet tabs.
+- Google-linked accounts are matched by Google subject, not editable profile
+  email.
+- User-facing privacy/deletion copy is clearer.
+- Upload summary now reports total rows and total date range across uploaded
+  CSVs.
+- Saved dataset checks for PMS consistency, 30-365 day coverage, and 3+ day
+  gaps are visible again.
+- Reminder action buttons stay on the Reminders tab after Sent, Declined, and
+  Undo actions.
+- Recent light/system-theme UI regressions have regression tests.
+
+Remaining release constraints:
+
+- Manual deployed smoke is still required for Google OAuth and `-live` tracker
+  writes.
+- Browser-level E2E automation is still missing.
+- Google Sheets/Drive remain shared resources protected mainly by application
+  logic and service-account permissions.
+- Backup/restore must be rehearsed before onboarding real clinics.
+
+For the limited pilot, the next human check is to run the checklist in
+`MAIN_QA_REPORT.md` against `https://clinic-reminders.streamlit.app`.

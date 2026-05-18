@@ -992,6 +992,10 @@ class TenantAuthorizationError(PermissionError):
     pass
 
 
+class SettingsFreshReadError(RuntimeError):
+    pass
+
+
 def require_authenticated_tenant_access(clinic_id: str) -> str:
     target_clinic_id = str(clinic_id or "").strip()
     current_clinic_id = str(st.session_state.get("clinic_id", "") or "").strip()
@@ -3215,7 +3219,7 @@ def dataset_summary_checks(rows: list[dict]) -> list[dict]:
     same_pms = len({pms.lower() for pms in pms_values}) <= 1
     today = pd.Timestamp(user_today())
     impact_start = today - pd.Timedelta(days=365)
-    impact_end = today - pd.Timedelta(days=30)
+    impact_end = today - pd.Timedelta(days=29)
     has_impact_window = date_ranges_cover_window(normalized_rows, impact_start, impact_end)
     max_gap = max_missing_days_between_uploads(normalized_rows)
     no_large_gaps = max_gap < 3
@@ -3237,6 +3241,13 @@ def dataset_summary_checks(rows: list[dict]) -> list[dict]:
             "text": "No 3+ day gaps between CSVs" if no_large_gaps else f"{max_gap} day gap between CSVs",
         },
     ]
+
+
+def dataset_summary_issue_count(rows: list[dict]) -> int:
+    normalized_rows = normalize_dataset_upload_history(rows)
+    if not normalized_rows:
+        return 0
+    return sum(1 for check in dataset_summary_checks(normalized_rows) if not check.get("good"))
 
 
 def dataset_summary_checks_html(rows: list[dict]) -> str:
@@ -3682,8 +3693,8 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
 
     base_settings = get_cached_remote_settings(clinic_id)
     remote_settings = (
-        get_remote_settings(sheet=sheet, headers=headers, row=row)
-        if refresh_remote
+        read_remote_settings_for_save(sheet=sheet, headers=headers, row=row)
+        if refresh_remote and row
         else base_settings
     )
     if not remote_settings and base_settings:
@@ -3858,12 +3869,24 @@ def remember_settings_save_failure(error) -> None:
     )
 
 
-def save_settings_quietly(refresh_remote: bool = False) -> bool:
+def remember_settings_preservation_warning(error) -> None:
+    remember_settings_save_failure(error)
+    st.session_state["_pending_settings_sync_warning"] = (
+        "The latest saved clinic settings could not be checked, so this change was not written. "
+        "This protects saved search terms and exclusions from being overwritten by an older browser session. "
+        "Please try again."
+    )
+
+
+def save_settings_quietly(refresh_remote: bool = True) -> bool:
     try:
         save_settings(track_user=False, refresh_remote=refresh_remote)
         return True
     except APIError as e:
         remember_settings_save_failure(e)
+        return False
+    except SettingsFreshReadError as e:
+        remember_settings_preservation_warning(e)
         return False
 
 
@@ -3872,6 +3895,20 @@ def show_pending_settings_sync_warning():
     if warning:
         st.warning(warning)
 # --------------------------------
+
+
+def remember_action_tracker_save_failure() -> None:
+    st.session_state["_pending_action_sync_warning"] = (
+        "That reminder action was not saved, so the reminder state was not changed. "
+        "Please try again before leaving this page."
+    )
+
+
+def show_pending_action_sync_warning() -> None:
+    warning = st.session_state.pop("_pending_action_sync_warning", "")
+    if warning:
+        st.warning(warning)
+
 
 def _reminder_client_key(client_name: str) -> str:
     return _SPACE_RX.sub(" ", str(client_name or "").strip()).lower()
@@ -3890,6 +3927,25 @@ def _days_ago_text(then: datetime, now: datetime) -> str:
         return "1 day ago"
     return f"{days} days ago"
 
+def read_remote_settings_from_row(sheet, headers, row) -> dict:
+    current_row = _gspread_retry(sheet.row_values, row)
+    settings_idx = _settings_col_index(headers, "SettingsJSON") - 1
+    if len(current_row) <= settings_idx or not current_row[settings_idx]:
+        return {}
+    return json.loads(current_row[settings_idx])
+
+
+def read_remote_settings_for_save(sheet, headers, row) -> dict:
+    try:
+        settings = read_remote_settings_from_row(sheet, headers, row)
+    except Exception as e:
+        raise SettingsFreshReadError("Could not read latest clinic settings before saving.") from e
+    clinic_id = st.session_state.get("clinic_id")
+    if clinic_id:
+        cache_remote_settings(clinic_id, settings)
+    return settings
+
+
 def get_remote_settings(sheet=None, headers=None, row=None) -> dict:
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id:
@@ -3898,11 +3954,7 @@ def get_remote_settings(sheet=None, headers=None, row=None) -> dict:
     try:
         if not (sheet and headers and row):
             sheet, headers, row = _get_settings_row_for_clinic(clinic_id)
-        current_row = _gspread_retry(sheet.row_values, row)
-        settings_idx = _settings_col_index(headers, "SettingsJSON") - 1
-        if len(current_row) <= settings_idx or not current_row[settings_idx]:
-            return {}
-        settings = json.loads(current_row[settings_idx])
+        settings = read_remote_settings_from_row(sheet, headers, row)
         cache_remote_settings(clinic_id, settings)
         return settings
     except Exception:
@@ -4278,7 +4330,7 @@ def remove_wa_reminder_click_for_row(row, queue_settings_removal: bool = True):
 
 
 def record_action_tracker(row, action: str, message: str = "", source: str = "", now: datetime | None = None):
-    append_tracker_row(
+    return append_tracker_row(
         ACTION_TRACKER_WORKSHEET,
         ACTION_TRACKER_HEADERS,
         action_tracker_row_values(row, action, message=message, source=source, now=now),
@@ -6576,6 +6628,7 @@ if "rules" not in st.session_state:
 ensure_tracking_sheets()
 ensure_shared_dataset_loaded_for_session()
 show_pending_settings_sync_warning()
+show_pending_action_sync_warning()
 
 
 def get_setup_checklist_steps() -> list[dict]:
@@ -6685,11 +6738,25 @@ def get_started_badge_label(count: int | None = None) -> str:
     return tab_badge_label("Get Started", count, f"{count} setup steps remaining")
 
 
+def upload_data_badge_count(rows: list[dict] | None = None) -> int:
+    rows = get_saved_dataset_summary_rows() if rows is None else rows
+    return dataset_summary_issue_count(rows)
+
+
+def upload_data_badge_label(count: int | None = None) -> str:
+    count = upload_data_badge_count() if count is None else int(count or 0)
+    if count <= 0:
+        return "Upload Data"
+    return tab_badge_label("Upload Data", count, f"{count} upload data checks need attention")
+
+
 def main_section_tab_label(tab_name: str) -> str:
     if tab_name == "Reminders":
         return reminders_badge_label()
     if tab_name == "Get Started":
         return get_started_badge_label()
+    if tab_name == "Upload Data":
+        return upload_data_badge_label()
     return tab_name
 
 
@@ -8490,8 +8557,10 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
     message = build_whatsapp_message_for_row(row_data)
     st.session_state[msg_key] = message
     if hidden_action != REMINDER_ACTION_SENT:
+        if not record_action_tracker(row_data, REMINDER_ACTION_SENT, message=message, source=f"{key_prefix}_sent", now=now):
+            remember_action_tracker_save_failure()
+            return
         record_wa_reminder_click(client_name, now=now, row=row_data, save=False)
-        record_action_tracker(row_data, REMINDER_ACTION_SENT, message=message, source=f"{key_prefix}_sent", now=now)
     upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
     hide_revealed_reminders_after_action(key_prefix)
 
@@ -8501,10 +8570,12 @@ def decline_reminder_action(row_data: dict, key_prefix: str):
     now = utc_now()
     hidden_record = get_hidden_reminder_record(row_data)
     hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
+    if hidden_action != REMINDER_ACTION_DECLINED:
+        if not record_action_tracker(row_data, REMINDER_ACTION_DECLINED, source=f"{key_prefix}_declined", now=now):
+            remember_action_tracker_save_failure()
+            return
     if hidden_action == REMINDER_ACTION_SENT:
         remove_wa_reminder_click_for_row(row_data, queue_settings_removal=False)
-    if hidden_action != REMINDER_ACTION_DECLINED:
-        record_action_tracker(row_data, REMINDER_ACTION_DECLINED, source=f"{key_prefix}_declined", now=now)
     upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=now)
     hide_revealed_reminders_after_action(key_prefix)
 
@@ -8514,9 +8585,11 @@ def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
     hidden_record = get_hidden_reminder_record(row_data) or row_data
     hidden_action = str(hidden_record.get("Action", "")).strip().lower()
     with busy_overlay("Saving reminder action", "Returning this reminder to Active Reminders."):
+        if not record_action_tracker(row_data, "active", source=f"{key_prefix}_undo", now=utc_now()):
+            remember_action_tracker_save_failure()
+            return
         if hidden_action == REMINDER_ACTION_SENT:
             remove_wa_reminder_click_for_row(row_data)
-        record_action_tracker(row_data, "active", source=f"{key_prefix}_undo", now=utc_now())
         remove_actioned_reminder(row_data)
         save_settings_quietly()
 

@@ -22,6 +22,11 @@ class FakeSettingsSheet:
         ]
 
 
+class FailingSettingsSheet(FakeSettingsSheet):
+    def row_values(self, row_idx):
+        raise TimeoutError("network timeout")
+
+
 class SettingsSaveStateTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -75,6 +80,66 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(saved["rules"]["rabies"]["days"], 400)
         self.assertEqual(saved["rules"]["librela"]["days"], 30)
         self.assertEqual(saved["exclusions"], ["old", "remote-only", "local-only"])
+
+    def test_quiet_save_refreshes_remote_by_default_to_avoid_stale_overwrite(self):
+        base_settings = {
+            "rules": {"rabies": {"days": 365, "use_qty": False}},
+            "exclusions": ["old"],
+        }
+        remote_settings = {
+            "rules": {
+                "rabies": {"days": 365, "use_qty": False},
+                "librela": {"days": 30, "use_qty": False},
+            },
+            "exclusions": ["old", "remote-only"],
+        }
+        headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        sheet = FakeSettingsSheet(remote_settings)
+        captured = {}
+
+        def capture_settings_update(sheet, headers, row_idx, settings_json, updated_at):
+            captured["settings"] = json.loads(settings_json)
+
+        self.app.cache_remote_settings("Clinic Save State", base_settings)
+        self.app.st.session_state["rules"] = {"rabies": {"days": 400, "use_qty": False}}
+        self.app.st.session_state["exclusions"] = ["old", "local-only"]
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "_update_settings_cells", side_effect=capture_settings_update),
+        ):
+            saved = self.app.save_settings_quietly()
+
+        self.assertTrue(saved)
+        self.assertEqual(captured["settings"]["rules"]["rabies"]["days"], 400)
+        self.assertEqual(captured["settings"]["rules"]["librela"]["days"], 30)
+        self.assertEqual(captured["settings"]["exclusions"], ["old", "remote-only", "local-only"])
+
+    def test_quiet_save_can_still_skip_remote_refresh_for_internal_migration_paths(self):
+        with patch.object(self.app, "save_settings") as save_settings:
+            self.app.save_settings_quietly(refresh_remote=False)
+
+        save_settings.assert_called_once_with(track_user=False, refresh_remote=False)
+
+    def test_quiet_save_blocks_stale_overwrite_when_fresh_remote_read_fails(self):
+        headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        sheet = FailingSettingsSheet({"rules": {"remote-only": {"days": 30, "use_qty": False}}})
+
+        self.app.cache_remote_settings(
+            "Clinic Save State",
+            {"rules": {"old-base": {"days": 365, "use_qty": False}}},
+        )
+        self.app.st.session_state["rules"] = {"local-change": {"days": 90, "use_qty": False}}
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "_update_settings_cells") as update_settings_cells,
+        ):
+            saved = self.app.save_settings_quietly()
+
+        self.assertFalse(saved)
+        update_settings_cells.assert_not_called()
+        self.assertIn("could not be checked", self.app.st.session_state["_pending_settings_sync_warning"])
 
     def test_save_settings_does_not_persist_action_logs(self):
         hidden_a = {
