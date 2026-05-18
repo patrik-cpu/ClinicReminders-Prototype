@@ -11,11 +11,13 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta, timezone
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 import hashlib
 import base64
 import hmac
 import uuid
 from urllib.parse import urlparse
+from typing import Iterable
 import numpy as np
 from gspread.exceptions import APIError
 import random
@@ -10847,6 +10849,34 @@ def statistics_period_start(period: str, today: date | None = None) -> date | No
     return None
 
 
+@lru_cache(maxsize=8192)
+def parse_statistics_date_part(value: str) -> date | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    match = re.search(
+        r"(\d{1,2}[\s/-][A-Za-z]{3}[\s/-]\d{4}|\d{1,2}[\s/-]\d{1,2}[\s/-]\d{4}|\d{4}[\s/-]\d{1,2}[\s/-]\d{1,2})",
+        raw,
+    )
+    if not match:
+        return None
+    text = match.group(1)
+    formats = [
+        "%d/%b/%Y", "%d-%b-%Y", "%d %b %Y",
+        "%d/%m/%Y", "%m/%d/%Y", "%d %m %Y", "%m %d %Y",
+        "%Y-%m-%d", "%Y/%m/%d", "%Y %m %d", "%Y.%m.%d",
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    parsed = pd.to_datetime(pd.Series([text]), errors="coerce", dayfirst=True).iloc[0]
+    if pd.isna(parsed):
+        return None
+    return pd.Timestamp(parsed).date()
+
+
 def parse_statistics_dates(value) -> list[date]:
     if value is None:
         return []
@@ -10859,9 +10889,9 @@ def parse_statistics_dates(value) -> list[date]:
         part = part.strip()
         if not part:
             continue
-        parsed = parse_dates(pd.Series([part])).iloc[0]
-        if pd.notna(parsed):
-            parsed_dates.append(parsed.date())
+        parsed = parse_statistics_date_part(part)
+        if parsed:
+            parsed_dates.append(parsed)
     return parsed_dates
 
 
@@ -11581,6 +11611,125 @@ def outcome_next_purchase_gap_is_success(next_gap_days, desired_gap_days, due_da
     return abs(next_gap - desired_gap) <= max(0, int(due_date_window_days))
 
 
+def outcome_match_keys_for_record(exact_item_keys: list[str] | None, terms: list[str] | None) -> list[str]:
+    source = exact_item_keys if exact_item_keys else terms
+    keys = []
+    seen = set()
+    for value in source or []:
+        key = normalize_outcome_item_text(value)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        keys.append(key)
+    return keys
+
+
+def build_outcome_item_match_map(sales: pd.DataFrame, match_keys: Iterable[str]) -> pd.DataFrame:
+    columns = ["_OutcomeMatchKey", "OutcomeItemKey"]
+    if sales is None or sales.empty or "OutcomeItemKey" not in sales.columns:
+        return pd.DataFrame(columns=columns)
+
+    keys = sorted({
+        normalize_outcome_item_text(key)
+        for key in match_keys or []
+        if normalize_outcome_item_text(key)
+    })
+    if not keys:
+        return pd.DataFrame(columns=columns)
+
+    sale_item_keys = (
+        sales["OutcomeItemKey"]
+        .dropna()
+        .astype(str)
+        .loc[lambda values: values.str.len() > 0]
+        .drop_duplicates()
+        .sort_values()
+    )
+    if sale_item_keys.empty:
+        return pd.DataFrame(columns=columns)
+
+    mapped_frames = []
+    for key in keys:
+        matched_keys = sale_item_keys.loc[sale_item_keys.str.contains(key, regex=False, na=False)]
+        if matched_keys.empty:
+            continue
+        mapped_frames.append(pd.DataFrame({"_OutcomeMatchKey": key, "OutcomeItemKey": matched_keys.to_numpy()}))
+    if not mapped_frames:
+        return pd.DataFrame(columns=columns)
+    return pd.concat(mapped_frames, ignore_index=True).drop_duplicates(columns)
+
+
+def build_average_sales_purchase_gap_map(
+    sales: pd.DataFrame,
+    gap_key_matches: dict[tuple[str, ...], list[str]],
+    item_match_map: pd.DataFrame,
+) -> dict[tuple[str, ...], float | None]:
+    if sales is None or sales.empty or not gap_key_matches:
+        return {key: None for key in gap_key_matches}
+
+    gap_lookup = {idx: key for idx, key in enumerate(gap_key_matches)}
+    exact_rows = []
+    term_rows = []
+    for gap_id, gap_key in gap_lookup.items():
+        match_keys = [
+            normalize_outcome_item_text(key)
+            for key in gap_key_matches.get(gap_key, [])
+            if normalize_outcome_item_text(key)
+        ]
+        if not match_keys:
+            continue
+        if gap_key and gap_key[0] == "exact":
+            exact_rows.extend({"_GapID": gap_id, "OutcomeItemKey": key} for key in match_keys)
+        else:
+            term_rows.extend({"_GapID": gap_id, "_OutcomeMatchKey": key} for key in match_keys)
+
+    key_frames = []
+    if exact_rows:
+        key_frames.append(pd.DataFrame(exact_rows).drop_duplicates(["_GapID", "OutcomeItemKey"]))
+    if term_rows and item_match_map is not None and not item_match_map.empty:
+        term_key_frame = pd.DataFrame(term_rows).drop_duplicates(["_GapID", "_OutcomeMatchKey"]).merge(
+            item_match_map,
+            on="_OutcomeMatchKey",
+            how="inner",
+        )[["_GapID", "OutcomeItemKey"]]
+        if not term_key_frame.empty:
+            key_frames.append(term_key_frame.drop_duplicates(["_GapID", "OutcomeItemKey"]))
+    if not key_frames:
+        return {key: None for key in gap_key_matches}
+
+    gap_item_keys = pd.concat(key_frames, ignore_index=True).drop_duplicates(["_GapID", "OutcomeItemKey"])
+    matched = gap_item_keys.merge(
+        sales[["OutcomeItemKey", "OutcomeClientKey", "OutcomePatientKey", "OutcomeChargeDate"]],
+        on="OutcomeItemKey",
+        how="inner",
+    )
+    if matched.empty:
+        return {key: None for key in gap_key_matches}
+
+    matched = matched.loc[
+        matched["OutcomeClientKey"].astype(str).ne("")
+        & matched["OutcomePatientKey"].astype(str).ne("")
+        & pd.to_datetime(matched["OutcomeChargeDate"], errors="coerce").notna()
+    ].copy()
+    if matched.empty:
+        return {key: None for key in gap_key_matches}
+
+    matched["OutcomeChargeDate"] = pd.to_datetime(matched["OutcomeChargeDate"], errors="coerce")
+    matched = matched.drop_duplicates(["_GapID", "OutcomeClientKey", "OutcomePatientKey", "OutcomeChargeDate"])
+    matched = matched.sort_values(["_GapID", "OutcomeClientKey", "OutcomePatientKey", "OutcomeChargeDate"])
+    matched["_GapDays"] = (
+        matched
+        .groupby(["_GapID", "OutcomeClientKey", "OutcomePatientKey"], dropna=False)["OutcomeChargeDate"]
+        .diff()
+        .dt.days
+    )
+    gap_means = matched.loc[matched["_GapDays"].gt(0)].groupby("_GapID")["_GapDays"].mean()
+    return {
+        gap_key: (float(gap_means.loc[gap_id]) if gap_id in gap_means.index else None)
+        for gap_id, gap_key in gap_lookup.items()
+    }
+
+
 @st.cache_data(show_spinner=False, max_entries=8)
 def build_reminder_outcomes(
     action_records: list[dict],
@@ -11612,7 +11761,8 @@ def build_reminder_outcomes(
         return empty_outcome_frame()
 
     rows = []
-    item_gap_cache: dict[tuple[str, ...], float | None] = {}
+    gap_key_matches: dict[tuple[str, ...], list[str]] = {}
+    all_match_keys: set[str] = set()
     for record_id, record in enumerate(sent_records):
         actioned_dt = _parse_reminder_log_time(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
         actioned_date = actioned_dt.date() if actioned_dt else None
@@ -11634,18 +11784,16 @@ def build_reminder_outcomes(
         sender = str(record.get("Actioned By", "") or "").strip() or "Unknown"
         terms = outcome_search_terms_for_record(record, item_name, rules)
         exact_item_keys = outcome_exact_item_keys_for_record(record, item_name, terms, rules)
+        match_keys = outcome_match_keys_for_record(exact_item_keys, terms)
         desired_gap_days = outcome_desired_gap_days(record, terms, due_date, original_charge_date, rules)
         if exact_item_keys:
             gap_cache_key = ("exact", *sorted(set(exact_item_keys)))
         else:
             gap_cache_key = ("terms", *sorted({term for term in terms if term}))
-        if gap_cache_key not in item_gap_cache:
-            item_gap_cache[gap_cache_key] = average_sales_purchase_gap(
-                sales,
-                exact_item_keys=exact_item_keys,
-                terms=terms,
-            )
-        avg_item_purchase_gap_days = item_gap_cache.get(gap_cache_key)
+        if len(gap_cache_key) > 1:
+            gap_key_matches.setdefault(gap_cache_key, outcome_match_keys_for_record(exact_item_keys, terms))
+            all_match_keys.update(gap_key_matches[gap_cache_key])
+        all_match_keys.update(match_keys)
 
         if sent_date is None:
             outcome = "Not Measurable"
@@ -11660,6 +11808,8 @@ def build_reminder_outcomes(
             "_OutcomePatientKey": normalize_outcome_identity(animal_name),
             "_OutcomeTerms": terms,
             "_OutcomeExactItemKeys": exact_item_keys,
+            "_OutcomeMatchKeys": match_keys,
+            "_OutcomeGapCacheKey": gap_cache_key,
             "Sent Date": pd.Timestamp(sent_date) if sent_date else pd.NaT,
             "Actioned Date": pd.Timestamp(actioned_date) if actioned_date else pd.NaT,
             "Charge Date": pd.Timestamp(original_charge_date) if original_charge_date else pd.NaT,
@@ -11676,7 +11826,7 @@ def build_reminder_outcomes(
             "Desired Gap Days": desired_gap_days,
             "Success Gap Days": None,
             "Next Purchase Gap Days": None,
-            "Avg Item Purchase Gap Days": avg_item_purchase_gap_days,
+            "Avg Item Purchase Gap Days": None,
             "Revenue": 0.0,
             "Matched Item": "",
             "Next Matched Item": "",
@@ -11686,17 +11836,21 @@ def build_reminder_outcomes(
     if outcomes.empty:
         return empty_outcome_frame()
 
+    item_match_map = build_outcome_item_match_map(sales, all_match_keys)
+    if gap_key_matches:
+        gap_map = build_average_sales_purchase_gap_map(sales, gap_key_matches, item_match_map)
+        outcomes["Avg Item Purchase Gap Days"] = outcomes["_OutcomeGapCacheKey"].map(gap_map)
+
     measurable = outcomes.loc[
         outcomes["Sent Date"].notna()
         & outcomes["Window Starts"].notna()
         & outcomes["Window Ends"].notna()
-        & (outcomes["_OutcomeTerms"].map(bool) | outcomes["_OutcomeExactItemKeys"].map(bool)),
+        & outcomes["_OutcomeMatchKeys"].map(bool),
         [
             "_OutcomeRecordID",
             "_OutcomeClientKey",
             "_OutcomePatientKey",
-            "_OutcomeTerms",
-            "_OutcomeExactItemKeys",
+            "_OutcomeMatchKeys",
             "Sent Date",
             "Charge Date",
             "Due Date",
@@ -11705,10 +11859,16 @@ def build_reminder_outcomes(
         ],
     ]
 
-    if not measurable.empty and not sales.empty:
-        term_rows = measurable.explode("_OutcomeTerms").rename(columns={"_OutcomeTerms": "_OutcomeTerm"})
-        if not term_rows.empty:
-            merged = term_rows.merge(
+    if not measurable.empty and not sales.empty and not item_match_map.empty:
+        match_rows = measurable.explode("_OutcomeMatchKeys").rename(columns={"_OutcomeMatchKeys": "_OutcomeMatchKey"})
+        match_rows = match_rows.loc[match_rows["_OutcomeMatchKey"].fillna("").astype(str).ne("")]
+        if not match_rows.empty:
+            matched_item_rows = match_rows.merge(
+                item_match_map,
+                on="_OutcomeMatchKey",
+                how="inner",
+            )
+            merged = matched_item_rows.merge(
                 sales[
                     [
                         "OutcomeClientKey",
@@ -11720,11 +11880,12 @@ def build_reminder_outcomes(
                         "OutcomeSaleID",
                     ]
                 ],
-                left_on=["_OutcomeClientKey", "_OutcomePatientKey"],
-                right_on=["OutcomeClientKey", "OutcomePatientKey"],
+                left_on=["_OutcomeClientKey", "_OutcomePatientKey", "OutcomeItemKey"],
+                right_on=["OutcomeClientKey", "OutcomePatientKey", "OutcomeItemKey"],
                 how="inner",
             )
             if not merged.empty:
+                merged = merged.drop_duplicates(["_OutcomeRecordID", "OutcomeSaleID"])
                 charge_dates = pd.to_datetime(merged["Charge Date"], errors="coerce")
                 after_original_mask = (
                     charge_dates.isna()
@@ -11732,58 +11893,44 @@ def build_reminder_outcomes(
                 )
                 merged = merged.loc[after_original_mask]
             if not merged.empty:
-                sale_keys = merged["OutcomeItemKey"].astype(str).to_numpy()
-                terms = merged["_OutcomeTerm"].astype(str).to_numpy()
-                exact_key_lists = merged["_OutcomeExactItemKeys"].tolist()
-                term_mask = np.fromiter(
-                    (
-                        outcome_sale_item_matches(exact_keys, term, sale_key)
-                        for term, sale_key, exact_keys in zip(terms, sale_keys, exact_key_lists)
-                    ),
-                    dtype=bool,
-                    count=len(merged),
-                )
-                merged = merged.loc[term_mask]
-            if not merged.empty:
                 first_next_purchases = (
                     merged.sort_values(["_OutcomeRecordID", "OutcomeChargeDate", "OutcomeSaleID"])
-                    .drop_duplicates(["_OutcomeRecordID", "OutcomeSaleID"], keep="first")
                     .drop_duplicates("_OutcomeRecordID", keep="first")
                 )
-                for match in first_next_purchases.to_dict("records"):
-                    record_id = int(match["_OutcomeRecordID"])
-                    next_purchase_date = pd.Timestamp(match["OutcomeChargeDate"])
-                    charge_value = outcomes.at[record_id, "Charge Date"]
-                    next_gap_days = (
-                        (next_purchase_date.date() - pd.Timestamp(charge_value).date()).days
-                        if pd.notna(charge_value)
-                        else None
-                    )
-                    matched_item = normalize_display_case(str(match.get("Item Name", "") or "").strip())
-                    outcomes.at[record_id, "Next Purchase Date"] = next_purchase_date
-                    outcomes.at[record_id, "Next Purchase Gap Days"] = next_gap_days
-                    outcomes.at[record_id, "Next Matched Item"] = matched_item
+                if not first_next_purchases.empty:
+                    record_ids = first_next_purchases["_OutcomeRecordID"].astype(int).to_numpy()
+                    next_purchase_dates = pd.to_datetime(first_next_purchases["OutcomeChargeDate"], errors="coerce")
+                    charge_dates = pd.to_datetime(outcomes.loc[record_ids, "Charge Date"], errors="coerce").reset_index(drop=True)
+                    next_gap_days = (next_purchase_dates.reset_index(drop=True) - charge_dates).dt.days
+                    matched_items = first_next_purchases["Item Name"].map(
+                        lambda value: normalize_display_case(str(value or "").strip())
+                    ).to_numpy()
 
-                    desired_gap_days = outcomes.at[record_id, "Desired Gap Days"]
-                    success_by_gap = outcome_next_purchase_gap_is_success(
-                        next_gap_days,
-                        desired_gap_days,
-                        due_date_window_days,
+                    outcomes.loc[record_ids, "Next Purchase Date"] = next_purchase_dates.to_numpy()
+                    outcomes.loc[record_ids, "Next Purchase Gap Days"] = next_gap_days.to_numpy()
+                    outcomes.loc[record_ids, "Next Matched Item"] = matched_items
+
+                    desired_gap_days = pd.to_numeric(outcomes.loc[record_ids, "Desired Gap Days"], errors="coerce").reset_index(drop=True)
+                    success_by_gap = (
+                        next_gap_days.notna()
+                        & desired_gap_days.notna()
+                        & (next_gap_days.astype(float).sub(desired_gap_days.astype(float)).abs() <= due_date_window_days)
                     )
-                    window_start = outcomes.at[record_id, "Window Starts"]
-                    window_end = outcomes.at[record_id, "Window Ends"]
-                    success_by_window = (
-                        pd.notna(window_start)
-                        and pd.notna(window_end)
-                        and next_purchase_date >= pd.Timestamp(window_start)
-                        and next_purchase_date <= pd.Timestamp(window_end)
-                    )
-                    if success_by_gap or success_by_window:
-                        outcomes.at[record_id, "Success Date"] = next_purchase_date
-                        outcomes.at[record_id, "Matched Item"] = matched_item
-                        outcomes.at[record_id, "Revenue"] = float(match.get("OutcomeAmount", 0) or 0)
-                        outcomes.at[record_id, "Success Gap Days"] = next_gap_days
-                        outcomes.at[record_id, "Outcome"] = "Reminder Success"
+                    window_start = pd.to_datetime(outcomes.loc[record_ids, "Window Starts"], errors="coerce").reset_index(drop=True)
+                    window_end = pd.to_datetime(outcomes.loc[record_ids, "Window Ends"], errors="coerce").reset_index(drop=True)
+                    success_by_window = next_purchase_dates.reset_index(drop=True).between(window_start, window_end, inclusive="both")
+                    success_mask = (success_by_gap | success_by_window).fillna(False).to_numpy()
+                    success_record_ids = record_ids[success_mask]
+                    if len(success_record_ids):
+                        outcomes.loc[success_record_ids, "Success Date"] = next_purchase_dates.loc[success_mask].to_numpy()
+                        outcomes.loc[success_record_ids, "Matched Item"] = matched_items[success_mask]
+                        outcomes.loc[success_record_ids, "Revenue"] = (
+                            pd.to_numeric(first_next_purchases.loc[success_mask, "OutcomeAmount"], errors="coerce")
+                            .fillna(0)
+                            .to_numpy()
+                        )
+                        outcomes.loc[success_record_ids, "Success Gap Days"] = next_gap_days.loc[success_mask].to_numpy()
+                        outcomes.loc[success_record_ids, "Outcome"] = "Reminder Success"
 
     return outcomes[OUTCOME_TABLE_COLUMNS]
 
