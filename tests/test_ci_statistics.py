@@ -739,6 +739,29 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(rows["Nurse A"]["On-time Rate"], 1.0)
         self.assertEqual(rows["Nurse B"]["Late Recovery Rate"], 1.0)
 
+    def test_prepare_outcome_dataframe_for_display_formats_dates_without_time(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "Sent Date": pd.Timestamp("2024-01-13 00:00:00"),
+                    "Actioned Date": "2024-02-14 09:30:00",
+                    "Due Date": pd.NaT,
+                    "Window Starts": pd.Timestamp("2024-01-01"),
+                    "Success Date": pd.Timestamp("2024-03-05"),
+                    "Window Ends": pd.Timestamp("2024-04-30"),
+                    "Client Name": "Client A",
+                }
+            ]
+        )
+
+        display_frame = self.app.prepare_outcome_dataframe_for_display(frame)
+
+        self.assertEqual(display_frame.iloc[0]["Sent Date"], "Jan-13-2024")
+        self.assertEqual(display_frame.iloc[0]["Actioned Date"], "Feb-14-2024")
+        self.assertEqual(display_frame.iloc[0]["Due Date"], "")
+        self.assertEqual(display_frame.iloc[0]["Window Ends"], "Apr-30-2024")
+        self.assertEqual(str(frame.iloc[0]["Sent Date"]), "2024-01-13 00:00:00")
+
 
 if __name__ == "__main__":
     unittest.main()

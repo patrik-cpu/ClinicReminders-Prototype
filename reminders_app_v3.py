@@ -10510,6 +10510,14 @@ OUTCOME_TABLE_COLUMNS = [
     "Revenue",
     "Matched Item",
 ]
+OUTCOME_DISPLAY_DATE_COLUMNS = [
+    "Sent Date",
+    "Actioned Date",
+    "Due Date",
+    "Window Starts",
+    "Success Date",
+    "Window Ends",
+]
 
 
 def statistics_exclusion_fp() -> str:
@@ -11421,12 +11429,29 @@ def format_outcome_currency(value) -> str:
     return f"{amount:,.0f}"
 
 
+def format_outcome_display_date(value) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    try:
+        return pd.Timestamp(value).strftime("%b-%d-%Y")
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
+    display_frame = frame.copy()
+    for column in OUTCOME_DISPLAY_DATE_COLUMNS:
+        if column in display_frame.columns:
+            display_frame[column] = display_frame[column].map(format_outcome_display_date)
+    return display_frame
+
+
 def render_outcome_dataframe(frame: pd.DataFrame):
     if frame.empty:
         st.info("No outcome rows for this view yet.")
         return
     st.dataframe(
-        frame,
+        prepare_outcome_dataframe_for_display(frame),
         hide_index=True,
         use_container_width=True,
         column_config={
