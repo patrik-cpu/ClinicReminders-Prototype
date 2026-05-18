@@ -463,6 +463,7 @@ ACCOUNT_LIFECYCLE_HEADERS = [
     "Message",
     "Source",
 ]
+ACCOUNT_LIFECYCLE_AUTH_PROVIDERS = {"", "google", "password", "legacy", "manual"}
 TRACKER_SHEET_DEFINITIONS = [
     (USER_TRACKER_WORKSHEET, USER_TRACKER_HEADERS),
     (ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS),
@@ -5671,6 +5672,125 @@ def record_account_lifecycle_event(
     ])
 
 
+def account_lifecycle_clinic_name_map_from_values(
+    settings_values: list[list[str]] | None = None,
+    user_tracker_values: list[list[str]] | None = None,
+) -> dict[str, str]:
+    clinic_names_by_ref: dict[str, str] = {}
+
+    settings_headers = list((settings_values or [[]])[0] or [])
+    if SHEET_COL_CLINIC_ID in settings_headers:
+        clinic_id_idx = settings_headers.index(SHEET_COL_CLINIC_ID)
+        for values in (settings_values or [])[1:]:
+            if not values:
+                continue
+            clinic_id = str(values[clinic_id_idx] if len(values) > clinic_id_idx else "").strip()
+            if clinic_id:
+                clinic_ref = account_lifecycle_clinic_ref(clinic_id)
+                if clinic_ref:
+                    clinic_names_by_ref[clinic_ref] = clinic_id
+
+    if user_tracker_values:
+        headers = list(user_tracker_values[0] or [])
+        if SHEET_COL_CLINIC_ID in headers:
+            clinic_id_idx = headers.index(SHEET_COL_CLINIC_ID)
+            for values in user_tracker_values[1:]:
+                clinic_id = str(values[clinic_id_idx] if len(values) > clinic_id_idx else "").strip()
+                if clinic_id:
+                    clinic_ref = account_lifecycle_clinic_ref(clinic_id)
+                    if clinic_ref:
+                        clinic_names_by_ref.setdefault(clinic_ref, clinic_id)
+
+    return clinic_names_by_ref
+
+
+def is_legacy_account_lifecycle_row(row: list[str]) -> bool:
+    padded = list(row) + [""] * len(ACCOUNT_LIFECYCLE_HEADERS)
+    auth_candidate = str(padded[4] or "").strip().lower()
+    return len(row) <= len(ACCOUNT_LIFECYCLE_HEADERS) - 1 and auth_candidate in ACCOUNT_LIFECYCLE_AUTH_PROVIDERS
+
+
+def normalize_account_lifecycle_row(row: list[str], clinic_names_by_ref: dict[str, str] | None = None) -> list[str]:
+    clinic_names_by_ref = clinic_names_by_ref or {}
+    padded = list(row) + [""] * len(ACCOUNT_LIFECYCLE_HEADERS)
+    clinic_ref = str(padded[3] or "").strip()
+
+    if is_legacy_account_lifecycle_row(row):
+        return [
+            padded[0],
+            padded[1],
+            padded[2],
+            padded[3],
+            clinic_names_by_ref.get(clinic_ref, ""),
+            padded[4],
+            padded[5],
+            padded[6],
+            padded[7],
+            padded[8],
+            padded[9],
+        ]
+
+    normalized = padded[:len(ACCOUNT_LIFECYCLE_HEADERS)]
+    if not str(normalized[4] or "").strip() and clinic_ref in clinic_names_by_ref:
+        normalized[4] = clinic_names_by_ref[clinic_ref]
+    return normalized
+
+
+def repair_account_lifecycle_rows(worksheet, clinic_names_by_ref: dict[str, str] | None = None) -> int:
+    values = _gspread_retry(worksheet.get_all_values) or []
+    if len(values) <= 1:
+        return 0
+
+    updates = []
+    end_col = _column_number_to_letter(len(ACCOUNT_LIFECYCLE_HEADERS))
+    for row_idx, row in enumerate(values[1:], start=2):
+        normalized = normalize_account_lifecycle_row(row, clinic_names_by_ref)
+        current = (list(row) + [""] * len(ACCOUNT_LIFECYCLE_HEADERS))[:len(ACCOUNT_LIFECYCLE_HEADERS)]
+        if normalized != current:
+            updates.append({
+                "range": f"A{row_idx}:{end_col}{row_idx}",
+                "values": [normalized],
+            })
+
+    if updates:
+        _gspread_retry(worksheet.batch_update, updates)
+    return len(updates)
+
+
+def repair_account_lifecycle_sheet(spreadsheet, worksheet) -> int:
+    values = _gspread_retry(worksheet.get_all_values) or []
+    if len(values) <= 1:
+        return 0
+
+    needs_repair = False
+    needs_backfill = False
+    for row in values[1:]:
+        normalized_without_backfill = normalize_account_lifecycle_row(row, {})
+        current = (list(row) + [""] * len(ACCOUNT_LIFECYCLE_HEADERS))[:len(ACCOUNT_LIFECYCLE_HEADERS)]
+        if normalized_without_backfill != current:
+            needs_repair = True
+            break
+        if str(current[3] or "").strip() and not str(current[4] or "").strip():
+            needs_backfill = True
+
+    if not needs_repair and not needs_backfill:
+        return 0
+
+    settings_values = []
+    user_tracker_values = []
+    try:
+        settings_values = _gspread_retry(get_or_create_settings_worksheet(spreadsheet).get_all_values) or []
+    except Exception:
+        settings_values = []
+    try:
+        user_tracker_values = _gspread_retry(spreadsheet.worksheet(USER_TRACKER_WORKSHEET).get_all_values) or []
+    except Exception:
+        user_tracker_values = []
+
+    clinic_names_by_ref = account_lifecycle_clinic_name_map_from_values(settings_values, user_tracker_values)
+    return repair_account_lifecycle_rows(worksheet, clinic_names_by_ref)
+
+
 @st.cache_resource(show_spinner=False)
 def ensure_tracking_sheets_once():
     spreadsheet = get_settings_spreadsheet()
@@ -5683,6 +5803,11 @@ def ensure_tracking_sheets_once():
         if first_row[:len(headers)] != headers:
             end_col = _column_number_to_letter(len(headers))
             _gspread_retry(worksheet.update, values=[headers], range_name=f"A1:{end_col}1")
+        if title == ACCOUNT_LIFECYCLE_WORKSHEET:
+            try:
+                repair_account_lifecycle_sheet(spreadsheet, worksheet)
+            except Exception:
+                pass
     return True
 
 

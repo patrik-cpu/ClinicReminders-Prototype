@@ -412,6 +412,101 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(captured["values"][7], "7")
         self.assertEqual(captured["values"][8], "True")
 
+    def test_account_lifecycle_legacy_rows_shift_under_clinic_name_header(self):
+        clinic_ref = self.app.account_lifecycle_clinic_ref("Legacy Clinic")
+        legacy_row = [
+            "2026-05-18 06:57:21",
+            "deleted",
+            "success",
+            clinic_ref,
+            "google",
+            "United Arab Emirates",
+            "2",
+            "FALSE",
+            "",
+            "delete_account_and_data",
+        ]
+
+        normalized = self.app.normalize_account_lifecycle_row(
+            legacy_row,
+            {clinic_ref: "Legacy Clinic"},
+        )
+
+        self.assertEqual(normalized, [
+            "2026-05-18 06:57:21",
+            "deleted",
+            "success",
+            clinic_ref,
+            "Legacy Clinic",
+            "google",
+            "United Arab Emirates",
+            "2",
+            "FALSE",
+            "",
+            "delete_account_and_data",
+        ])
+
+    def test_account_lifecycle_repair_updates_legacy_and_blank_name_rows(self):
+        clinic_ref = self.app.account_lifecycle_clinic_ref("Repair Clinic")
+        blank_name_ref = self.app.account_lifecycle_clinic_ref("Blank Name Clinic")
+        values = [
+            self.app.ACCOUNT_LIFECYCLE_HEADERS,
+            [
+                "2026-05-18 06:57:21",
+                "deleted",
+                "success",
+                clinic_ref,
+                "google",
+                "United Arab Emirates",
+                "2",
+                "FALSE",
+                "",
+                "delete_account_and_data",
+            ],
+            [
+                "2026-05-18 06:58:37",
+                "created",
+                "success",
+                blank_name_ref,
+                "",
+                "google",
+                "United Arab Emirates",
+                "",
+                "",
+                "",
+                "google_signup",
+            ],
+        ]
+
+        class FakeWorksheet:
+            def __init__(self, rows):
+                self.rows = rows
+                self.updates = []
+
+            def get_all_values(self):
+                return self.rows
+
+            def batch_update(self, updates):
+                self.updates = updates
+
+        worksheet = FakeWorksheet(values)
+
+        with patch.object(self.app, "_gspread_retry", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)):
+            repaired = self.app.repair_account_lifecycle_rows(
+                worksheet,
+                {
+                    clinic_ref: "Repair Clinic",
+                    blank_name_ref: "Blank Name Clinic",
+                },
+            )
+
+        self.assertEqual(repaired, 2)
+        self.assertEqual(worksheet.updates[0]["range"], "A2:K2")
+        self.assertEqual(worksheet.updates[0]["values"][0][4], "Repair Clinic")
+        self.assertEqual(worksheet.updates[0]["values"][0][5], "google")
+        self.assertEqual(worksheet.updates[1]["range"], "A3:K3")
+        self.assertEqual(worksheet.updates[1]["values"][0][4], "Blank Name Clinic")
+
 
 if __name__ == "__main__":
     unittest.main()
