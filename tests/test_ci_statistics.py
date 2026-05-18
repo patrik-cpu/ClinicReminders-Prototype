@@ -460,6 +460,53 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
         self.assertEqual(outcomes.iloc[0]["Matched Item"], "Selamectin spot-on")
 
+    def test_reminder_outcomes_use_stored_search_term_not_display_item(self):
+        actions = [
+            {
+                "Reminder Date": "01 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "01 May 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Annual Vaccine Reminder",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-01T09:00:00",
+                "Actioned By": "Nurse A",
+                "ReminderDetails": [
+                    {
+                        "Reminder Date": "01 May 2026",
+                        "Due Date": "10 May 2026",
+                        "Charge Date": "01 May 2025",
+                        "Animal Name": "Pet A",
+                        "Plan Item": "Annual Vaccine Reminder",
+                        "Search Terms": "rabies",
+                    }
+                ],
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-12",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Nobivac Rabies 3 Year",
+                    "Amount": 150,
+                }
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=30,
+            today=date(2026, 6, 1),
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
+        self.assertEqual(outcomes.iloc[0]["Matched Item"], "Nobivac Rabies 3 Year")
+        self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 150.0)
+
     def test_outcome_group_frame_summarizes_success_rates(self):
         outcomes = pd.DataFrame(
             [

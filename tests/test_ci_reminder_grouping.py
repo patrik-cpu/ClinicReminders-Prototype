@@ -157,6 +157,7 @@ class ReminderGroupingTests(unittest.TestCase):
         mapped = self.app.map_intervals_vec(df, rules)
 
         self.assertEqual(mapped.at[5, "MatchedItems"], ["Rabies Vaccine"])
+        self.assertEqual(mapped.at[5, "MatchedSearchTerms"], ["rabies"])
         self.assertEqual(int(mapped.at[5, "IntervalDays"]), 365)
         self.assertTrue(pd.isna(mapped.at[9, "IntervalDays"]))
 

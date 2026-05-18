@@ -4355,7 +4355,7 @@ def normalize_reminder_details_for_storage(details) -> list[dict]:
     if not isinstance(details, list):
         return []
     normalized = []
-    fields = ("Animal Name", "Plan Item", "Due Date", "Reminder Date", "Charge Date", "Qty", "Days")
+    fields = ("Animal Name", "Plan Item", "Due Date", "Reminder Date", "Charge Date", "Qty", "Days", "Search Terms")
     for detail in details:
         if not isinstance(detail, dict):
             continue
@@ -8285,6 +8285,11 @@ def _summarize_client_cluster_records(records: list[dict], client_name: str, rul
         item_name = str(row.get("Item Name", "")).strip()
         if not item_name and isinstance(row.get("MatchedItems"), list):
             item_name = format_items([str(x).strip() for x in row.get("MatchedItems", []) if str(x).strip()])
+        raw_search_terms = row.get("MatchedSearchTerms", [])
+        if isinstance(raw_search_terms, list):
+            search_terms = sorted({str(x).strip() for x in raw_search_terms if str(x).strip()})
+        else:
+            search_terms = [str(raw_search_terms).strip()] if str(raw_search_terms or "").strip() else []
         item_name = simplify_vaccine_text(item_name or "treatment")
         due_value = str(row.get("DueDateFmt") or row.get("NextDueDate") or row.get("Due Date") or "").strip()
         reminder_details.append({
@@ -8295,6 +8300,7 @@ def _summarize_client_cluster_records(records: list[dict], client_name: str, rul
             "Charge Date": charge_date,
             "Qty": str(row.get("Qty", "") or "").strip(),
             "Days": str(row.get("IntervalDays", "") or "").strip(),
+            "Search Terms": " | ".join(search_terms),
         })
 
     animals = sorted(animals)
@@ -8426,6 +8432,7 @@ def map_intervals_vec(df, rules):
     overdue_reminder = pd.Series(pd.NA, index=df.index, dtype="Float64")
 
     matched = pd.Series([[] for _ in range(n)], index=df.index, dtype=object)
+    matched_search_terms = pd.Series([[] for _ in range(n)], index=df.index, dtype=object)
 
     item_norm = df["ItemNorm"].astype(str)
 
@@ -8471,8 +8478,11 @@ def map_intervals_vec(df, rules):
             for i in idxs: matched.at[i].append(vis)
         else:
             for i in idxs: matched.at[i].append(df.at[i, "Item Name"])
+        for i in idxs:
+            matched_search_terms.at[i].append(rule_text)
 
     df["MatchedItems"] = [list({x.strip() for x in lst if str(x).strip()}) for lst in matched.tolist()]
+    df["MatchedSearchTerms"] = [list({str(x).strip() for x in lst if str(x).strip()}) for lst in matched_search_terms.tolist()]
     df["IntervalDays"] = interval_qty
     df["BaseIntervalDays"] = interval_base
     df["Reminder1Days"] = reminder_1
@@ -8528,7 +8538,7 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=[
             "ReminderDateFmt", "DueDateFmt", "Client Name", "ChargeDateFmt", "Animal Name",
-            "MatchedItems", "Qty", "IntervalDays", "BaseIntervalDays", "Reminder1Days", "Reminder2Days", "OverdueReminderDays",
+            "MatchedItems", "MatchedSearchTerms", "Qty", "IntervalDays", "BaseIntervalDays", "Reminder1Days", "Reminder2Days", "OverdueReminderDays",
             "NextDueDate", "NextDueDateBase", "NextDueDateTs", "ReminderDate", "ReminderDateTs", "ChargeDate"
         ])
 
@@ -10797,11 +10807,65 @@ def outcome_item_terms(item_text, rules: dict | None = None) -> list[str]:
     return terms
 
 
-def outcome_item_matches(reminder_item, sale_item, rules: dict | None = None) -> bool:
+def split_outcome_search_terms(value) -> list[str]:
+    if isinstance(value, list):
+        raw_parts = value
+    else:
+        raw_parts = re.split(r"\s*(?:\||,|;)\s*", str(value or ""), flags=re.IGNORECASE)
+    terms = []
+    seen = set()
+    for part in raw_parts:
+        term = normalize_outcome_item_text(part)
+        if len(term) < 2 or term in seen:
+            continue
+        seen.add(term)
+        terms.append(term)
+    return terms
+
+
+def outcome_search_terms_for_record(record: dict, reminder_item, rules: dict | None = None) -> list[str]:
+    terms = []
+    seen = set()
+
+    def add_term(value):
+        for term in split_outcome_search_terms(value):
+            if term not in seen:
+                seen.add(term)
+                terms.append(term)
+
+    add_term(record.get("Search Terms", ""))
+    add_term(record.get("MatchedSearchTerms", ""))
+    for detail in normalize_reminder_details_for_storage(record.get("ReminderDetails", [])):
+        add_term(detail.get("Search Terms", ""))
+
+    if terms:
+        return terms
+
+    reminder_key = normalize_outcome_item_text(reminder_item)
+    for rule_text, settings in (rules or {}).items():
+        rule_term = normalize_outcome_item_text(rule_text)
+        visible_term = normalize_outcome_item_text((settings or {}).get("visible_text", ""))
+        if not rule_term or rule_term in seen:
+            continue
+        if (
+            rule_term in reminder_key
+            or (visible_term and (visible_term == reminder_key or visible_term in reminder_key or reminder_key in visible_term))
+        ):
+            seen.add(rule_term)
+            terms.append(rule_term)
+
+    if terms:
+        return terms
+    return outcome_item_terms(reminder_item, rules=None)
+
+
+def outcome_item_matches(reminder_item, sale_item, rules: dict | None = None, record: dict | None = None) -> bool:
     sale_key = normalize_outcome_item_text(sale_item)
     if not sale_key:
         return False
-    return any(term and (term in sale_key or sale_key in term) for term in outcome_item_terms(reminder_item, rules))
+    if record is not None:
+        return any(term and term in sale_key for term in outcome_search_terms_for_record(record, reminder_item, rules))
+    return any(term and term in sale_key for term in outcome_item_terms(reminder_item, rules))
 
 
 def split_grouped_display_parts(value) -> list[str]:
@@ -10982,7 +11046,7 @@ def build_reminder_outcomes(
             candidates = sales.loc[candidate_mask].copy()
             if not candidates.empty:
                 candidates = candidates.loc[
-                    candidates["Item Name"].map(lambda value: outcome_item_matches(item_name, value, rules))
+                    candidates["Item Name"].map(lambda value: outcome_item_matches(item_name, value, rules, record=record))
                 ].sort_values("OutcomeChargeDate")
                 if not candidates.empty:
                     success_row = candidates.iloc[0]
@@ -11207,7 +11271,7 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
             help="Re-sync sent reminders and saved clinic data, then recalculate outcomes.",
             on_click=refresh_outcome_results_action,
         )
-    st.caption("Match sent reminders against uploaded sales around the due date for the same client, patient, and item text.")
+    st.caption("Match sent reminders against uploaded sales around the due date for the same client and patient, using the reminder search term.")
     refresh_success = st.session_state.pop("_outcomes_refresh_success", "")
     if refresh_success:
         st.success(refresh_success)
