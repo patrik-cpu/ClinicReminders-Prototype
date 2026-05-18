@@ -3035,7 +3035,7 @@ def load_shared_dataset_for_clinic():
 
     load_started = time.perf_counter()
     try:
-        with st.spinner("Loading saved clinic data..."):
+        with busy_overlay("Loading saved clinic data", "Getting the latest saved data for this clinic."):
             file_bytes = drive_download_bytes(file_id, clinic_id=clinic_id, current_file_id=file_id)
 
             # Reuse your existing pipeline so schema normalization still happens
