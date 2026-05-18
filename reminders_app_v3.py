@@ -5510,8 +5510,20 @@ MAX_UPLOAD_FILES = 5
 MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024
 MAX_UPLOAD_ROWS = 250_000
 MAX_UPLOAD_COLUMNS = 200
+USER_FACING_COLUMN_LABELS = {
+    "ChargeDate": "Billed Date",
+    "Charge Date": "Billed Date",
+}
+GENERIC_UPLOAD_ALIAS_COLUMNS = {
+    "BilledDate": "ChargeDate",
+    "Billed Date": "ChargeDate",
+    "Billed On": "ChargeDate",
+    "Bill Date": "ChargeDate",
+    "Charge Date": "ChargeDate",
+}
 DATE_COLUMN_CANDIDATES = [
-    "ChargeDate", "DateTime", "Date Time", "Date", "Invoice Date",
+    "ChargeDate", "BilledDate", "Billed Date", "Billed On", "Bill Date",
+    "DateTime", "Date Time", "Date", "Invoice Date",
     "Planitem Performed", "PlanItem Performed", "Plan Item Performed",
     "planitem performed",
 ]
@@ -5577,6 +5589,24 @@ def find_column_ci(columns, candidates):
     return None
 
 
+def user_facing_column_label(column: str) -> str:
+    return USER_FACING_COLUMN_LABELS.get(str(column), str(column))
+
+
+def format_missing_upload_columns(missing_columns: list[str]) -> str:
+    return ", ".join(user_facing_column_label(col) for col in missing_columns)
+
+
+def apply_generic_upload_alias_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    for source, target in GENERIC_UPLOAD_ALIAS_COLUMNS.items():
+        source_col = find_column_ci(df.columns, [source])
+        target_col = find_column_ci(df.columns, [target])
+        if source_col is not None and target_col is None:
+            df[target] = df[source_col]
+    return df
+
+
 def apply_vetport_alias_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     for source, target in VETPORT_ALIAS_COLUMNS.items():
@@ -5592,11 +5622,11 @@ def validate_upload_dataframe(df: pd.DataFrame, filename: str):
     missing = [col for col in REQUIRED_UPLOAD_COLUMNS if col not in df.columns]
     if missing:
         raise UploadValidationError(
-            f"{filename} is missing required column(s): {', '.join(missing)}."
+            f"{filename} is missing required column(s): {format_missing_upload_columns(missing)}."
         )
     if "ChargeDate" not in df.columns or parse_dates(df["ChargeDate"]).notna().sum() == 0:
         raise UploadValidationError(
-            f"{filename} needs a readable date column such as DateTime, Date, Invoice Date, or Planitem Performed."
+            f"{filename} needs a readable date column for Billed Date, DateTime, Date, Invoice Date, or Planitem Performed."
         )
     if df.empty:
         raise UploadValidationError(f"{filename} does not contain any usable rows.")
@@ -5661,9 +5691,10 @@ def process_file(file_bytes, filename):
         if not isinstance(h, str):
             h = str(h)
         return unicodedata.normalize("NFKC", h).replace("\u00a0", " ").replace("\ufeff", "").strip()
-    
+
     df.columns = [clean_header(c) for c in df.columns]
     df = drop_duplicate_columns(df)
+    df = apply_generic_upload_alias_columns(df)
 
     if has_readable_canonical_upload_schema(df):
         return finalize_processed_upload_df(df, filename), "Canonical CSV", None

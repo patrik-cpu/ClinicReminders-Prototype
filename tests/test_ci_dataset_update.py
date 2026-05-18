@@ -657,6 +657,33 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertEqual(df.loc[0, "ChargeDate"].strftime("%Y-%m-%d"), "2025-09-30")
         self.assertEqual(df.loc[0, "Client Name"], "Client A")
 
+    def test_process_file_accepts_billed_date_canonical_alias(self):
+        csv_bytes = (
+            "Billed Date,Client Name,Animal Name,Item Name,Qty,Amount\n"
+            "30/09/2025,Client A,Pet A,Rabies,1,100\n"
+        ).encode("utf-8")
+
+        df, pms_name, _amount_col = self.app.process_file(csv_bytes, "billed-date.csv")
+
+        self.assertEqual(pms_name, "Canonical CSV")
+        self.assertEqual(df.loc[0, "ChargeDate"].strftime("%Y-%m-%d"), "2025-09-30")
+
+    def test_upload_validation_reports_billed_date_label(self):
+        df = pd.DataFrame(
+            {
+                "Client Name": ["Client A"],
+                "Animal Name": ["Pet A"],
+                "Item Name": ["Rabies"],
+            }
+        )
+
+        with self.assertRaises(self.app.UploadValidationError) as raised:
+            self.app.validate_upload_dataframe(df, "missing-date.csv")
+
+        message = str(raised.exception)
+        self.assertIn("Billed Date", message)
+        self.assertNotIn("ChargeDate", message)
+
     def test_ensure_shared_dataset_loads_when_logged_session_lacks_dataframe(self):
         state = self.app.st.session_state
         state["clinic_id"] = "Clinic With Saved Data"
