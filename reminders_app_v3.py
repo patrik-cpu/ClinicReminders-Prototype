@@ -11143,10 +11143,48 @@ def render_outcome_dataframe(frame: pd.DataFrame):
     )
 
 
+def refresh_outcome_results_state() -> None:
+    clinic_id = str(st.session_state.get("clinic_id", "") or "").strip()
+    if clinic_id:
+        tracked_actions = load_action_tracker_records_for_clinic(clinic_id)
+        st.session_state["deleted_reminders"] = merge_deleted_reminders(
+            st.session_state.get("deleted_reminders", []),
+            tracked_actions,
+        )
+        st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(
+            st.session_state.get("wa_reminder_log", []),
+            action_records_to_wa_log(st.session_state["deleted_reminders"]),
+        )
+        st.session_state.pop("_shared_dataset_load_attempted_for", None)
+        load_shared_dataset_for_clinic()
+    st.session_state["_outcomes_refresh_success"] = "Outcome results refreshed."
+
+
+def refresh_outcome_results_action() -> None:
+    set_main_section_tab("Outcomes")
+    refresh_outcome_results_state()
+    st.rerun()
+
+
 def render_outcomes_tab(sales_df: pd.DataFrame):
     st.markdown("<div id='outcomes' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("## Reminder Outcomes")
+    title_col, refresh_col = st.columns([4, 1], gap="large")
+    with title_col:
+        st.markdown("## Reminder Outcomes")
+    with refresh_col:
+        st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
+        st.button(
+            "Refresh Results",
+            key="outcomes_refresh_results",
+            type="primary",
+            use_container_width=True,
+            help="Re-sync sent reminders and saved clinic data, then recalculate outcomes.",
+            on_click=refresh_outcome_results_action,
+        )
     st.caption("Match sent reminders against uploaded sales around the due date for the same client, patient, and item text.")
+    refresh_success = st.session_state.pop("_outcomes_refresh_success", "")
+    if refresh_success:
+        st.success(refresh_success)
 
     controls = st.columns([2, 1, 1], gap="large")
     with controls[0]:

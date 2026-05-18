@@ -138,6 +138,29 @@ class ReminderWorkflowTests(unittest.TestCase):
         self.assertNotIn("wa_message", state)
         self.assertIn("was not saved", state["_pending_action_sync_warning"])
 
+    def test_refresh_outcomes_syncs_actions_and_reloads_dataset(self):
+        tracked_record = sample_reminder_row(
+            **{
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-16T12:00:00",
+                "Actioned By": "Nurse",
+            }
+        )
+
+        with (
+            patch.object(self.app, "load_action_tracker_records_for_clinic", return_value=[tracked_record]) as load_actions,
+            patch.object(self.app, "load_shared_dataset_for_clinic") as load_dataset,
+        ):
+            self.app.refresh_outcome_results_state()
+
+        state = self.app.st.session_state
+        load_actions.assert_called_once_with("Clinic Workflow")
+        load_dataset.assert_called_once()
+        self.assertEqual(len(state["deleted_reminders"]), 1)
+        self.assertEqual(state["deleted_reminders"][0]["Action"], self.app.REMINDER_ACTION_SENT)
+        self.assertEqual(len(state["wa_reminder_log"]), 1)
+        self.assertEqual(state["_outcomes_refresh_success"], "Outcome results refreshed.")
+
     def test_decline_action_preserves_existing_sent_state_when_tracker_write_fails(self):
         row = sample_reminder_row()
         sent_record = dict(row, Action=self.app.REMINDER_ACTION_SENT, ActionedAt="2026-05-16T12:00:00")
