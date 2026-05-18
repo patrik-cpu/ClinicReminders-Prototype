@@ -11761,18 +11761,18 @@ if st.session_state.get("logged_in", False):
         with start_col:
             render_field_label(
                 st,
-                "Today",
+                "Date",
                 "Choose the anchor date to show reminders around. It defaults to today, but you can pick another date.",
                 class_name="reminder-control-label",
             )
             start_date = st.date_input(
-                "Today",
+                "Date",
                 value=st.session_state.get("reminders_start_date", default_start),
                 key="reminders_start_date",
                 label_visibility="collapsed",
             )
         with today_button_col:
-            st.markdown("<div style='height:1.65rem;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height:1.95rem;'></div>", unsafe_allow_html=True)
             if st.button("Today", key="reminders_jump_to_today", use_container_width=True, help="Reset the reminder date to today."):
                 st.session_state["reminders_start_date"] = user_today()
                 st.rerun()
