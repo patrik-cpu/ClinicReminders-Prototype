@@ -21,6 +21,7 @@ import numpy as np
 from gspread.exceptions import APIError
 import random
 import html as html_lib
+import textwrap
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 try:
@@ -4455,7 +4456,7 @@ def new_account_welcome_dialog_html() -> str:
         (
             "1",
             "Upload your data",
-            "Start with a recent sales export from your practice system. About a year of history is ideal.",
+            "Start with a recent sales export from your PMS. About a year of history is ideal.",
             "Upload Data",
         ),
         (
@@ -4480,7 +4481,7 @@ def new_account_welcome_dialog_html() -> str:
     step_cards = []
     for number, title, body, tab_name in steps:
         step_cards.append(
-            """
+            textwrap.dedent("""
             <section class="cr-welcome-step">
               <div class="cr-welcome-step-top">
                 <span class="cr-welcome-number">{number}</span>
@@ -4489,7 +4490,7 @@ def new_account_welcome_dialog_html() -> str:
               <h4>{title}</h4>
               <p>{body}</p>
             </section>
-            """.format(
+            """).strip().format(
                 number=html_lib.escape(number),
                 title=html_lib.escape(title),
                 body=html_lib.escape(body),
@@ -4497,7 +4498,7 @@ def new_account_welcome_dialog_html() -> str:
             )
         )
 
-    return f"""
+    return textwrap.dedent(f"""
     <style>
       .cr-welcome-dialog {{
         color: #0f172a;
@@ -4605,7 +4606,7 @@ def new_account_welcome_dialog_html() -> str:
       </div>
       <div class="cr-welcome-note">Start with Upload Data. The app will save your setup as you go, so your search terms and template work are not lost between sessions.</div>
     </div>
-    """
+    """).strip()
 
 
 def data_privacy_dialog_html(content: dict | None = None) -> str:
