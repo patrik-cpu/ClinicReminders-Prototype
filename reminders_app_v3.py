@@ -9547,6 +9547,52 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
     hide_revealed_reminders_after_action(key_prefix)
 
 
+def mark_all_listed_reminders_sent_action(rows: list[dict], key_prefix: str, msg_key: str):
+    set_main_section_tab("Reminders")
+    now = utc_now()
+    rows_to_send = []
+    messages_by_key = {}
+    tracker_rows = []
+
+    for row_data in rows or []:
+        if not isinstance(row_data, dict):
+            continue
+        hidden_record = get_hidden_reminder_record(row_data)
+        hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
+        if hidden_action == REMINDER_ACTION_SENT:
+            continue
+        message = build_whatsapp_message_for_row(row_data)
+        tracker_rows.append(
+            action_tracker_row_values(
+                row_data,
+                REMINDER_ACTION_SENT,
+                message=message,
+                source=f"{key_prefix}_send_all",
+                now=now,
+            )
+        )
+        rows_to_send.append(row_data)
+        messages_by_key[hidden_reminder_key(row_data)] = message
+
+    if not rows_to_send:
+        st.session_state["_bulk_sent_success"] = "No active reminders needed marking as sent."
+        hide_revealed_reminders_after_action(key_prefix)
+        return
+
+    if not append_tracker_rows(ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS, tracker_rows):
+        remember_action_tracker_save_failure()
+        return
+
+    for row_data in rows_to_send:
+        message = messages_by_key.get(hidden_reminder_key(row_data), "")
+        st.session_state[msg_key] = message
+        record_wa_reminder_click(row_data.get("Client Name", ""), now=now, row=row_data, save=False)
+        upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
+
+    st.session_state["_bulk_sent_success"] = f"Marked {len(rows_to_send)} reminder{'s' if len(rows_to_send) != 1 else ''} as sent."
+    hide_revealed_reminders_after_action(key_prefix)
+
+
 def decline_reminder_action(row_data: dict, key_prefix: str):
     set_main_section_tab("Reminders")
     now = utc_now()
@@ -9990,6 +10036,7 @@ def render_actioned_reminders_tab(key_prefix: str):
 
 def render_table_with_buttons(df, key_prefix, msg_key):
     df = sort_reminder_table(df, key_prefix)
+    listed_rows = [row.to_dict() for _, row in df.iterrows()]
     col_widths = [2.3, 2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
     headers = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WhatsApp", "Sent", "Decline"]
     safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
@@ -10020,6 +10067,9 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         """,
         unsafe_allow_html=True,
     )
+    bulk_sent_success = st.session_state.pop("_bulk_sent_success", "")
+    if bulk_sent_success:
+        st.success(bulk_sent_success)
 
     # --- Header row ---
     sort_state = get_reminder_table_sort(key_prefix)
@@ -10092,6 +10142,16 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             on_click=decline_reminder_action,
             args=(row_data, key_prefix),
         )
+
+    footer_cols = st.columns(col_widths, gap="small")
+    footer_cols[9].button(
+        "Send All",
+        key=f"{key_prefix}_send_all",
+        use_container_width=True,
+        help="Mark every currently listed active reminder as sent.",
+        on_click=mark_all_listed_reminders_sent_action,
+        args=(listed_rows, key_prefix, msg_key),
+    )
 
 def render_whatsapp_tools(key_prefix: str, msg_key: str):
     # --- WhatsApp Composer section (after the table) ---

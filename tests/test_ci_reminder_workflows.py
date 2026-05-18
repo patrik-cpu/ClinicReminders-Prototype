@@ -87,6 +87,57 @@ class ReminderWorkflowTests(unittest.TestCase):
         self.assertEqual(state["wa_reminder_log"], [])
         self.assertIn("was not saved", state["_pending_action_sync_warning"])
 
+    def test_send_all_marks_listed_reminders_sent_with_one_tracker_write(self):
+        rows = [
+            sample_reminder_row(**{"Client Name": "Client A", "Animal Name": "Pet A", "Plan Item": "Rabies"}),
+            sample_reminder_row(**{"Client Name": "Client B", "Animal Name": "Pet B", "Plan Item": "Librela"}),
+        ]
+        captured_rows = []
+
+        def capture_rows(title, headers, rows_to_append):
+            self.assertEqual(title, self.app.ACTION_TRACKER_WORKSHEET)
+            captured_rows.extend(rows_to_append)
+            return True
+
+        with (
+            patch.object(self.app, "append_tracker_rows", side_effect=capture_rows) as append_rows,
+            patch.object(self.app, "build_whatsapp_message_for_row", return_value="Reminder message"),
+            patch.object(self.app, "utc_now", return_value=datetime(2026, 5, 16, 12, 0, 0)),
+        ):
+            self.app.mark_all_listed_reminders_sent_action(rows, "daily", "wa_message")
+
+        append_rows.assert_called_once()
+        records = [
+            self.app.action_tracker_values_to_record(self.app.ACTION_TRACKER_HEADERS, values)
+            for values in captured_rows
+        ]
+        self.assertEqual([record["Action"] for record in records], [self.app.REMINDER_ACTION_SENT, self.app.REMINDER_ACTION_SENT])
+        self.assertEqual([record["Source"] for record in records], ["daily_send_all", "daily_send_all"])
+        self.assertEqual([record["Client Name"] for record in records], ["Client A", "Client B"])
+
+        state = self.app.st.session_state
+        self.assertEqual(state["main_section_tab"], "Reminders")
+        self.assertEqual(len(state["deleted_reminders"]), 2)
+        self.assertEqual(len(state["wa_reminder_log"]), 2)
+        self.assertEqual(state["wa_message"], "Reminder message")
+        self.assertEqual(state["_bulk_sent_success"], "Marked 2 reminders as sent.")
+        self.assertFalse(state["daily_reveal_hidden_reminders"])
+
+    def test_send_all_does_not_update_local_state_when_tracker_write_fails(self):
+        rows = [sample_reminder_row()]
+
+        with (
+            patch.object(self.app, "append_tracker_rows", return_value=False),
+            patch.object(self.app, "build_whatsapp_message_for_row", return_value="Reminder message"),
+        ):
+            self.app.mark_all_listed_reminders_sent_action(rows, "daily", "wa_message")
+
+        state = self.app.st.session_state
+        self.assertEqual(state["deleted_reminders"], [])
+        self.assertEqual(state["wa_reminder_log"], [])
+        self.assertNotIn("wa_message", state)
+        self.assertIn("was not saved", state["_pending_action_sync_warning"])
+
     def test_decline_action_preserves_existing_sent_state_when_tracker_write_fails(self):
         row = sample_reminder_row()
         sent_record = dict(row, Action=self.app.REMINDER_ACTION_SENT, ActionedAt="2026-05-16T12:00:00")
