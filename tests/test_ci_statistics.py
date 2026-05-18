@@ -575,6 +575,52 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(outcomes.iloc[0]["Matched Item"], "Bravecto 112.5mg 2-4.5kg Dog")
         self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 90.0)
 
+    def test_reminder_outcomes_counts_success_from_matching_purchase_gap(self):
+        actions = [
+            {
+                "Reminder Date": "18 Mar 2025",
+                "Due Date": "01 Jun 2025",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto",
+                "Days": "90",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-18T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2025-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2025-04-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto",
+                    "Amount": 90,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            rules={"bravecto": {"days": 90, "visible_text": "Bravecto"}},
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
+        self.assertEqual(str(outcomes.iloc[0]["Success Date"].date()), "2025-04-01")
+        self.assertEqual(int(outcomes.iloc[0]["Success Gap Days"]), 90)
+        self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 90.0)
+
     def test_grouped_reminder_outcomes_count_each_detail_as_own_instance(self):
         actions = [
             {

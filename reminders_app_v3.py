@@ -11381,6 +11381,19 @@ def outcome_sale_item_matches(exact_item_keys, term, sale_key: str) -> bool:
     return bool(term_key and term_key in sale_key)
 
 
+def outcome_next_purchase_gap_is_success(next_gap_days, desired_gap_days, due_date_window_days: int) -> bool:
+    if next_gap_days is None or desired_gap_days is None:
+        return False
+    try:
+        next_gap = float(next_gap_days)
+        desired_gap = float(desired_gap_days)
+    except (TypeError, ValueError):
+        return False
+    if pd.isna(next_gap) or pd.isna(desired_gap):
+        return False
+    return abs(next_gap - desired_gap) <= max(0, int(due_date_window_days))
+
+
 @st.cache_data(show_spinner=False, max_entries=8)
 def build_reminder_outcomes(
     action_records: list[dict],
@@ -11587,6 +11600,33 @@ def build_reminder_outcomes(
                     )
                     outcomes.at[record_id, "Revenue"] = float(match.get("OutcomeAmount", 0) or 0)
                     outcomes.at[record_id, "Success Gap Days"] = success_gap_days
+                    outcomes.at[record_id, "Outcome"] = "Reminder Success"
+
+                gap_success_mask = pd.Series(
+                    [
+                        outcome_next_purchase_gap_is_success(
+                            outcomes.at[idx, "Next Purchase Gap Days"],
+                            outcomes.at[idx, "Desired Gap Days"],
+                            due_date_window_days,
+                        )
+                        for idx in outcomes.index
+                    ],
+                    index=outcomes.index,
+                )
+                gap_success_rows = outcomes.index[
+                    ~outcomes["Outcome"].eq("Reminder Success")
+                    & outcomes["Next Purchase Date"].notna()
+                    & gap_success_mask
+                ]
+                for record_id in gap_success_rows:
+                    outcomes.at[record_id, "Success Date"] = outcomes.at[record_id, "Next Purchase Date"]
+                    outcomes.at[record_id, "Matched Item"] = outcomes.at[record_id, "Next Matched Item"]
+                    outcomes.at[record_id, "Success Gap Days"] = outcomes.at[record_id, "Next Purchase Gap Days"]
+                    next_match = merged.loc[merged["_OutcomeRecordID"].eq(record_id)].sort_values(
+                        ["OutcomeChargeDate", "OutcomeSaleID"]
+                    )
+                    if not next_match.empty:
+                        outcomes.at[record_id, "Revenue"] = float(next_match.iloc[0].get("OutcomeAmount", 0) or 0)
                     outcomes.at[record_id, "Outcome"] = "Reminder Success"
 
     return outcomes[OUTCOME_TABLE_COLUMNS]
