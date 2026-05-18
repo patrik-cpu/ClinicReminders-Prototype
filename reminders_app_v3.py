@@ -10488,35 +10488,40 @@ def normalize_display_case(text: str) -> str:
 STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
 STATISTICS_GENERATED_COLUMNS = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
 OUTCOME_PERIODS = ["Today", "7 days", "30 days", "All time"]
-DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 30
-DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS = 14
+DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14
 REMINDER_TABLE_PAGE_SIZE = 50
 OUTCOME_SENT_PAGE_SIZE = 100
 OUTCOME_TABLE_COLUMNS = [
     "Sent Date",
     "Actioned Date",
+    "Charge Date",
     "Due Date",
     "Window Starts",
     "Success Date",
     "Window Ends",
+    "Next Purchase Date",
     "Client Name",
     "Animal Name",
     "Item",
     "Sender",
     "Outcome",
-    "Timing",
-    "Days to Success",
-    "Days vs Due Date",
+    "Desired Gap Days",
+    "Success Gap Days",
+    "Next Purchase Gap Days",
+    "Avg Item Purchase Gap Days",
     "Revenue",
     "Matched Item",
+    "Next Matched Item",
 ]
 OUTCOME_DISPLAY_DATE_COLUMNS = [
     "Sent Date",
     "Actioned Date",
+    "Charge Date",
     "Due Date",
     "Window Starts",
     "Success Date",
     "Window Ends",
+    "Next Purchase Date",
 ]
 
 
@@ -10975,6 +10980,22 @@ def split_outcome_search_terms(value) -> list[str]:
     return terms
 
 
+def prune_contained_outcome_terms(terms: list[str]) -> list[str]:
+    normalized = []
+    seen = set()
+    for term in terms or []:
+        clean = normalize_outcome_item_text(term)
+        if clean and clean not in seen:
+            seen.add(clean)
+            normalized.append(clean)
+    keep = []
+    for term in sorted(normalized, key=len, reverse=True):
+        if any(term != other and term in other for other in keep):
+            continue
+        keep.append(term)
+    return sorted(keep, key=normalized.index)
+
+
 def outcome_search_terms_for_record(record: dict, reminder_item, rules: dict | None = None) -> list[str]:
     terms = []
     seen = set()
@@ -10991,7 +11012,7 @@ def outcome_search_terms_for_record(record: dict, reminder_item, rules: dict | N
         add_term(detail.get("Search Terms", ""))
 
     if terms:
-        return terms
+        return prune_contained_outcome_terms(terms)
 
     reminder_key = normalize_outcome_item_text(reminder_item)
     for rule_text, settings in (rules or {}).items():
@@ -11007,8 +11028,33 @@ def outcome_search_terms_for_record(record: dict, reminder_item, rules: dict | N
             terms.append(rule_term)
 
     if terms:
-        return terms
+        return prune_contained_outcome_terms(terms)
     return outcome_item_terms(reminder_item, rules=None)
+
+
+def outcome_exact_item_keys_for_record(record: dict, reminder_item, terms: list[str], rules: dict | None = None) -> list[str]:
+    generic_keys = {normalize_outcome_item_text(term) for term in terms or [] if normalize_outcome_item_text(term)}
+    generic_keys.update(
+        normalize_outcome_item_text((settings or {}).get("visible_text", ""))
+        for settings in (rules or {}).values()
+        if normalize_outcome_item_text((settings or {}).get("visible_text", ""))
+    )
+    exact_keys = []
+    seen = set()
+    details = normalize_reminder_details_for_storage(record.get("ReminderDetails", []))
+    candidates = [detail.get("Plan Item", "") for detail in details]
+    for value in candidates:
+        key = normalize_outcome_item_text(value)
+        if not key or key in seen or key in generic_keys:
+            continue
+        specific_tokens = outcome_specific_item_tokens(key)
+        term_matches = [term for term in generic_keys if term and term in key]
+        has_variant_detail = len(specific_tokens) > 1 or bool(re.search(r"\d", key))
+        if not term_matches or not has_variant_detail:
+            continue
+        seen.add(key)
+        exact_keys.append(key)
+    return exact_keys
 
 
 def outcome_item_matches(reminder_item, sale_item, rules: dict | None = None, record: dict | None = None) -> bool:
@@ -11134,12 +11180,110 @@ def outcome_timing_label(days_vs_due, on_time_grace_days: int) -> str:
     return "Late"
 
 
+def days_between_dates(start: date | None, end: date | None) -> int | None:
+    if start is None or end is None:
+        return None
+    return (end - start).days
+
+
+def positive_int_or_none(value) -> int | None:
+    try:
+        parsed = int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def outcome_desired_gap_days(
+    record: dict,
+    terms: list[str],
+    due_date: date | None,
+    original_charge_date: date | None,
+    rules: dict | None = None,
+) -> int | None:
+    normalized_rules = {
+        normalize_outcome_item_text(rule): settings
+        for rule, settings in (rules or {}).items()
+        if normalize_outcome_item_text(rule)
+    }
+    for term in terms or []:
+        settings = normalized_rules.get(normalize_outcome_item_text(term))
+        if isinstance(settings, dict):
+            rule_days = positive_int_or_none(settings.get("days", ""))
+            if rule_days is not None:
+                return rule_days
+
+    direct_days = positive_int_or_none(record.get("Days", ""))
+    if direct_days is not None:
+        return direct_days
+
+    for detail in normalize_reminder_details_for_storage(record.get("ReminderDetails", [])):
+        detail_days = positive_int_or_none(detail.get("Days", ""))
+        if detail_days is not None:
+            return detail_days
+
+    date_gap = days_between_dates(original_charge_date, due_date)
+    if date_gap is not None and date_gap > 0:
+        return date_gap
+    return None
+
+
+def average_sales_purchase_gap(sales: pd.DataFrame, exact_item_keys: list[str] | None = None, terms: list[str] | None = None) -> float | None:
+    if sales is None or sales.empty:
+        return None
+    normalized_exact_keys = [
+        normalize_outcome_item_text(key)
+        for key in exact_item_keys or []
+        if normalize_outcome_item_text(key)
+    ]
+    normalized_terms = prune_contained_outcome_terms(list(terms or []))
+    if not normalized_exact_keys and not normalized_terms:
+        return None
+
+    sale_keys = sales["OutcomeItemKey"].astype(str)
+    if normalized_exact_keys:
+        mask = sale_keys.isin(set(normalized_exact_keys))
+    else:
+        mask = pd.Series(False, index=sales.index)
+        for term in normalized_terms:
+            mask = mask | sale_keys.str.contains(re.escape(term), regex=True, na=False)
+    matched = sales.loc[
+        mask
+        & sales["OutcomeClientKey"].astype(str).ne("")
+        & sales["OutcomePatientKey"].astype(str).ne("")
+    ].copy()
+    if matched.empty:
+        return None
+
+    gaps: list[int] = []
+    matched = matched.dropna(subset=["OutcomeChargeDate"])
+    for _, group in matched.sort_values("OutcomeChargeDate").groupby(["OutcomeClientKey", "OutcomePatientKey"], dropna=False):
+        dates = pd.to_datetime(group["OutcomeChargeDate"], errors="coerce").dropna().drop_duplicates().sort_values()
+        if len(dates) < 2:
+            continue
+        diffs = dates.diff().dt.days.dropna()
+        gaps.extend(int(value) for value in diffs.tolist() if pd.notna(value) and int(value) > 0)
+    if not gaps:
+        return None
+    return float(np.mean(gaps))
+
+
+def outcome_sale_item_matches(exact_item_keys, term, sale_key: str) -> bool:
+    sale_key = str(sale_key or "")
+    if isinstance(exact_item_keys, list) and exact_item_keys:
+        return sale_key in exact_item_keys
+    if term is None or pd.isna(term):
+        return False
+    term_key = str(term or "")
+    return bool(term_key and term_key in sale_key)
+
+
 @st.cache_data(show_spinner=False, max_entries=8)
 def build_reminder_outcomes(
     action_records: list[dict],
     sales_df: pd.DataFrame,
     due_date_window_days: int = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
-    on_time_grace_days: int = DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS,
+    on_time_grace_days: int | None = None,
     today: date | None = None,
     attribution_days: int | None = None,
     rules: dict | None = None,
@@ -11151,10 +11295,6 @@ def build_reminder_outcomes(
         due_date_window_days = max(0, int(due_date_window_days))
     except (TypeError, ValueError):
         due_date_window_days = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
-    try:
-        on_time_grace_days = max(0, int(on_time_grace_days))
-    except (TypeError, ValueError):
-        on_time_grace_days = DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS
 
     sales = prepare_sales_for_outcomes(sales_df)
     reduced_records = reduce_action_tracker_records([
@@ -11169,6 +11309,7 @@ def build_reminder_outcomes(
         return empty_outcome_frame()
 
     rows = []
+    item_gap_cache: dict[tuple[str, ...], float | None] = {}
     for record_id, record in enumerate(sent_records):
         actioned_dt = _parse_reminder_log_time(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
         actioned_date = actioned_dt.date() if actioned_dt else None
@@ -11189,6 +11330,19 @@ def build_reminder_outcomes(
         item_name = normalize_display_case(str(record.get("Plan Item", "") or "").strip())
         sender = str(record.get("Actioned By", "") or "").strip() or "Unknown"
         terms = outcome_search_terms_for_record(record, item_name, rules)
+        exact_item_keys = outcome_exact_item_keys_for_record(record, item_name, terms, rules)
+        desired_gap_days = outcome_desired_gap_days(record, terms, due_date, original_charge_date, rules)
+        if exact_item_keys:
+            gap_cache_key = ("exact", *sorted(set(exact_item_keys)))
+        else:
+            gap_cache_key = ("terms", *sorted({term for term in terms if term}))
+        if gap_cache_key not in item_gap_cache:
+            item_gap_cache[gap_cache_key] = average_sales_purchase_gap(
+                sales,
+                exact_item_keys=exact_item_keys,
+                terms=terms,
+            )
+        avg_item_purchase_gap_days = item_gap_cache.get(gap_cache_key)
 
         if sent_date is None:
             outcome = "Not Measurable"
@@ -11202,22 +11356,27 @@ def build_reminder_outcomes(
             "_OutcomeClientKey": normalize_outcome_identity(client_name),
             "_OutcomePatientKey": normalize_outcome_identity(animal_name),
             "_OutcomeTerms": terms,
+            "_OutcomeExactItemKeys": exact_item_keys,
             "Sent Date": pd.Timestamp(sent_date) if sent_date else pd.NaT,
             "Actioned Date": pd.Timestamp(actioned_date) if actioned_date else pd.NaT,
+            "Charge Date": pd.Timestamp(original_charge_date) if original_charge_date else pd.NaT,
             "Due Date": pd.Timestamp(due_date) if due_date else pd.NaT,
             "Window Starts": pd.Timestamp(window_start) if window_start else pd.NaT,
             "Success Date": pd.NaT,
             "Window Ends": pd.Timestamp(window_end) if window_end else pd.NaT,
+            "Next Purchase Date": pd.NaT,
             "Client Name": client_name,
             "Animal Name": animal_name,
             "Item": item_name,
             "Sender": sender,
             "Outcome": outcome,
-            "Timing": "",
-            "Days to Success": None,
-            "Days vs Due Date": None,
+            "Desired Gap Days": desired_gap_days,
+            "Success Gap Days": None,
+            "Next Purchase Gap Days": None,
+            "Avg Item Purchase Gap Days": avg_item_purchase_gap_days,
             "Revenue": 0.0,
             "Matched Item": "",
+            "Next Matched Item": "",
         })
 
     outcomes = pd.DataFrame(rows)
@@ -11228,13 +11387,15 @@ def build_reminder_outcomes(
         outcomes["Sent Date"].notna()
         & outcomes["Window Starts"].notna()
         & outcomes["Window Ends"].notna()
-        & outcomes["_OutcomeTerms"].map(bool),
+        & (outcomes["_OutcomeTerms"].map(bool) | outcomes["_OutcomeExactItemKeys"].map(bool)),
         [
             "_OutcomeRecordID",
             "_OutcomeClientKey",
             "_OutcomePatientKey",
             "_OutcomeTerms",
+            "_OutcomeExactItemKeys",
             "Sent Date",
+            "Charge Date",
             "Due Date",
             "Window Starts",
             "Window Ends",
@@ -11243,7 +11404,6 @@ def build_reminder_outcomes(
 
     if not measurable.empty and not sales.empty:
         term_rows = measurable.explode("_OutcomeTerms").rename(columns={"_OutcomeTerms": "_OutcomeTerm"})
-        term_rows = term_rows.loc[term_rows["_OutcomeTerm"].astype(str).str.len().gt(0)]
         if not term_rows.empty:
             merged = term_rows.merge(
                 sales[
@@ -11262,38 +11422,60 @@ def build_reminder_outcomes(
                 how="inner",
             )
             if not merged.empty:
-                date_mask = (
-                    (merged["OutcomeChargeDate"] >= merged["Window Starts"])
-                    & (merged["OutcomeChargeDate"] <= merged["Window Ends"])
+                charge_dates = pd.to_datetime(merged["Charge Date"], errors="coerce")
+                after_original_mask = (
+                    charge_dates.isna()
+                    | (merged["OutcomeChargeDate"] > charge_dates)
                 )
-                merged = merged.loc[date_mask]
+                merged = merged.loc[after_original_mask]
             if not merged.empty:
                 sale_keys = merged["OutcomeItemKey"].astype(str).to_numpy()
                 terms = merged["_OutcomeTerm"].astype(str).to_numpy()
+                exact_key_lists = merged["_OutcomeExactItemKeys"].tolist()
                 term_mask = np.fromiter(
-                    (term in sale_key for term, sale_key in zip(terms, sale_keys)),
+                    (
+                        outcome_sale_item_matches(exact_keys, term, sale_key)
+                        for term, sale_key, exact_keys in zip(terms, sale_keys, exact_key_lists)
+                    ),
                     dtype=bool,
                     count=len(merged),
                 )
                 merged = merged.loc[term_mask]
             if not merged.empty:
-                first_matches = (
+                first_next_purchases = (
                     merged.sort_values(["_OutcomeRecordID", "OutcomeChargeDate", "OutcomeSaleID"])
                     .drop_duplicates("_OutcomeRecordID", keep="first")
                 )
-                for match in first_matches.to_dict("records"):
+                for match in first_next_purchases.to_dict("records"):
                     record_id = int(match["_OutcomeRecordID"])
-                    success_date = pd.Timestamp(match["OutcomeChargeDate"])
-                    sent_value = outcomes.at[record_id, "Sent Date"]
-                    due_value = outcomes.at[record_id, "Due Date"]
-                    days_to_success = (
-                        (success_date.date() - pd.Timestamp(sent_value).date()).days
-                        if pd.notna(sent_value)
+                    purchase_date = pd.Timestamp(match["OutcomeChargeDate"])
+                    charge_value = outcomes.at[record_id, "Charge Date"]
+                    purchase_gap_days = (
+                        (purchase_date.date() - pd.Timestamp(charge_value).date()).days
+                        if pd.notna(charge_value)
                         else None
                     )
-                    days_vs_due = (
-                        (success_date.date() - pd.Timestamp(due_value).date()).days
-                        if pd.notna(due_value)
+                    outcomes.at[record_id, "Next Purchase Date"] = purchase_date
+                    outcomes.at[record_id, "Next Purchase Gap Days"] = purchase_gap_days
+                    outcomes.at[record_id, "Next Matched Item"] = normalize_display_case(
+                        str(match.get("Item Name", "") or "").strip()
+                    )
+
+                window_matches = merged.loc[
+                    (merged["OutcomeChargeDate"] >= merged["Window Starts"])
+                    & (merged["OutcomeChargeDate"] <= merged["Window Ends"])
+                ]
+                first_successes = (
+                    window_matches.sort_values(["_OutcomeRecordID", "OutcomeChargeDate", "OutcomeSaleID"])
+                    .drop_duplicates("_OutcomeRecordID", keep="first")
+                )
+                for match in first_successes.to_dict("records"):
+                    record_id = int(match["_OutcomeRecordID"])
+                    success_date = pd.Timestamp(match["OutcomeChargeDate"])
+                    charge_value = outcomes.at[record_id, "Charge Date"]
+                    success_gap_days = (
+                        (success_date.date() - pd.Timestamp(charge_value).date()).days
+                        if pd.notna(charge_value)
                         else None
                     )
                     outcomes.at[record_id, "Success Date"] = success_date
@@ -11301,9 +11483,7 @@ def build_reminder_outcomes(
                         str(match.get("Item Name", "") or "").strip()
                     )
                     outcomes.at[record_id, "Revenue"] = float(match.get("OutcomeAmount", 0) or 0)
-                    outcomes.at[record_id, "Days to Success"] = days_to_success
-                    outcomes.at[record_id, "Days vs Due Date"] = days_vs_due
-                    outcomes.at[record_id, "Timing"] = outcome_timing_label(days_vs_due, on_time_grace_days)
+                    outcomes.at[record_id, "Success Gap Days"] = success_gap_days
                     outcomes.at[record_id, "Outcome"] = "Reminder Success"
 
     return outcomes[OUTCOME_TABLE_COLUMNS]
@@ -11328,28 +11508,43 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             "pending": 0,
             "no_match": 0,
             "success_rate": 0.0,
-            "on_time_rate": 0.0,
-            "late_recovery_rate": 0.0,
-            "avg_days_to_success": None,
-            "avg_days_vs_due": None,
+            "avg_success_gap_days": None,
+            "avg_desired_gap_days": None,
+            "avg_item_purchase_gap_days": None,
             "revenue": 0.0,
         }
     sent = len(outcomes_df.index)
     success_mask = outcomes_df["Outcome"].eq("Reminder Success")
     successes = int(success_mask.sum())
     success_df = outcomes_df.loc[success_mask]
-    on_time = int(success_df["Timing"].eq("On time").sum()) if not success_df.empty else 0
-    late = int(success_df["Timing"].eq("Late").sum()) if not success_df.empty else 0
+    desired_gap_values = (
+        pd.to_numeric(outcomes_df["Desired Gap Days"], errors="coerce")
+        if "Desired Gap Days" in outcomes_df.columns
+        else pd.Series(dtype=float)
+    )
+    success_gap_values = (
+        pd.to_numeric(success_df["Success Gap Days"], errors="coerce")
+        if "Success Gap Days" in success_df.columns
+        else pd.Series(dtype=float)
+    )
+    if "Item" in outcomes_df.columns and "Avg Item Purchase Gap Days" in outcomes_df.columns:
+        item_purchase_gap_values = pd.to_numeric(
+            outcomes_df[["Item", "Avg Item Purchase Gap Days"]]
+            .dropna(subset=["Avg Item Purchase Gap Days"])
+            .drop_duplicates("Item")["Avg Item Purchase Gap Days"],
+            errors="coerce",
+        )
+    else:
+        item_purchase_gap_values = pd.Series(dtype=float)
     return {
         "sent": sent,
         "successes": successes,
         "pending": int(outcomes_df["Outcome"].eq("Pending").sum()),
         "no_match": int(outcomes_df["Outcome"].eq("No Match").sum()),
         "success_rate": (successes / sent) if sent else 0.0,
-        "on_time_rate": (on_time / successes) if successes else 0.0,
-        "late_recovery_rate": (late / successes) if successes else 0.0,
-        "avg_days_to_success": pd.to_numeric(success_df["Days to Success"], errors="coerce").mean() if successes else None,
-        "avg_days_vs_due": pd.to_numeric(success_df["Days vs Due Date"], errors="coerce").mean() if successes else None,
+        "avg_success_gap_days": success_gap_values.mean() if successes else None,
+        "avg_desired_gap_days": desired_gap_values.mean(),
+        "avg_item_purchase_gap_days": item_purchase_gap_values.mean(),
         "revenue": float(pd.to_numeric(success_df["Revenue"], errors="coerce").fillna(0).sum()) if successes else 0.0,
     }
 
@@ -11362,10 +11557,9 @@ def build_outcome_group_frame(outcomes_df: pd.DataFrame, group_col: str) -> pd.D
         "Pending",
         "No Match",
         "Success Rate",
-        "On-time Rate",
-        "Late Recovery Rate",
-        "Avg Days to Success",
-        "Avg Days vs Due Date",
+        "Desired Gap Days",
+        "Avg Success Gap Days",
+        "Avg Item Purchase Gap Days",
         "Revenue",
     ]
     if outcomes_df is None or outcomes_df.empty or group_col not in outcomes_df.columns:
@@ -11383,10 +11577,9 @@ def build_outcome_group_frame(outcomes_df: pd.DataFrame, group_col: str) -> pd.D
             "Pending": summary["pending"],
             "No Match": summary["no_match"],
             "Success Rate": summary["success_rate"],
-            "On-time Rate": summary["on_time_rate"],
-            "Late Recovery Rate": summary["late_recovery_rate"],
-            "Avg Days to Success": summary["avg_days_to_success"],
-            "Avg Days vs Due Date": summary["avg_days_vs_due"],
+            "Desired Gap Days": summary["avg_desired_gap_days"],
+            "Avg Success Gap Days": summary["avg_success_gap_days"],
+            "Avg Item Purchase Gap Days": summary["avg_item_purchase_gap_days"],
             "Revenue": summary["revenue"],
         })
     frame = pd.DataFrame(rows, columns=columns)
@@ -11394,7 +11587,18 @@ def build_outcome_group_frame(outcomes_df: pd.DataFrame, group_col: str) -> pd.D
 
 
 def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
-    columns = ["Sent Date", "Sent", "Successes", "Pending", "No Match", "Success Rate", "Revenue"]
+    columns = [
+        "Sent Date",
+        "Sent",
+        "Successes",
+        "Pending",
+        "No Match",
+        "Success Rate",
+        "Desired Gap Days",
+        "Avg Success Gap Days",
+        "Avg Item Purchase Gap Days",
+        "Revenue",
+    ]
     if outcomes_df is None or outcomes_df.empty:
         return pd.DataFrame(columns=columns)
     source = outcomes_df.copy()
@@ -11410,6 +11614,9 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
             "Pending": summary["pending"],
             "No Match": summary["no_match"],
             "Success Rate": summary["success_rate"],
+            "Desired Gap Days": summary["avg_desired_gap_days"],
+            "Avg Success Gap Days": summary["avg_success_gap_days"],
+            "Avg Item Purchase Gap Days": summary["avg_item_purchase_gap_days"],
             "Revenue": summary["revenue"],
         })
     return pd.DataFrame(rows, columns=columns).sort_values("Sent Date")
@@ -11456,8 +11663,11 @@ def render_outcome_dataframe(frame: pd.DataFrame):
         use_container_width=True,
         column_config={
             "Success Rate": st.column_config.ProgressColumn("Success Rate", format="percent", min_value=0, max_value=1),
-            "On-time Rate": st.column_config.ProgressColumn("On-time Rate", format="percent", min_value=0, max_value=1),
-            "Late Recovery Rate": st.column_config.ProgressColumn("Late Recovery Rate", format="percent", min_value=0, max_value=1),
+            "Desired Gap Days": st.column_config.NumberColumn("Desired Gap Days", format="%.0f"),
+            "Success Gap Days": st.column_config.NumberColumn("Success Gap Days", format="%.0f"),
+            "Next Purchase Gap Days": st.column_config.NumberColumn("Next Purchase Gap Days", format="%.0f"),
+            "Avg Success Gap Days": st.column_config.NumberColumn("Avg Success Gap Days", format="%.1f"),
+            "Avg Item Purchase Gap Days": st.column_config.NumberColumn("Avg Item Purchase Gap Days", format="%.1f"),
             "Revenue": st.column_config.NumberColumn("Revenue", format="localized"),
         },
     )
@@ -11512,7 +11722,7 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
     if refresh_success:
         st.success(refresh_success)
 
-    controls = st.columns([2, 1, 1], gap="large")
+    controls = st.columns([2, 1], gap="large")
     with controls[0]:
         if hasattr(st, "segmented_control"):
             selected_period = st.segmented_control(
@@ -11547,28 +11757,11 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
             key="outcome_due_date_window_days",
             label_visibility="collapsed",
         )
-    with controls[2]:
-        render_field_label(
-            st,
-            "On-time grace days",
-            "Purchases within this many days before or after the due date count as on time.",
-        )
-        on_time_grace_days = st.number_input(
-            "On-time grace days",
-            min_value=0,
-            max_value=90,
-            value=int(st.session_state.get("outcome_on_time_grace_days", DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS)),
-            step=1,
-            key="outcome_on_time_grace_days",
-            label_visibility="collapsed",
-        )
-
     with busy_overlay("Calculating outcome results", "Matching sent reminders to later sales."):
         outcome_rows = build_reminder_outcomes(
             statistics_current_action_records(),
             sales_df,
             due_date_window_days=due_date_window_days,
-            on_time_grace_days=on_time_grace_days,
             today=user_today(),
             rules=get_applied_reminder_rules(),
         )
@@ -11599,12 +11792,11 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
             with col:
                 render_statistics_metric_card(label, value)
 
-        metric_cols = st.columns(4)
+        metric_cols = st.columns(3)
         more_metrics = [
-            ("Avg Days to Success", format_outcome_number(summary["avg_days_to_success"])),
-            ("Avg Days vs Due Date", format_outcome_number(summary["avg_days_vs_due"])),
-            ("On-time Rate", f"{summary['on_time_rate']:.0%}"),
-            ("Late Recovery Rate", f"{summary['late_recovery_rate']:.0%}"),
+            ("Desired Gap Days", format_outcome_number(summary["avg_desired_gap_days"])),
+            ("Avg Success Gap Days", format_outcome_number(summary["avg_success_gap_days"])),
+            ("Avg Item Purchase Gap Days", format_outcome_number(summary["avg_item_purchase_gap_days"])),
         ]
         for col, (label, value) in zip(metric_cols, more_metrics):
             with col:

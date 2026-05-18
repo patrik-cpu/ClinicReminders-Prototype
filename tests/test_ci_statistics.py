@@ -169,9 +169,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(len(outcomes), 1)
         row = outcomes.iloc[0]
         self.assertEqual(row["Outcome"], "Reminder Success")
-        self.assertEqual(row["Timing"], "On time")
-        self.assertEqual(int(row["Days to Success"]), 11)
-        self.assertEqual(int(row["Days vs Due Date"]), 2)
+        self.assertEqual(int(row["Success Gap Days"]), 376)
         self.assertEqual(float(row["Revenue"]), 100.0)
         self.assertEqual(row["Matched Item"], "Rabies Vaccine")
 
@@ -213,7 +211,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(row["Outcome"], "Reminder Success")
         self.assertEqual(str(row["Sent Date"].date()), "2025-05-01")
         self.assertEqual(str(row["Actioned Date"].date()), "2026-05-18")
-        self.assertEqual(int(row["Days to Success"]), 11)
+        self.assertEqual(int(row["Success Gap Days"]), 376)
 
     def test_reminder_outcomes_search_around_due_date_even_before_reminder_date(self):
         actions = [
@@ -346,6 +344,116 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(str(row["Window Starts"].date()), "2026-05-02")
         self.assertEqual(str(row["Success Date"].date()), "2026-05-31")
         self.assertEqual(float(row["Revenue"]), 60.0)
+
+    def test_reminder_outcomes_use_exact_item_before_overlapping_search_terms(self):
+        actions = [
+            {
+                "Reminder Date": "18 Mar 2026",
+                "Due Date": "01 Apr 2026",
+                "Charge Date": "01 Jan 2026",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto Large Dog 20-40kg",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-03-18T09:00:00",
+                "Actioned By": "Nurse A",
+                "ReminderDetails": [
+                    {
+                        "Reminder Date": "18 Mar 2026",
+                        "Due Date": "01 Apr 2026",
+                        "Charge Date": "01 Jan 2026",
+                        "Animal Name": "Pet A",
+                        "Plan Item": "Bravecto Large Dog 20-40kg",
+                        "Search Terms": "bravecto",
+                    }
+                ],
+            },
+            {
+                "Reminder Date": "15 Feb 2026",
+                "Due Date": "01 Mar 2026",
+                "Charge Date": "01 Jan 2026",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto Plus Cat",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-02-15T09:00:00",
+                "Actioned By": "Nurse A",
+                "ReminderDetails": [
+                    {
+                        "Reminder Date": "15 Feb 2026",
+                        "Due Date": "01 Mar 2026",
+                        "Charge Date": "01 Jan 2026",
+                        "Animal Name": "Pet A",
+                        "Plan Item": "Bravecto Plus Cat",
+                        "Search Terms": "bravecto | bravecto plus",
+                    }
+                ],
+            },
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto Large Dog 20-40kg",
+                    "Amount": 100,
+                },
+                {
+                    "ChargeDate": "2026-06-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto Large Dog 20-40kg",
+                    "Amount": 100,
+                },
+                {
+                    "ChargeDate": "2026-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto Plus Cat",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2026-03-05",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto Plus Cat",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2026-04-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto Plus Cat",
+                    "Amount": 80,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            today=date(2026, 7, 1),
+            rules={
+                "bravecto plus": {"days": 60, "visible_text": "Bravecto Plus"},
+                "bravecto": {"days": 90, "visible_text": "Bravecto"},
+            },
+        )
+
+        rows = {row["Item"]: row for row in outcomes.to_dict("records")}
+        dog_row = rows["Bravecto Large Dog 20-40kg"]
+        plus_row = rows["Bravecto Plus Cat"]
+        self.assertEqual(dog_row["Outcome"], "No Match")
+        self.assertEqual(str(dog_row["Next Purchase Date"].date()), "2026-06-01")
+        self.assertEqual(int(dog_row["Next Purchase Gap Days"]), 151)
+        self.assertEqual(int(dog_row["Avg Item Purchase Gap Days"]), 151)
+        self.assertEqual(int(dog_row["Desired Gap Days"]), 90)
+        self.assertEqual(plus_row["Outcome"], "Reminder Success")
+        self.assertEqual(str(plus_row["Success Date"].date()), "2026-03-05")
+        self.assertEqual(int(plus_row["Desired Gap Days"]), 60)
+        self.assertEqual(int(plus_row["Success Gap Days"]), 63)
+        self.assertEqual(self.app.outcome_search_terms_for_record(actions[1], "Bravecto Plus Cat", {}), ["bravecto plus"])
 
     def test_grouped_reminder_outcomes_count_each_detail_as_own_instance(self):
         actions = [
@@ -723,10 +831,10 @@ class StatisticsTests(unittest.TestCase):
     def test_outcome_group_frame_summarizes_success_rates(self):
         outcomes = pd.DataFrame(
             [
-                {"Sender": "Nurse A", "Outcome": "Reminder Success", "Timing": "On time", "Days to Success": 5, "Days vs Due Date": 0, "Revenue": 120},
-                {"Sender": "Nurse A", "Outcome": "No Match", "Timing": "", "Days to Success": None, "Days vs Due Date": None, "Revenue": 0},
-                {"Sender": "Nurse A", "Outcome": "Pending", "Timing": "", "Days to Success": None, "Days vs Due Date": None, "Revenue": 0},
-                {"Sender": "Nurse B", "Outcome": "Reminder Success", "Timing": "Late", "Days to Success": 20, "Days vs Due Date": 15, "Revenue": 80},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Reminder Success", "Success Gap Days": 365, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Revenue": 120},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "No Match", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Revenue": 0},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Pending", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Revenue": 0},
+                {"Sender": "Nurse B", "Item": "Bravecto", "Outcome": "Reminder Success", "Success Gap Days": 95, "Desired Gap Days": 90, "Avg Item Purchase Gap Days": 120, "Revenue": 80},
             ]
         )
 
@@ -736,8 +844,8 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(rows["Nurse A"]["Sent"], 3)
         self.assertEqual(rows["Nurse A"]["Successes"], 1)
         self.assertEqual(rows["Nurse A"]["Success Rate"], 1 / 3)
-        self.assertEqual(rows["Nurse A"]["On-time Rate"], 1.0)
-        self.assertEqual(rows["Nurse B"]["Late Recovery Rate"], 1.0)
+        self.assertEqual(rows["Nurse A"]["Avg Success Gap Days"], 365)
+        self.assertEqual(rows["Nurse B"]["Desired Gap Days"], 90)
 
     def test_prepare_outcome_dataframe_for_display_formats_dates_without_time(self):
         frame = pd.DataFrame(
