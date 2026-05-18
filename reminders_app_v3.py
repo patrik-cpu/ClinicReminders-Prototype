@@ -2453,11 +2453,11 @@ st.markdown(
         min-height: 2.25rem;
     }
     .cr-today-button-spacer {
-        height: 2.35rem;
+        height: 2.6rem;
     }
     .st-key-reminders_jump_to_today button {
-        height: 2.5rem;
-        min-height: 2.5rem;
+        height: 2.625rem;
+        min-height: 2.625rem;
         min-width: 5.25rem;
         padding: 0 0.95rem;
         width: 5.25rem;
