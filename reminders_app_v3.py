@@ -1656,6 +1656,119 @@ st.markdown(
         border-color: var(--cr-primary-dark) !important;
         color: #ffffff !important;
     }
+    .cr-page-hero {
+        background: linear-gradient(135deg, rgba(41, 210, 114, 0.14), rgba(255, 255, 255, 0.98));
+        border: 1px solid rgba(29, 167, 89, 0.22);
+        border-radius: 8px;
+        box-shadow: 0 12px 34px rgba(15, 23, 42, 0.05);
+        margin: 0.1rem 0 1rem;
+        padding: 1.05rem 1.1rem;
+    }
+    .cr-page-kicker {
+        color: #15803d;
+        font-size: 0.78rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        margin: 0 0 0.38rem;
+        text-transform: uppercase;
+    }
+    .cr-page-hero h2 {
+        color: #082f1f;
+        font-size: 1.65rem;
+        font-weight: 900;
+        letter-spacing: 0;
+        line-height: 1.16;
+        margin: 0 0 0.38rem !important;
+    }
+    .cr-page-hero p {
+        color: #475569;
+        font-size: 0.96rem;
+        line-height: 1.45;
+        margin: 0;
+        max-width: 54rem;
+    }
+    .cr-section-card {
+        background: #ffffff;
+        border: 1px solid rgba(15, 23, 42, 0.10);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+        margin: 0.85rem 0;
+        padding: 1rem 1rem 0.9rem;
+    }
+    .cr-section-title {
+        color: #0f172a;
+        font-size: 1.02rem;
+        font-weight: 850;
+        line-height: 1.25;
+        margin: 0 0 0.28rem;
+    }
+    .cr-section-copy {
+        color: #64748b;
+        font-size: 0.92rem;
+        line-height: 1.42;
+        margin: 0 0 0.7rem;
+    }
+    .cr-danger-card {
+        background: #fffafa;
+        border-color: rgba(248, 113, 113, 0.24);
+    }
+    .cr-danger-card .cr-section-title {
+        color: #7f1d1d;
+    }
+    .cr-upload-help-actions {
+        margin: -0.15rem 0 0.85rem;
+    }
+    .st-key-open_upload_sales_data_help button,
+    .st-key-close_upload_sales_data_help_dialog button,
+    .st-key-close_data_privacy_dialog_button button,
+    .st-key-new_account_welcome_get_started button {
+        border-radius: 8px !important;
+        font-weight: 800 !important;
+        min-height: 2.55rem !important;
+    }
+    .st-key-open_upload_sales_data_help button {
+        background: #ffffff !important;
+        border: 1px solid rgba(22, 138, 76, 0.28) !important;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04) !important;
+        color: #0f5130 !important;
+        width: auto !important;
+    }
+    .st-key-open_upload_sales_data_help button:hover {
+        background: #f1fbf6 !important;
+        border-color: rgba(22, 138, 76, 0.48) !important;
+        color: #0b3d26 !important;
+    }
+    .st-key-top_account_profile button,
+    .st-key-top_account_data_privacy button,
+    .st-key-top_account_show_change_password button,
+    .st-key-top_account_delete button,
+    .st-key-top_account_logout button {
+        background: #ffffff !important;
+        border: 1px solid rgba(15, 23, 42, 0.11) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035) !important;
+        color: #0f172a !important;
+        font-weight: 750 !important;
+        min-height: 2.45rem !important;
+    }
+    .st-key-top_account_profile button:hover,
+    .st-key-top_account_data_privacy button:hover,
+    .st-key-top_account_show_change_password button:hover,
+    .st-key-top_account_logout button:hover {
+        background: #f8fafc !important;
+        border-color: rgba(41, 210, 114, 0.36) !important;
+        color: #0b3d26 !important;
+    }
+    .st-key-top_account_delete button {
+        background: #fff7f7 !important;
+        border-color: rgba(248, 113, 113, 0.28) !important;
+        color: #9f1239 !important;
+    }
+    .st-key-top_account_delete button:hover {
+        background: #fff1f2 !important;
+        border-color: rgba(244, 63, 94, 0.42) !important;
+        color: #881337 !important;
+    }
     .st-key-google_signup_button button,
     .st-key-toggle_create_account button {
         min-height: 2.75rem !important;
@@ -8641,14 +8754,30 @@ with get_started_tab:
     
 with data_tab:
     st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("## 📂 Upload Data")
+    st.markdown(
+        """
+        <section class="cr-page-hero">
+          <p class="cr-page-kicker">Upload Data</p>
+          <h2>Keep your reminder data current</h2>
+          <p>Upload one or more sales exports from your PMS. Clinic Reminders saves the active clinic dataset and keeps your search terms, exclusions, templates, and action history separate.</p>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
     saved_dataset_rows = get_saved_dataset_summary_rows()
     render_dataset_status(saved_dataset_rows)
     dataset_summary_slot = st.empty()
     with dataset_summary_slot.container():
         render_dataset_date_range(saved_rows=saved_dataset_rows)
         render_dataset_summary_checks(saved_dataset_rows)
-    st.caption("Supported systems: VETport, ezyVet, Xpress, or a clean sales export.")
+    st.markdown(
+        """
+        <div class="cr-upload-help-actions">
+          <div class="cr-section-copy">Supported systems: VETport, ezyVet, Xpress, or a clean sales export.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     if st.button("What should uploaded sales data look like?", key="open_upload_sales_data_help"):
         st.session_state["show_upload_sales_data_help_dialog"] = True
         st.rerun()
@@ -8659,6 +8788,15 @@ with data_tab:
     
     # File uploader
     # --------------------------------
+    st.markdown(
+        """
+        <div class="cr-section-card">
+          <div class="cr-section-title">Upload files</div>
+          <p class="cr-section-copy">Choose recent sales exports. The app will check the format, merge valid files, and save the result for this clinic account.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     render_field_label(
         st,
         "Upload sales data files",
@@ -8978,10 +9116,14 @@ with data_tab:
     # -------------------------------------
     # Clear Clinic Data
     # -------------------------------------
-    st.markdown("#### Clear Clinic Data")
-    st.caption(
-        "Clears the active saved clinic data while keeping settings and search terms. To remove the clinic account, "
-        "saved settings, action history, and uploaded data file, use Account > Delete account and data."
+    st.markdown(
+        """
+        <div class="cr-section-card cr-danger-card">
+          <div class="cr-section-title">Clear Clinic Data</div>
+          <p class="cr-section-copy">Remove the active saved clinic data while keeping settings, search terms, exclusions, templates, and action history. To remove the clinic account and everything attached to it, use Account > Delete account and data.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
     confirm_reset = st.checkbox(
         "I understand this will remove clinic data for my clinic",
