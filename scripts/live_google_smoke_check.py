@@ -132,6 +132,18 @@ BASE_TRACKER_SHEETS = {
         "Message",
         "Source",
     ],
+    "Account lifecycle": [
+        "DateTimeGST",
+        "Event",
+        "Status",
+        "ClinicRef",
+        "AuthProvider",
+        "Country",
+        "DeletedRows",
+        "TrashedDataFile",
+        "Message",
+        "Source",
+    ],
 }
 TRACKER_SHEETS = dict(BASE_TRACKER_SHEETS)
 

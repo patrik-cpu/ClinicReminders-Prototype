@@ -324,12 +324,14 @@ BASE_DATASET_TRACKER_WORKSHEET = "Dataset tracker"
 BASE_SETTINGS_AUDIT_WORKSHEET = "Settings audit"
 BASE_ERROR_TRACKER_WORKSHEET = "Error tracker"
 BASE_PERFORMANCE_TRACKER_WORKSHEET = "Performance tracker"
+BASE_ACCOUNT_LIFECYCLE_WORKSHEET = "Account lifecycle"
 ACTION_TRACKER_WORKSHEET = suffixed_name(BASE_ACTION_TRACKER_WORKSHEET, WORKSHEET_NAME_SUFFIX)
 USER_TRACKER_WORKSHEET = suffixed_name(BASE_USER_TRACKER_WORKSHEET, WORKSHEET_NAME_SUFFIX)
 DATASET_TRACKER_WORKSHEET = suffixed_name(BASE_DATASET_TRACKER_WORKSHEET, WORKSHEET_NAME_SUFFIX)
 SETTINGS_AUDIT_WORKSHEET = suffixed_name(BASE_SETTINGS_AUDIT_WORKSHEET, WORKSHEET_NAME_SUFFIX)
 ERROR_TRACKER_WORKSHEET = suffixed_name(BASE_ERROR_TRACKER_WORKSHEET, WORKSHEET_NAME_SUFFIX)
 PERFORMANCE_TRACKER_WORKSHEET = suffixed_name(BASE_PERFORMANCE_TRACKER_WORKSHEET, WORKSHEET_NAME_SUFFIX)
+ACCOUNT_LIFECYCLE_WORKSHEET = suffixed_name(BASE_ACCOUNT_LIFECYCLE_WORKSHEET, WORKSHEET_NAME_SUFFIX)
 ACTION_TRACKER_HEADERS = [
     "DateTimeGST",
     "ActionedAtUTC",
@@ -420,6 +422,18 @@ PERFORMANCE_TRACKER_HEADERS = [
     "Message",
     "Source",
 ]
+ACCOUNT_LIFECYCLE_HEADERS = [
+    "DateTimeGST",
+    "Event",
+    "Status",
+    "ClinicRef",
+    "AuthProvider",
+    "Country",
+    "DeletedRows",
+    "TrashedDataFile",
+    "Message",
+    "Source",
+]
 TRACKER_SHEET_DEFINITIONS = [
     (USER_TRACKER_WORKSHEET, USER_TRACKER_HEADERS),
     (ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS),
@@ -427,6 +441,7 @@ TRACKER_SHEET_DEFINITIONS = [
     (SETTINGS_AUDIT_WORKSHEET, SETTINGS_AUDIT_HEADERS),
     (ERROR_TRACKER_WORKSHEET, ERROR_TRACKER_HEADERS),
     (PERFORMANCE_TRACKER_WORKSHEET, PERFORMANCE_TRACKER_HEADERS),
+    (ACCOUNT_LIFECYCLE_WORKSHEET, ACCOUNT_LIFECYCLE_HEADERS),
 ]
 TRACKER_CELL_TEXT_LIMIT = 500
 PERFORMANCE_TRACKER_SLOW_LOAD_MS = 3000
@@ -5427,6 +5442,48 @@ def record_performance_tracker_event(
     ])
 
 
+def account_lifecycle_clinic_ref(clinic_id: str) -> str:
+    clinic_key = normalize_clinic_id_key(clinic_id)
+    if not clinic_key:
+        return ""
+    digest = hmac.new(
+        str(SETTINGS_SHEET_ID or "clinic-reminders").encode("utf-8"),
+        clinic_key.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return digest[:16]
+
+
+def record_account_lifecycle_event(
+    clinic_id: str,
+    event: str,
+    status: str = "success",
+    auth_provider: str = "",
+    country: str = "",
+    deleted_rows: int | str = "",
+    trashed_data_file: bool | str = "",
+    message: str = "",
+    source: str = "",
+    now: datetime | None = None,
+) -> bool:
+    clinic_ref = account_lifecycle_clinic_ref(clinic_id)
+    if not clinic_ref:
+        return False
+    now = now or utc_now()
+    return append_tracker_row(ACCOUNT_LIFECYCLE_WORKSHEET, ACCOUNT_LIFECYCLE_HEADERS, [
+        gst_now_iso(now),
+        tracker_cell_value(event),
+        tracker_cell_value(status),
+        tracker_cell_value(clinic_ref),
+        tracker_cell_value(auth_provider),
+        tracker_cell_value(country),
+        tracker_cell_value(deleted_rows),
+        tracker_cell_value(trashed_data_file),
+        tracker_cell_value(sanitize_diagnostic_message(message)),
+        tracker_cell_value(source),
+    ])
+
+
 @st.cache_resource(show_spinner=False)
 def ensure_tracking_sheets_once():
     spreadsheet = get_settings_spreadsheet()
@@ -5844,6 +5901,13 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
     }
     _gspread_retry(sheet.append_row, settings_row_values(headers, values_by_header), value_input_option="USER_ENTERED")
     upsert_user_tracker(clinic_id, country=country, event="created")
+    record_account_lifecycle_event(
+        clinic_id,
+        "created",
+        auth_provider="password",
+        country=country,
+        source="password_signup",
+    )
     return password_hash
 
 
@@ -5890,6 +5954,13 @@ def create_google_clinic_account(clinic_id: str, country: str, google_user: dict
     }
     _gspread_retry(sheet.append_row, settings_row_values(headers, values_by_header), value_input_option="USER_ENTERED")
     upsert_user_tracker(clinic_id, country=country, event="google_created")
+    record_account_lifecycle_event(
+        clinic_id,
+        "created",
+        auth_provider=GOOGLE_AUTH_PROVIDER,
+        country=country,
+        source="google_signup",
+    )
     return values_by_header
 
 
@@ -6134,6 +6205,8 @@ def delete_clinic_account_and_data(clinic_id: str) -> dict:
         raise ValueError("This clinic account could not be found.")
 
     file_id = str(row.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
+    auth_provider = str(row.get(SHEET_COL_LAST_LOGIN_PROVIDER) or row.get(SHEET_COL_AUTH_PROVIDER) or "").strip()
+    country = str(row.get(SHEET_COL_COUNTRY, "")).strip()
     if file_id:
         require_clinic_dataset_file_access(clinic_id, file_id, current_file_id=file_id)
     spreadsheet = get_settings_spreadsheet()
@@ -6143,6 +6216,16 @@ def delete_clinic_account_and_data(clinic_id: str) -> dict:
 
     if file_id:
         drive_trash_file(file_id, clinic_id=clinic_id, current_file_id=file_id)
+
+    record_account_lifecycle_event(
+        clinic_id,
+        "deleted",
+        auth_provider=auth_provider,
+        country=country,
+        deleted_rows=deleted_rows,
+        trashed_data_file=bool(file_id),
+        source="delete_account_and_data",
+    )
 
     st.session_state.pop("_settings_row_cache", None)
     st.session_state.pop("_remote_settings_cache", None)

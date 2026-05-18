@@ -85,6 +85,7 @@ class AuditCharacterizationTests(unittest.TestCase):
             patch.object(self.app, "ensure_settings_sheet_columns", return_value=headers),
             patch.object(self.app, "_gspread_retry", side_effect=self.retry_immediately),
             patch.object(self.app, "upsert_user_tracker") as upsert_tracker,
+            patch.object(self.app, "record_account_lifecycle_event") as lifecycle_event,
         ):
             password_hash = self.app.create_clinic_account("Clinic New", "United Arab Emirates", "secret-password")
 
@@ -98,6 +99,13 @@ class AuditCharacterizationTests(unittest.TestCase):
         self.assertEqual(json.loads(by_header[self.app.SHEET_COL_SETTINGS_JSON])["country"], "United Arab Emirates")
         self.assertEqual(by_header[self.app.SHEET_COL_ACCOUNT_STATUS], "active")
         upsert_tracker.assert_called_once_with("Clinic New", country="United Arab Emirates", event="created")
+        lifecycle_event.assert_called_once_with(
+            "Clinic New",
+            "created",
+            auth_provider="password",
+            country="United Arab Emirates",
+            source="password_signup",
+        )
 
     def test_create_clinic_account_rejects_duplicate_before_writing(self):
         with (
@@ -335,6 +343,7 @@ class AuditCharacterizationTests(unittest.TestCase):
             patch.object(self.app, "drive_trash_file") as trash_file,
             patch.object(self.app, "get_settings_spreadsheet", return_value=FakeSpreadsheet()),
             patch.object(self.app, "_gspread_retry", side_effect=self.retry_immediately),
+            patch.object(self.app, "record_account_lifecycle_event") as lifecycle_event,
         ):
             result = self.app.delete_clinic_account_and_data(" Clinic A ")
 
@@ -342,6 +351,15 @@ class AuditCharacterizationTests(unittest.TestCase):
         trash_file.assert_called_once_with("drive-file-id", clinic_id="Clinic A", current_file_id="drive-file-id")
         self.assertEqual(settings_ws.deleted_rows, [2])
         self.assertEqual(tracker_ws.deleted_rows, [4, 2])
+        lifecycle_event.assert_called_once_with(
+            "Clinic A",
+            "deleted",
+            auth_provider="",
+            country="",
+            deleted_rows=3,
+            trashed_data_file=True,
+            source="delete_account_and_data",
+        )
         self.assertNotIn("_settings_row_cache", state)
         self.assertNotIn("_remote_settings_cache", state)
         self.assertNotIn("_tracker_sheet_cache", state)

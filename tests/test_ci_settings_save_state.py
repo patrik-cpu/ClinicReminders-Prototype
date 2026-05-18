@@ -333,7 +333,7 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertNotIn("_wa_reminder_remove_keys_once", state)
         self.assertFalse(state["daily_reveal_hidden_reminders"])
 
-    def test_final_sheet_layout_includes_seven_expected_tabs(self):
+    def test_final_sheet_layout_includes_eight_expected_tabs(self):
         tracker_titles = {title for title, _headers in self.app.TRACKER_SHEET_DEFINITIONS}
         expected_titles = {
             "Saved settings",
@@ -343,10 +343,11 @@ class SettingsSaveStateTests(unittest.TestCase):
             self.app.SETTINGS_AUDIT_WORKSHEET,
             self.app.ERROR_TRACKER_WORKSHEET,
             self.app.PERFORMANCE_TRACKER_WORKSHEET,
+            self.app.ACCOUNT_LIFECYCLE_WORKSHEET,
         }
 
         self.assertEqual(tracker_titles | {"Saved settings"}, expected_titles)
-        self.assertEqual(len(expected_titles), 7)
+        self.assertEqual(len(expected_titles), 8)
 
     def test_tracker_events_write_compact_rows(self):
         captured = {}
@@ -376,6 +377,37 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(captured["values"][2], "Nurse")
         self.assertLessEqual(len(captured["values"][7]), self.app.TRACKER_CELL_TEXT_LIMIT)
         self.assertIn('"days": 365', captured["values"][8])
+
+    def test_account_lifecycle_event_uses_durable_non_clinicid_reference(self):
+        captured = {}
+
+        def capture_append(title, headers, values):
+            captured["title"] = title
+            captured["headers"] = headers
+            captured["values"] = values
+            return True
+
+        with patch.object(self.app, "append_tracker_row", side_effect=capture_append):
+            saved = self.app.record_account_lifecycle_event(
+                "Clinic Save State",
+                "deleted",
+                auth_provider="google",
+                country="United Arab Emirates",
+                deleted_rows=7,
+                trashed_data_file=True,
+                source="unit_test",
+            )
+
+        self.assertTrue(saved)
+        self.assertEqual(captured["title"], self.app.ACCOUNT_LIFECYCLE_WORKSHEET)
+        self.assertEqual(captured["headers"], self.app.ACCOUNT_LIFECYCLE_HEADERS)
+        self.assertNotIn("ClinicID", self.app.ACCOUNT_LIFECYCLE_HEADERS)
+        self.assertEqual(captured["values"][1], "deleted")
+        self.assertEqual(captured["values"][2], "success")
+        self.assertEqual(len(captured["values"][3]), 16)
+        self.assertNotEqual(captured["values"][3], "Clinic Save State")
+        self.assertEqual(captured["values"][6], "7")
+        self.assertEqual(captured["values"][7], "True")
 
 
 if __name__ == "__main__":

@@ -103,6 +103,7 @@ class GoogleResourceConfigTests(unittest.TestCase):
             live_google_smoke_check.apply_resource_config(Args())
             self.assertEqual(live_google_smoke_check.SETTINGS_WORKSHEET_NAME, "Clinic settings-live")
             self.assertIn("Action tracker-live", live_google_smoke_check.TRACKER_SHEETS)
+            self.assertIn("Account lifecycle-live", live_google_smoke_check.TRACKER_SHEETS)
 
 
 if __name__ == "__main__":
