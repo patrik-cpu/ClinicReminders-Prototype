@@ -530,6 +530,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "show_data_privacy_dialog",
     "show_profile_dialog",
     "show_delete_account_dialog",
+    "show_new_account_welcome_dialog",
     "delete_account_confirm_text",
     "_scroll_to_whatsapp_composer",
     "_settings_row_cache",
@@ -4433,6 +4434,164 @@ def data_assurance_box_html() -> str:
     return ""
 
 
+def new_account_welcome_dialog_html() -> str:
+    steps = [
+        (
+            "1",
+            "Upload your data",
+            "Start with a recent sales export from your practice system. About a year of history is ideal.",
+            "Upload Data",
+        ),
+        (
+            "2",
+            "Set your reminder rules",
+            "Add the products or services you want to remind clients about, and choose when each reminder should go out.",
+            "Search Terms",
+        ),
+        (
+            "3",
+            "Prepare your message",
+            "Enter your name, review the WhatsApp template, then use the WhatsApp button to create each message.",
+            "Reminders",
+        ),
+        (
+            "4",
+            "Clear the list as you work",
+            "Mark reminders as sent or declined so completed items leave the active list.",
+            "Reminders",
+        ),
+    ]
+    step_cards = []
+    for number, title, body, tab_name in steps:
+        step_cards.append(
+            """
+            <section class="cr-welcome-step">
+              <div class="cr-welcome-step-top">
+                <span class="cr-welcome-number">{number}</span>
+                <span class="cr-welcome-tab">{tab_name}</span>
+              </div>
+              <h4>{title}</h4>
+              <p>{body}</p>
+            </section>
+            """.format(
+                number=html_lib.escape(number),
+                title=html_lib.escape(title),
+                body=html_lib.escape(body),
+                tab_name=html_lib.escape(tab_name),
+            )
+        )
+
+    return f"""
+    <style>
+      .cr-welcome-dialog {{
+        color: #0f172a;
+      }}
+      .cr-welcome-hero {{
+        background: linear-gradient(135deg, rgba(41, 210, 114, 0.16), rgba(255, 255, 255, 0.98));
+        border: 1px solid rgba(29, 167, 89, 0.24);
+        border-radius: 8px;
+        margin-bottom: 0.9rem;
+        padding: 1rem 1.05rem;
+      }}
+      .cr-welcome-kicker {{
+        color: #15803d;
+        font-size: 0.78rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        margin: 0 0 0.35rem;
+        text-transform: uppercase;
+      }}
+      .cr-welcome-hero h3 {{
+        color: #082f1f;
+        font-size: 1.35rem;
+        font-weight: 900;
+        letter-spacing: 0;
+        line-height: 1.18;
+        margin: 0 0 0.45rem;
+      }}
+      .cr-welcome-hero p,
+      .cr-welcome-step p,
+      .cr-welcome-note {{
+        color: #475569;
+        font-size: 0.94rem;
+        line-height: 1.45;
+        margin: 0;
+      }}
+      .cr-welcome-grid {{
+        display: grid;
+        gap: 0.65rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }}
+      @media (max-width: 700px) {{
+        .cr-welcome-grid {{
+          grid-template-columns: 1fr;
+        }}
+      }}
+      .cr-welcome-step {{
+        background: #ffffff;
+        border: 1px solid rgba(15, 23, 42, 0.11);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
+        min-height: 9.2rem;
+        padding: 0.85rem 0.9rem;
+      }}
+      .cr-welcome-step-top {{
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+        gap: 0.6rem;
+        margin-bottom: 0.55rem;
+      }}
+      .cr-welcome-number {{
+        align-items: center;
+        background: #29d272;
+        border-radius: 999px;
+        color: #ffffff;
+        display: inline-flex;
+        font-size: 0.82rem;
+        font-weight: 900;
+        height: 1.65rem;
+        justify-content: center;
+        width: 1.65rem;
+      }}
+      .cr-welcome-tab {{
+        background: #f1f5f9;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 999px;
+        color: #475569;
+        font-size: 0.76rem;
+        font-weight: 750;
+        padding: 0.18rem 0.48rem;
+      }}
+      .cr-welcome-step h4 {{
+        color: #0f172a;
+        font-size: 1rem;
+        font-weight: 850;
+        letter-spacing: 0;
+        margin: 0 0 0.32rem;
+      }}
+      .cr-welcome-note {{
+        background: #f8fafc;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 8px;
+        margin-top: 0.75rem;
+        padding: 0.78rem 0.85rem;
+      }}
+    </style>
+    <div class="cr-welcome-dialog">
+      <div class="cr-welcome-hero">
+        <p class="cr-welcome-kicker">New account</p>
+        <h3>Welcome to Clinic Reminders</h3>
+        <p>Set up your first reminders in four calm steps. You can change everything later.</p>
+      </div>
+      <div class="cr-welcome-grid">
+        {''.join(step_cards)}
+      </div>
+      <div class="cr-welcome-note">Start with Upload Data. The app will save your setup as you go, so your search terms and template work are not lost between sessions.</div>
+    </div>
+    """
+
+
 def data_privacy_dialog_html(content: dict | None = None) -> str:
     content = content or data_privacy_policy_content()
     sections_html = []
@@ -4524,6 +4683,46 @@ def data_privacy_dialog_html(content: dict | None = None) -> str:
 
 def close_data_privacy_dialog():
     st.session_state["show_data_privacy_dialog"] = False
+
+
+def close_new_account_welcome_dialog():
+    st.session_state["show_new_account_welcome_dialog"] = False
+
+
+def mark_new_account_welcome_pending():
+    st.session_state["show_new_account_welcome_dialog"] = True
+
+
+def render_new_account_welcome_dialog():
+    if not st.session_state.get("show_new_account_welcome_dialog", False):
+        return
+
+    def _render_dialog_body():
+        st.markdown(new_account_welcome_dialog_html(), unsafe_allow_html=True)
+        primary_col, secondary_col = st.columns([1.15, 1], gap="small")
+        with primary_col:
+            if st.button("Get started", key="new_account_welcome_get_started", type="primary", use_container_width=True):
+                close_new_account_welcome_dialog()
+                set_main_section_tab("Upload Data")
+                st.rerun()
+        with secondary_col:
+            if st.button("I'll explore first", key="new_account_welcome_close", use_container_width=True):
+                close_new_account_welcome_dialog()
+                st.rerun()
+
+    if hasattr(st, "dialog"):
+        @st.dialog("Welcome to Clinic Reminders", width="large", on_dismiss=close_new_account_welcome_dialog)
+        def _welcome_dialog():
+            _render_dialog_body()
+        _welcome_dialog()
+    elif hasattr(st, "experimental_dialog"):
+        @st.experimental_dialog("Welcome to Clinic Reminders")
+        def _welcome_dialog():
+            _render_dialog_body()
+        _welcome_dialog()
+    else:
+        with st.expander("Welcome to Clinic Reminders", expanded=True):
+            _render_dialog_body()
 
 
 ACCOUNT_DIALOG_STATE_KEYS = (
@@ -5781,6 +5980,7 @@ def render_google_onboarding_dialog(google_user: dict):
                         auth_provider=GOOGLE_AUTH_PROVIDER,
                         google_user=google_user,
                     )
+                    mark_new_account_welcome_pending()
                     st.rerun()
                 except ValueError as e:
                     st.error(str(e))
@@ -6542,6 +6742,7 @@ if not st.session_state["logged_in"]:
                             )
                             load_settings()
                             st.session_state["user_country"] = country
+                            mark_new_account_welcome_pending()
                             st.success(
                                 f"✅ Account created. Welcome, {new_clinic}!"
                             )
@@ -6614,6 +6815,8 @@ elif st.session_state.get("show_profile_dialog", False):
     render_profile_dialog()
 elif st.session_state.get("show_data_privacy_dialog", False):
     render_data_privacy_dialog()
+elif st.session_state.get("show_new_account_welcome_dialog", False):
+    render_new_account_welcome_dialog()
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:

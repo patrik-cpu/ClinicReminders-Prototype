@@ -36,6 +36,24 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertEqual(self.app.get_started_incomplete_count(), 0)
         self.assertEqual(self.app.get_started_badge_label(), "Get Started")
 
+    def test_new_account_welcome_copy_is_clear_and_actionable(self):
+        html = self.app.new_account_welcome_dialog_html()
+
+        self.assertIn("Welcome to Clinic Reminders", html)
+        self.assertIn("Set up your first reminders in four calm steps", html)
+        self.assertIn("Upload your data", html)
+        self.assertIn("Set your reminder rules", html)
+        self.assertIn("Prepare your message", html)
+        self.assertIn("Clear the list as you work", html)
+        self.assertIn("search terms and template work are not lost", html)
+
+    def test_new_account_welcome_pending_flag_is_session_scoped(self):
+        self.app.mark_new_account_welcome_pending()
+        self.assertTrue(self.app.st.session_state["show_new_account_welcome_dialog"])
+
+        self.app.close_new_account_welcome_dialog()
+        self.assertFalse(self.app.st.session_state["show_new_account_welcome_dialog"])
+
 
 if __name__ == "__main__":
     unittest.main()
