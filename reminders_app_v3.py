@@ -11169,6 +11169,11 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
                 label_visibility="collapsed",
             )
     with controls[1]:
+        render_field_label(
+            st,
+            "Days around due date",
+            "Search from this many days before the due date through this many days after it.",
+        )
         due_date_window_days = st.number_input(
             "Days around due date",
             min_value=0,
@@ -11176,9 +11181,14 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
             value=int(st.session_state.get("outcome_due_date_window_days", DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS)),
             step=1,
             key="outcome_due_date_window_days",
-            help="Search from this many days before the due date through this many days after it.",
+            label_visibility="collapsed",
         )
     with controls[2]:
+        render_field_label(
+            st,
+            "On-time grace days",
+            "Purchases within this many days before or after the due date count as on time.",
+        )
         on_time_grace_days = st.number_input(
             "On-time grace days",
             min_value=0,
@@ -11186,6 +11196,7 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
             value=int(st.session_state.get("outcome_on_time_grace_days", DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS)),
             step=1,
             key="outcome_on_time_grace_days",
+            label_visibility="collapsed",
         )
 
     with st.spinner("Matching sent reminders to later sales..."):
