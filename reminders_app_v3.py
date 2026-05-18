@@ -10790,6 +10790,47 @@ def first_statistics_date(value) -> date | None:
     return min(dates) if dates else None
 
 
+OUTCOME_GENERIC_ITEM_TOKENS = {
+    "and",
+    "annual",
+    "booster",
+    "capsule",
+    "capsules",
+    "dose",
+    "doses",
+    "exam",
+    "full",
+    "injection",
+    "injections",
+    "injectable",
+    "nasal",
+    "oral",
+    "pack",
+    "spot",
+    "spoton",
+    "tablet",
+    "tablets",
+    "treatment",
+    "treatments",
+    "vaccine",
+    "vaccines",
+}
+
+
+def outcome_specific_item_tokens(item_text) -> list[str]:
+    tokens = re.findall(r"[a-z0-9]+", normalize_outcome_item_text(item_text))
+    terms = []
+    seen = set()
+    for token in tokens:
+        if token in seen or token in OUTCOME_GENERIC_ITEM_TOKENS:
+            continue
+        if len(token) < 4 or token.isdigit() or re.fullmatch(r"\d+(?:mg|kg|ml|g)?", token):
+            continue
+        seen.add(token)
+        terms.append(token)
+    return terms
+
+
 def outcome_item_terms(item_text, rules: dict | None = None) -> list[str]:
     raw = normalize_outcome_item_text(item_text)
     if not raw:
@@ -10812,6 +10853,10 @@ def outcome_item_terms(item_text, rules: dict | None = None) -> list[str]:
         if (visible_term and (visible_term == raw or visible_term in raw or raw in visible_term)) or rule_term in raw:
             seen.add(rule_term)
             terms.append(rule_term)
+    for token in outcome_specific_item_tokens(item_text):
+        if token not in seen:
+            seen.add(token)
+            terms.append(token)
     return terms
 
 
@@ -11033,8 +11078,6 @@ def build_reminder_outcomes(
         due_date = first_statistics_date(record.get("Due Date", ""))
         if due_date:
             window_start = due_date - timedelta(days=due_date_window_days)
-            if sent_date and window_start < sent_date:
-                window_start = sent_date
             window_end = due_date + timedelta(days=due_date_window_days)
         else:
             window_start = sent_date
@@ -11303,6 +11346,10 @@ def render_outcome_dataframe(frame: pd.DataFrame):
 
 
 def refresh_outcome_results_state() -> None:
+    try:
+        build_reminder_outcomes.clear()
+    except Exception:
+        pass
     clinic_id = str(st.session_state.get("clinic_id", "") or "").strip()
     if clinic_id:
         tracked_actions = load_action_tracker_records_for_clinic(clinic_id)

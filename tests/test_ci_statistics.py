@@ -215,7 +215,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(str(row["Actioned Date"].date()), "2026-05-18")
         self.assertEqual(int(row["Days to Success"]), 11)
 
-    def test_reminder_outcomes_search_around_due_date_but_not_before_sent_date(self):
+    def test_reminder_outcomes_search_around_due_date_even_before_reminder_date(self):
         actions = [
             {
                 "Reminder Date": "01 May 2026",
@@ -232,7 +232,7 @@ class StatisticsTests(unittest.TestCase):
         sales = pd.DataFrame(
             [
                 {
-                    "ChargeDate": "2026-04-25",
+                    "ChargeDate": "2026-04-30",
                     "Client Name": "Client A",
                     "Animal Name": "Pet A",
                     "Item Name": "Rabies Vaccine",
@@ -257,9 +257,48 @@ class StatisticsTests(unittest.TestCase):
 
         row = outcomes.iloc[0]
         self.assertEqual(row["Outcome"], "Reminder Success")
-        self.assertEqual(str(row["Window Starts"].date()), "2026-05-01")
-        self.assertEqual(str(row["Success Date"].date()), "2026-05-05")
-        self.assertEqual(float(row["Revenue"]), 100.0)
+        self.assertEqual(str(row["Window Starts"].date()), "2026-04-26")
+        self.assertEqual(str(row["Success Date"].date()), "2026-04-30")
+        self.assertEqual(float(row["Revenue"]), 50.0)
+
+    def test_reminder_outcomes_match_overdue_reminder_purchase_around_due_date(self):
+        actions = [
+            {
+                "Reminder Date": "30 Jun 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "10 May 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies Vaccine",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-06-30T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-12",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 100,
+                }
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=30,
+            today=date(2026, 7, 15),
+            rules={},
+        )
+
+        row = outcomes.iloc[0]
+        self.assertEqual(row["Outcome"], "Reminder Success")
+        self.assertEqual(str(row["Window Starts"].date()), "2026-04-10")
+        self.assertEqual(str(row["Success Date"].date()), "2026-05-12")
 
     def test_grouped_reminder_outcomes_count_each_detail_as_own_instance(self):
         actions = [
@@ -506,6 +545,133 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
         self.assertEqual(outcomes.iloc[0]["Matched Item"], "Nobivac Rabies 3 Year")
         self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 150.0)
+
+    def test_reminder_outcomes_match_action_tracker_roundtrip_search_term(self):
+        state = self.app.st.session_state
+        state["clinic_id"] = "clinic-outcome-roundtrip"
+        state["user_name"] = "Nurse A"
+        reminder_row = {
+            "Reminder Date": "01 May 2026",
+            "Due Date": "10 May 2026",
+            "Charge Date": "01 May 2025",
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies Vaccine",
+            "Qty": "1",
+            "Days": "365",
+            "ReminderDetails": [
+                {
+                    "Reminder Date": "01 May 2026",
+                    "Due Date": "10 May 2026",
+                    "Charge Date": "01 May 2025",
+                    "Animal Name": "Pet A",
+                    "Plan Item": "Rabies Vaccine",
+                    "Search Terms": "rabies",
+                }
+            ],
+        }
+        values = self.app.action_tracker_row_values(
+            reminder_row,
+            self.app.REMINDER_ACTION_SENT,
+            now=self.app.datetime(2026, 5, 1, 9, 0, 0),
+        )
+        actions = [self.app.action_tracker_values_to_record(self.app.ACTION_TRACKER_HEADERS, values)]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-12",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Nobivac Rabies 3 Year",
+                    "Amount": 150,
+                }
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=30,
+            today=date(2026, 6, 1),
+            rules={"rabies": {"days": 365, "visible_text": "Rabies Vaccine"}},
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
+        self.assertEqual(outcomes.iloc[0]["Matched Item"], "Nobivac Rabies 3 Year")
+
+    def test_reminder_outcomes_match_legacy_visible_item_using_current_rule_term(self):
+        actions = [
+            {
+                "Reminder Date": "01 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "01 May 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies Vaccine",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-01T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-12",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Nobivac Rabies 3 Year",
+                    "Amount": 150,
+                }
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=30,
+            today=date(2026, 6, 1),
+            rules={"rabies": {"days": 365, "visible_text": "Rabies Vaccine"}},
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
+        self.assertEqual(outcomes.iloc[0]["Matched Item"], "Nobivac Rabies 3 Year")
+
+    def test_reminder_outcomes_match_legacy_visible_item_without_saved_rule(self):
+        actions = [
+            {
+                "Reminder Date": "01 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "01 May 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies Vaccine",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-01T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-12",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Nobivac Rabies 3 Year",
+                    "Amount": 150,
+                }
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=30,
+            today=date(2026, 6, 1),
+            rules={},
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
+        self.assertEqual(outcomes.iloc[0]["Matched Item"], "Nobivac Rabies 3 Year")
 
     def test_outcome_group_frame_summarizes_success_rates(self):
         outcomes = pd.DataFrame(
