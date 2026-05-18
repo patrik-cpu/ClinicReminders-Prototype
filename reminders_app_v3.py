@@ -11248,6 +11248,16 @@ def prepare_sales_for_outcomes(sales_df: pd.DataFrame) -> pd.DataFrame:
     return working
 
 
+def outcome_as_of_date(sales_df: pd.DataFrame | None, fallback: date | None = None) -> date:
+    fallback_date = fallback or user_today()
+    if sales_df is None or getattr(sales_df, "empty", True) or "ChargeDate" not in sales_df.columns:
+        return fallback_date
+    latest_sale_date = pd.to_datetime(sales_df["ChargeDate"], errors="coerce").dropna().max()
+    if pd.isna(latest_sale_date):
+        return fallback_date
+    return pd.Timestamp(latest_sale_date).date()
+
+
 def outcome_timing_label(days_vs_due, on_time_grace_days: int) -> str:
     if days_vs_due is None or pd.isna(days_vs_due):
         return ""
@@ -11353,7 +11363,7 @@ def average_sales_purchase_gap(sales: pd.DataFrame, exact_item_keys: list[str] |
 def outcome_sale_item_matches(exact_item_keys, term, sale_key: str) -> bool:
     sale_key = str(sale_key or "")
     if isinstance(exact_item_keys, list) and exact_item_keys:
-        return sale_key in exact_item_keys
+        return any(exact_key and (sale_key == exact_key or exact_key in sale_key) for exact_key in exact_item_keys)
     if term is None or pd.isna(term):
         return False
     term_key = str(term or "")
@@ -11370,7 +11380,7 @@ def build_reminder_outcomes(
     attribution_days: int | None = None,
     rules: dict | None = None,
 ) -> pd.DataFrame:
-    today = today or user_today()
+    today = today or outcome_as_of_date(sales_df)
     if attribution_days is not None:
         due_date_window_days = attribution_days
     try:
@@ -11839,15 +11849,16 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
             key="outcome_due_date_window_days",
             label_visibility="collapsed",
         )
+    outcomes_as_of_date = outcome_as_of_date(sales_df)
     with busy_overlay("Calculating outcome results", "Matching sent reminders to later sales."):
         outcome_rows = build_reminder_outcomes(
             statistics_current_action_records(),
             sales_df,
             due_date_window_days=due_date_window_days,
-            today=user_today(),
+            today=outcomes_as_of_date,
             rules=get_applied_reminder_rules(),
         )
-        period_rows = filter_outcomes_for_period(outcome_rows, selected_period, today=user_today())
+        period_rows = filter_outcomes_for_period(outcome_rows, selected_period, today=outcomes_as_of_date)
 
     if outcome_rows.empty:
         st.info("No sent reminders have been recorded yet.")

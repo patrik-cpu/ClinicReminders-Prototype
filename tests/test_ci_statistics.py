@@ -173,6 +173,72 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(float(row["Revenue"]), 100.0)
         self.assertEqual(row["Matched Item"], "Rabies Vaccine")
 
+    def test_outcome_as_of_date_uses_latest_uploaded_sale_date(self):
+        sales = pd.DataFrame(
+            [
+                {"ChargeDate": "2025-01-01"},
+                {"ChargeDate": "2025-09-30"},
+                {"ChargeDate": ""},
+            ]
+        )
+
+        self.assertEqual(
+            self.app.outcome_as_of_date(sales, fallback=date(2026, 5, 18)),
+            date(2025, 9, 30),
+        )
+
+    def test_reminder_outcomes_status_uses_dataset_as_of_date_by_default(self):
+        actions = [
+            {
+                "Reminder Date": "25 Sep 2025",
+                "Due Date": "10 Oct 2025",
+                "Charge Date": "10 Jul 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-18T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2025-09-30",
+                    "Client Name": "Other Client",
+                    "Animal Name": "Other Pet",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 100,
+                }
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            rules={},
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Pending")
+
+    def test_outcome_period_filter_uses_dataset_as_of_date(self):
+        outcomes = pd.DataFrame(
+            [
+                {"Sent Date": pd.Timestamp("2025-09-30"), "Outcome": "No Match"},
+                {"Sent Date": pd.Timestamp("2025-09-20"), "Outcome": "No Match"},
+            ]
+        )
+
+        filtered = self.app.filter_outcomes_for_period(
+            outcomes,
+            "7 days",
+            today=date(2025, 9, 30),
+        )
+
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(str(filtered.iloc[0]["Sent Date"].date()), "2025-09-30")
+
     def test_reminder_outcomes_use_reminder_date_for_historical_backtests(self):
         actions = [
             {
@@ -454,6 +520,60 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(int(plus_row["Desired Gap Days"]), 60)
         self.assertEqual(int(plus_row["Success Gap Days"]), 63)
         self.assertEqual(self.app.outcome_search_terms_for_record(actions[1], "Bravecto Plus Cat", {}), ["bravecto plus"])
+
+    def test_reminder_outcomes_exact_variant_allows_extra_sale_item_words(self):
+        actions = [
+            {
+                "Reminder Date": "18 Mar 2025",
+                "Due Date": "01 Apr 2025",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto 112.5mg 2-4.5kg",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-18T09:00:00",
+                "Actioned By": "Nurse A",
+                "ReminderDetails": [
+                    {
+                        "Reminder Date": "18 Mar 2025",
+                        "Due Date": "01 Apr 2025",
+                        "Charge Date": "01 Jan 2025",
+                        "Animal Name": "Pet A",
+                        "Plan Item": "Bravecto 112.5mg 2-4.5kg",
+                        "Search Terms": "bravecto",
+                    }
+                ],
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2025-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto 112.5mg 2-4.5kg",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2025-04-02",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto 112.5mg 2-4.5kg DOG",
+                    "Amount": 90,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            rules={"bravecto": {"days": 90, "visible_text": "Bravecto"}},
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
+        self.assertEqual(outcomes.iloc[0]["Matched Item"], "Bravecto 112.5mg 2-4.5kg Dog")
+        self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 90.0)
 
     def test_grouped_reminder_outcomes_count_each_detail_as_own_instance(self):
         actions = [
