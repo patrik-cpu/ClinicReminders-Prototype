@@ -60,7 +60,7 @@ DRIVE_SCOPE = [
 
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
-MAIN_SECTION_TABS = ["Reminders", "Outcomes", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Statistics"]
+MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Outcomes", "Statistics"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 MAIN_SECTION_TAB_SLUGS = {
     "reminders": "Reminders",
@@ -8895,7 +8895,7 @@ consume_main_section_tab_query_param()
 default_main_section_tab = st.session_state.get("main_section_tab", "Reminders")
 if default_main_section_tab not in MAIN_SECTION_TABS:
     default_main_section_tab = "Reminders"
-reminders_page_tab, outcomes_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab, statistics_tab = st.tabs(
+reminders_page_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab, outcomes_tab, statistics_tab = st.tabs(
     main_section_tab_labels,
     default=main_section_tab_label_map[default_main_section_tab],
 )
