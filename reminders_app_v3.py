@@ -11374,7 +11374,10 @@ def average_sales_purchase_gap(sales: pd.DataFrame, exact_item_keys: list[str] |
 def outcome_sale_item_matches(exact_item_keys, term, sale_key: str) -> bool:
     sale_key = str(sale_key or "")
     if isinstance(exact_item_keys, list) and exact_item_keys:
-        return any(exact_key and (sale_key == exact_key or exact_key in sale_key) for exact_key in exact_item_keys)
+        for exact_key in exact_item_keys:
+            if exact_key and (sale_key == exact_key or exact_key in sale_key):
+                return True
+        return False
     if term is None or pd.isna(term):
         return False
     term_key = str(term or "")
