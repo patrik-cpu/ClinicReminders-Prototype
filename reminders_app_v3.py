@@ -10389,10 +10389,11 @@ if st.session_state.get("logged_in", False):
     with search_terms_tab:
         render_search_terms_editor()
 
-if st.session_state.get("working_df") is not None:
-    df = st.session_state["working_df"].copy()
+has_working_df = st.session_state.get("working_df") is not None
+if st.session_state.get("logged_in", False):
+    df = st.session_state["working_df"].copy() if has_working_df else pd.DataFrame()
     applied_rules = get_applied_reminder_rules()
-    prepared = get_prepared_df(df, applied_rules)
+    prepared = get_prepared_df(df, applied_rules) if has_working_df else ensure_reminder_columns(df, applied_rules)
 
     with reminders_page_tab:
         st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
@@ -10721,14 +10722,6 @@ if st.session_state.get("working_df") is not None:
     with statistics_tab:
         render_statistics_tab(prepared, applied_rules)
     
-else:
-    with reminders_page_tab:
-        st.info("Upload data in the Upload Data tab to generate reminders.")
-    with exclusions_tab:
-        st.info("Upload data in the Upload Data tab to manage exclusions.")
-    with statistics_tab:
-        st.info("Upload data in the Upload Data tab to view statistics.")
-
 # --------------------------------
 # 📊 Factoids Section (temporarily hidden)
 # --------------------------------
