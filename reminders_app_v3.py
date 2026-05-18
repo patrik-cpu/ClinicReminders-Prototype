@@ -3048,6 +3048,7 @@ def load_shared_dataset_for_clinic():
             st.session_state["shared_dataset_loaded"] = True
             st.session_state["shared_dataset_name"] = filename
             st.session_state["shared_dataset_updated_at"] = rec.get(SHEET_COL_DATASET_UPDATED_AT, "")
+            remember_shared_dataset_loaded_for_current_pointer(clinic_id)
             load_duration_ms = (time.perf_counter() - load_started) * 1000
             if load_duration_ms >= PERFORMANCE_TRACKER_SLOW_LOAD_MS:
                 record_performance_tracker_event(
@@ -3112,6 +3113,23 @@ def ensure_shared_dataset_loaded_for_session():
         return
     st.session_state["_shared_dataset_load_attempted_for"] = attempt_token
     load_shared_dataset_for_clinic()
+
+
+def remember_shared_dataset_loaded_for_current_pointer(clinic_id: str) -> None:
+    try:
+        st.session_state["_shared_dataset_loaded_for"] = shared_dataset_load_attempt_token(clinic_id)
+    except Exception:
+        st.session_state.pop("_shared_dataset_loaded_for", None)
+
+
+def shared_dataset_reload_needed_for_clinic(clinic_id: str) -> bool:
+    if not clinic_id or st.session_state.get("working_df") is None:
+        return True
+    try:
+        current_token = shared_dataset_load_attempt_token(clinic_id)
+    except Exception:
+        return False
+    return st.session_state.get("_shared_dataset_loaded_for") != current_token
 
 def drive_upsert_csv_bytes(
     file_bytes: bytes,
@@ -3759,6 +3777,7 @@ def publish_dataset_for_clinic(
     )
     st.session_state["shared_dataset_updated_at"] = dataset_updated_at
     st.session_state.pop("_shared_dataset_load_attempted_for", None)
+    remember_shared_dataset_loaded_for_current_pointer(clinic_id)
 
 
     return merged_df, new_file_id, out_name
@@ -4541,6 +4560,10 @@ def load_action_tracker_records_for_clinic(clinic_id: str) -> list[dict]:
     clinic_id = str(clinic_id or "").strip()
     if not clinic_id:
         return []
+    clinic_key = clinic_id.lower()
+    cache = st.session_state.get("_action_tracker_records_cache")
+    if isinstance(cache, dict) and cache.get("clinic_key") == clinic_key:
+        return [dict(record) for record in cache.get("records", []) if isinstance(record, dict)]
     try:
         sheet = get_or_create_tracker_sheet(ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS)
         values = _gspread_retry(sheet.get_all_values) or []
@@ -4557,7 +4580,16 @@ def load_action_tracker_records_for_clinic(clinic_id: str) -> list[dict]:
         rec = action_tracker_values_to_record(headers, raw)
         if rec:
             records.append(rec)
-    return reduce_action_tracker_records(records)
+    reduced = reduce_action_tracker_records(records)
+    st.session_state["_action_tracker_records_cache"] = {
+        "clinic_key": clinic_key,
+        "records": [dict(record) for record in reduced],
+    }
+    return reduced
+
+
+def invalidate_action_tracker_records_cache() -> None:
+    st.session_state.pop("_action_tracker_records_cache", None)
 
 
 def migrate_legacy_actions_to_tracker(clinic_id: str, legacy_deleted: list[dict]) -> bool:
@@ -5762,6 +5794,8 @@ def append_tracker_row(title: str, headers: list[str], row_values: list[str]):
     try:
         worksheet = get_or_create_tracker_sheet(title, headers)
         _gspread_retry(worksheet.append_row, row_values, value_input_option="USER_ENTERED")
+        if title == ACTION_TRACKER_WORKSHEET:
+            invalidate_action_tracker_records_cache()
         return True
     except Exception:
         return False
@@ -5778,6 +5812,8 @@ def append_tracker_rows(title: str, headers: list[str], rows: list[list[str]]):
         else:
             for row in rows:
                 _gspread_retry(worksheet.append_row, row, value_input_option="USER_ENTERED")
+        if title == ACTION_TRACKER_WORKSHEET:
+            invalidate_action_tracker_records_cache()
         return True
     except Exception:
         return False
@@ -7990,6 +8026,7 @@ def remove_dataset_upload_at_index(remove_idx: int):
         st.session_state["shared_dataset_loaded"] = False
         st.session_state["shared_dataset_name"] = None
         st.session_state["shared_dataset_updated_at"] = ""
+        st.session_state.pop("_shared_dataset_loaded_for", None)
     else:
         out_name = existing_name or f"{clinic_id}_shared_dataset.csv"
         out_bytes = remaining_df.drop(columns=["_ChargeDate_raw"], errors="ignore").to_csv(index=False).encode("utf-8")
@@ -8006,6 +8043,7 @@ def remove_dataset_upload_at_index(remove_idx: int):
         st.session_state["shared_dataset_loaded"] = True
         st.session_state["shared_dataset_name"] = out_name
         st.session_state["shared_dataset_updated_at"] = updated_at
+        remember_shared_dataset_loaded_for_current_pointer(clinic_id)
 
     st.session_state["dataset_upload_history"] = remaining_history
     reset_file_uploader_selection()
@@ -8984,18 +9022,37 @@ consume_main_section_tab_query_param()
 default_main_section_tab = st.session_state.get("main_section_tab", "Reminders")
 if default_main_section_tab not in MAIN_SECTION_TABS:
     default_main_section_tab = "Reminders"
-reminders_page_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab, outcomes_tab, statistics_tab = st.tabs(
-    main_section_tab_labels,
-    default=main_section_tab_label_map[default_main_section_tab],
-)
+st.session_state["main_section_tab"] = default_main_section_tab
+if hasattr(st, "segmented_control"):
+    active_main_section = st.segmented_control(
+        "Main section",
+        MAIN_SECTION_TABS,
+        selection_mode="single",
+        key="main_section_tab",
+        format_func=main_section_tab_label,
+        label_visibility="collapsed",
+    ) or default_main_section_tab
+else:
+    active_main_section = st.radio(
+        "Main section",
+        MAIN_SECTION_TABS,
+        index=MAIN_SECTION_TABS.index(default_main_section_tab),
+        horizontal=True,
+        format_func=main_section_tab_label,
+        label_visibility="collapsed",
+    )
+    st.session_state["main_section_tab"] = active_main_section
+if active_main_section not in MAIN_SECTION_TABS:
+    active_main_section = "Reminders"
+    st.session_state["main_section_tab"] = active_main_section
 
 # --- Data section ---
-with get_started_tab:
+if active_main_section == "Get Started":
     st.markdown("<div id='getting-started' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("## ✅ Get Started")
     render_setup_checklist()
-    
-with data_tab:
+
+if active_main_section == "Upload Data":
     st.markdown("<div id='data-upload' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown(
         """
@@ -9301,6 +9358,7 @@ with data_tab:
                     st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
                     st.session_state["shared_dataset_loaded"] = True
                     st.session_state["shared_dataset_name"] = out_name
+                    remember_shared_dataset_loaded_for_current_pointer(st.session_state.get("clinic_id", ""))
                     existing_upload_history = st.session_state.get("dataset_upload_history", [])
                     st.session_state["dataset_upload_history"] = merge_dataset_upload_history(
                         existing_upload_history,
@@ -9381,6 +9439,7 @@ with data_tab:
             st.session_state["shared_dataset_name"] = None
             st.session_state["shared_dataset_error"] = None
             st.session_state["dataset_upload_history"] = []
+            st.session_state.pop("_shared_dataset_loaded_for", None)
             save_settings_quietly()
             record_dataset_tracker_event(
                 "dataset_cleared",
@@ -9743,6 +9802,7 @@ def set_reminder_table_sort(key_prefix: str, column: str):
     if isinstance(current, dict) and current.get("column") == column:
         ascending = not bool(current.get("ascending", True))
     st.session_state[state_key] = {"column": column, "ascending": ascending}
+    st.session_state[f"{key_prefix}_reminders_page"] = 0
 
 
 def get_reminder_table_sort(key_prefix: str) -> dict:
@@ -9775,6 +9835,34 @@ def sort_reminder_table(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
         .sort_values(helper_col, ascending=sort_state["ascending"], kind="mergesort", na_position="last")
         .drop(columns=[helper_col])
     )
+
+
+def paginate_dataframe(frame: pd.DataFrame, key: str, page_size: int, item_label: str) -> pd.DataFrame:
+    if frame is None or frame.empty or page_size <= 0 or len(frame.index) <= page_size:
+        return frame
+    total_rows = len(frame.index)
+    total_pages = max(1, int(np.ceil(total_rows / page_size)))
+    page_key = f"{key}_page"
+    try:
+        current_page = int(st.session_state.get(page_key, 0) or 0)
+    except (TypeError, ValueError):
+        current_page = 0
+    current_page = min(max(current_page, 0), total_pages - 1)
+    st.session_state[page_key] = current_page
+
+    start = current_page * page_size
+    end = min(start + page_size, total_rows)
+    st.caption(f"Showing {start + 1:,}-{end:,} of {total_rows:,} {item_label}.")
+    prev_col, next_col, _ = st.columns([1, 1, 6])
+    with prev_col:
+        if st.button("Previous", key=f"{page_key}_prev", disabled=current_page <= 0):
+            st.session_state[page_key] = max(0, current_page - 1)
+            st.rerun()
+    with next_col:
+        if st.button("Next", key=f"{page_key}_next", disabled=current_page >= total_pages - 1):
+            st.session_state[page_key] = min(total_pages - 1, current_page + 1)
+            st.rerun()
+    return frame.iloc[start:end].copy()
 
 
 def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key: str, hidden_action: str):
@@ -10079,6 +10167,7 @@ def render_actioned_reminders_tab(key_prefix: str):
 
 def render_table_with_buttons(df, key_prefix, msg_key):
     df = sort_reminder_table(df, key_prefix)
+    df = paginate_dataframe(df, f"{key_prefix}_reminders", REMINDER_TABLE_PAGE_SIZE, "listed reminders")
     listed_rows = [row.to_dict() for _, row in df.iterrows()]
     col_widths = [2.3, 2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
     headers = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WhatsApp", "Sent", "Decline"]
@@ -10401,6 +10490,8 @@ STATISTICS_GENERATED_COLUMNS = ["Reminder Date", "Due Date", "Charge Date", "Cli
 OUTCOME_PERIODS = ["Today", "7 days", "30 days", "All time"]
 DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 30
 DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS = 14
+REMINDER_TABLE_PAGE_SIZE = 50
+OUTCOME_SENT_PAGE_SIZE = 100
 OUTCOME_TABLE_COLUMNS = [
     "Sent Date",
     "Actioned Date",
@@ -11076,8 +11167,11 @@ def build_reminder_outcomes(
         reminder_date = first_statistics_date(record.get("Reminder Date", ""))
         sent_date = reminder_date or actioned_date
         due_date = first_statistics_date(record.get("Due Date", ""))
+        original_charge_date = first_statistics_date(record.get("Charge Date", ""))
         if due_date:
             window_start = due_date - timedelta(days=due_date_window_days)
+            if original_charge_date and window_start <= original_charge_date:
+                window_start = original_charge_date + timedelta(days=1)
             window_end = due_date + timedelta(days=due_date_window_days)
         else:
             window_start = sent_date
@@ -11236,7 +11330,6 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
     success_mask = outcomes_df["Outcome"].eq("Reminder Success")
     successes = int(success_mask.sum())
     success_df = outcomes_df.loc[success_mask]
-    measurable = int(outcomes_df["Outcome"].isin(["Reminder Success", "No Match"]).sum())
     on_time = int(success_df["Timing"].eq("On time").sum()) if not success_df.empty else 0
     late = int(success_df["Timing"].eq("Late").sum()) if not success_df.empty else 0
     return {
@@ -11244,7 +11337,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         "successes": successes,
         "pending": int(outcomes_df["Outcome"].eq("Pending").sum()),
         "no_match": int(outcomes_df["Outcome"].eq("No Match").sum()),
-        "success_rate": (successes / measurable) if measurable else 0.0,
+        "success_rate": (successes / sent) if sent else 0.0,
         "on_time_rate": (on_time / successes) if successes else 0.0,
         "late_recovery_rate": (late / successes) if successes else 0.0,
         "avg_days_to_success": pd.to_numeric(success_df["Days to Success"], errors="coerce").mean() if successes else None,
@@ -11352,6 +11445,7 @@ def refresh_outcome_results_state() -> None:
         pass
     clinic_id = str(st.session_state.get("clinic_id", "") or "").strip()
     if clinic_id:
+        invalidate_action_tracker_records_cache()
         tracked_actions = load_action_tracker_records_for_clinic(clinic_id)
         st.session_state["deleted_reminders"] = merge_deleted_reminders(
             st.session_state.get("deleted_reminders", []),
@@ -11361,8 +11455,9 @@ def refresh_outcome_results_state() -> None:
             st.session_state.get("wa_reminder_log", []),
             action_records_to_wa_log(st.session_state["deleted_reminders"]),
         )
-        st.session_state.pop("_shared_dataset_load_attempted_for", None)
-        load_shared_dataset_for_clinic()
+        if shared_dataset_reload_needed_for_clinic(clinic_id):
+            st.session_state.pop("_shared_dataset_load_attempted_for", None)
+            load_shared_dataset_for_clinic()
     st.session_state["_outcomes_refresh_success"] = "Outcome results refreshed."
 
 
@@ -11512,7 +11607,9 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
             st.altair_chart(chart, use_container_width=True)
 
     with sent_tab:
-        render_outcome_dataframe(period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True]))
+        sent_rows = period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
+        sent_rows = paginate_dataframe(sent_rows, "outcomes_sent", OUTCOME_SENT_PAGE_SIZE, "sent outcome rows")
+        render_outcome_dataframe(sent_rows)
 
     with success_tab:
         success_rows = period_rows.loc[period_rows["Outcome"].eq("Reminder Success")].sort_values(
@@ -11968,17 +12065,22 @@ def set_reminders_start_date_to_today():
 # --------------------------------
 # Main
 # --------------------------------
-if st.session_state.get("logged_in", False):
-    with search_terms_tab:
-        render_search_terms_editor()
+if st.session_state.get("logged_in", False) and active_main_section == "Search Terms":
+    render_search_terms_editor()
 
 has_working_df = st.session_state.get("working_df") is not None
 if st.session_state.get("logged_in", False):
-    df = st.session_state["working_df"].copy() if has_working_df else pd.DataFrame()
-    applied_rules = get_applied_reminder_rules()
-    prepared = get_prepared_df(df, applied_rules) if has_working_df else ensure_reminder_columns(df, applied_rules)
+    needs_working_df = active_main_section in {"Reminders", "Outcomes", "Statistics"}
+    needs_prepared_df = active_main_section in {"Reminders", "Statistics"}
+    df = st.session_state["working_df"].copy() if has_working_df and needs_working_df else pd.DataFrame()
+    applied_rules = get_applied_reminder_rules() if needs_working_df else {}
+    prepared = (
+        get_prepared_df(df, applied_rules)
+        if has_working_df and needs_prepared_df
+        else ensure_reminder_columns(df, applied_rules) if needs_prepared_df else pd.DataFrame()
+    )
 
-    with reminders_page_tab:
+    if active_main_section == "Reminders":
         st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
         st.markdown("## 📅 Reminders")
 
@@ -12132,10 +12234,10 @@ if st.session_state.get("logged_in", False):
             elif should_show_no_reminders_info(reminders_before_exclusions, active_reminder_count):
                 st.info("No reminders in the selected date range.")
 
-    with outcomes_tab:
+    if active_main_section == "Outcomes":
         render_outcomes_tab(df)
 
-    with exclusions_tab:
+    if active_main_section == "Exclusions":
         # Exclusions
         # --------------------------------
         st.markdown("<div id='exclusions' class='anchor-offset'></div>", unsafe_allow_html=True)
@@ -12456,7 +12558,7 @@ if st.session_state.get("logged_in", False):
         else:
             st.caption("No automatic patient death exclusions yet.")
 
-    with statistics_tab:
+    if active_main_section == "Statistics":
         render_statistics_tab(prepared, applied_rules)
     
 # --------------------------------

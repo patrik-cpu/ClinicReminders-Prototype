@@ -300,6 +300,53 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(str(row["Window Starts"].date()), "2026-04-10")
         self.assertEqual(str(row["Success Date"].date()), "2026-05-12")
 
+    def test_reminder_outcomes_do_not_count_original_billed_charge_as_success(self):
+        actions = [
+            {
+                "Reminder Date": "01 May 2026",
+                "Due Date": "31 May 2026",
+                "Charge Date": "01 May 2026",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Caniverm",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-01T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Caniverm",
+                    "Amount": 50,
+                },
+                {
+                    "ChargeDate": "2026-05-31",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Caniverm",
+                    "Amount": 60,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=30,
+            today=date(2026, 7, 1),
+            rules={},
+        )
+
+        row = outcomes.iloc[0]
+        self.assertEqual(row["Outcome"], "Reminder Success")
+        self.assertEqual(str(row["Window Starts"].date()), "2026-05-02")
+        self.assertEqual(str(row["Success Date"].date()), "2026-05-31")
+        self.assertEqual(float(row["Revenue"]), 60.0)
+
     def test_grouped_reminder_outcomes_count_each_detail_as_own_instance(self):
         actions = [
             {
@@ -678,6 +725,7 @@ class StatisticsTests(unittest.TestCase):
             [
                 {"Sender": "Nurse A", "Outcome": "Reminder Success", "Timing": "On time", "Days to Success": 5, "Days vs Due Date": 0, "Revenue": 120},
                 {"Sender": "Nurse A", "Outcome": "No Match", "Timing": "", "Days to Success": None, "Days vs Due Date": None, "Revenue": 0},
+                {"Sender": "Nurse A", "Outcome": "Pending", "Timing": "", "Days to Success": None, "Days vs Due Date": None, "Revenue": 0},
                 {"Sender": "Nurse B", "Outcome": "Reminder Success", "Timing": "Late", "Days to Success": 20, "Days vs Due Date": 15, "Revenue": 80},
             ]
         )
@@ -685,9 +733,9 @@ class StatisticsTests(unittest.TestCase):
         grouped = self.app.build_outcome_group_frame(outcomes, "Sender")
         rows = {row["Sender"]: row for row in grouped.to_dict("records")}
 
-        self.assertEqual(rows["Nurse A"]["Sent"], 2)
+        self.assertEqual(rows["Nurse A"]["Sent"], 3)
         self.assertEqual(rows["Nurse A"]["Successes"], 1)
-        self.assertEqual(rows["Nurse A"]["Success Rate"], 0.5)
+        self.assertEqual(rows["Nurse A"]["Success Rate"], 1 / 3)
         self.assertEqual(rows["Nurse A"]["On-time Rate"], 1.0)
         self.assertEqual(rows["Nurse B"]["Late Recovery Rate"], 1.0)
 
