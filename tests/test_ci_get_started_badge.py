@@ -70,6 +70,32 @@ class GetStartedBadgeTests(unittest.TestCase):
             "upload-data",
         )
 
+    def test_late_main_section_tab_update_is_deferred(self):
+        app = self.app
+
+        class LockedMainTabState(dict):
+            def __setitem__(self, key, value):
+                if key == "main_section_tab":
+                    raise app.st.errors.StreamlitAPIException("Widget key already exists")
+                super().__setitem__(key, value)
+
+        locked_state = LockedMainTabState()
+
+        with mock.patch.object(app.st, "session_state", locked_state):
+            app.set_main_section_tab("Upload Data")
+
+        self.assertNotIn("main_section_tab", locked_state)
+        self.assertEqual(locked_state[app.PENDING_MAIN_SECTION_TAB_KEY], "Upload Data")
+
+    def test_pending_main_section_tab_is_consumed_before_widget_render(self):
+        self.app.st.session_state[self.app.PENDING_MAIN_SECTION_TAB_KEY] = "Upload Data"
+
+        with mock.patch.object(self.app, "get_query_param_value", return_value=""):
+            self.app.consume_main_section_tab_query_param()
+
+        self.assertEqual(self.app.st.session_state["main_section_tab"], "Upload Data")
+        self.assertNotIn(self.app.PENDING_MAIN_SECTION_TAB_KEY, self.app.st.session_state)
+
     def test_main_section_query_param_selects_tab_then_clears_url(self):
         with (
             mock.patch.object(self.app, "get_query_param_value", return_value="upload-data"),

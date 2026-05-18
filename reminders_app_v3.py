@@ -61,6 +61,7 @@ _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
 MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Outcomes", "Statistics"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
+PENDING_MAIN_SECTION_TAB_KEY = "_pending_main_section_tab"
 MAIN_SECTION_TAB_SLUGS = {
     "reminders": "Reminders",
     "outcomes": "Outcomes",
@@ -75,7 +76,10 @@ MAIN_SECTION_TAB_TO_SLUG = {tab: slug for slug, tab in MAIN_SECTION_TAB_SLUGS.it
 
 def set_main_section_tab(tab_name: str):
     if tab_name in MAIN_SECTION_TABS:
-        st.session_state["main_section_tab"] = tab_name
+        try:
+            st.session_state["main_section_tab"] = tab_name
+        except st.errors.StreamlitAPIException:
+            st.session_state[PENDING_MAIN_SECTION_TAB_KEY] = tab_name
 
 
 def navigate_main_section_tab(tab_name: str):
@@ -86,6 +90,9 @@ def navigate_main_section_tab(tab_name: str):
 
 
 def consume_main_section_tab_query_param():
+    pending_tab = st.session_state.pop(PENDING_MAIN_SECTION_TAB_KEY, "")
+    if pending_tab in MAIN_SECTION_TABS:
+        set_main_section_tab(pending_tab)
     tab_slug = get_query_param_value(MAIN_SECTION_TAB_QUERY_PARAM).strip().lower()
     if not tab_slug:
         return
@@ -9146,7 +9153,7 @@ else:
     )
 if active_main_section not in MAIN_SECTION_TABS:
     active_main_section = "Reminders"
-    st.session_state["main_section_tab"] = active_main_section
+    set_main_section_tab(active_main_section)
 
 # --- Data section ---
 if active_main_section == "Get Started":
