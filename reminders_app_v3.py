@@ -5467,7 +5467,7 @@ def parse_dates(series: pd.Series) -> pd.Series:
         return pd.to_datetime(series.dt.date, errors="coerce")
     s = series.astype(str).str.strip()
     s = s.str.extract(
-        r"(\d{1,2}[/-][A-Za-z]{3}[/-]\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})"
+        r"(\d{1,2}[\s/-][A-Za-z]{3}[\s/-]\d{4}|\d{1,2}[\s/-]\d{1,2}[\s/-]\d{4}|\d{4}[\s/-]\d{1,2}[\s/-]\d{1,2})"
     )[0]
     parsed_dates = pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]")
     numeric = pd.to_numeric(s, errors="coerce")
@@ -5481,9 +5481,9 @@ def parse_dates(series: pd.Series) -> pd.Series:
         parsed_numeric = (dt_1904 if valid_1904.sum() > valid_1900.sum() else dt_1900).dt.normalize()
         parsed_dates.loc[numeric.notna()] = parsed_numeric.loc[numeric.notna()]
     formats = [
-        "%d/%b/%Y", "%d-%b-%Y",
-        "%d/%m/%Y", "%m/%d/%Y",
-        "%Y-%m-%d", "%Y.%m.%d"
+        "%d/%b/%Y", "%d-%b-%Y", "%d %b %Y",
+        "%d/%m/%Y", "%m/%d/%Y", "%d %m %Y", "%m %d %Y",
+        "%Y-%m-%d", "%Y/%m/%d", "%Y %m %d", "%Y.%m.%d"
     ]
     for fmt in formats:
         parsed = pd.to_datetime(s, format=fmt, errors="coerce")
@@ -10649,6 +10649,9 @@ OUTCOME_DISPLAY_DATE_COLUMNS = [
     "Window Ends",
     "Next Purchase Date",
 ]
+OUTCOME_DISPLAY_COLUMN_LABELS = {
+    "Charge Date": "Billed Date",
+}
 OUTCOME_SENT_DISPLAY_COLUMNS = [
     "Sent Date",
     "Charge Date",
@@ -10741,7 +10744,7 @@ def parse_statistics_dates(value) -> list[date]:
         part = part.strip()
         if not part:
             continue
-        parsed = pd.to_datetime(part, errors="coerce")
+        parsed = parse_dates(pd.Series([part])).iloc[0]
         if pd.notna(parsed):
             parsed_dates.append(parsed.date())
     return parsed_dates
@@ -11316,7 +11319,7 @@ def prepare_sales_for_outcomes(sales_df: pd.DataFrame) -> pd.DataFrame:
         working["Amount"] = 0
 
     working["OutcomeSaleID"] = np.arange(len(working))
-    working["OutcomeChargeDate"] = pd.to_datetime(working["ChargeDate"], errors="coerce").dt.normalize()
+    working["OutcomeChargeDate"] = parse_dates(working["ChargeDate"]).dt.normalize()
     working["OutcomeClientKey"] = normalize_key_series(working["Client Name"], index=working.index)
     working["OutcomePatientKey"] = normalize_key_series(working["Animal Name"], index=working.index)
     working["OutcomeItemKey"] = working["Item Name"].map(normalize_outcome_item_text)
@@ -11329,7 +11332,7 @@ def outcome_as_of_date(sales_df: pd.DataFrame | None, fallback: date | None = No
     fallback_date = fallback or user_today()
     if sales_df is None or getattr(sales_df, "empty", True) or "ChargeDate" not in sales_df.columns:
         return fallback_date
-    latest_sale_date = pd.to_datetime(sales_df["ChargeDate"], errors="coerce").dropna().max()
+    latest_sale_date = parse_dates(sales_df["ChargeDate"]).dropna().max()
     if pd.isna(latest_sale_date):
         return fallback_date
     return pd.Timestamp(latest_sale_date).date()
@@ -11627,30 +11630,45 @@ def build_reminder_outcomes(
                 )
                 merged = merged.loc[term_mask]
             if not merged.empty:
-                window_matches = merged.loc[
-                    (merged["OutcomeChargeDate"] >= merged["Window Starts"])
-                    & (merged["OutcomeChargeDate"] <= merged["Window Ends"])
-                ]
-                first_successes = (
-                    window_matches.sort_values(["_OutcomeRecordID", "OutcomeChargeDate", "OutcomeSaleID"])
+                first_next_purchases = (
+                    merged.sort_values(["_OutcomeRecordID", "OutcomeChargeDate", "OutcomeSaleID"])
+                    .drop_duplicates(["_OutcomeRecordID", "OutcomeSaleID"], keep="first")
                     .drop_duplicates("_OutcomeRecordID", keep="first")
                 )
-                for match in first_successes.to_dict("records"):
+                for match in first_next_purchases.to_dict("records"):
                     record_id = int(match["_OutcomeRecordID"])
-                    success_date = pd.Timestamp(match["OutcomeChargeDate"])
+                    next_purchase_date = pd.Timestamp(match["OutcomeChargeDate"])
                     charge_value = outcomes.at[record_id, "Charge Date"]
-                    success_gap_days = (
-                        (success_date.date() - pd.Timestamp(charge_value).date()).days
+                    next_gap_days = (
+                        (next_purchase_date.date() - pd.Timestamp(charge_value).date()).days
                         if pd.notna(charge_value)
                         else None
                     )
-                    outcomes.at[record_id, "Success Date"] = success_date
-                    outcomes.at[record_id, "Matched Item"] = normalize_display_case(
-                        str(match.get("Item Name", "") or "").strip()
+                    matched_item = normalize_display_case(str(match.get("Item Name", "") or "").strip())
+                    outcomes.at[record_id, "Next Purchase Date"] = next_purchase_date
+                    outcomes.at[record_id, "Next Purchase Gap Days"] = next_gap_days
+                    outcomes.at[record_id, "Next Matched Item"] = matched_item
+
+                    desired_gap_days = outcomes.at[record_id, "Desired Gap Days"]
+                    success_by_gap = outcome_next_purchase_gap_is_success(
+                        next_gap_days,
+                        desired_gap_days,
+                        due_date_window_days,
                     )
-                    outcomes.at[record_id, "Revenue"] = float(match.get("OutcomeAmount", 0) or 0)
-                    outcomes.at[record_id, "Success Gap Days"] = success_gap_days
-                    outcomes.at[record_id, "Outcome"] = "Reminder Success"
+                    window_start = outcomes.at[record_id, "Window Starts"]
+                    window_end = outcomes.at[record_id, "Window Ends"]
+                    success_by_window = (
+                        pd.notna(window_start)
+                        and pd.notna(window_end)
+                        and next_purchase_date >= pd.Timestamp(window_start)
+                        and next_purchase_date <= pd.Timestamp(window_end)
+                    )
+                    if success_by_gap or success_by_window:
+                        outcomes.at[record_id, "Success Date"] = next_purchase_date
+                        outcomes.at[record_id, "Matched Item"] = matched_item
+                        outcomes.at[record_id, "Revenue"] = float(match.get("OutcomeAmount", 0) or 0)
+                        outcomes.at[record_id, "Success Gap Days"] = next_gap_days
+                        outcomes.at[record_id, "Outcome"] = "Reminder Success"
 
     return outcomes[OUTCOME_TABLE_COLUMNS]
 
@@ -11822,6 +11840,7 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     for column in OUTCOME_DISPLAY_DATE_COLUMNS:
         if column in display_frame.columns:
             display_frame[column] = display_frame[column].map(format_outcome_display_date)
+    display_frame = display_frame.rename(columns=OUTCOME_DISPLAY_COLUMN_LABELS)
     return display_frame
 
 

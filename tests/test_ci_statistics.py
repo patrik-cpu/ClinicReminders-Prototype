@@ -566,6 +566,7 @@ class StatisticsTests(unittest.TestCase):
             actions,
             sales,
             due_date_window_days=14,
+            today=date(2025, 5, 1),
             rules={"bravecto": {"days": 90, "visible_text": "Bravecto"}},
         )
 
@@ -618,6 +619,106 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(str(outcomes.iloc[0]["Success Date"].date()), "2025-04-01")
         self.assertEqual(int(outcomes.iloc[0]["Success Gap Days"]), 90)
         self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 90.0)
+
+    def test_reminder_outcomes_counts_first_future_purchase_gap_as_success(self):
+        actions = [
+            {
+                "Reminder Date": "18 Mar 2025",
+                "Due Date": "15 Apr 2025",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto Large Dog 20-40kg",
+                "Days": "90",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-18T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2025-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto Large Dog 20-40kg",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2025-04-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto Large Dog 20-40kg",
+                    "Amount": 90,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            rules={"bravecto": {"days": 90, "visible_text": "Bravecto"}},
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
+        self.assertEqual(str(outcomes.iloc[0]["Next Purchase Date"].date()), "2025-04-01")
+        self.assertEqual(int(outcomes.iloc[0]["Next Purchase Gap Days"]), 90)
+        self.assertEqual(str(outcomes.iloc[0]["Success Date"].date()), "2025-04-01")
+
+    def test_reminder_outcomes_do_not_skip_first_future_purchase_for_later_window_match(self):
+        actions = [
+            {
+                "Reminder Date": "18 Mar 2025",
+                "Due Date": "01 Apr 2025",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto",
+                "Days": "90",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-18T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2025-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2025-02-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto",
+                    "Amount": 70,
+                },
+                {
+                    "ChargeDate": "2025-04-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto",
+                    "Amount": 90,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            today=date(2025, 5, 1),
+            rules={"bravecto": {"days": 90, "visible_text": "Bravecto"}},
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "No Match")
+        self.assertEqual(str(outcomes.iloc[0]["Next Purchase Date"].date()), "2025-02-01")
+        self.assertEqual(int(outcomes.iloc[0]["Next Purchase Gap Days"]), 31)
+        self.assertTrue(pd.isna(outcomes.iloc[0]["Success Date"]))
 
     def test_historical_reminder_generation_can_count_future_purchase_success(self):
         state = self.app.st.session_state
@@ -1068,6 +1169,7 @@ class StatisticsTests(unittest.TestCase):
                 {
                     "Sent Date": pd.Timestamp("2024-01-13 00:00:00"),
                     "Actioned Date": "2024-02-14 09:30:00",
+                    "Charge Date": pd.Timestamp("2024-01-01"),
                     "Due Date": pd.NaT,
                     "Window Starts": pd.Timestamp("2024-01-01"),
                     "Success Date": pd.Timestamp("2024-03-05"),
@@ -1081,6 +1183,8 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertEqual(display_frame.iloc[0]["Sent Date"], "Jan-13-2024")
         self.assertEqual(display_frame.iloc[0]["Actioned Date"], "Feb-14-2024")
+        self.assertEqual(display_frame.iloc[0]["Billed Date"], "Jan-01-2024")
+        self.assertNotIn("Charge Date", display_frame.columns)
         self.assertEqual(display_frame.iloc[0]["Due Date"], "")
         self.assertEqual(display_frame.iloc[0]["Window Ends"], "Apr-30-2024")
         self.assertEqual(str(frame.iloc[0]["Sent Date"]), "2024-01-13 00:00:00")
