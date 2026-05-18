@@ -382,8 +382,14 @@ class AuthSessionTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("Google sign-in email is managed by Google", html)
+        self.assertIn("Google sign-in email is read-only here", html)
+        self.assertIn("managed by Google", html)
         self.assertIn("cannot be changed", html)
+
+    def test_profile_dialog_clears_state_when_dismissed(self):
+        source = Path("reminders_app_v3.py").read_text()
+
+        self.assertIn('@st.dialog("Profile", on_dismiss=close_profile_dialog)', source)
 
     def test_clinic_row_lookup_handles_non_string_sheet_values(self):
         class FakeSheet:

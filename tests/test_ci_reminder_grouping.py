@@ -67,6 +67,46 @@ class ReminderGroupingTests(unittest.TestCase):
         self.assertNotIn("Alpha", " ".join(grouped["Animal Name"].astype(str)))
         self.assertIn("Bravo", " ".join(grouped["Animal Name"].astype(str)))
 
+    def test_automatic_patient_exclusions_apply_like_patient_exclusions(self):
+        due_df = self.make_due_df()
+        self.app.st.session_state["client_exclusions"] = []
+        self.app.st.session_state["patient_exclusions"] = []
+        self.app.st.session_state["automatic_patient_exclusions"] = [
+            {"client": "Same Client", "patient": "Bravo"}
+        ]
+        self.app.st.session_state["exclusions"] = []
+
+        filtered = self.app.apply_reminder_exclusion_filters(due_df, self.app.DEFAULT_RULES)
+
+        self.assertNotIn("Bravo", " ".join(filtered["Animal Name"].astype(str)))
+        self.assertIn("Alpha", " ".join(filtered["Animal Name"].astype(str)))
+
+    def test_passaway_keywords_create_automatic_patient_exclusions_from_upload(self):
+        state = self.app.st.session_state
+        state["patient_passaway_keywords"] = ["euthanasia", "pentobarb"]
+        state["automatic_patient_exclusions"] = [
+            {"client": "Existing Client", "patient": "Existing Pet"}
+        ]
+        upload_df = pd.DataFrame(
+            {
+                "Client Name": ["Client A", "Client B", "Client A", "Client C"],
+                "Animal Name": ["Pet A", "Pet B", "Pet A", "Pet C"],
+                "Item Name": ["Euthanasia consult", "Rabies", "Pentobarb injection", "Dental"],
+            }
+        )
+
+        added = self.app.add_automatic_patient_exclusions_from_upload(upload_df)
+
+        self.assertEqual(added, 1)
+        self.assertIn(
+            {"client": "Client A", "patient": "Pet A"},
+            state["automatic_patient_exclusions"],
+        )
+        self.assertIn(
+            {"client": "Existing Client", "patient": "Existing Pet"},
+            state["automatic_patient_exclusions"],
+        )
+
     def test_overdue_reminder_adds_extra_reminder_without_changing_due_date(self):
         df = pd.DataFrame(
             {

@@ -531,6 +531,8 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "exclusions",
     "client_exclusions",
     "patient_exclusions",
+    "automatic_patient_exclusions",
+    "patient_passaway_keywords",
     "user_name",
     "user_template",
     "wa_template",
@@ -561,6 +563,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_row_count_repair_load_attempted_for",
     "last_uploaded_files",
     "confirm_reset_dataset",
+    "show_clear_clinic_data_confirm",
     "form_version",
     "new_rule_counter",
     "search_criteria_changed",
@@ -1209,6 +1212,7 @@ VACCINE_EXCLUSIONS = ["test", "titre", "antibody","bites","book","idexx","elisa"
 
 DEATH_KEYWORDS = ["euthanasia", "pentobarb", "cremation", "burial", "disposal"]
 DEATH_EXCLUSIONS = []
+PATIENT_PASSAWAY_KEYWORDS_DEFAULT = DEATH_KEYWORDS.copy()
 
 NEUTER_KEYWORDS = ["spay", "castrate", "castration", "desex", "de-sex","cryptorch","ovariohyst","TNR"]
 NEUTER_EXCLUSIONS = ["adult", "food", "diet", "canin", "purina", "proplan"]
@@ -1352,6 +1356,95 @@ def make_mask(df, include_words, exclude_words=None):
         mask &= ~df["Item Name"].astype(str).str.contains(exclude_rx, na=False)
 
     return mask
+
+
+def normalize_passaway_keywords(keywords) -> list[str]:
+    normalized = []
+    seen = set()
+    for keyword in keywords or []:
+        cleaned = _SPACE_RX.sub(" ", str(keyword or "").strip()).lower()
+        if not cleaned or cleaned in seen:
+            continue
+        normalized.append(cleaned)
+        seen.add(cleaned)
+    return normalized
+
+
+def normalize_patient_exclusions(exclusions) -> list[dict]:
+    normalized = []
+    seen = set()
+    for item in exclusions or []:
+        if not isinstance(item, dict):
+            continue
+        client = _SPACE_RX.sub(" ", str(item.get("client", "") or "").strip())
+        patient = _SPACE_RX.sub(" ", str(item.get("patient", "") or "").strip())
+        if not client or not patient:
+            continue
+        key = (client.lower(), patient.lower())
+        if key in seen:
+            continue
+        normalized.append({"client": client, "patient": patient})
+        seen.add(key)
+    return normalized
+
+
+def combined_patient_exclusions() -> list[dict]:
+    return normalize_patient_exclusions(
+        st.session_state.get("patient_exclusions", [])
+    ) + normalize_patient_exclusions(
+        st.session_state.get("automatic_patient_exclusions", [])
+    )
+
+
+def find_patient_passaway_exclusions(df: pd.DataFrame, keywords=None) -> list[dict]:
+    if df is None or df.empty:
+        return []
+    required_columns = {"Client Name", "Animal Name", "Item Name"}
+    if not required_columns.issubset(df.columns):
+        return []
+
+    normalized_keywords = normalize_passaway_keywords(
+        keywords if keywords is not None else PATIENT_PASSAWAY_KEYWORDS_DEFAULT
+    )
+    if not normalized_keywords:
+        return []
+
+    pattern = "|".join(map(re.escape, normalized_keywords))
+    matched = df[
+        df["Item Name"].astype(str).str.lower().str.contains(pattern, regex=True, na=False)
+    ]
+    exclusions = [
+        {"client": row.get("Client Name", ""), "patient": row.get("Animal Name", "")}
+        for row in matched.to_dict("records")
+    ]
+    return normalize_patient_exclusions(exclusions)
+
+
+def add_automatic_patient_exclusions_from_upload(df: pd.DataFrame) -> int:
+    found_exclusions = find_patient_passaway_exclusions(
+        df,
+        st.session_state.get("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT),
+    )
+    if not found_exclusions:
+        return 0
+
+    existing = normalize_patient_exclusions(st.session_state.get("automatic_patient_exclusions", []))
+    existing_keys = {
+        (_exclusion_key(item.get("client", "")), _exclusion_key(item.get("patient", "")))
+        for item in existing
+    }
+    added = []
+    for item in found_exclusions:
+        key = (_exclusion_key(item.get("client", "")), _exclusion_key(item.get("patient", "")))
+        if key in existing_keys:
+            continue
+        existing.append(item)
+        existing_keys.add(key)
+        added.append(item)
+
+    if added:
+        st.session_state["automatic_patient_exclusions"] = existing
+    return len(added)
 
 # --------------------------------
 # CSS Styling
@@ -1707,6 +1800,28 @@ st.markdown(
         font-size: 0.92rem;
         line-height: 1.42;
         margin: 0 0 0.7rem;
+    }
+    .cr-field-intro {
+        margin-bottom: 0.8rem;
+    }
+    .cr-field-intro .cr-section-copy {
+        margin-bottom: 0;
+    }
+    .cr-field-footnote {
+        color: #64748b;
+        font-size: 0.88rem;
+        line-height: 1.4;
+        margin: 0.35rem 0 0;
+    }
+    .cr-field-danger-note {
+        background: #fff7f7;
+        border: 1px solid rgba(248, 113, 113, 0.24);
+        border-radius: 8px;
+        color: #7f1d1d;
+        font-size: 0.9rem;
+        line-height: 1.4;
+        margin: 0.15rem 0 0.75rem;
+        padding: 0.65rem 0.75rem;
     }
     .cr-danger-card {
         background: #fffafa;
@@ -3635,7 +3750,11 @@ def load_settings():
         st.session_state["rules"] = settings.get("rules", DEFAULT_RULES.copy())
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["client_exclusions"] = settings.get("client_exclusions", [])
-        st.session_state["patient_exclusions"] = settings.get("patient_exclusions", [])
+        st.session_state["patient_exclusions"] = normalize_patient_exclusions(settings.get("patient_exclusions", []))
+        st.session_state["automatic_patient_exclusions"] = normalize_patient_exclusions(settings.get("automatic_patient_exclusions", []))
+        st.session_state["patient_passaway_keywords"] = normalize_passaway_keywords(
+            settings.get("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT)
+        )
         st.session_state["user_name"] = settings.get("user_name", "")
         st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
         st.session_state["client_group_days"] = max(0, int(settings.get("client_group_days", 1) or 0))
@@ -3681,6 +3800,8 @@ def load_settings():
         st.session_state["exclusions"] = []
         st.session_state["client_exclusions"] = []
         st.session_state["patient_exclusions"] = []
+        st.session_state["automatic_patient_exclusions"] = []
+        st.session_state["patient_passaway_keywords"] = PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()
         st.session_state["user_name"] = ""
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
         st.session_state["client_group_days"] = 1
@@ -3916,6 +4037,8 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         exclusions_for_save = setting_for_save("exclusions", [])
         client_exclusions_for_save = setting_for_save("client_exclusions", [])
         patient_exclusions_for_save = setting_for_save("patient_exclusions", [])
+        automatic_patient_exclusions_for_save = setting_for_save("automatic_patient_exclusions", [])
+        patient_passaway_keywords_for_save = setting_for_save("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy())
     else:
         rules_for_save = merge_rule_settings_for_save(
             base_settings.get("rules", {}),
@@ -3940,13 +4063,27 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
             setting_for_save("patient_exclusions", []),
             _patient_exclusion_key,
         )
+        automatic_patient_exclusions_for_save = merge_keyed_list_setting_for_save(
+            base_settings.get("automatic_patient_exclusions", []),
+            remote_settings.get("automatic_patient_exclusions", []),
+            setting_for_save("automatic_patient_exclusions", []),
+            _patient_exclusion_key,
+        )
+        patient_passaway_keywords_for_save = merge_keyed_list_setting_for_save(
+            base_settings.get("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()),
+            remote_settings.get("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()),
+            setting_for_save("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()),
+            _text_list_key,
+        )
 
     # Build the JSON blob for settings
     settings_data = {
         "rules": rules_for_save,
         "exclusions": exclusions_for_save,
         "client_exclusions": client_exclusions_for_save,
-        "patient_exclusions": patient_exclusions_for_save,
+        "patient_exclusions": normalize_patient_exclusions(patient_exclusions_for_save),
+        "automatic_patient_exclusions": normalize_patient_exclusions(automatic_patient_exclusions_for_save),
+        "patient_passaway_keywords": normalize_passaway_keywords(patient_passaway_keywords_for_save),
         "user_name": setting_for_save("user_name", ""),
         "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
         "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
@@ -4866,8 +5003,8 @@ def new_account_welcome_dialog_html() -> str:
     <div class="cr-welcome-dialog">
       <div class="cr-welcome-hero">
         <p class="cr-welcome-kicker">New account</p>
-        <h3>Welcome to Clinic Reminders</h3>
-        <p>Set up your first reminders in four calm steps. You can change everything later.</p>
+        <h3>Set up your first reminders</h3>
+        <p>Four calm steps get the clinic from upload to ready-to-send reminders. You can change everything later.</p>
       </div>
       <div class="cr-welcome-grid">{step_cards_html}</div>
       <div class="cr-welcome-note">Start with Upload Data. The app will save your setup as you go, so your search terms and template work are not lost between sessions.</div>
@@ -6202,6 +6339,8 @@ def default_settings_for_country(country: str = "") -> dict:
         "exclusions": [],
         "client_exclusions": [],
         "patient_exclusions": [],
+        "automatic_patient_exclusions": [],
+        "patient_passaway_keywords": PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy(),
         "user_name": "",
         "user_template": DEFAULT_WA_TEMPLATE,
         "client_group_days": 1,
@@ -6665,7 +6804,7 @@ def profile_dialog_html(profile: dict) -> str:
     provider = str(profile.get("auth_provider", "")).strip()
     sign_in_copy = (
         "This clinic signs in with Google. Use Continue with Google next time; your Google password is never entered here. "
-        "The Google sign-in email is managed by Google and cannot be changed in this profile."
+        "The Google sign-in email is read-only here, managed by Google, and cannot be changed in this profile."
         if provider == GOOGLE_AUTH_PROVIDER
         else "This clinic can sign in with its clinic username and password."
     )
@@ -6702,11 +6841,16 @@ def render_profile_dialog():
         google_profile = profile.get("auth_provider") == GOOGLE_AUTH_PROVIDER
         with st.form("profile_form"):
             new_clinic_id = st.text_input("Clinic name", value=profile.get("clinic_id", ""))
+            google_email = profile.get("email", "")
             new_email = st.text_input(
-                "Google sign-in email" if google_profile else "Email",
-                value=profile.get("email", ""),
+                "Google sign-in email (read-only)" if google_profile else "Email",
+                value=google_email if google_profile else profile.get("email", ""),
                 disabled=google_profile,
+                help="Managed by Google and read-only in this profile." if google_profile else None,
             )
+            if google_profile:
+                new_email = google_email
+                st.caption("Managed by Google. Changing clinic details here will not change the Google sign-in email.")
             submitted = st.form_submit_button("Save profile", type="primary", use_container_width=True)
 
         if submitted:
@@ -6729,7 +6873,7 @@ def render_profile_dialog():
             st.rerun()
 
     if hasattr(st, "dialog"):
-        @st.dialog("Profile")
+        @st.dialog("Profile", on_dismiss=close_profile_dialog)
         def _profile_dialog():
             _render_dialog_body()
         _profile_dialog()
@@ -7865,6 +8009,8 @@ st.session_state.setdefault("search_term_added_at", "")
 st.session_state.setdefault("user_name_updated_at", "")
 st.session_state.setdefault("wa_template_updated_at", "")
 st.session_state.setdefault("dataset_upload_history", [])
+st.session_state.setdefault("automatic_patient_exclusions", [])
+st.session_state.setdefault("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy())
 
 # --------------------------------
 # Helpers
@@ -8412,7 +8558,7 @@ def apply_reminder_exclusion_filters(df: pd.DataFrame, rules: dict) -> pd.DataFr
         if excluded_clients:
             client_keys = df["Client Name"].map(_exclusion_key)
             df = df[~client_keys.isin(excluded_clients)]
-    patient_exclusions = st.session_state.get("patient_exclusions", [])
+    patient_exclusions = combined_patient_exclusions()
     if patient_exclusions and {"Client Name", "Animal Name"}.issubset(df.columns):
         excluded_patient_pairs = {
             (
@@ -8770,45 +8916,38 @@ with data_tab:
     with dataset_summary_slot.container():
         render_dataset_date_range(saved_rows=saved_dataset_rows)
         render_dataset_summary_checks(saved_dataset_rows)
-    st.markdown(
-        """
-        <div class="cr-upload-help-actions">
-          <div class="cr-section-copy">Supported systems: VETport, ezyVet, Xpress, or a clean sales export.</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    if st.button("What should uploaded sales data look like?", key="open_upload_sales_data_help"):
-        st.session_state["show_upload_sales_data_help_dialog"] = True
-        st.rerun()
-
     datasets = []
     summary_rows = []
     working_df = None
-    
+
     # File uploader
     # --------------------------------
-    st.markdown(
-        """
-        <div class="cr-section-card">
-          <div class="cr-section-title">Upload files</div>
-          <p class="cr-section-copy">Choose recent sales exports. The app will check the format, merge valid files, and save the result for this clinic account.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    render_field_label(
-        st,
-        "Upload sales data files",
-        "Upload one or more sales exports. Valid uploads are saved for everyone using this clinic login."
-    )
-    files = st.file_uploader(
-        "Upload sales data files",
-        type=["csv", "xls", "xlsx"],
-        accept_multiple_files=True,
-        key=f"file_uploader_main_{st.session_state.get('file_uploader_reset_version', 0)}",
-        label_visibility="collapsed",
-    )
+    with st.container(border=True):
+        st.markdown(
+            """
+            <div class="cr-field-intro">
+              <div class="cr-section-title">Upload files</div>
+              <p class="cr-section-copy">Choose recent sales exports. The app will check the format, merge valid files, and save the result for this clinic account.</p>
+              <p class="cr-field-footnote">Supported systems: VETport, ezyVet, Xpress, or a clean sales export.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("What should uploaded sales data look like?", key="open_upload_sales_data_help"):
+            st.session_state["show_upload_sales_data_help_dialog"] = True
+            st.rerun()
+        render_field_label(
+            st,
+            "Upload sales data files",
+            "Upload one or more sales exports. Valid uploads are saved for everyone using this clinic login."
+        )
+        files = st.file_uploader(
+            "Upload sales data files",
+            type=["csv", "xls", "xlsx"],
+            accept_multiple_files=True,
+            key=f"file_uploader_main_{st.session_state.get('file_uploader_reset_version', 0)}",
+            label_visibility="collapsed",
+        )
     
     # --------------------------------
     # Cache invalidation logic — clear when files added/removed/renamed
@@ -9106,6 +9245,12 @@ with data_tab:
                         merged_min,
                         merged_max,
                     )
+                    automatic_exclusions_added = add_automatic_patient_exclusions_from_upload(new_df)
+                    if automatic_exclusions_added:
+                        st.session_state["_pending_dataset_success"] += (
+                            f" Added {automatic_exclusions_added} automatic patient passaway "
+                            f"exclusion{'s' if automatic_exclusions_added != 1 else ''}."
+                        )
                     save_settings_quietly()
     
                     st.rerun()
@@ -9116,25 +9261,7 @@ with data_tab:
     # -------------------------------------
     # Clear Clinic Data
     # -------------------------------------
-    st.markdown(
-        """
-        <div class="cr-section-card cr-danger-card">
-          <div class="cr-section-title">Clear Clinic Data</div>
-          <p class="cr-section-copy">Remove the active saved clinic data while keeping settings, search terms, exclusions, templates, and action history. To remove the clinic account and everything attached to it, use Account > Delete account and data.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    confirm_reset = st.checkbox(
-        "I understand this will remove clinic data for my clinic",
-        key="confirm_reset_dataset",
-    )
-    
-    if st.button(
-        "Clear clinic data",
-        disabled=not confirm_reset,
-        help="Clear clinic data so the clinic behaves like no data is saved."
-    ):
+    def clear_saved_clinic_data():
         set_main_section_tab("Upload Data")
         clinic_id = st.session_state.get("clinic_id")
         if not clinic_id:
@@ -9173,7 +9300,54 @@ with data_tab:
             )
 
         st.rerun()
-    
+
+    with st.container(border=True):
+        st.markdown(
+            """
+            <div class="cr-field-intro">
+              <div class="cr-section-title">Clear Clinic Data</div>
+              <p class="cr-section-copy">Remove the active saved clinic data while keeping settings, search terms, exclusions, templates, and action history. To remove the clinic account and everything attached to it, use Account > Delete account and data.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if not st.session_state.get("show_clear_clinic_data_confirm", False):
+            if st.button(
+                "Clear clinic data",
+                key="start_clear_clinic_data",
+                help="Clear clinic data so the clinic behaves like no data is saved.",
+            ):
+                st.session_state["show_clear_clinic_data_confirm"] = True
+                st.session_state["confirm_reset_dataset"] = False
+                st.rerun()
+        else:
+            st.markdown(
+                """
+                <div class="cr-field-danger-note">Please confirm this clinic data clear. Settings, search terms, exclusions, templates, and action history stay in place.</div>
+                """,
+                unsafe_allow_html=True,
+            )
+            confirm_reset = st.checkbox(
+                "I understand this will remove clinic data for my clinic",
+                key="confirm_reset_dataset",
+            )
+            confirm_col, cancel_col = st.columns([1, 1])
+            with confirm_col:
+                if st.button(
+                    "Clear clinic data",
+                    key="confirm_clear_clinic_data",
+                    disabled=not confirm_reset,
+                    help="Clear clinic data so the clinic behaves like no data is saved.",
+                    use_container_width=True,
+                ):
+                    st.session_state["show_clear_clinic_data_confirm"] = False
+                    clear_saved_clinic_data()
+            with cancel_col:
+                if st.button("Cancel", key="cancel_clear_clinic_data", use_container_width=True):
+                    st.session_state["show_clear_clinic_data_confirm"] = False
+                    st.session_state["confirm_reset_dataset"] = False
+                    st.rerun()
+
 # --------------------------------
 # Render Tables
 # --------------------------------
@@ -10094,6 +10268,11 @@ def statistics_exclusion_fp() -> str:
         "items": normalized_text_list(st.session_state.get("exclusions", [])),
         "clients": normalized_text_list(st.session_state.get("client_exclusions", [])),
         "patients": sorted(patient_exclusions, key=lambda row: (row["client"], row["patient"])),
+        "automatic_patients": normalized_text_list(
+            f"{item.get('client', '')}|{item.get('patient', '')}"
+            for item in normalize_patient_exclusions(st.session_state.get("automatic_patient_exclusions", []))
+        ),
+        "patient_passaway_keywords": normalized_text_list(st.session_state.get("patient_passaway_keywords", [])),
     }
     return hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
@@ -11180,6 +11359,139 @@ if st.session_state.get("logged_in", False):
                         st.info("This exclusion already exists.")
                 else:
                     st.error("Enter a valid exclusion term")
+
+        st.markdown("### Automatic Patient Passaway Exclusions")
+        st.caption(
+            "When uploaded item text contains one of these keywords, the matching client and patient are added here automatically."
+        )
+
+        st.session_state["patient_passaway_keywords"] = normalize_passaway_keywords(
+            st.session_state.get("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT)
+        )
+        st.session_state["automatic_patient_exclusions"] = normalize_patient_exclusions(
+            st.session_state.get("automatic_patient_exclusions", [])
+        )
+
+        if st.session_state["patient_passaway_keywords"]:
+            st.markdown("**Keywords used during upload checks**")
+            keyword_cols = st.columns([4, 1], gap="small")
+            with keyword_cols[0]:
+                st.markdown(
+                    ", ".join(f"`{keyword}`" for keyword in st.session_state["patient_passaway_keywords"])
+                )
+            with keyword_cols[1]:
+                if st.button(
+                    "Reset keywords",
+                    key=f"reset_passaway_keywords_{row_id}",
+                    help="Restore the default automatic passaway exclusion keywords.",
+                ):
+                    st.session_state["patient_passaway_keywords"] = PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()
+                    save_settings_quietly()
+                    record_settings_audit_event(
+                        "exclusion_keyword_reset",
+                        "exclusions",
+                        "automatic patient passaway keywords",
+                        "patient_passaway_keyword",
+                        "",
+                        st.session_state["patient_passaway_keywords"],
+                        "exclusions_tab",
+                    )
+                    st.rerun()
+            for keyword in st.session_state["patient_passaway_keywords"]:
+                safe_keyword = re.sub(r'[^a-zA-Z0-9_-]', '_', keyword)
+                with st.container():
+                    cols = st.columns([1.4, 0.18, 6], gap="small")
+                    with cols[0]:
+                        st.markdown(padded_html_text(keyword), unsafe_allow_html=True)
+                    with cols[1]:
+                        if st.button("×", key=f"del_passaway_keyword_{safe_keyword}", help="Remove automatic keyword"):
+                            st.session_state["patient_passaway_keywords"].remove(keyword)
+                            save_settings_quietly()
+                            record_settings_audit_event(
+                                "exclusion_keyword_deleted",
+                                "exclusions",
+                                keyword,
+                                "patient_passaway_keyword",
+                                keyword,
+                                "",
+                                "exclusions_tab",
+                            )
+                            st.rerun()
+        else:
+            st.caption("No automatic passaway keywords are active.")
+
+        kw1, kw2 = st.columns([4, 1], gap="small")
+        with kw1:
+            render_field_label(
+                st,
+                "Add Automatic Keyword",
+                "Uploaded item names containing this word or phrase will add the matching patient to automatic exclusions."
+            )
+            new_passaway_keyword = st.text_input(
+                "Add Automatic Keyword",
+                key=f"new_passaway_keyword_{row_id}",
+                label_visibility="collapsed",
+            )
+        with kw2:
+            st.markdown("<div style='height:1.65rem;'></div>", unsafe_allow_html=True)
+            if st.button("➕ Add Keyword", key=f"add_passaway_keyword_{row_id}"):
+                safe_keyword = _SPACE_RX.sub(" ", str(new_passaway_keyword or "").strip()).lower()
+                if safe_keyword:
+                    existing_keywords = set(st.session_state["patient_passaway_keywords"])
+                    if safe_keyword not in existing_keywords:
+                        st.session_state["patient_passaway_keywords"].append(safe_keyword)
+                        save_settings_quietly()
+                        record_settings_audit_event(
+                            "exclusion_keyword_added",
+                            "exclusions",
+                            safe_keyword,
+                            "patient_passaway_keyword",
+                            "",
+                            safe_keyword,
+                            "exclusions_tab",
+                        )
+                        st.session_state["new_rule_counter"] += 1
+                        st.rerun()
+                    else:
+                        st.info("This automatic keyword already exists.")
+                else:
+                    st.error("Enter a valid keyword")
+
+        st.markdown("**Automatically added patients**")
+        if st.session_state["automatic_patient_exclusions"]:
+            sorted_auto_exclusions = sorted(
+                st.session_state["automatic_patient_exclusions"],
+                key=lambda item: (
+                    str(item.get("client", "")).casefold() if isinstance(item, dict) else "",
+                    str(item.get("patient", "")).casefold() if isinstance(item, dict) else "",
+                ),
+            )
+            for exclusion_idx, exclusion in enumerate(sorted_auto_exclusions):
+                client_name = _SPACE_RX.sub(" ", str(exclusion.get("client", "") or "").strip())
+                patient_name = _SPACE_RX.sub(" ", str(exclusion.get("patient", "") or "").strip())
+                if not client_name or not patient_name:
+                    continue
+                safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"auto_{client_name}_{patient_name}_{exclusion_idx}")
+                with st.container():
+                    cols = st.columns([1.4, 0.18, 6], gap="small")
+                    with cols[0]:
+                        st.markdown(patient_exclusion_label_html(client_name, patient_name), unsafe_allow_html=True)
+                    with cols[1]:
+                        if st.button("×", key=f"del_auto_patient_excl_{safe_pair}", help="Remove automatic patient exclusion"):
+                            st.session_state["automatic_patient_exclusions"].remove(exclusion)
+                            save_settings_quietly()
+                            record_settings_audit_event(
+                                "exclusion_deleted",
+                                "exclusions",
+                                f"{client_name} - {patient_name}",
+                                "automatic_patient",
+                                exclusion,
+                                "",
+                                "exclusions_tab",
+                            )
+                            st.rerun()
+        else:
+            st.caption("No automatic patient passaway exclusions yet.")
 
     with statistics_tab:
         render_statistics_tab(prepared, applied_rules)

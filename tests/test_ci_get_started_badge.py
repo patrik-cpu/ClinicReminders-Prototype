@@ -40,14 +40,15 @@ class GetStartedBadgeTests(unittest.TestCase):
     def test_new_account_welcome_copy_is_clear_and_actionable(self):
         html = self.app.new_account_welcome_dialog_html()
 
-        self.assertIn("Welcome to Clinic Reminders", html)
-        self.assertIn("Set up your first reminders in four calm steps", html)
+        self.assertIn("Set up your first reminders", html)
+        self.assertIn("Four calm steps", html)
         self.assertIn("Upload your data", html)
         self.assertIn("Set your reminder rules", html)
         self.assertIn("Prepare your message", html)
         self.assertIn("Clear the list as you work", html)
         self.assertIn("sales export from your PMS", html)
         self.assertIn("search terms and template work are not lost", html)
+        self.assertNotIn("<h3>Welcome to Clinic Reminders</h3>", html)
         self.assertNotIn("\n    <section", html)
         self.assertNotIn("\n        <section", html)
         self.assertNotIn("I'll explore first", html)

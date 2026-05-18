@@ -81,6 +81,51 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(saved["rules"]["librela"]["days"], 30)
         self.assertEqual(saved["exclusions"], ["old", "remote-only", "local-only"])
 
+    def test_save_settings_persists_automatic_patient_exclusions_and_keywords(self):
+        self.app.cache_remote_settings(
+            "Clinic Save State",
+            {
+                "rules": {},
+                "exclusions": [],
+                "client_exclusions": [],
+                "patient_exclusions": [],
+                "automatic_patient_exclusions": [
+                    {"client": "Remote Client", "patient": "Remote Pet"}
+                ],
+                "patient_passaway_keywords": ["euthanasia"],
+            },
+        )
+        remote_settings = {
+            "rules": {},
+            "exclusions": [],
+            "client_exclusions": [],
+            "patient_exclusions": [],
+            "automatic_patient_exclusions": [
+                {"client": "Remote Client", "patient": "Remote Pet"}
+            ],
+            "patient_passaway_keywords": ["euthanasia"],
+        }
+        self.app.st.session_state["rules"] = {}
+        self.app.st.session_state["exclusions"] = []
+        self.app.st.session_state["client_exclusions"] = []
+        self.app.st.session_state["patient_exclusions"] = []
+        self.app.st.session_state["automatic_patient_exclusions"] = [
+            {"client": "Remote Client", "patient": "Remote Pet"},
+            {"client": "Local Client", "patient": "Local Pet"},
+        ]
+        self.app.st.session_state["patient_passaway_keywords"] = ["euthanasia", "pentobarb"]
+
+        saved = self.run_save_with_remote(remote_settings)
+
+        self.assertEqual(
+            saved["automatic_patient_exclusions"],
+            [
+                {"client": "Remote Client", "patient": "Remote Pet"},
+                {"client": "Local Client", "patient": "Local Pet"},
+            ],
+        )
+        self.assertEqual(saved["patient_passaway_keywords"], ["euthanasia", "pentobarb"])
+
     def test_quiet_save_refreshes_remote_by_default_to_avoid_stale_overwrite(self):
         base_settings = {
             "rules": {"rabies": {"days": 365, "use_qty": False}},
