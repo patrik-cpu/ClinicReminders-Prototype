@@ -4364,16 +4364,16 @@ def data_privacy_policy_content() -> dict:
         "headline": "Your clinic data stays your clinic data.",
         "intro": (
             "Clinic Reminders uses uploaded sales exports only to run the workflows your clinic chooses: "
-            "reminder generation, statistics, search terms, exclusions, and setup checks. We treat owner, "
-            "patient, item, billed date, quantity, and amount fields as sensitive clinic operations data."
+            "reminders, statistics, setup checks, saved search terms, exclusions, and templates. Sales, "
+            "client, patient, item, date, quantity, and amount fields are treated as sensitive clinic operations data."
         ),
         "sections": [
             {
                 "title": "What the app stores",
                 "body": (
-                    "When your clinic uploads data, the app saves a clinic-level working dataset so your team "
-                    "can return to the same reminders and statistics. Account settings, search rules, exclusions, "
-                    "and reminder action history are also saved so the app can remember your workflow."
+                    "The app saves a clinic-level working dataset so your team can return to the same reminders "
+                    "and statistics. It also saves clinic settings, search terms, exclusions, WhatsApp templates, "
+                    "and reminder action history so your workflow is not lost between sessions."
                 ),
             },
             {
@@ -4387,8 +4387,8 @@ def data_privacy_policy_content() -> dict:
                 "title": "How it is used",
                 "body": (
                     "Data is used to calculate reminders, show clinic statistics, prevent duplicate reminder work, "
-                    "and record actions such as sent or declined reminders. We do not sell clinic data or use clinic "
-                    "financial data for advertising, resale, or unrelated product work."
+                    "and record actions such as sent or declined reminders. Clinic financial data is not sold, "
+                    "used for advertising, used to train AI models, or used for unrelated product work."
                 ),
             },
             {
@@ -4402,9 +4402,9 @@ def data_privacy_policy_content() -> dict:
             {
                 "title": "Your control",
                 "body": (
-                    "You can clear active clinic data from the Upload Data tab. Account > Delete account and data "
-                    "removes the clinic account, saved settings, action history, and the saved uploaded dataset file. "
-                    "For export, retention, or permanent deletion requests, contact support so backing storage can be handled carefully."
+                    "Use Clear Clinic Data on the Upload Data tab to remove the active saved dataset while keeping "
+                    "clinic settings and search terms. Account > Delete account and data removes the clinic account, "
+                    "saved settings, action history, and saved uploaded dataset file."
                 ),
             },
             {
@@ -4414,27 +4414,23 @@ def data_privacy_policy_content() -> dict:
                     "medical notes, payment card numbers, government IDs, or files that are not needed for reminders."
                 ),
             },
+            {
+                "title": "Backups and support",
+                "body": (
+                    "The app is designed to preserve saved settings and avoid silent overwrites. If your clinic needs "
+                    "help with export, recovery, retention, or permanent deletion, contact support before making manual sheet changes."
+                ),
+            },
         ],
         "footer": (
-            "Our approach is simple: use clinic data to run the clinic's reminder workflow, keep it tied to the clinic "
-            "workspace, and avoid secondary uses that do not benefit the clinic."
+            "The aim is simple: keep clinic data tied to the clinic workspace, use it only for the reminder workflow, "
+            "and make deletion and support paths clear."
         ),
     }
 
 
 def data_assurance_box_html() -> str:
-    items = [
-        "Uploads may include clinic financial data, so the app uses them only for your clinic's reminder workflow, setup checks, and statistics.",
-        "Clinic data is not sold, used for advertising, or used for unrelated product work.",
-        "Use Clear Clinic Data to remove the active saved dataset from this workspace. Use Account > Delete account and data to remove the clinic account, saved settings, action history, and saved uploaded dataset file.",
-    ]
-    items_html = "".join(f"<li>{html_lib.escape(item)}</li>" for item in items)
-    return (
-        "<div class='data-assurance-box'>"
-        "<strong>Data & privacy</strong>"
-        f"<ul>{items_html}</ul>"
-        "</div>"
-    )
+    return ""
 
 
 def data_privacy_dialog_html(content: dict | None = None) -> str:

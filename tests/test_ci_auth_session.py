@@ -513,19 +513,26 @@ class AuthSessionTests(unittest.TestCase):
 
         self.assertIn("managed Google Drive storage", text)
         self.assertIn("managed Google Sheets", text)
-        self.assertIn("We do not sell clinic data", text)
-        self.assertIn("clinic financial data", text)
+        self.assertIn("Clinic financial data is not sold", text)
+        self.assertIn("Clinic financial data", text)
+        self.assertIn("used to train AI models", text)
+        self.assertIn("workflow is not lost", text)
         self.assertIn("unrelated product work", text)
         self.assertIn("Account > Delete account and data", text)
-        self.assertIn("permanent deletion requests", text)
+        self.assertIn("Clear Clinic Data", text)
+        self.assertIn("keeping clinic settings and search terms", text)
+        self.assertIn("export, recovery, retention, or permanent deletion", text)
 
-    def test_upload_data_assurance_box_is_clear_about_use_and_deletion(self):
-        html = self.app.data_assurance_box_html()
+    def test_upload_data_assurance_box_is_not_rendered_inline(self):
+        self.assertEqual(self.app.data_assurance_box_html(), "")
 
-        self.assertIn("Uploads may include clinic financial data", html)
-        self.assertIn("not sold", html)
-        self.assertIn("Clear Clinic Data", html)
-        self.assertIn("Delete account and data", html)
+        content = self.app.data_privacy_policy_content()
+        text = " ".join(
+            [content["headline"], content["intro"], content["footer"]]
+            + [section["title"] + " " + section["body"] for section in content["sections"]]
+        )
+        self.assertIn("Clinic financial data is not sold", text)
+        self.assertIn("Delete account and data", text)
 
     def test_data_privacy_dialog_html_escapes_policy_text(self):
         html = self.app.data_privacy_dialog_html(
