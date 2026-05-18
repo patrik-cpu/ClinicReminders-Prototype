@@ -9342,12 +9342,7 @@ with data_tab:
                         merged_min,
                         merged_max,
                     )
-                    automatic_exclusions_added = add_automatic_patient_exclusions_from_upload(new_df)
-                    if automatic_exclusions_added:
-                        st.session_state["_pending_dataset_success"] += (
-                            f" Added {automatic_exclusions_added} automatic patient passaway "
-                            f"exclusion{'s' if automatic_exclusions_added != 1 else ''}."
-                        )
+                    add_automatic_patient_exclusions_from_upload(new_df)
                     save_settings_quietly()
     
                     st.rerun()
