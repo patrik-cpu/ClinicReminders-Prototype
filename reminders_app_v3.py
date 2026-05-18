@@ -2475,7 +2475,7 @@ def auth_retry_message(action: str, retry_after_seconds: int) -> str:
     return f"Too many {action} attempts. Try again in about {minutes} {unit}."
 
 # === GOOGLE DRIVE CONFIG ===
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def get_drive_service():
     # Use Streamlit secrets first, fallback to local json file
     try:
@@ -4990,7 +4990,7 @@ def process_file(file_bytes, filename):
     return df, pms_name, amount_col
     
 # === GOOGLE SHEETS CONNECTION ===
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def get_settings_spreadsheet():
     """Connect to the shared ClinicReminders settings spreadsheet."""
     try:
@@ -5003,7 +5003,7 @@ def get_settings_spreadsheet():
     return client.open_by_key(SETTINGS_SHEET_ID)
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def get_settings_sheet():
     """Connect to the shared ClinicReminders_Settings_Master sheet."""
     return get_or_create_settings_worksheet(get_settings_spreadsheet())
@@ -11737,7 +11737,7 @@ def fetch_feedback(limit=500):
     return data[-limit:] if data else []
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=30, show_spinner=False)
 def fetch_feedback_cached(limit=500):
     # keep your existing callsites working
     return fetch_feedback(limit)
