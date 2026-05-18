@@ -8900,16 +8900,16 @@ st.markdown(
       .st-key-main_section_tab {
         border-bottom: 1px solid var(--cr-border);
         margin: 0.35rem 0 1rem;
-        overflow-x: auto;
+        overflow: visible !important;
         padding-top: 0.15rem;
-        scrollbar-width: thin;
       }
       .st-key-main_section_tab [data-testid="stSegmentedControl"],
       .st-key-main_section_tab div[role="radiogroup"] {
         align-items: flex-end !important;
         display: flex !important;
-        flex-wrap: nowrap !important;
+        flex-wrap: wrap !important;
         gap: 0.2rem !important;
+        overflow: visible !important;
       }
       .st-key-main_section_tab [role="radio"],
       .st-key-main_section_tab button,
