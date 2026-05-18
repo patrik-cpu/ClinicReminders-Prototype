@@ -67,8 +67,8 @@ class DatasetUpdateTests(unittest.TestCase):
 
         self.assertIn("dataset-check-grid", html)
         self.assertEqual(html.count("dataset-check "), 3)
-        self.assertIn("Same supported practice system", html)
-        self.assertIn("Key reminder window covered", html)
+        self.assertIn("Same supported PMS", html)
+        self.assertIn("30-365 day reminder window covered", html)
         self.assertIn("No 3+ day gaps between uploads", html)
         self.assertEqual(html.count("dataset-check good"), 3)
 
@@ -108,7 +108,7 @@ class DatasetUpdateTests(unittest.TestCase):
             checks = self.app.dataset_summary_checks(rows)
 
         self.assertFalse(checks[1]["good"])
-        self.assertEqual(checks[1]["text"], "Key reminder window needs data")
+        self.assertEqual(checks[1]["text"], "30-365 day reminder window needs data")
 
     def test_upload_data_badge_clears_when_dataset_checks_are_green(self):
         rows = [

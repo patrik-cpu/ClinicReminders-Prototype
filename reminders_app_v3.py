@@ -3242,14 +3242,14 @@ def dataset_summary_checks(rows: list[dict]) -> list[dict]:
     return [
         {
             "good": supported_pms and same_pms,
-            "text": "Same supported practice system" if supported_pms and same_pms else "Upload formats need attention",
+            "text": "Same supported PMS" if supported_pms and same_pms else "Upload formats need attention",
         },
         {
             "good": has_impact_window,
             "text": (
-                "Key reminder window covered"
+                "30-365 day reminder window covered"
                 if has_impact_window
-                else "Key reminder window needs data"
+                else "30-365 day reminder window needs data"
             ),
         },
         {
