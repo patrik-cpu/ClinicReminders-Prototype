@@ -52,6 +52,7 @@ SESSION_BUNDLE_SCHEMA_VERSION = 1
 STATISTICS_GENERATED_SCHEMA_VERSION = 1
 PRECOMPUTE_ANALYTICS_BUNDLE = False
 UPLOAD_SUMMARY_SCHEMA_VERSION = 2
+DEFAULT_REMINDER_LOOKBACK_DAYS = 2
 DRIVE_SCOPE = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
@@ -3769,11 +3770,11 @@ def load_settings():
             st.session_state["reminder_window_days"] = max(0, int(raw_window_days if raw_window_days not in (None, "") else 1))
         except (TypeError, ValueError):
             st.session_state["reminder_window_days"] = 1
-        raw_lookback_days = settings.get("reminder_lookback_days", 5)
+        raw_lookback_days = settings.get("reminder_lookback_days", DEFAULT_REMINDER_LOOKBACK_DAYS)
         try:
-            st.session_state["reminder_lookback_days"] = max(0, int(raw_lookback_days if raw_lookback_days not in (None, "") else 5))
+            st.session_state["reminder_lookback_days"] = max(0, int(raw_lookback_days if raw_lookback_days not in (None, "") else DEFAULT_REMINDER_LOOKBACK_DAYS))
         except (TypeError, ValueError):
-            st.session_state["reminder_lookback_days"] = 5
+            st.session_state["reminder_lookback_days"] = DEFAULT_REMINDER_LOOKBACK_DAYS
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
         migrated_legacy_actions = False
         legacy_wa_log = settings.get("wa_reminder_log", [])
@@ -3812,7 +3813,7 @@ def load_settings():
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
         st.session_state["client_group_days"] = 1
         st.session_state["reminder_window_days"] = 1
-        st.session_state["reminder_lookback_days"] = 5
+        st.session_state["reminder_lookback_days"] = DEFAULT_REMINDER_LOOKBACK_DAYS
         st.session_state["reminder_warning_days"] = 0
         st.session_state["wa_reminder_log"] = []
         st.session_state["deleted_reminders"] = []
@@ -4094,7 +4095,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
         "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
         "reminder_window_days": max(0, int_setting_for_save("reminder_window_days", 1)),
-        "reminder_lookback_days": max(0, int_setting_for_save("reminder_lookback_days", 5)),
+        "reminder_lookback_days": max(0, int_setting_for_save("reminder_lookback_days", DEFAULT_REMINDER_LOOKBACK_DAYS)),
         "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", 0)),
         "search_terms_reviewed": bool(setting_for_save("search_terms_reviewed", False)),
         "search_term_added": bool(setting_for_save("search_term_added", False)),
@@ -6351,7 +6352,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "user_template": DEFAULT_WA_TEMPLATE,
         "client_group_days": 1,
         "reminder_window_days": 1,
-        "reminder_lookback_days": 5,
+        "reminder_lookback_days": DEFAULT_REMINDER_LOOKBACK_DAYS,
         "reminder_warning_days": 0,
         "action_tracker_migrated_at": "",
         "search_terms_reviewed": False,
@@ -8636,11 +8637,11 @@ def normalized_reminder_window_days(value=None) -> int:
 
 
 def normalized_reminder_lookback_days(value=None) -> int:
-    value = st.session_state.get("reminder_lookback_days", 5) if value is None else value
+    value = st.session_state.get("reminder_lookback_days", DEFAULT_REMINDER_LOOKBACK_DAYS) if value is None else value
     try:
         return min(30, max(0, int(value)))
     except (TypeError, ValueError):
-        return 5
+        return DEFAULT_REMINDER_LOOKBACK_DAYS
 
 
 def normalized_reminder_group_days(value=None) -> int:
@@ -8704,7 +8705,7 @@ def reminders_caught_up_period_text(lookback_days: int) -> str:
     try:
         lookback_days = max(0, int(lookback_days))
     except (TypeError, ValueError):
-        lookback_days = 5
+        lookback_days = DEFAULT_REMINDER_LOOKBACK_DAYS
     if lookback_days == 0:
         return "today"
     if lookback_days == 1:

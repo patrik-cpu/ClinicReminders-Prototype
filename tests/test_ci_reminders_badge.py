@@ -28,6 +28,11 @@ class RemindersBadgeTests(unittest.TestCase):
         self.assertIn("3 active reminders in the look-back window", label)
         self.assertIn("data:image/svg+xml;base64", label)
 
+    def test_default_lookback_days_is_two(self):
+        self.assertEqual(self.app.DEFAULT_REMINDER_LOOKBACK_DAYS, 2)
+        self.assertEqual(self.app.normalized_reminder_lookback_days(), 2)
+        self.assertEqual(self.app.normalized_reminder_lookback_days("bad"), 2)
+
     def test_badge_count_includes_lookback_days_and_excludes_actioned_rows(self):
         today_row = {
             "Reminder Date": "16 May 2026",
