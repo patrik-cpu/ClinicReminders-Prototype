@@ -11757,6 +11757,10 @@ def render_search_terms_editor():
     # --------------------------------
 
 
+def set_reminders_start_date_to_today():
+    st.session_state["reminders_start_date"] = user_today()
+
+
 # --------------------------------
 # Main
 # --------------------------------
@@ -11797,7 +11801,7 @@ if st.session_state.get("logged_in", False):
         if st.session_state.get("reminder_lookback_days") != current_lookback_days:
             st.session_state["reminder_lookback_days"] = current_lookback_days
 
-        start_col, today_button_col, lookback_col, window_col, group_col, warning_col = st.columns([2, 0.7, 2, 2, 2, 2])
+        start_col, today_button_col, lookback_col, window_col, group_col, warning_col = st.columns([2, 1.05, 2, 2, 2, 2])
         with start_col:
             render_field_label(
                 st,
@@ -11813,9 +11817,13 @@ if st.session_state.get("logged_in", False):
             )
         with today_button_col:
             st.markdown("<div style='height:1.95rem;'></div>", unsafe_allow_html=True)
-            if st.button("Today", key="reminders_jump_to_today", use_container_width=True, help="Reset the reminder date to today."):
-                st.session_state["reminders_start_date"] = user_today()
-                st.rerun()
+            st.button(
+                "Today",
+                key="reminders_jump_to_today",
+                use_container_width=True,
+                help="Reset the reminder date to today.",
+                on_click=set_reminders_start_date_to_today,
+            )
         with lookback_col:
             render_field_label(
                 st,
