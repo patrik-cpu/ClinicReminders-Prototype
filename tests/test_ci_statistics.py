@@ -386,6 +386,80 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertEqual(outcomes.iloc[0]["Outcome"], "No Match")
 
+    def test_reminder_outcomes_match_truncated_display_item_to_raw_sale_item(self):
+        actions = [
+            {
+                "Reminder Date": "01 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "01 May 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Dermosc...",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-01T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-12",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Dermoscent Essential 6 Spot-On",
+                    "Amount": 75,
+                }
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=30,
+            today=date(2026, 6, 1),
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
+        self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 75.0)
+
+    def test_reminder_outcomes_match_visible_text_to_search_term_raw_sale_item(self):
+        actions = [
+            {
+                "Reminder Date": "01 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "01 May 2025",
+                "Client Name": "Client\u00a0A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Revolution",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-01T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-12",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Selamectin spot-on",
+                    "Amount": 125,
+                }
+            ]
+        )
+        rules = {"selamectin": {"days": 30, "visible_text": "Revolution"}}
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=30,
+            today=date(2026, 6, 1),
+            rules=rules,
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
+        self.assertEqual(outcomes.iloc[0]["Matched Item"], "Selamectin spot-on")
+
     def test_outcome_group_frame_summarizes_success_rates(self):
         outcomes = pd.DataFrame(
             [

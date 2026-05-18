@@ -10731,8 +10731,15 @@ def normalize_outcome_text(value) -> str:
     return _SPACE_RX.sub(" ", str(value or "").strip()).lower()
 
 
+def normalize_outcome_item_text(value) -> str:
+    text = unicodedata.normalize("NFKC", str(value or "")).lower()
+    text = re.sub(r"[\u00a0\u200b\ufeff]", " ", text)
+    text = re.sub(r"[-+/().,]", " ", text)
+    return _SPACE_RX.sub(" ", text).strip()
+
+
 def normalize_outcome_identity(value) -> str:
-    return _exclusion_key(value)
+    return normalize_key_series(pd.Series([value])).iloc[0]
 
 
 def first_statistics_date(value) -> date | None:
@@ -10740,27 +10747,36 @@ def first_statistics_date(value) -> date | None:
     return min(dates) if dates else None
 
 
-def outcome_item_terms(item_text) -> list[str]:
-    raw = normalize_outcome_text(item_text)
+def outcome_item_terms(item_text, rules: dict | None = None) -> list[str]:
+    raw = normalize_outcome_item_text(item_text)
     if not raw:
         return []
-    parts = re.split(r"\s*(?:\||,|/|;|\band\b|\+)\s*", raw)
+    parts = re.split(r"\s*(?:\||,|/|;|\band\b|\+)\s*", str(item_text or "").strip(), flags=re.IGNORECASE)
     terms = []
     seen = set()
     for part in [raw, *parts]:
-        term = normalize_outcome_text(part)
+        term = normalize_outcome_item_text(part)
         if len(term) < 2 or term in seen:
             continue
         seen.add(term)
         terms.append(term)
+
+    for rule_text, settings in (rules or {}).items():
+        rule_term = normalize_outcome_item_text(rule_text)
+        visible_term = normalize_outcome_item_text((settings or {}).get("visible_text", ""))
+        if not rule_term or rule_term in seen:
+            continue
+        if (visible_term and (visible_term == raw or visible_term in raw or raw in visible_term)) or rule_term in raw:
+            seen.add(rule_term)
+            terms.append(rule_term)
     return terms
 
 
-def outcome_item_matches(reminder_item, sale_item) -> bool:
-    sale_key = normalize_outcome_text(sale_item)
+def outcome_item_matches(reminder_item, sale_item, rules: dict | None = None) -> bool:
+    sale_key = normalize_outcome_item_text(sale_item)
     if not sale_key:
         return False
-    return any(term and (term in sale_key or sale_key in term) for term in outcome_item_terms(reminder_item))
+    return any(term and (term in sale_key or sale_key in term) for term in outcome_item_terms(reminder_item, rules))
 
 
 def split_grouped_display_parts(value) -> list[str]:
@@ -10855,7 +10871,7 @@ def prepare_sales_for_outcomes(sales_df: pd.DataFrame) -> pd.DataFrame:
     working["OutcomeChargeDate"] = pd.to_datetime(working["ChargeDate"], errors="coerce").dt.date
     working["OutcomeClientKey"] = working["Client Name"].map(normalize_outcome_identity)
     working["OutcomePatientKey"] = working["Animal Name"].map(normalize_outcome_identity)
-    working["OutcomeItemKey"] = working["Item Name"].map(normalize_outcome_text)
+    working["OutcomeItemKey"] = working["Item Name"].map(normalize_outcome_item_text)
     working["OutcomeAmount"] = pd.to_numeric(working["Amount"], errors="coerce").fillna(0)
     working = working.dropna(subset=["OutcomeChargeDate"])
     return working
@@ -10882,6 +10898,7 @@ def build_reminder_outcomes(
     on_time_grace_days: int = DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS,
     today: date | None = None,
     attribution_days: int | None = None,
+    rules: dict | None = None,
 ) -> pd.DataFrame:
     today = today or user_today()
     if attribution_days is not None:
@@ -10940,7 +10957,7 @@ def build_reminder_outcomes(
             candidates = sales.loc[candidate_mask].copy()
             if not candidates.empty:
                 candidates = candidates.loc[
-                    candidates["Item Name"].map(lambda value: outcome_item_matches(item_name, value))
+                    candidates["Item Name"].map(lambda value: outcome_item_matches(item_name, value, rules))
                 ].sort_values("OutcomeChargeDate")
                 if not candidates.empty:
                     success_row = candidates.iloc[0]
@@ -11178,6 +11195,7 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
             due_date_window_days=due_date_window_days,
             on_time_grace_days=on_time_grace_days,
             today=user_today(),
+            rules=get_applied_reminder_rules(),
         )
         period_rows = filter_outcomes_for_period(outcome_rows, selected_period, today=user_today())
 
