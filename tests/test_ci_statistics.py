@@ -132,6 +132,102 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertNotEqual(original_fp, changed_fp)
 
+    def test_reminder_outcomes_match_sent_reminder_to_future_sale(self):
+        actions = [
+            {
+                "Reminder Date": "01 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "01 May 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-01T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-12",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 100,
+                }
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            attribution_days=30,
+            on_time_grace_days=14,
+            today=date(2026, 6, 1),
+        )
+
+        self.assertEqual(len(outcomes), 1)
+        row = outcomes.iloc[0]
+        self.assertEqual(row["Outcome"], "Reminder Success")
+        self.assertEqual(row["Timing"], "On time")
+        self.assertEqual(int(row["Days to Success"]), 11)
+        self.assertEqual(int(row["Days vs Due Date"]), 2)
+        self.assertEqual(float(row["Revenue"]), 100.0)
+        self.assertEqual(row["Matched Item"], "Rabies Vaccine")
+
+    def test_reminder_outcomes_report_no_match_after_window(self):
+        actions = [
+            {
+                "Reminder Date": "01 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "01 May 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-01T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-12",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Dental Scale",
+                    "Amount": 100,
+                }
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            attribution_days=7,
+            today=date(2026, 6, 1),
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "No Match")
+
+    def test_outcome_group_frame_summarizes_success_rates(self):
+        outcomes = pd.DataFrame(
+            [
+                {"Sender": "Nurse A", "Outcome": "Reminder Success", "Timing": "On time", "Days to Success": 5, "Days vs Due Date": 0, "Revenue": 120},
+                {"Sender": "Nurse A", "Outcome": "No Match", "Timing": "", "Days to Success": None, "Days vs Due Date": None, "Revenue": 0},
+                {"Sender": "Nurse B", "Outcome": "Reminder Success", "Timing": "Late", "Days to Success": 20, "Days vs Due Date": 15, "Revenue": 80},
+            ]
+        )
+
+        grouped = self.app.build_outcome_group_frame(outcomes, "Sender")
+        rows = {row["Sender"]: row for row in grouped.to_dict("records")}
+
+        self.assertEqual(rows["Nurse A"]["Sent"], 2)
+        self.assertEqual(rows["Nurse A"]["Successes"], 1)
+        self.assertEqual(rows["Nurse A"]["Success Rate"], 0.5)
+        self.assertEqual(rows["Nurse A"]["On-time Rate"], 1.0)
+        self.assertEqual(rows["Nurse B"]["Late Recovery Rate"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

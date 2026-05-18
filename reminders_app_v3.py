@@ -60,10 +60,11 @@ DRIVE_SCOPE = [
 
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
-MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Statistics"]
+MAIN_SECTION_TABS = ["Reminders", "Outcomes", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Statistics"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 MAIN_SECTION_TAB_SLUGS = {
     "reminders": "Reminders",
+    "outcomes": "Outcomes",
     "get-started": "Get Started",
     "upload-data": "Upload Data",
     "search-terms": "Search Terms",
@@ -8894,7 +8895,7 @@ consume_main_section_tab_query_param()
 default_main_section_tab = st.session_state.get("main_section_tab", "Reminders")
 if default_main_section_tab not in MAIN_SECTION_TABS:
     default_main_section_tab = "Reminders"
-reminders_page_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab, statistics_tab = st.tabs(
+reminders_page_tab, outcomes_tab, get_started_tab, data_tab, search_terms_tab, exclusions_tab, statistics_tab = st.tabs(
     main_section_tab_labels,
     default=main_section_tab_label_map[default_main_section_tab],
 )
@@ -10252,6 +10253,25 @@ def normalize_display_case(text: str) -> str:
 
 STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
 STATISTICS_GENERATED_COLUMNS = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
+OUTCOME_PERIODS = ["Today", "7 days", "30 days", "All time"]
+DEFAULT_OUTCOME_ATTRIBUTION_DAYS = 180
+DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS = 14
+OUTCOME_TABLE_COLUMNS = [
+    "Sent Date",
+    "Due Date",
+    "Success Date",
+    "Window Ends",
+    "Client Name",
+    "Animal Name",
+    "Item",
+    "Sender",
+    "Outcome",
+    "Timing",
+    "Days to Success",
+    "Days vs Due Date",
+    "Revenue",
+    "Matched Item",
+]
 
 
 def statistics_exclusion_fp() -> str:
@@ -10597,6 +10617,460 @@ def build_statistics_item_frame(
 
 def render_statistics_metric_card(label: str, value: str):
     st.metric(label, value)
+
+
+def empty_outcome_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=OUTCOME_TABLE_COLUMNS)
+
+
+def normalize_outcome_text(value) -> str:
+    return _SPACE_RX.sub(" ", str(value or "").strip()).lower()
+
+
+def normalize_outcome_identity(value) -> str:
+    return _exclusion_key(value)
+
+
+def first_statistics_date(value) -> date | None:
+    dates = parse_statistics_dates(value)
+    return min(dates) if dates else None
+
+
+def outcome_item_terms(item_text) -> list[str]:
+    raw = normalize_outcome_text(item_text)
+    if not raw:
+        return []
+    parts = re.split(r"\s*(?:\||,|/|;|\band\b|\+)\s*", raw)
+    terms = []
+    seen = set()
+    for part in [raw, *parts]:
+        term = normalize_outcome_text(part)
+        if len(term) < 2 or term in seen:
+            continue
+        seen.add(term)
+        terms.append(term)
+    return terms
+
+
+def outcome_item_matches(reminder_item, sale_item) -> bool:
+    sale_key = normalize_outcome_text(sale_item)
+    if not sale_key:
+        return False
+    return any(term and (term in sale_key or sale_key in term) for term in outcome_item_terms(reminder_item))
+
+
+def prepare_sales_for_outcomes(sales_df: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "ChargeDate",
+        "Client Name",
+        "Animal Name",
+        "Item Name",
+        "Amount",
+        "OutcomeChargeDate",
+        "OutcomeClientKey",
+        "OutcomePatientKey",
+        "OutcomeItemKey",
+        "OutcomeAmount",
+    ]
+    if sales_df is None or getattr(sales_df, "empty", True):
+        return pd.DataFrame(columns=columns)
+
+    working = sales_df.copy()
+    for required in ["ChargeDate", "Client Name", "Animal Name", "Item Name"]:
+        if required not in working.columns:
+            return pd.DataFrame(columns=columns)
+    if "Amount" not in working.columns:
+        working["Amount"] = 0
+
+    working["OutcomeChargeDate"] = pd.to_datetime(working["ChargeDate"], errors="coerce").dt.date
+    working["OutcomeClientKey"] = working["Client Name"].map(normalize_outcome_identity)
+    working["OutcomePatientKey"] = working["Animal Name"].map(normalize_outcome_identity)
+    working["OutcomeItemKey"] = working["Item Name"].map(normalize_outcome_text)
+    working["OutcomeAmount"] = pd.to_numeric(working["Amount"], errors="coerce").fillna(0)
+    working = working.dropna(subset=["OutcomeChargeDate"])
+    return working
+
+
+def outcome_timing_label(days_vs_due, on_time_grace_days: int) -> str:
+    if days_vs_due is None or pd.isna(days_vs_due):
+        return ""
+    try:
+        offset = int(days_vs_due)
+    except (TypeError, ValueError):
+        return ""
+    if offset < -on_time_grace_days:
+        return "Early"
+    if offset <= on_time_grace_days:
+        return "On time"
+    return "Late"
+
+
+def build_reminder_outcomes(
+    action_records: list[dict],
+    sales_df: pd.DataFrame,
+    attribution_days: int = DEFAULT_OUTCOME_ATTRIBUTION_DAYS,
+    on_time_grace_days: int = DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS,
+    today: date | None = None,
+) -> pd.DataFrame:
+    today = today or user_today()
+    try:
+        attribution_days = max(0, int(attribution_days))
+    except (TypeError, ValueError):
+        attribution_days = DEFAULT_OUTCOME_ATTRIBUTION_DAYS
+    try:
+        on_time_grace_days = max(0, int(on_time_grace_days))
+    except (TypeError, ValueError):
+        on_time_grace_days = DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS
+
+    sales = prepare_sales_for_outcomes(sales_df)
+    reduced_records = reduce_action_tracker_records([
+        record for record in action_records or []
+        if isinstance(record, dict)
+    ])
+    sent_records = [
+        record for record in reduced_records
+        if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT
+    ]
+    if not sent_records:
+        return empty_outcome_frame()
+
+    rows = []
+    for record in sent_records:
+        sent_dt = _parse_reminder_log_time(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
+        sent_date = sent_dt.date() if sent_dt else None
+        due_date = first_statistics_date(record.get("Due Date", ""))
+        window_end = sent_date + timedelta(days=attribution_days) if sent_date else None
+        client_name = normalize_display_case(str(record.get("Client Name", "") or "").strip())
+        animal_name = normalize_display_case(str(record.get("Animal Name", "") or "").strip())
+        item_name = normalize_display_case(str(record.get("Plan Item", "") or "").strip())
+        sender = str(record.get("Actioned By", "") or "").strip() or "Unknown"
+        success_row = None
+
+        if sent_date and not sales.empty:
+            client_key = normalize_outcome_identity(client_name)
+            patient_key = normalize_outcome_identity(animal_name)
+            candidate_mask = (
+                (sales["OutcomeClientKey"] == client_key)
+                & (sales["OutcomePatientKey"] == patient_key)
+                & (sales["OutcomeChargeDate"] >= sent_date)
+                & (sales["OutcomeChargeDate"] <= window_end)
+            )
+            candidates = sales.loc[candidate_mask].copy()
+            if not candidates.empty:
+                candidates = candidates.loc[
+                    candidates["Item Name"].map(lambda value: outcome_item_matches(item_name, value))
+                ].sort_values("OutcomeChargeDate")
+                if not candidates.empty:
+                    success_row = candidates.iloc[0]
+
+        success_date = None
+        matched_item = ""
+        revenue = 0.0
+        days_to_success = None
+        days_vs_due = None
+        timing = ""
+        if success_row is not None:
+            success_date = success_row["OutcomeChargeDate"]
+            matched_item = normalize_display_case(str(success_row.get("Item Name", "") or "").strip())
+            revenue = float(success_row.get("OutcomeAmount", 0) or 0)
+            days_to_success = (success_date - sent_date).days if sent_date else None
+            days_vs_due = (success_date - due_date).days if due_date else None
+            timing = outcome_timing_label(days_vs_due, on_time_grace_days)
+            outcome = "Reminder Success"
+        elif sent_date is None:
+            outcome = "Not Measurable"
+        elif window_end and window_end >= today:
+            outcome = "Pending"
+        else:
+            outcome = "No Match"
+
+        rows.append({
+            "Sent Date": pd.Timestamp(sent_date) if sent_date else pd.NaT,
+            "Due Date": pd.Timestamp(due_date) if due_date else pd.NaT,
+            "Success Date": pd.Timestamp(success_date) if success_date else pd.NaT,
+            "Window Ends": pd.Timestamp(window_end) if window_end else pd.NaT,
+            "Client Name": client_name,
+            "Animal Name": animal_name,
+            "Item": item_name,
+            "Sender": sender,
+            "Outcome": outcome,
+            "Timing": timing,
+            "Days to Success": days_to_success,
+            "Days vs Due Date": days_vs_due,
+            "Revenue": revenue,
+            "Matched Item": matched_item,
+        })
+
+    return pd.DataFrame(rows, columns=OUTCOME_TABLE_COLUMNS)
+
+
+def filter_outcomes_for_period(outcomes_df: pd.DataFrame, period: str, today: date | None = None) -> pd.DataFrame:
+    if outcomes_df is None or outcomes_df.empty:
+        return empty_outcome_frame()
+    today = today or user_today()
+    start = statistics_period_start(period, today)
+    if start is None:
+        return outcomes_df.copy()
+    sent_dates = pd.to_datetime(outcomes_df["Sent Date"], errors="coerce").dt.date
+    return outcomes_df.loc[(sent_dates >= start) & (sent_dates <= today)].copy()
+
+
+def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
+    if outcomes_df is None or outcomes_df.empty:
+        return {
+            "sent": 0,
+            "successes": 0,
+            "pending": 0,
+            "no_match": 0,
+            "success_rate": 0.0,
+            "on_time_rate": 0.0,
+            "late_recovery_rate": 0.0,
+            "avg_days_to_success": None,
+            "avg_days_vs_due": None,
+            "revenue": 0.0,
+        }
+    sent = len(outcomes_df.index)
+    success_mask = outcomes_df["Outcome"].eq("Reminder Success")
+    successes = int(success_mask.sum())
+    success_df = outcomes_df.loc[success_mask]
+    measurable = int(outcomes_df["Outcome"].isin(["Reminder Success", "No Match"]).sum())
+    on_time = int(success_df["Timing"].eq("On time").sum()) if not success_df.empty else 0
+    late = int(success_df["Timing"].eq("Late").sum()) if not success_df.empty else 0
+    return {
+        "sent": sent,
+        "successes": successes,
+        "pending": int(outcomes_df["Outcome"].eq("Pending").sum()),
+        "no_match": int(outcomes_df["Outcome"].eq("No Match").sum()),
+        "success_rate": (successes / measurable) if measurable else 0.0,
+        "on_time_rate": (on_time / successes) if successes else 0.0,
+        "late_recovery_rate": (late / successes) if successes else 0.0,
+        "avg_days_to_success": pd.to_numeric(success_df["Days to Success"], errors="coerce").mean() if successes else None,
+        "avg_days_vs_due": pd.to_numeric(success_df["Days vs Due Date"], errors="coerce").mean() if successes else None,
+        "revenue": float(pd.to_numeric(success_df["Revenue"], errors="coerce").fillna(0).sum()) if successes else 0.0,
+    }
+
+
+def build_outcome_group_frame(outcomes_df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+    columns = [
+        group_col,
+        "Sent",
+        "Successes",
+        "Pending",
+        "No Match",
+        "Success Rate",
+        "On-time Rate",
+        "Late Recovery Rate",
+        "Avg Days to Success",
+        "Avg Days vs Due Date",
+        "Revenue",
+    ]
+    if outcomes_df is None or outcomes_df.empty or group_col not in outcomes_df.columns:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    source = outcomes_df.copy()
+    source[group_col] = source[group_col].fillna("").astype(str).str.strip().replace("", "Unknown")
+    for group_value, group_df in source.groupby(group_col, dropna=False):
+        summary = summarize_outcomes(group_df)
+        rows.append({
+            group_col: group_value,
+            "Sent": summary["sent"],
+            "Successes": summary["successes"],
+            "Pending": summary["pending"],
+            "No Match": summary["no_match"],
+            "Success Rate": summary["success_rate"],
+            "On-time Rate": summary["on_time_rate"],
+            "Late Recovery Rate": summary["late_recovery_rate"],
+            "Avg Days to Success": summary["avg_days_to_success"],
+            "Avg Days vs Due Date": summary["avg_days_vs_due"],
+            "Revenue": summary["revenue"],
+        })
+    frame = pd.DataFrame(rows, columns=columns)
+    return frame.sort_values(["Successes", "Sent"], ascending=False)
+
+
+def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
+    columns = ["Sent Date", "Sent", "Successes", "Pending", "No Match", "Success Rate", "Revenue"]
+    if outcomes_df is None or outcomes_df.empty:
+        return pd.DataFrame(columns=columns)
+    source = outcomes_df.copy()
+    source["Sent Date"] = pd.to_datetime(source["Sent Date"], errors="coerce").dt.date
+    source = source.dropna(subset=["Sent Date"])
+    rows = []
+    for sent_date, day_df in source.groupby("Sent Date", dropna=False):
+        summary = summarize_outcomes(day_df)
+        rows.append({
+            "Sent Date": pd.Timestamp(sent_date),
+            "Sent": summary["sent"],
+            "Successes": summary["successes"],
+            "Pending": summary["pending"],
+            "No Match": summary["no_match"],
+            "Success Rate": summary["success_rate"],
+            "Revenue": summary["revenue"],
+        })
+    return pd.DataFrame(rows, columns=columns).sort_values("Sent Date")
+
+
+def format_outcome_number(value) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    return f"{float(value):.1f}"
+
+
+def format_outcome_currency(value) -> str:
+    try:
+        amount = float(value or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    return f"{amount:,.0f}"
+
+
+def render_outcome_dataframe(frame: pd.DataFrame):
+    if frame.empty:
+        st.info("No outcome rows for this view yet.")
+        return
+    st.dataframe(
+        frame,
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "Success Rate": st.column_config.ProgressColumn("Success Rate", format="percent", min_value=0, max_value=1),
+            "On-time Rate": st.column_config.ProgressColumn("On-time Rate", format="percent", min_value=0, max_value=1),
+            "Late Recovery Rate": st.column_config.ProgressColumn("Late Recovery Rate", format="percent", min_value=0, max_value=1),
+            "Revenue": st.column_config.NumberColumn("Revenue", format="localized"),
+        },
+    )
+
+
+def render_outcomes_tab(sales_df: pd.DataFrame):
+    st.markdown("<div id='outcomes' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("## Reminder Outcomes")
+    st.caption("Match sent reminders against later uploaded sales for the same client, patient, and item text.")
+
+    controls = st.columns([2, 1, 1], gap="large")
+    with controls[0]:
+        if hasattr(st, "segmented_control"):
+            selected_period = st.segmented_control(
+                "Outcomes period",
+                OUTCOME_PERIODS,
+                selection_mode="single",
+                default=st.session_state.get("outcomes_period", "30 days") if st.session_state.get("outcomes_period", "30 days") in OUTCOME_PERIODS else "30 days",
+                key="outcomes_period",
+                label_visibility="collapsed",
+            ) or "30 days"
+        else:
+            selected_period = st.radio(
+                "Outcomes period",
+                OUTCOME_PERIODS,
+                index=OUTCOME_PERIODS.index(st.session_state.get("outcomes_period", "30 days")) if st.session_state.get("outcomes_period", "30 days") in OUTCOME_PERIODS else 2,
+                horizontal=True,
+                key="outcomes_period",
+                label_visibility="collapsed",
+            )
+    with controls[1]:
+        attribution_days = st.number_input(
+            "Days to search after sent",
+            min_value=0,
+            max_value=1095,
+            value=int(st.session_state.get("outcome_attribution_days", DEFAULT_OUTCOME_ATTRIBUTION_DAYS)),
+            step=1,
+            key="outcome_attribution_days",
+        )
+    with controls[2]:
+        on_time_grace_days = st.number_input(
+            "On-time grace days",
+            min_value=0,
+            max_value=90,
+            value=int(st.session_state.get("outcome_on_time_grace_days", DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS)),
+            step=1,
+            key="outcome_on_time_grace_days",
+        )
+
+    with st.spinner("Matching sent reminders to later sales..."):
+        outcome_rows = build_reminder_outcomes(
+            statistics_current_action_records(),
+            sales_df,
+            attribution_days=attribution_days,
+            on_time_grace_days=on_time_grace_days,
+            today=user_today(),
+        )
+        period_rows = filter_outcomes_for_period(outcome_rows, selected_period, today=user_today())
+
+    if outcome_rows.empty:
+        st.info("No sent reminders have been recorded yet.")
+        return
+    if period_rows.empty:
+        st.info("No sent reminders fall inside this period.")
+        return
+
+    summary = summarize_outcomes(period_rows)
+    overview_tab, sent_tab, success_tab, item_tab, sender_tab, time_tab = st.tabs(
+        ["Overview", "Sent", "Successes", "By Item", "By Sender", "By Date"]
+    )
+
+    with overview_tab:
+        metric_cols = st.columns(5)
+        metrics = [
+            ("Sent", f"{summary['sent']:,}"),
+            ("Reminder Successes", f"{summary['successes']:,}"),
+            ("Success Rate", f"{summary['success_rate']:.0%}"),
+            ("Pending", f"{summary['pending']:,}"),
+            ("Revenue", format_outcome_currency(summary["revenue"])),
+        ]
+        for col, (label, value) in zip(metric_cols, metrics):
+            with col:
+                render_statistics_metric_card(label, value)
+
+        metric_cols = st.columns(4)
+        more_metrics = [
+            ("Avg Days to Success", format_outcome_number(summary["avg_days_to_success"])),
+            ("Avg Days vs Due Date", format_outcome_number(summary["avg_days_vs_due"])),
+            ("On-time Rate", f"{summary['on_time_rate']:.0%}"),
+            ("Late Recovery Rate", f"{summary['late_recovery_rate']:.0%}"),
+        ]
+        for col, (label, value) in zip(metric_cols, more_metrics):
+            with col:
+                render_statistics_metric_card(label, value)
+
+        time_frame = build_outcome_time_frame(period_rows)
+        if not time_frame.empty:
+            chart_source = time_frame.melt(
+                id_vars=["Sent Date"],
+                value_vars=["Sent", "Successes"],
+                var_name="Metric",
+                value_name="Count",
+            )
+            chart = (
+                alt.Chart(chart_source)
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("Sent Date:T", title="Sent Date"),
+                    y=alt.Y("Count:Q", title="Reminders"),
+                    color=alt.Color("Metric:N", title="Metric"),
+                    tooltip=["Sent Date:T", "Metric:N", "Count:Q"],
+                )
+                .properties(height=300)
+            )
+            st.altair_chart(chart, use_container_width=True)
+
+    with sent_tab:
+        render_outcome_dataframe(period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True]))
+
+    with success_tab:
+        success_rows = period_rows.loc[period_rows["Outcome"].eq("Reminder Success")].sort_values(
+            ["Success Date", "Client Name"],
+            ascending=[False, True],
+        )
+        render_outcome_dataframe(success_rows)
+
+    with item_tab:
+        render_outcome_dataframe(build_outcome_group_frame(period_rows, "Item"))
+
+    with sender_tab:
+        render_outcome_dataframe(build_outcome_group_frame(period_rows, "Sender"))
+
+    with time_tab:
+        render_outcome_dataframe(build_outcome_time_frame(period_rows))
 
 
 def statistics_completion_metric_labels(period: str) -> list[str]:
@@ -11178,6 +11652,9 @@ if st.session_state.get("logged_in", False):
                 st.info("All reminders in the selected date range are hidden by exclusions.")
             elif should_show_no_reminders_info(reminders_before_exclusions, active_reminder_count):
                 st.info("No reminders in the selected date range.")
+
+    with outcomes_tab:
+        render_outcomes_tab(df)
 
     with exclusions_tab:
         # Exclusions
