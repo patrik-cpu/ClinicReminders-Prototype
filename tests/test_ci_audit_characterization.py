@@ -383,6 +383,47 @@ class AuditCharacterizationTests(unittest.TestCase):
         trash_file.assert_not_called()
         spreadsheet.assert_not_called()
 
+    def test_delete_account_dialog_does_not_treat_rerun_as_delete_failure(self):
+        class FakeForm:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        def passthrough_dialog(*args, **kwargs):
+            def decorator(fn):
+                return fn
+            return decorator
+
+        state = self.app.st.session_state
+        state["show_delete_account_dialog"] = True
+        state["clinic_id"] = "Clinic A"
+
+        with (
+            patch.object(self.app.st, "dialog", side_effect=passthrough_dialog),
+            patch.object(self.app.st, "markdown"),
+            patch.object(self.app.st, "form", return_value=FakeForm()),
+            patch.object(self.app.st, "caption"),
+            patch.object(self.app.st, "text_input", return_value="DELETE Clinic A"),
+            patch.object(self.app.st, "form_submit_button", return_value=True),
+            patch.object(self.app.st, "button", return_value=False),
+            patch.object(self.app.st, "error") as show_error,
+            patch.object(self.app.st, "rerun", side_effect=RuntimeError("rerun control")),
+            patch.object(self.app, "delete_clinic_account_and_data") as delete_account,
+            patch.object(self.app, "get_google_user_info", return_value={"is_logged_in": False}),
+            patch.object(self.app, "clear_remember_login_token"),
+            patch.object(self.app, "clear_account_session_state"),
+            patch.object(self.app, "record_error_tracker_event") as record_error,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "rerun control"):
+                self.app.render_delete_account_dialog()
+
+        delete_account.assert_called_once_with("Clinic A")
+        show_error.assert_not_called()
+        record_error.assert_not_called()
+        self.assertFalse(state["show_delete_account_dialog"])
+
     def test_tenant_guard_blocks_cross_tenant_profile_update_before_mutations(self):
         self.app.st.session_state["logged_in"] = True
         self.app.st.session_state["clinic_id"] = "Clinic A"

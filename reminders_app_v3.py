@@ -7068,6 +7068,7 @@ def render_delete_account_dialog():
             if typed.strip() != confirmation:
                 st.error("Confirmation did not match. Nothing was deleted.")
                 return
+            deletion_succeeded = False
             try:
                 delete_clinic_account_and_data(clinic_id)
                 google_session_active = get_google_user_info().get("is_logged_in", False)
@@ -7078,9 +7079,17 @@ def render_delete_account_dialog():
                 if google_session_active:
                     st.session_state["google_onboarding_mode"] = "recreate_after_delete"
                 close_delete_account_dialog()
-                st.rerun()
-            except Exception:
+                deletion_succeeded = True
+            except Exception as e:
+                record_error_tracker_event(
+                    "delete_account_failed",
+                    stage="delete_account_dialog",
+                    error=e,
+                    source="delete_account_and_data",
+                )
                 st.error("Could not delete the account. Please try again or contact support before retrying.")
+            if deletion_succeeded:
+                st.rerun()
 
         if st.button("Cancel", key="delete_account_cancel", use_container_width=True):
             close_delete_account_dialog()
