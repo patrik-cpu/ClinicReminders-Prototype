@@ -10258,6 +10258,7 @@ DEFAULT_OUTCOME_ATTRIBUTION_DAYS = 180
 DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS = 14
 OUTCOME_TABLE_COLUMNS = [
     "Sent Date",
+    "Actioned Date",
     "Due Date",
     "Success Date",
     "Window Ends",
@@ -10736,8 +10737,10 @@ def build_reminder_outcomes(
 
     rows = []
     for record in sent_records:
-        sent_dt = _parse_reminder_log_time(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
-        sent_date = sent_dt.date() if sent_dt else None
+        actioned_dt = _parse_reminder_log_time(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
+        actioned_date = actioned_dt.date() if actioned_dt else None
+        reminder_date = first_statistics_date(record.get("Reminder Date", ""))
+        sent_date = reminder_date or actioned_date
         due_date = first_statistics_date(record.get("Due Date", ""))
         window_end = sent_date + timedelta(days=attribution_days) if sent_date else None
         client_name = normalize_display_case(str(record.get("Client Name", "") or "").strip())
@@ -10786,6 +10789,7 @@ def build_reminder_outcomes(
 
         rows.append({
             "Sent Date": pd.Timestamp(sent_date) if sent_date else pd.NaT,
+            "Actioned Date": pd.Timestamp(actioned_date) if actioned_date else pd.NaT,
             "Due Date": pd.Timestamp(due_date) if due_date else pd.NaT,
             "Success Date": pd.Timestamp(success_date) if success_date else pd.NaT,
             "Window Ends": pd.Timestamp(window_end) if window_end else pd.NaT,
