@@ -7,7 +7,6 @@ import re
 import json, os, time
 import streamlit.components.v1 as components
 import gspread
-from settings_pointer_utils import update_dataset_pointer_cells
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime, timedelta, timezone
 from contextlib import contextmanager
@@ -665,6 +664,31 @@ def _column_number_to_letter(col_num: int) -> str:
 
 def _row_range_a1(row_idx: int, first_col_idx: int, last_col_idx: int) -> str:
     return f"{_column_number_to_letter(first_col_idx)}{row_idx}:{_column_number_to_letter(last_col_idx)}{row_idx}"
+
+
+def update_dataset_pointer_cells(
+    *,
+    sheet,
+    headers,
+    row_idx: int,
+    file_id: str,
+    filename: str,
+    updated_at: str,
+    dataset_file_id_col: str,
+    dataset_updated_at_col: str,
+    retry_fn,
+):
+    values = [[file_id, filename, updated_at]]
+    rng = _row_range_a1(
+        row_idx,
+        _settings_col_index(headers, dataset_file_id_col),
+        _settings_col_index(headers, dataset_updated_at_col),
+    )
+    retry_fn(
+        sheet.batch_update,
+        [{"range": rng, "values": values}],
+        value_input_option="RAW",
+    )
 
 
 def settings_row_values(headers: list[str], values_by_header: dict[str, object]) -> list[str]:
@@ -11758,7 +11782,7 @@ def render_search_terms_editor():
 
 
 def set_reminders_start_date_to_today():
-    st.session_state["reminders_start_date"] = user_today()
+    st.session_state["_reminders_start_date_today_requested"] = True
 
 
 # --------------------------------
@@ -11792,8 +11816,13 @@ if st.session_state.get("logged_in", False):
             st.rerun()
 
         default_start = user_today()
-        if "reminders_start_date" not in st.session_state:
+        if st.session_state.pop("_reminders_start_date_today_requested", False):
+            st.session_state["_reminders_start_date_key_seed"] = (
+                st.session_state.get("_reminders_start_date_key_seed", 0) + 1
+            )
             st.session_state["reminders_start_date"] = default_start
+        date_input_key = f"reminders_start_date_input_{st.session_state.get('_reminders_start_date_key_seed', 0)}"
+        date_input_value = st.session_state.get("reminders_start_date", default_start)
         current_window_days = normalized_reminder_window_days()
         if st.session_state.get("reminder_window_days") != current_window_days:
             st.session_state["reminder_window_days"] = current_window_days
@@ -11811,9 +11840,11 @@ if st.session_state.get("logged_in", False):
             )
             start_date = st.date_input(
                 "Date",
-                key="reminders_start_date",
+                value=date_input_value,
+                key=date_input_key,
                 label_visibility="collapsed",
             )
+            st.session_state["reminders_start_date"] = start_date
         with today_button_col:
             st.markdown("<div style='height:1.95rem;'></div>", unsafe_allow_html=True)
             st.button(
