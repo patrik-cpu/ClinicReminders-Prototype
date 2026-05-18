@@ -619,6 +619,57 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(int(outcomes.iloc[0]["Success Gap Days"]), 90)
         self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 90.0)
 
+    def test_historical_reminder_generation_can_count_future_purchase_success(self):
+        state = self.app.st.session_state
+        state["clinic_id"] = "clinic-historical-outcomes"
+        state["user_name"] = "Nurse A"
+        rules = {"bravecto": {"days": 90, "visible_text": "Bravecto"}}
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2025-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto Large Dog 20-40kg",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2025-04-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto Large Dog 20-40kg",
+                    "Amount": 90,
+                },
+            ]
+        )
+
+        historical_source = self.app.filter_sales_as_of_date(sales, date(2025, 3, 31))
+        prepared = self.app.build_prepared_reminder_rows(historical_source, rules)
+        due_rows = prepared.loc[
+            pd.to_datetime(prepared["ReminderDateTs"], errors="coerce").dt.date == date(2025, 4, 1)
+        ]
+        grouped = self.app.bundle_client_reminders_by_window(due_rows, window_days=0, rules=rules)
+        values = self.app.action_tracker_row_values(
+            grouped.iloc[0].to_dict(),
+            self.app.REMINDER_ACTION_SENT,
+            now=self.app.datetime(2025, 3, 31, 9, 0, 0),
+        )
+        actions = [self.app.action_tracker_values_to_record(self.app.ACTION_TRACKER_HEADERS, values)]
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            rules=rules,
+        )
+
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
+        self.assertEqual(str(outcomes.iloc[0]["Charge Date"].date()), "2025-01-01")
+        self.assertEqual(str(outcomes.iloc[0]["Due Date"].date()), "2025-04-01")
+        self.assertEqual(str(outcomes.iloc[0]["Success Date"].date()), "2025-04-01")
+        self.assertEqual(int(outcomes.iloc[0]["Success Gap Days"]), 90)
+
     def test_grouped_reminder_outcomes_count_each_detail_as_own_instance(self):
         actions = [
             {

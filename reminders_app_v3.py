@@ -8733,12 +8733,29 @@ def apply_reminder_exclusion_filters(df: pd.DataFrame, rules: dict) -> pd.DataFr
     return df
 
 
+def build_prepared_reminder_rows(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
+    prepared = ensure_reminder_columns(working_df, rules)
+    prepared = drop_early_duplicates_fast(prepared)
+    prepared = expand_reminder_dates(prepared)
+    return prepared
+
+
+def filter_sales_as_of_date(working_df: pd.DataFrame, as_of_date: date | None) -> pd.DataFrame:
+    if working_df is None:
+        return pd.DataFrame()
+    if working_df.empty or as_of_date is None or "ChargeDate" not in working_df.columns:
+        return working_df.copy()
+
+    charge_dates = parse_dates(working_df["ChargeDate"])
+    cutoff = pd.Timestamp(as_of_date).normalize()
+    keep_mask = charge_dates.isna() | (charge_dates <= cutoff)
+    return working_df.loc[keep_mask].copy()
+
+
 def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     key = (st.session_state.get("data_version", 0), _rules_fp(rules), PREPARED_SCHEMA_VERSION)
     if st.session_state.get("prepared_key") != key:
-        prepared = ensure_reminder_columns(working_df, rules)
-        prepared = drop_early_duplicates_fast(prepared)
-        prepared = expand_reminder_dates(prepared)
+        prepared = build_prepared_reminder_rows(working_df, rules)
 
         st.session_state["prepared_df"] = prepared
         st.session_state["prepared_key"] = key
@@ -12389,7 +12406,7 @@ if st.session_state.get("logged_in", False) and active_main_section == "Search T
 has_working_df = st.session_state.get("working_df") is not None
 if st.session_state.get("logged_in", False):
     needs_working_df = active_main_section in {"Reminders", "Outcomes", "Statistics"}
-    needs_prepared_df = active_main_section in {"Reminders", "Statistics"}
+    needs_prepared_df = active_main_section == "Statistics"
     df = st.session_state["working_df"].copy() if has_working_df and needs_working_df else pd.DataFrame()
     applied_rules = get_applied_reminder_rules() if needs_working_df else {}
     prepared = (
@@ -12405,15 +12422,6 @@ if st.session_state.get("logged_in", False):
         sender_col, _sender_spacer = st.columns([2, 3], gap="large")
         with sender_col:
             render_sender_name_input("reminders_top")
-
-        # ✅ safety: if schema changed but cache is stale, rebuild
-        if "BaseIntervalDays" not in prepared.columns:
-            st.error("Reminders need to refresh. Rebuilding now...")
-            st.session_state.pop("prepared_df", None)
-            st.session_state.pop("prepared_key", None)
-            # optional big hammer:
-            # st.cache_data.clear()
-            st.rerun()
 
         default_start = user_today()
         if st.session_state.pop("_reminders_start_date_today_requested", False):
@@ -12519,6 +12527,18 @@ if st.session_state.get("logged_in", False):
                 on_change=save_settings_quietly,
                 label_visibility="collapsed",
             )
+
+        reminder_source_df = filter_sales_as_of_date(df, start_date)
+        prepared = build_prepared_reminder_rows(reminder_source_df, applied_rules)
+
+        # ✅ safety: if schema changed but cache is stale, rebuild
+        if "BaseIntervalDays" not in prepared.columns:
+            st.error("Reminders need to refresh. Rebuilding now...")
+            st.session_state.pop("prepared_df", None)
+            st.session_state.pop("prepared_key", None)
+            # optional big hammer:
+            # st.cache_data.clear()
+            st.rerun()
 
         active_reminder_count = get_active_reminder_badge_count(today=user_today())
         render_reminders_caught_up_banner(
