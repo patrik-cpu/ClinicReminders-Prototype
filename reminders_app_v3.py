@@ -3226,19 +3226,19 @@ def dataset_summary_checks(rows: list[dict]) -> list[dict]:
     return [
         {
             "good": supported_pms and same_pms,
-            "text": "Same supported PMS" if supported_pms and same_pms else "CSV PMS types need attention",
+            "text": "Same supported practice system" if supported_pms and same_pms else "Upload formats need attention",
         },
         {
             "good": has_impact_window,
             "text": (
-                "Most impactful (previous 30-365) days present"
+                "Key reminder window covered"
                 if has_impact_window
-                else "Most impactful (previous 30-365) days not present"
+                else "Key reminder window needs data"
             ),
         },
         {
             "good": no_large_gaps,
-            "text": "No 3+ day gaps between CSVs" if no_large_gaps else f"{max_gap} day gap between CSVs",
+            "text": "No 3+ day gaps between uploads" if no_large_gaps else f"{max_gap} day gap between uploads",
         },
     ]
 
@@ -3366,7 +3366,7 @@ def publish_dataset_for_clinic(
             existing_df = load_existing_shared_df(existing_file_id, existing_name, clinic_id=clinic_id)
         except Exception:
             # show signal but still allow publish
-            st.warning("Could not load existing shared dataset; saving upload as new.")
+            st.warning("Could not load the saved clinic data, so this upload will be saved as a new copy.")
             existing_df = None
 
     # 3) Merge according to the clinic update rule
@@ -4394,7 +4394,7 @@ def data_privacy_policy_content() -> dict:
             {
                 "title": "Who can see it",
                 "body": (
-                    "People signed into the same clinic workspace can see that clinic's saved dataset, settings, "
+                    "People signed into the same clinic account can see that clinic's saved data, settings, "
                     "reminders, and statistics. Keep clinic logins and linked Google accounts limited to team members "
                     "who should have access."
                 ),
@@ -4402,9 +4402,9 @@ def data_privacy_policy_content() -> dict:
             {
                 "title": "Your control",
                 "body": (
-                    "Use Clear Clinic Data on the Upload Data tab to remove the active saved dataset while keeping "
+                    "Use Clear Clinic Data on the Upload Data tab to remove the active saved clinic data while keeping "
                     "clinic settings and search terms. Account > Delete account and data removes the clinic account, "
-                    "saved settings, action history, and saved uploaded dataset file."
+                    "saved settings, action history, and uploaded clinic data file."
                 ),
             },
             {
@@ -4423,7 +4423,7 @@ def data_privacy_policy_content() -> dict:
             },
         ],
         "footer": (
-            "The aim is simple: keep clinic data tied to the clinic workspace, use it only for the reminder workflow, "
+            "The aim is simple: keep clinic data tied to the clinic account, use it only for the reminder workflow, "
             "and make deletion and support paths clear."
         ),
     }
@@ -5700,14 +5700,14 @@ def google_onboarding_dialog_html(google_user: dict, mode: str = "signup") -> st
         title = "Your clinic account was deleted"
         body = (
             f"You're still signed in with Google{f' as {html_lib.escape(email)}' if email else ''}. "
-            "Add a clinic name and country to create a fresh workspace."
+            "Add a clinic name and country to create a fresh clinic account."
         )
-        note = "The previous clinic workspace and saved data were removed. Next time, use Continue with Google to return to the new workspace."
+        note = "The previous clinic account and saved data were removed. Next time, use Continue with Google to return to the new clinic account."
     else:
         title = "Welcome to Clinic Reminders!"
         body = (
             f"You're signed in with Google{f' as {html_lib.escape(email)}' if email else ''}. "
-            "Add your clinic name and country to create your workspace."
+            "Add your clinic name and country to create your clinic account."
         )
         note = "Next time, use Continue with Google. Your Google password is never entered or stored in Clinic Reminders."
     return f"""
@@ -5754,7 +5754,7 @@ def google_onboarding_dialog_html(google_user: dict, mode: str = "signup") -> st
 
 def render_google_onboarding_dialog(google_user: dict):
     onboarding_mode = st.session_state.get("google_onboarding_mode", "signup")
-    submit_label = "Create new clinic workspace" if onboarding_mode == "recreate_after_delete" else "Create clinic workspace"
+    submit_label = "Create new clinic account" if onboarding_mode == "recreate_after_delete" else "Create clinic account"
 
     def _render_dialog_body():
         st.markdown(google_onboarding_dialog_html(google_user, onboarding_mode), unsafe_allow_html=True)
@@ -5785,7 +5785,7 @@ def render_google_onboarding_dialog(google_user: dict):
                 except ValueError as e:
                     st.error(str(e))
                 except Exception:
-                    st.error("Could not create your clinic workspace. Please try again or contact support.")
+                    st.error("Could not create your clinic account. Please try again or contact support.")
 
         if st.button("Use another Google account", key="google_onboarding_logout", use_container_width=True):
             st.session_state.pop("pending_google_signup", None)
@@ -5893,7 +5893,7 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
             values_by_header[SHEET_COL_DATASET_FILE_NAME] = new_filename
         except Exception as e:
             raise RuntimeError(
-                "Could not rename the saved dataset for this clinic. "
+                "Could not update the saved clinic data for this clinic. "
                 "Please try again before changing the clinic name."
             ) from e
 
@@ -6066,8 +6066,8 @@ def delete_account_dialog_html(clinic_id: str) -> str:
     </style>
     <div class="delete-account-warning">
       <h3>This is permanent.</h3>
-      <p>Deleting <strong>{html_lib.escape(clinic_id)}</strong> removes the clinic account row, Google link, saved settings, action/history rows tied to this clinic, and the saved uploaded dataset file.</p>
-      <p>This is the full in-app deletion path for a clinic that wants everything removed from the active workspace. It cannot be undone from the app.</p>
+      <p>Deleting <strong>{html_lib.escape(clinic_id)}</strong> removes the clinic account, Google sign-in link, saved settings, reminder history, and uploaded clinic data file.</p>
+      <p>This is the full in-app deletion path for a clinic that wants everything removed from the active account. It cannot be undone from the app.</p>
     </div>
     """
 
@@ -6404,8 +6404,8 @@ pending_google_signup = bool(st.session_state.get("pending_google_signup") and g
 
 if pending_google_signup and not st.session_state["logged_in"]:
     onboarding_mode = st.session_state.get("google_onboarding_mode", "signup")
-    pending_title = "Create a new clinic workspace" if onboarding_mode == "recreate_after_delete" else "Finishing your Google sign-up"
-    pending_body = "Your previous clinic was deleted. A quick setup window will open so you can start fresh." if onboarding_mode == "recreate_after_delete" else "A quick setup window will open so we can create your clinic workspace."
+    pending_title = "Create a new clinic account" if onboarding_mode == "recreate_after_delete" else "Finishing your Google sign-up"
+    pending_body = "Your previous clinic was deleted. A quick setup window will open so you can start fresh." if onboarding_mode == "recreate_after_delete" else "A quick setup window will open so we can create your clinic account."
     st.markdown(
         f"""
         <div style="max-width: 42rem; margin: 2rem 0 0 2rem; color: #40566b;">
@@ -6660,7 +6660,7 @@ def get_setup_checklist_steps() -> list[dict]:
             "number": 1,
             "done": has_data and happened_after_reset(st.session_state.get("shared_dataset_updated_at", "")),
             "title": "Upload data",
-            "copy": "Upload a CSV, XLS, or XLSX sales plan export. One year of data is ideal so yearly reminders can be found reliably.",
+            "copy": "Upload a sales export from your practice system. One year of data is ideal so yearly reminders can be found reliably.",
             "where": "Where: Upload Data tab",
         },
         {
@@ -6838,7 +6838,7 @@ def format_dataset_saved_summary(row_count: int, start_date, end_date) -> str:
 
     return (
         f"**Total rows:** {rows_text}  \n"
-        f"**Total date range (all uploaded CSVs):** {date_range}"
+        f"**Total date range (all uploads):** {date_range}"
     )
 
 def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
@@ -8028,8 +8028,7 @@ with data_tab:
     with dataset_summary_slot.container():
         render_dataset_date_range(saved_rows=saved_dataset_rows)
         render_dataset_summary_checks(saved_dataset_rows)
-    st.caption("Supported PMSs: VETport, ezyVet, Xpress, plus already-canonical CSV/XLS/XLSX files.")
-    st.markdown(data_assurance_box_html(), unsafe_allow_html=True)
+    st.caption("Supported systems: VETport, ezyVet, Xpress, or a clean sales export.")
 
     datasets = []
     summary_rows = []
@@ -8048,7 +8047,7 @@ with data_tab:
     render_field_label(
         st,
         "Upload sales data files",
-        "Upload one or more CSV, XLS, or XLSX sales exports. Valid uploads are saved for everyone using this clinic login."
+        "Upload one or more sales exports. Valid uploads are saved for everyone using this clinic login."
     )
     files = st.file_uploader(
         "Upload sales data files",
@@ -8069,7 +8068,7 @@ with data_tab:
     # Detect any file addition, deletion, or rename
     if set(current_files) != set(st.session_state["last_uploaded_files"]):
         set_main_section_tab("Upload Data")
-        st.toast("🔄 File change detected — clearing cache and refreshing data...")
+        st.toast("Files changed - refreshing upload.")
 
         close_account_dialogs()
         st.session_state["last_uploaded_files"] = current_files
@@ -8165,11 +8164,11 @@ with data_tab:
                     message=str(e),
                     source="file_uploader",
                 )
-                st.toast("Upload needs different columns.")
+                st.toast("Upload needs a different format.")
                 st.warning(
                     "This upload does not look like a supported sales export. "
                     + str(e)
-                    + " Please upload a file with client, patient, item, amount/quantity, and date columns."
+                    + " Please upload a file with client, patient, item, sales amount or quantity, and date fields."
                 )
                 st.stop()
             except Exception as e:
@@ -8196,7 +8195,7 @@ with data_tab:
                 st.toast("Upload could not be read.")
                 st.warning(
                     "This file could not be read as a supported clinic sales export. "
-                    "Please check that it is a CSV, XLS, or XLSX export with client, patient, item, amount/quantity, and date columns."
+                    "Please check that it includes client, patient, item, sales amount or quantity, and date fields."
                 )
                 st.stop()
             record_performance_tracker_event(
@@ -8213,7 +8212,7 @@ with data_tab:
             if len(all_pms) == 1 and "Undetected" not in all_pms:
                 working_df = pd.concat([df for _, df in datasets], ignore_index=True)
                 st.session_state["working_df"] = sanitize_working_df(working_df)
-                st.caption(f"All files detected as {list(all_pms)[0]} — saving automatically.")
+                st.caption(f"Files recognised as {list(all_pms)[0]} — saving automatically.")
     
             # --- Case 2: Mixed PMS or undetected but schema-compatible ---
             else:
@@ -8224,12 +8223,12 @@ with data_tab:
                     if all(c in cand.columns for c in required_cols):
                         working_df = cand
                         st.session_state["working_df"] = sanitize_working_df(working_df)
-                        st.caption("Files merged into canonical schema — saving automatically.")
+                        st.caption("Files look compatible — saving automatically.")
                     else:
-                        st.warning("⚠️ PMS mismatch or missing columns. Reminders cannot be generated reliably.")
+                        st.warning("These files do not use a supported format, so reminders cannot be generated reliably.")
     
                 except Exception:
-                    st.warning("⚠️ PMS mismatch or undetected files. Reminders cannot be generated.")
+                    st.warning("These files could not be recognised, so reminders cannot be generated.")
                     st.session_state.pop("working_df", None)
     
             if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
@@ -8262,7 +8261,7 @@ with data_tab:
                             source="file_uploader",
                         )
                         st.error(
-                            "Could not load the existing clinic dataset, so this upload was not saved. "
+                            "Could not load the existing clinic data, so this upload was not saved. "
                             "Please try again before replacing clinic data."
                         )
                         st.stop()
@@ -8360,8 +8359,8 @@ with data_tab:
     # -------------------------------------
     st.markdown("#### Clear Clinic Data")
     st.caption(
-        "Clears the active saved dataset for this clinic workspace. To remove the clinic account, saved settings, "
-        "action history, and saved uploaded dataset file, use Account > Delete account and data."
+        "Clears the active saved clinic data while keeping settings and search terms. To remove the clinic account, "
+        "saved settings, action history, and uploaded data file, use Account > Delete account and data."
     )
     confirm_reset = st.checkbox(
         "I understand this will remove clinic data for my clinic",
@@ -8379,13 +8378,13 @@ with data_tab:
             st.error("Not logged in.")
             st.stop()
 
-        with busy_overlay("Clearing clinic data", "Removing the saved dataset for this clinic."):
+        with busy_overlay("Clearing clinic data", "Removing the saved clinic data."):
             # Grab current pointer so we can optionally trash it
             try:
                 existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
             except Exception as e:
                 existing_file_id, existing_name = "", ""
-                st.warning(f"Could not read existing dataset pointer (will still reset). ({type(e).__name__})")
+                st.warning("Could not check the saved data file, but the clinic data will still be cleared.")
 
             # 1) Clear pointer in settings sheet (THIS is the key)
             clear_clinic_dataset_pointer(clinic_id)
@@ -10103,7 +10102,7 @@ if st.session_state.get("working_df") is not None:
 
         # ✅ safety: if schema changed but cache is stale, rebuild
         if "BaseIntervalDays" not in prepared.columns:
-            st.error("Internal error: BaseIntervalDays missing. Rebuilding reminder cache...")
+            st.error("Reminders need to refresh. Rebuilding now...")
             st.session_state.pop("prepared_df", None)
             st.session_state.pop("prepared_key", None)
             # optional big hammer:

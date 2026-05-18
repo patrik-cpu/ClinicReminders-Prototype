@@ -67,9 +67,9 @@ class DatasetUpdateTests(unittest.TestCase):
 
         self.assertIn("dataset-check-grid", html)
         self.assertEqual(html.count("dataset-check "), 3)
-        self.assertIn("Same supported PMS", html)
-        self.assertIn("Most impactful (previous 30-365) days present", html)
-        self.assertIn("No 3+ day gaps between CSVs", html)
+        self.assertIn("Same supported practice system", html)
+        self.assertIn("Key reminder window covered", html)
+        self.assertIn("No 3+ day gaps between uploads", html)
         self.assertEqual(html.count("dataset-check good"), 3)
 
     def test_upload_data_badge_matches_failed_dataset_checks(self):
@@ -108,7 +108,7 @@ class DatasetUpdateTests(unittest.TestCase):
             checks = self.app.dataset_summary_checks(rows)
 
         self.assertFalse(checks[1]["good"])
-        self.assertEqual(checks[1]["text"], "Most impactful (previous 30-365) days not present")
+        self.assertEqual(checks[1]["text"], "Key reminder window needs data")
 
     def test_upload_data_badge_clears_when_dataset_checks_are_green(self):
         rows = [
@@ -134,7 +134,7 @@ class DatasetUpdateTests(unittest.TestCase):
         )
 
         self.assertIn("**Total rows:** 54,489", summary)
-        self.assertIn("**Total date range (all uploaded CSVs):** 01 Jan 2024 → 30 Sep 2025", summary)
+        self.assertIn("**Total date range (all uploads):** 01 Jan 2024 → 30 Sep 2025", summary)
         self.assertNotIn("duplicate rows are ignored", summary)
 
     def test_overlapping_upload_dedupes_by_billed_item_identity(self):

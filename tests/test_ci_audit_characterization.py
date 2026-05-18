@@ -278,7 +278,7 @@ class AuditCharacterizationTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 RuntimeError,
-                "Could not rename the saved dataset",
+                "Could not update the saved clinic data",
             ):
                 self.app.update_clinic_profile(
                     "Clinic A",
