@@ -10254,12 +10254,13 @@ def normalize_display_case(text: str) -> str:
 STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
 STATISTICS_GENERATED_COLUMNS = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
 OUTCOME_PERIODS = ["Today", "7 days", "30 days", "All time"]
-DEFAULT_OUTCOME_ATTRIBUTION_DAYS = 180
+DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 30
 DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS = 14
 OUTCOME_TABLE_COLUMNS = [
     "Sent Date",
     "Actioned Date",
     "Due Date",
+    "Window Starts",
     "Success Date",
     "Window Ends",
     "Client Name",
@@ -10709,15 +10710,18 @@ def outcome_timing_label(days_vs_due, on_time_grace_days: int) -> str:
 def build_reminder_outcomes(
     action_records: list[dict],
     sales_df: pd.DataFrame,
-    attribution_days: int = DEFAULT_OUTCOME_ATTRIBUTION_DAYS,
+    due_date_window_days: int = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
     on_time_grace_days: int = DEFAULT_OUTCOME_ON_TIME_GRACE_DAYS,
     today: date | None = None,
+    attribution_days: int | None = None,
 ) -> pd.DataFrame:
     today = today or user_today()
+    if attribution_days is not None:
+        due_date_window_days = attribution_days
     try:
-        attribution_days = max(0, int(attribution_days))
+        due_date_window_days = max(0, int(due_date_window_days))
     except (TypeError, ValueError):
-        attribution_days = DEFAULT_OUTCOME_ATTRIBUTION_DAYS
+        due_date_window_days = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
     try:
         on_time_grace_days = max(0, int(on_time_grace_days))
     except (TypeError, ValueError):
@@ -10742,7 +10746,14 @@ def build_reminder_outcomes(
         reminder_date = first_statistics_date(record.get("Reminder Date", ""))
         sent_date = reminder_date or actioned_date
         due_date = first_statistics_date(record.get("Due Date", ""))
-        window_end = sent_date + timedelta(days=attribution_days) if sent_date else None
+        if due_date:
+            window_start = due_date - timedelta(days=due_date_window_days)
+            if sent_date and window_start < sent_date:
+                window_start = sent_date
+            window_end = due_date + timedelta(days=due_date_window_days)
+        else:
+            window_start = sent_date
+            window_end = sent_date + timedelta(days=due_date_window_days) if sent_date else None
         client_name = normalize_display_case(str(record.get("Client Name", "") or "").strip())
         animal_name = normalize_display_case(str(record.get("Animal Name", "") or "").strip())
         item_name = normalize_display_case(str(record.get("Plan Item", "") or "").strip())
@@ -10755,7 +10766,7 @@ def build_reminder_outcomes(
             candidate_mask = (
                 (sales["OutcomeClientKey"] == client_key)
                 & (sales["OutcomePatientKey"] == patient_key)
-                & (sales["OutcomeChargeDate"] >= sent_date)
+                & (sales["OutcomeChargeDate"] >= window_start)
                 & (sales["OutcomeChargeDate"] <= window_end)
             )
             candidates = sales.loc[candidate_mask].copy()
@@ -10791,6 +10802,7 @@ def build_reminder_outcomes(
             "Sent Date": pd.Timestamp(sent_date) if sent_date else pd.NaT,
             "Actioned Date": pd.Timestamp(actioned_date) if actioned_date else pd.NaT,
             "Due Date": pd.Timestamp(due_date) if due_date else pd.NaT,
+            "Window Starts": pd.Timestamp(window_start) if window_start else pd.NaT,
             "Success Date": pd.Timestamp(success_date) if success_date else pd.NaT,
             "Window Ends": pd.Timestamp(window_end) if window_end else pd.NaT,
             "Client Name": client_name,
@@ -10949,7 +10961,7 @@ def render_outcome_dataframe(frame: pd.DataFrame):
 def render_outcomes_tab(sales_df: pd.DataFrame):
     st.markdown("<div id='outcomes' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("## Reminder Outcomes")
-    st.caption("Match sent reminders against later uploaded sales for the same client, patient, and item text.")
+    st.caption("Match sent reminders against uploaded sales around the due date for the same client, patient, and item text.")
 
     controls = st.columns([2, 1, 1], gap="large")
     with controls[0]:
@@ -10972,13 +10984,14 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
                 label_visibility="collapsed",
             )
     with controls[1]:
-        attribution_days = st.number_input(
-            "Days to search after sent",
+        due_date_window_days = st.number_input(
+            "Days around due date",
             min_value=0,
             max_value=1095,
-            value=int(st.session_state.get("outcome_attribution_days", DEFAULT_OUTCOME_ATTRIBUTION_DAYS)),
+            value=int(st.session_state.get("outcome_due_date_window_days", DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS)),
             step=1,
-            key="outcome_attribution_days",
+            key="outcome_due_date_window_days",
+            help="Search from this many days before the due date through this many days after it.",
         )
     with controls[2]:
         on_time_grace_days = st.number_input(
@@ -10994,7 +11007,7 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
         outcome_rows = build_reminder_outcomes(
             statistics_current_action_records(),
             sales_df,
-            attribution_days=attribution_days,
+            due_date_window_days=due_date_window_days,
             on_time_grace_days=on_time_grace_days,
             today=user_today(),
         )

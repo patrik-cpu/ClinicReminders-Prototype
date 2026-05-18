@@ -161,7 +161,7 @@ class StatisticsTests(unittest.TestCase):
         outcomes = self.app.build_reminder_outcomes(
             actions,
             sales,
-            attribution_days=30,
+            due_date_window_days=30,
             on_time_grace_days=14,
             today=date(2026, 6, 1),
         )
@@ -204,7 +204,7 @@ class StatisticsTests(unittest.TestCase):
         outcomes = self.app.build_reminder_outcomes(
             actions,
             sales,
-            attribution_days=30,
+            due_date_window_days=30,
             on_time_grace_days=14,
             today=date(2026, 5, 18),
         )
@@ -214,6 +214,52 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(str(row["Sent Date"].date()), "2025-05-01")
         self.assertEqual(str(row["Actioned Date"].date()), "2026-05-18")
         self.assertEqual(int(row["Days to Success"]), 11)
+
+    def test_reminder_outcomes_search_around_due_date_but_not_before_sent_date(self):
+        actions = [
+            {
+                "Reminder Date": "01 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "01 May 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-01T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-04-25",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 50,
+                },
+                {
+                    "ChargeDate": "2026-05-05",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 100,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            today=date(2026, 6, 1),
+        )
+
+        row = outcomes.iloc[0]
+        self.assertEqual(row["Outcome"], "Reminder Success")
+        self.assertEqual(str(row["Window Starts"].date()), "2026-05-01")
+        self.assertEqual(str(row["Success Date"].date()), "2026-05-05")
+        self.assertEqual(float(row["Revenue"]), 100.0)
 
     def test_reminder_outcomes_report_no_match_after_window(self):
         actions = [
@@ -244,7 +290,7 @@ class StatisticsTests(unittest.TestCase):
         outcomes = self.app.build_reminder_outcomes(
             actions,
             sales,
-            attribution_days=7,
+            due_date_window_days=7,
             today=date(2026, 6, 1),
         )
 
