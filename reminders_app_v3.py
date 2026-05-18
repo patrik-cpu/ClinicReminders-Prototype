@@ -6454,6 +6454,13 @@ def upload_fingerprint(file_blobs) -> str:
     return h.hexdigest()
 
 
+def upload_save_can_be_skipped(current_upload_key: str, last_saved_upload_key: str, upload_history) -> bool:
+    """Only skip publishing when this upload key already has a saved history row."""
+    if not current_upload_key or current_upload_key != str(last_saved_upload_key or ""):
+        return False
+    return bool(normalize_dataset_upload_history(upload_history))
+
+
 def finish_authenticated_session(
     clinic_id: str,
     event: str,
@@ -8391,12 +8398,17 @@ with data_tab:
             st.warning(str(e))
             st.stop()
     
-        if st.session_state.get("last_saved_upload_key") == current_upload_key:
+        saved_upload_history = st.session_state.get("dataset_upload_history", [])
+        if upload_save_can_be_skipped(
+            current_upload_key,
+            st.session_state.get("last_saved_upload_key", ""),
+            saved_upload_history,
+        ):
             try:
                 _, summary_rows = load_persistent_dataset(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
             except Exception:
                 summary_rows = []
-            existing_history_rows = normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", []))
+            existing_history_rows = normalize_dataset_upload_history(saved_upload_history)
             if summary_rows and not existing_history_rows:
                 repair_dataset_upload_history_from_rows(summary_rows)
                 st.rerun()

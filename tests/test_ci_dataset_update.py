@@ -137,6 +137,29 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertIn("**Total date range (all uploads):** 01 Jan 2024 → 30 Sep 2025", summary)
         self.assertNotIn("duplicate rows are ignored", summary)
 
+    def test_saved_upload_key_does_not_skip_save_when_history_is_missing(self):
+        self.assertFalse(
+            self.app.upload_save_can_be_skipped(
+                "upload-key",
+                "upload-key",
+                [],
+            )
+        )
+        self.assertFalse(
+            self.app.upload_save_can_be_skipped(
+                "upload-key",
+                "",
+                [{"file_name": "sales.csv", "rows": 10}],
+            )
+        )
+        self.assertTrue(
+            self.app.upload_save_can_be_skipped(
+                "upload-key",
+                "upload-key",
+                [{"file_name": "sales.csv", "rows": 10}],
+            )
+        )
+
     def test_overlapping_upload_dedupes_by_billed_item_identity(self):
         existing = pd.DataFrame(
             {
