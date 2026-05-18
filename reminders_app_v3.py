@@ -8308,6 +8308,15 @@ def reminders_caught_up_banner_copy(active_count: int, lookback_days: int) -> tu
     )
 
 
+def should_show_no_reminders_info(reminders_before_exclusions: int, active_count: int | None) -> bool:
+    if reminders_before_exclusions:
+        return True
+    try:
+        return int(active_count or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def render_reminders_caught_up_banner(active_count: int | None = None, lookback_days: int | None = None):
     count = get_active_reminder_badge_count() if active_count is None else active_count
     lookback = normalized_reminder_lookback_days() if lookback_days is None else lookback_days
@@ -10657,8 +10666,9 @@ if st.session_state.get("logged_in", False):
                 label_visibility="collapsed",
             )
 
+        active_reminder_count = get_active_reminder_badge_count(today=user_today())
         render_reminders_caught_up_banner(
-            active_count=get_active_reminder_badge_count(today=user_today()),
+            active_count=active_reminder_count,
             lookback_days=reminder_lookback_days,
         )
     
@@ -10685,7 +10695,7 @@ if st.session_state.get("logged_in", False):
         else:
             if reminders_before_exclusions:
                 st.info("All reminders in the selected date range are hidden by exclusions.")
-            else:
+            elif should_show_no_reminders_info(reminders_before_exclusions, active_reminder_count):
                 st.info("No reminders in the selected date range.")
 
     with exclusions_tab:

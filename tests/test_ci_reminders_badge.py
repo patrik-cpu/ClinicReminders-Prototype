@@ -102,6 +102,12 @@ class RemindersBadgeTests(unittest.TestCase):
         self.assertEqual(self.app.reminders_caught_up_period_text(0), "today")
         self.assertEqual(self.app.reminders_caught_up_period_text(1), "today and yesterday")
 
+    def test_no_reminders_info_is_hidden_when_caught_up_banner_is_visible(self):
+        self.assertFalse(self.app.should_show_no_reminders_info(0, 0))
+        self.assertFalse(self.app.should_show_no_reminders_info(0, None))
+        self.assertTrue(self.app.should_show_no_reminders_info(0, 2))
+        self.assertTrue(self.app.should_show_no_reminders_info(1, 0))
+
 
 if __name__ == "__main__":
     unittest.main()
