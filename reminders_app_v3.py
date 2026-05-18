@@ -12215,7 +12215,7 @@ if st.session_state.get("logged_in", False):
                 else:
                     st.error("Enter a valid exclusion term")
 
-        st.markdown("### Automatic Patient Passaway Exclusions")
+        st.markdown("### Automatic Patient Death Exclusions")
         st.caption(
             "When uploaded item text contains one of these keywords, the matching client and patient are added here automatically."
         )
@@ -12238,14 +12238,14 @@ if st.session_state.get("logged_in", False):
                 if st.button(
                     "Reset keywords",
                     key=f"reset_passaway_keywords_{row_id}",
-                    help="Restore the default automatic passaway exclusion keywords.",
+                    help="Restore the default automatic death exclusion keywords.",
                 ):
                     st.session_state["patient_passaway_keywords"] = PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()
                     save_settings_quietly()
                     record_settings_audit_event(
                         "exclusion_keyword_reset",
                         "exclusions",
-                        "automatic patient passaway keywords",
+                        "automatic patient death keywords",
                         "patient_passaway_keyword",
                         "",
                         st.session_state["patient_passaway_keywords"],
@@ -12273,7 +12273,7 @@ if st.session_state.get("logged_in", False):
                             )
                             st.rerun()
         else:
-            st.caption("No automatic passaway keywords are active.")
+            st.caption("No automatic death keywords are active.")
 
         kw1, kw2 = st.columns([4, 1], gap="small")
         with kw1:
@@ -12346,7 +12346,7 @@ if st.session_state.get("logged_in", False):
                             )
                             st.rerun()
         else:
-            st.caption("No automatic patient passaway exclusions yet.")
+            st.caption("No automatic patient death exclusions yet.")
 
     with statistics_tab:
         render_statistics_tab(prepared, applied_rules)
