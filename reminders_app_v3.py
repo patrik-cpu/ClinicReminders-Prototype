@@ -10616,6 +10616,39 @@ OUTCOME_DISPLAY_DATE_COLUMNS = [
     "Window Ends",
     "Next Purchase Date",
 ]
+OUTCOME_SENT_DISPLAY_COLUMNS = [
+    "Sent Date",
+    "Charge Date",
+    "Due Date",
+    "Window Starts",
+    "Window Ends",
+    "Success Date",
+    "Client Name",
+    "Animal Name",
+    "Item",
+    "Sender",
+    "Outcome",
+]
+OUTCOME_ITEM_GROUP_COLUMNS = [
+    "Item",
+    "Sent",
+    "Successes",
+    "Pending",
+    "No Match",
+    "Success Rate",
+    "Desired Gap Days",
+    "Avg Item Purchase Gap Days",
+    "Revenue",
+]
+OUTCOME_SENDER_GROUP_COLUMNS = [
+    "Sender",
+    "Sent",
+    "Successes",
+    "Pending",
+    "No Match",
+    "Success Rate",
+    "Revenue",
+]
 
 
 def statistics_exclusion_fp() -> str:
@@ -11433,7 +11466,7 @@ def build_reminder_outcomes(
         actioned_dt = _parse_reminder_log_time(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
         actioned_date = actioned_dt.date() if actioned_dt else None
         reminder_date = first_statistics_date(record.get("Reminder Date", ""))
-        sent_date = reminder_date or actioned_date
+        sent_date = actioned_date or reminder_date
         due_date = first_statistics_date(record.get("Due Date", ""))
         original_charge_date = first_statistics_date(record.get("Charge Date", ""))
         if due_date:
@@ -11561,25 +11594,6 @@ def build_reminder_outcomes(
                 )
                 merged = merged.loc[term_mask]
             if not merged.empty:
-                first_next_purchases = (
-                    merged.sort_values(["_OutcomeRecordID", "OutcomeChargeDate", "OutcomeSaleID"])
-                    .drop_duplicates("_OutcomeRecordID", keep="first")
-                )
-                for match in first_next_purchases.to_dict("records"):
-                    record_id = int(match["_OutcomeRecordID"])
-                    purchase_date = pd.Timestamp(match["OutcomeChargeDate"])
-                    charge_value = outcomes.at[record_id, "Charge Date"]
-                    purchase_gap_days = (
-                        (purchase_date.date() - pd.Timestamp(charge_value).date()).days
-                        if pd.notna(charge_value)
-                        else None
-                    )
-                    outcomes.at[record_id, "Next Purchase Date"] = purchase_date
-                    outcomes.at[record_id, "Next Purchase Gap Days"] = purchase_gap_days
-                    outcomes.at[record_id, "Next Matched Item"] = normalize_display_case(
-                        str(match.get("Item Name", "") or "").strip()
-                    )
-
                 window_matches = merged.loc[
                     (merged["OutcomeChargeDate"] >= merged["Window Starts"])
                     & (merged["OutcomeChargeDate"] <= merged["Window Ends"])
@@ -11603,33 +11617,6 @@ def build_reminder_outcomes(
                     )
                     outcomes.at[record_id, "Revenue"] = float(match.get("OutcomeAmount", 0) or 0)
                     outcomes.at[record_id, "Success Gap Days"] = success_gap_days
-                    outcomes.at[record_id, "Outcome"] = "Reminder Success"
-
-                gap_success_mask = pd.Series(
-                    [
-                        outcome_next_purchase_gap_is_success(
-                            outcomes.at[idx, "Next Purchase Gap Days"],
-                            outcomes.at[idx, "Desired Gap Days"],
-                            due_date_window_days,
-                        )
-                        for idx in outcomes.index
-                    ],
-                    index=outcomes.index,
-                )
-                gap_success_rows = outcomes.index[
-                    ~outcomes["Outcome"].eq("Reminder Success")
-                    & outcomes["Next Purchase Date"].notna()
-                    & gap_success_mask
-                ]
-                for record_id in gap_success_rows:
-                    outcomes.at[record_id, "Success Date"] = outcomes.at[record_id, "Next Purchase Date"]
-                    outcomes.at[record_id, "Matched Item"] = outcomes.at[record_id, "Next Matched Item"]
-                    outcomes.at[record_id, "Success Gap Days"] = outcomes.at[record_id, "Next Purchase Gap Days"]
-                    next_match = merged.loc[merged["_OutcomeRecordID"].eq(record_id)].sort_values(
-                        ["OutcomeChargeDate", "OutcomeSaleID"]
-                    )
-                    if not next_match.empty:
-                        outcomes.at[record_id, "Revenue"] = float(next_match.iloc[0].get("OutcomeAmount", 0) or 0)
                     outcomes.at[record_id, "Outcome"] = "Reminder Success"
 
     return outcomes[OUTCOME_TABLE_COLUMNS]
@@ -11695,8 +11682,12 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
     }
 
 
-def build_outcome_group_frame(outcomes_df: pd.DataFrame, group_col: str) -> pd.DataFrame:
-    columns = [
+def build_outcome_group_frame(
+    outcomes_df: pd.DataFrame,
+    group_col: str,
+    columns: list[str] | None = None,
+) -> pd.DataFrame:
+    base_columns = [
         group_col,
         "Sent",
         "Successes",
@@ -11708,6 +11699,7 @@ def build_outcome_group_frame(outcomes_df: pd.DataFrame, group_col: str) -> pd.D
         "Avg Item Purchase Gap Days",
         "Revenue",
     ]
+    columns = columns or base_columns
     if outcomes_df is None or outcomes_df.empty or group_col not in outcomes_df.columns:
         return pd.DataFrame(columns=columns)
 
@@ -11728,7 +11720,8 @@ def build_outcome_group_frame(outcomes_df: pd.DataFrame, group_col: str) -> pd.D
             "Avg Item Purchase Gap Days": summary["avg_item_purchase_gap_days"],
             "Revenue": summary["revenue"],
         })
-    frame = pd.DataFrame(rows, columns=columns)
+    frame = pd.DataFrame(rows, columns=base_columns)
+    frame = frame[[column for column in columns if column in frame.columns]]
     return frame.sort_values(["Successes", "Sent"], ascending=False)
 
 
@@ -11799,7 +11792,9 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     return display_frame
 
 
-def render_outcome_dataframe(frame: pd.DataFrame):
+def render_outcome_dataframe(frame: pd.DataFrame, columns: list[str] | None = None):
+    if columns is not None and frame is not None and not frame.empty:
+        frame = frame[[column for column in columns if column in frame.columns]]
     if frame.empty:
         st.info("No outcome rows for this view yet.")
         return
@@ -11869,33 +11864,14 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
         st.success(refresh_success)
 
     controls = st.columns([2, 1], gap="large")
-    with controls[0]:
-        if hasattr(st, "segmented_control"):
-            selected_period = st.segmented_control(
-                "Outcomes period",
-                OUTCOME_PERIODS,
-                selection_mode="single",
-                default=st.session_state.get("outcomes_period", "30 days") if st.session_state.get("outcomes_period", "30 days") in OUTCOME_PERIODS else "30 days",
-                key="outcomes_period",
-                label_visibility="collapsed",
-            ) or "30 days"
-        else:
-            selected_period = st.radio(
-                "Outcomes period",
-                OUTCOME_PERIODS,
-                index=OUTCOME_PERIODS.index(st.session_state.get("outcomes_period", "30 days")) if st.session_state.get("outcomes_period", "30 days") in OUTCOME_PERIODS else 2,
-                horizontal=True,
-                key="outcomes_period",
-                label_visibility="collapsed",
-            )
     with controls[1]:
         render_field_label(
             st,
-            "Days around due date",
-            "Search from this many days before the due date through this many days after it.",
+            "Days to define success",
+            "A reminder is successful when the matching sale is this many days before or after the due date.",
         )
         due_date_window_days = st.number_input(
-            "Days around due date",
+            "Days to define success",
             min_value=0,
             max_value=1095,
             value=int(st.session_state.get("outcome_due_date_window_days", DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS)),
@@ -11912,84 +11888,46 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
             today=outcomes_as_of_date,
             rules=get_applied_reminder_rules(),
         )
-        period_rows = filter_outcomes_for_period(outcome_rows, selected_period, today=outcomes_as_of_date)
+        period_rows = outcome_rows
 
     if outcome_rows.empty:
         st.info("No sent reminders have been recorded yet.")
         return
-    if period_rows.empty:
-        st.info("No sent reminders fall inside this period.")
-        return
 
     summary = summarize_outcomes(period_rows)
-    overview_tab, sent_tab, success_tab, item_tab, sender_tab, time_tab = st.tabs(
-        ["Overview", "Sent", "Successes", "By Item", "By Sender", "By Date"]
+    metric_cols = st.columns(5)
+    metrics = [
+        ("Sent", f"{summary['sent']:,}"),
+        ("Reminder Successes", f"{summary['successes']:,}"),
+        ("Success Rate", f"{summary['success_rate']:.0%}"),
+        ("Pending", f"{summary['pending']:,}"),
+        ("Revenue", format_outcome_currency(summary["revenue"])),
+    ]
+    for col, (label, value) in zip(metric_cols, metrics):
+        with col:
+            render_statistics_metric_card(label, value)
+
+    sent_tab, success_tab, item_tab, sender_tab = st.tabs(
+        ["Sent", "Successes", "By Item", "By Sender"]
     )
-
-    with overview_tab:
-        metric_cols = st.columns(5)
-        metrics = [
-            ("Sent", f"{summary['sent']:,}"),
-            ("Reminder Successes", f"{summary['successes']:,}"),
-            ("Success Rate", f"{summary['success_rate']:.0%}"),
-            ("Pending", f"{summary['pending']:,}"),
-            ("Revenue", format_outcome_currency(summary["revenue"])),
-        ]
-        for col, (label, value) in zip(metric_cols, metrics):
-            with col:
-                render_statistics_metric_card(label, value)
-
-        metric_cols = st.columns(3)
-        more_metrics = [
-            ("Desired Gap Days", format_outcome_number(summary["avg_desired_gap_days"])),
-            ("Avg Success Gap Days", format_outcome_number(summary["avg_success_gap_days"])),
-            ("Avg Item Purchase Gap Days", format_outcome_number(summary["avg_item_purchase_gap_days"])),
-        ]
-        for col, (label, value) in zip(metric_cols, more_metrics):
-            with col:
-                render_statistics_metric_card(label, value)
-
-        time_frame = build_outcome_time_frame(period_rows)
-        if not time_frame.empty:
-            chart_source = time_frame.melt(
-                id_vars=["Sent Date"],
-                value_vars=["Sent", "Successes"],
-                var_name="Metric",
-                value_name="Count",
-            )
-            chart = (
-                alt.Chart(chart_source)
-                .mark_line(point=True)
-                .encode(
-                    x=alt.X("Sent Date:T", title="Sent Date"),
-                    y=alt.Y("Count:Q", title="Reminders"),
-                    color=alt.Color("Metric:N", title="Metric"),
-                    tooltip=["Sent Date:T", "Metric:N", "Count:Q"],
-                )
-                .properties(height=300)
-            )
-            st.altair_chart(chart, use_container_width=True)
 
     with sent_tab:
         sent_rows = period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
         sent_rows = paginate_dataframe(sent_rows, "outcomes_sent", OUTCOME_SENT_PAGE_SIZE, "sent outcome rows")
-        render_outcome_dataframe(sent_rows)
+        render_outcome_dataframe(sent_rows, OUTCOME_SENT_DISPLAY_COLUMNS)
 
     with success_tab:
         success_rows = period_rows.loc[period_rows["Outcome"].eq("Reminder Success")].sort_values(
             ["Success Date", "Client Name"],
             ascending=[False, True],
         )
-        render_outcome_dataframe(success_rows)
+        render_outcome_dataframe(success_rows, OUTCOME_SENT_DISPLAY_COLUMNS)
 
     with item_tab:
-        render_outcome_dataframe(build_outcome_group_frame(period_rows, "Item"))
+        render_outcome_dataframe(build_outcome_group_frame(period_rows, "Item", OUTCOME_ITEM_GROUP_COLUMNS))
 
     with sender_tab:
-        render_outcome_dataframe(build_outcome_group_frame(period_rows, "Sender"))
-
-    with time_tab:
-        render_outcome_dataframe(build_outcome_time_frame(period_rows))
+        render_outcome_dataframe(build_outcome_group_frame(period_rows, "Sender", OUTCOME_SENDER_GROUP_COLUMNS))
 
 
 def statistics_completion_metric_labels(period: str) -> list[str]:

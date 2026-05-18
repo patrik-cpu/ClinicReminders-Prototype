@@ -239,7 +239,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(len(filtered), 1)
         self.assertEqual(str(filtered.iloc[0]["Sent Date"].date()), "2025-09-30")
 
-    def test_reminder_outcomes_use_reminder_date_for_historical_backtests(self):
+    def test_reminder_outcomes_use_actioned_date_as_sent_date_for_historical_backtests(self):
         actions = [
             {
                 "Reminder Date": "01 May 2025",
@@ -275,7 +275,7 @@ class StatisticsTests(unittest.TestCase):
 
         row = outcomes.iloc[0]
         self.assertEqual(row["Outcome"], "Reminder Success")
-        self.assertEqual(str(row["Sent Date"].date()), "2025-05-01")
+        self.assertEqual(str(row["Sent Date"].date()), "2026-05-18")
         self.assertEqual(str(row["Actioned Date"].date()), "2026-05-18")
         self.assertEqual(int(row["Success Gap Days"]), 376)
 
@@ -511,8 +511,6 @@ class StatisticsTests(unittest.TestCase):
         dog_row = rows["Bravecto Large Dog 20-40kg"]
         plus_row = rows["Bravecto Plus Cat"]
         self.assertEqual(dog_row["Outcome"], "No Match")
-        self.assertEqual(str(dog_row["Next Purchase Date"].date()), "2026-06-01")
-        self.assertEqual(int(dog_row["Next Purchase Gap Days"]), 151)
         self.assertEqual(int(dog_row["Avg Item Purchase Gap Days"]), 151)
         self.assertEqual(int(dog_row["Desired Gap Days"]), 90)
         self.assertEqual(plus_row["Outcome"], "Reminder Success")
@@ -575,11 +573,11 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(outcomes.iloc[0]["Matched Item"], "Bravecto 112.5mg 2-4.5kg Dog")
         self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 90.0)
 
-    def test_reminder_outcomes_counts_success_from_matching_purchase_gap(self):
+    def test_reminder_outcomes_counts_success_inside_user_defined_window(self):
         actions = [
             {
                 "Reminder Date": "18 Mar 2025",
-                "Due Date": "01 Jun 2025",
+                "Due Date": "01 Apr 2025",
                 "Charge Date": "01 Jan 2025",
                 "Client Name": "Client A",
                 "Animal Name": "Pet A",
