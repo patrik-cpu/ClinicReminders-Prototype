@@ -7742,45 +7742,6 @@ def main_section_tab_label(tab_name: str) -> str:
     return tab_name
 
 
-def main_section_tab_badge_count(tab_name: str) -> int:
-    try:
-        if tab_name == "Reminders":
-            return int(get_active_reminder_badge_count() or 0)
-        if tab_name == "Get Started":
-            return max(0, min(6, int(get_started_incomplete_count() or 0)))
-        if tab_name == "Upload Data":
-            return int(upload_data_badge_count() or 0)
-    except Exception:
-        return 0
-    return 0
-
-
-def render_main_section_navigation(active_tab: str):
-    tab_links = []
-    for tab_name in MAIN_SECTION_TABS:
-        slug = MAIN_SECTION_TAB_TO_SLUG.get(tab_name, "")
-        is_active = tab_name == active_tab
-        badge_count = main_section_tab_badge_count(tab_name)
-        badge_html = ""
-        if badge_count > 0:
-            badge_html = f"<span class='cr-main-tab-badge'>{badge_count}</span>"
-        aria_current = " aria-current='page'" if is_active else ""
-        tab_links.append(
-            "<a "
-            f"class='cr-main-tab{' is-active' if is_active else ''}' "
-            f"href='?{html_lib.escape(MAIN_SECTION_TAB_QUERY_PARAM)}={html_lib.escape(slug)}' "
-            f"target='_self'{aria_current}>{html_lib.escape(tab_name)}{badge_html}</a>"
-        )
-    st.markdown(
-        f"""
-        <nav class="cr-main-tabs" aria-label="Main sections">
-          {''.join(tab_links)}
-        </nav>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def clone_reminder_rules(rules: dict | None) -> dict:
     return json.loads(json.dumps(rules or {}))
 
@@ -8936,62 +8897,75 @@ st.markdown(
         font-weight: 600 !important;
         line-height: 1.2 !important;
       }
-      .cr-main-tabs {
-        align-items: flex-end;
+      .st-key-main_section_tab {
         border-bottom: 1px solid var(--cr-border);
-        display: flex;
-        flex-wrap: nowrap;
-        gap: 0.2rem;
         margin: 0.35rem 0 1rem;
         overflow-x: auto;
         padding-top: 0.15rem;
         scrollbar-width: thin;
       }
-      .cr-main-tab {
-        align-items: center;
-        background: var(--cr-primary-quiet);
-        border: 1px solid var(--cr-border);
-        border-bottom: 0;
-        border-radius: 8px 8px 0 0;
-        box-shadow: inset 0 -1px 0 var(--cr-border);
+      .st-key-main_section_tab [data-testid="stSegmentedControl"],
+      .st-key-main_section_tab div[role="radiogroup"] {
+        align-items: flex-end !important;
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        gap: 0.2rem !important;
+      }
+      .st-key-main_section_tab [role="radio"],
+      .st-key-main_section_tab button,
+      .st-key-main_section_tab label {
+        background: var(--cr-primary-quiet) !important;
+        border: 1px solid var(--cr-border) !important;
+        border-bottom: 0 !important;
+        border-radius: 8px 8px 0 0 !important;
+        box-shadow: inset 0 -1px 0 var(--cr-border) !important;
         color: #23513a !important;
-        display: inline-flex;
-        font-size: 1.35rem;
-        font-weight: 800;
-        gap: 0.45rem;
-        line-height: 1.2;
-        margin: 0 0 -1px;
-        min-height: 3rem;
-        padding: 0.55rem 0.9rem;
-        text-decoration: none !important;
-        white-space: nowrap;
+        font-size: 1.35rem !important;
+        font-weight: 800 !important;
+        line-height: 1.2 !important;
+        margin: 0 0 -1px !important;
+        min-height: 3rem !important;
+        padding: 0.55rem 0.9rem !important;
+        white-space: nowrap !important;
       }
-      .cr-main-tab:hover {
-        background: var(--cr-primary-soft);
+      .st-key-main_section_tab [role="radio"] p,
+      .st-key-main_section_tab [role="radio"] span,
+      .st-key-main_section_tab button p,
+      .st-key-main_section_tab button span,
+      .st-key-main_section_tab label p,
+      .st-key-main_section_tab label span {
+        color: #23513a !important;
+        font-size: 1.35rem !important;
+        font-weight: 800 !important;
+        line-height: 1.2 !important;
+      }
+      .st-key-main_section_tab [role="radio"]:hover,
+      .st-key-main_section_tab button:hover,
+      .st-key-main_section_tab label:hover {
+        background: var(--cr-primary-soft) !important;
         color: #062d19 !important;
-        text-decoration: none !important;
       }
-      .cr-main-tab.is-active,
-      .cr-main-tab.is-active:hover {
-        background: var(--cr-primary);
-        border-color: var(--cr-primary);
-        box-shadow: 0 1px 0 var(--cr-primary);
+      .st-key-main_section_tab [role="radio"][aria-checked="true"],
+      .st-key-main_section_tab [role="radio"][aria-selected="true"],
+      .st-key-main_section_tab button[aria-pressed="true"],
+      .st-key-main_section_tab button[aria-selected="true"],
+      .st-key-main_section_tab label:has(input:checked) {
+        background: var(--cr-primary) !important;
+        border-color: var(--cr-primary) !important;
+        box-shadow: 0 1px 0 var(--cr-primary) !important;
         color: #062d19 !important;
-        position: relative;
-        z-index: 1;
+        position: relative !important;
+        z-index: 1 !important;
       }
-      .cr-main-tab-badge {
-        align-items: center;
-        background: #dc2626;
-        border-radius: 999px;
-        color: #fff;
-        display: inline-flex;
-        font-size: 0.75rem;
-        font-weight: 800;
-        justify-content: center;
-        line-height: 1;
-        min-width: 1.15rem;
-        padding: 0.18rem 0.38rem;
+      .st-key-main_section_tab [aria-checked="true"] p,
+      .st-key-main_section_tab [aria-checked="true"] span,
+      .st-key-main_section_tab [aria-selected="true"] p,
+      .st-key-main_section_tab [aria-selected="true"] span,
+      .st-key-main_section_tab button[aria-pressed="true"] p,
+      .st-key-main_section_tab button[aria-pressed="true"] span,
+      .st-key-main_section_tab label:has(input:checked) p,
+      .st-key-main_section_tab label:has(input:checked) span {
+        color: #062d19 !important;
       }
       div[data-testid="stTabs"] div[role="tablist"] {
         align-items: flex-end !important;
@@ -9081,10 +9055,22 @@ st.markdown(
         padding: 0.35rem 0.8rem !important;
       }
       @media (max-width: 900px) {
-        .cr-main-tab {
-          font-size: 1.05rem;
-          min-height: 2.65rem;
-          padding: 0.45rem 0.65rem;
+        .st-key-main_section_tab [role="radio"],
+        .st-key-main_section_tab button,
+        .st-key-main_section_tab label,
+        .st-key-main_section_tab [role="radio"] p,
+        .st-key-main_section_tab [role="radio"] span,
+        .st-key-main_section_tab button p,
+        .st-key-main_section_tab button span,
+        .st-key-main_section_tab label p,
+        .st-key-main_section_tab label span {
+          font-size: 1.05rem !important;
+        }
+        .st-key-main_section_tab [role="radio"],
+        .st-key-main_section_tab button,
+        .st-key-main_section_tab label {
+          min-height: 2.65rem !important;
+          padding: 0.45rem 0.65rem !important;
         }
         div[data-testid="stTabs"] div[role="tablist"] button,
         div[data-testid="stTabs"] div[role="tablist"] button p,
@@ -9101,8 +9087,16 @@ st.markdown(
         }
       }
       @media (max-width: 640px) {
-        .cr-main-tab {
-          font-size: 0.98rem;
+        .st-key-main_section_tab [role="radio"],
+        .st-key-main_section_tab button,
+        .st-key-main_section_tab label,
+        .st-key-main_section_tab [role="radio"] p,
+        .st-key-main_section_tab [role="radio"] span,
+        .st-key-main_section_tab button p,
+        .st-key-main_section_tab button span,
+        .st-key-main_section_tab label p,
+        .st-key-main_section_tab label span {
+          font-size: 0.98rem !important;
         }
         div[data-testid="stTabs"] div[role="tablist"] button,
         div[data-testid="stTabs"] div[role="tablist"] button p,
@@ -9122,11 +9116,28 @@ default_main_section_tab = st.session_state.get("main_section_tab", "Reminders")
 if default_main_section_tab not in MAIN_SECTION_TABS:
     default_main_section_tab = "Reminders"
 st.session_state["main_section_tab"] = default_main_section_tab
-active_main_section = default_main_section_tab
+if hasattr(st, "segmented_control"):
+    active_main_section = st.segmented_control(
+        "Main section",
+        MAIN_SECTION_TABS,
+        selection_mode="single",
+        key="main_section_tab",
+        format_func=main_section_tab_label,
+        label_visibility="collapsed",
+    ) or default_main_section_tab
+else:
+    active_main_section = st.radio(
+        "Main section",
+        MAIN_SECTION_TABS,
+        index=MAIN_SECTION_TABS.index(default_main_section_tab),
+        horizontal=True,
+        key="main_section_tab",
+        format_func=main_section_tab_label,
+        label_visibility="collapsed",
+    )
 if active_main_section not in MAIN_SECTION_TABS:
     active_main_section = "Reminders"
     st.session_state["main_section_tab"] = active_main_section
-render_main_section_navigation(active_main_section)
 
 # --- Data section ---
 if active_main_section == "Get Started":
