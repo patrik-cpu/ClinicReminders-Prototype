@@ -2,6 +2,7 @@ import contextlib
 import importlib
 import io
 import unittest
+from unittest import mock
 
 import pandas as pd
 
@@ -57,6 +58,26 @@ class GetStartedBadgeTests(unittest.TestCase):
 
         self.app.close_new_account_welcome_dialog()
         self.assertFalse(self.app.st.session_state["show_new_account_welcome_dialog"])
+
+    def test_welcome_get_started_navigation_targets_upload_data(self):
+        with mock.patch.object(self.app, "set_query_param") as set_query_param:
+            self.app.navigate_main_section_tab("Upload Data")
+
+        self.assertEqual(self.app.st.session_state["main_section_tab"], "Upload Data")
+        set_query_param.assert_called_once_with(
+            self.app.MAIN_SECTION_TAB_QUERY_PARAM,
+            "upload-data",
+        )
+
+    def test_main_section_query_param_selects_tab_then_clears_url(self):
+        with (
+            mock.patch.object(self.app, "get_query_param_value", return_value="upload-data"),
+            mock.patch.object(self.app, "clear_query_param") as clear_query_param,
+        ):
+            self.app.consume_main_section_tab_query_param()
+
+        self.assertEqual(self.app.st.session_state["main_section_tab"], "Upload Data")
+        clear_query_param.assert_called_once_with(self.app.MAIN_SECTION_TAB_QUERY_PARAM)
 
 
 if __name__ == "__main__":

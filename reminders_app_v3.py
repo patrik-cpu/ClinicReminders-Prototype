@@ -60,11 +60,38 @@ DRIVE_SCOPE = [
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
 MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Statistics"]
+MAIN_SECTION_TAB_QUERY_PARAM = "section"
+MAIN_SECTION_TAB_SLUGS = {
+    "reminders": "Reminders",
+    "get-started": "Get Started",
+    "upload-data": "Upload Data",
+    "search-terms": "Search Terms",
+    "exclusions": "Exclusions",
+    "statistics": "Statistics",
+}
+MAIN_SECTION_TAB_TO_SLUG = {tab: slug for slug, tab in MAIN_SECTION_TAB_SLUGS.items()}
 
 
 def set_main_section_tab(tab_name: str):
     if tab_name in MAIN_SECTION_TABS:
         st.session_state["main_section_tab"] = tab_name
+
+
+def navigate_main_section_tab(tab_name: str):
+    set_main_section_tab(tab_name)
+    slug = MAIN_SECTION_TAB_TO_SLUG.get(tab_name)
+    if slug:
+        set_query_param(MAIN_SECTION_TAB_QUERY_PARAM, slug)
+
+
+def consume_main_section_tab_query_param():
+    tab_slug = get_query_param_value(MAIN_SECTION_TAB_QUERY_PARAM).strip().lower()
+    if not tab_slug:
+        return
+    tab_name = MAIN_SECTION_TAB_SLUGS.get(tab_slug)
+    if tab_name:
+        set_main_section_tab(tab_name)
+    clear_query_param(MAIN_SECTION_TAB_QUERY_PARAM)
 
 
 def get_query_param_value(key: str) -> str:
@@ -4851,7 +4878,7 @@ def render_new_account_welcome_dialog():
             st.markdown(welcome_html, unsafe_allow_html=True)
         if st.button("Get started", key="new_account_welcome_get_started", type="primary", use_container_width=True):
             close_new_account_welcome_dialog()
-            set_main_section_tab("Upload Data")
+            navigate_main_section_tab("Upload Data")
             st.rerun()
 
     if hasattr(st, "dialog"):
@@ -8472,6 +8499,7 @@ main_section_tab_label_map = {
     for tab_name in MAIN_SECTION_TABS
 }
 main_section_tab_labels = [main_section_tab_label_map[tab_name] for tab_name in MAIN_SECTION_TABS]
+consume_main_section_tab_query_param()
 default_main_section_tab = st.session_state.get("main_section_tab", "Reminders")
 if default_main_section_tab not in MAIN_SECTION_TABS:
     default_main_section_tab = "Reminders"
