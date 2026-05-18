@@ -613,6 +613,72 @@ class AuthSessionTests(unittest.TestCase):
         self.assertEqual(deleted, 2)
         self.assertEqual(worksheet.deleted_rows, [4, 2])
 
+    def test_delete_rows_matching_clinic_id_batches_contiguous_ranges_when_supported(self):
+        class FakeClient:
+            def __init__(self):
+                self.batch_calls = []
+
+            def batch_update(self, spreadsheet_id, body):
+                self.batch_calls.append((spreadsheet_id, body))
+
+        class FakeWorksheet:
+            id = 123
+            spreadsheet_id = "spreadsheet-id"
+
+            def __init__(self):
+                self.client = FakeClient()
+                self.deleted_rows = []
+
+            def get_all_values(self):
+                return [
+                    ["ClinicID", "Event"],
+                    ["Clinic A", "one"],
+                    ["clinic a", "two"],
+                    ["Clinic B", "three"],
+                    ["Clinic A", "four"],
+                    ["clinic a", "five"],
+                ]
+
+            def delete_rows(self, row_idx, end_idx=None):
+                self.deleted_rows.append((row_idx, end_idx))
+
+        worksheet = FakeWorksheet()
+        with patch.object(self.app, "_gspread_retry", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)):
+            deleted = self.app.delete_rows_matching_clinic_id(worksheet, {"Clinic A"})
+
+        self.assertEqual(deleted, 4)
+        self.assertEqual(worksheet.deleted_rows, [])
+        self.assertEqual(len(worksheet.client.batch_calls), 1)
+        spreadsheet_id, body = worksheet.client.batch_calls[0]
+        self.assertEqual(spreadsheet_id, "spreadsheet-id")
+        self.assertEqual(
+            body,
+            {
+                "requests": [
+                    {
+                        "deleteDimension": {
+                            "range": {
+                                "sheetId": 123,
+                                "dimension": "ROWS",
+                                "startIndex": 4,
+                                "endIndex": 6,
+                            }
+                        }
+                    },
+                    {
+                        "deleteDimension": {
+                            "range": {
+                                "sheetId": 123,
+                                "dimension": "ROWS",
+                                "startIndex": 1,
+                                "endIndex": 3,
+                            }
+                        }
+                    },
+                ]
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

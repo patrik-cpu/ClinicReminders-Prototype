@@ -606,10 +606,13 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
 ]
 
 
-def clear_account_session_state():
+def clear_account_session_state(reset_uploader: bool = True, preserve_keys: set[str] | None = None):
     """Clear clinic-specific session state when a user leaves an account."""
-    reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
+    preserve_keys = preserve_keys or set()
+    reset_uploaded_data_state(clear_cache=False, reset_uploader=reset_uploader)
     for key in ACCOUNT_SCOPED_SESSION_KEYS:
+        if key in preserve_keys:
+            continue
         st.session_state.pop(key, None)
     st.session_state["logged_in"] = False
     st.session_state["show_create_account"] = False
@@ -5327,6 +5330,8 @@ def upload_widget_has_files() -> bool:
 
 
 def open_account_dialog(dialog_name: str):
+    if dialog_name == "delete":
+        st.session_state.pop("delete_account_confirm_text", None)
     st.session_state["show_profile_dialog"] = dialog_name == "profile"
     st.session_state["show_data_privacy_dialog"] = dialog_name == "privacy"
     st.session_state["show_delete_account_dialog"] = dialog_name == "delete"
@@ -6912,9 +6917,58 @@ def delete_rows_matching_clinic_id(worksheet, clinic_ids: set[str]) -> int:
         if str(current or "").strip().lower() in clinic_keys:
             rows_to_delete.append(row_idx)
 
-    for row_idx in reversed(rows_to_delete):
-        _gspread_retry(worksheet.delete_rows, row_idx)
+    row_ranges = compact_row_ranges_for_delete(rows_to_delete)
+    delete_worksheet_row_ranges(worksheet, row_ranges)
     return len(rows_to_delete)
+
+
+def compact_row_ranges_for_delete(row_indexes: list[int]) -> list[tuple[int, int]]:
+    """Return 1-based inclusive row ranges, ordered bottom-up for safe deletion."""
+    sorted_rows = sorted({int(row) for row in row_indexes if int(row) > 1})
+    if not sorted_rows:
+        return []
+
+    ranges: list[tuple[int, int]] = []
+    start = end = sorted_rows[0]
+    for row_idx in sorted_rows[1:]:
+        if row_idx == end + 1:
+            end = row_idx
+            continue
+        ranges.append((start, end))
+        start = end = row_idx
+    ranges.append((start, end))
+    return list(reversed(ranges))
+
+
+def delete_worksheet_row_ranges(worksheet, row_ranges: list[tuple[int, int]]) -> None:
+    if not row_ranges:
+        return
+
+    sheet_id = getattr(worksheet, "id", None)
+    spreadsheet_id = getattr(worksheet, "spreadsheet_id", None)
+    client = getattr(worksheet, "client", None)
+    if sheet_id is not None and spreadsheet_id and client is not None and hasattr(client, "batch_update"):
+        requests = [
+            {
+                "deleteDimension": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "dimension": "ROWS",
+                        "startIndex": start - 1,
+                        "endIndex": end,
+                    }
+                }
+            }
+            for start, end in row_ranges
+        ]
+        _gspread_retry(client.batch_update, spreadsheet_id, {"requests": requests})
+        return
+
+    for start, end in row_ranges:
+        if start == end:
+            _gspread_retry(worksheet.delete_rows, start)
+        else:
+            _gspread_retry(worksheet.delete_rows, start, end)
 
 
 def delete_clinic_account_and_data(clinic_id: str) -> dict:
@@ -7106,18 +7160,9 @@ def render_delete_account_dialog():
             if typed.strip() != confirmation:
                 st.error("Confirmation did not match. Nothing was deleted.")
                 return
-            deletion_succeeded = False
             try:
-                delete_clinic_account_and_data(clinic_id)
-                google_session_active = get_google_user_info().get("is_logged_in", False)
-                clear_remember_login_token()
-                clear_account_session_state()
-                st.session_state["logout_notice"] = "The clinic account and saved data were deleted."
-                st.session_state["pending_google_signup"] = google_session_active
-                if google_session_active:
-                    st.session_state["google_onboarding_mode"] = "recreate_after_delete"
-                close_delete_account_dialog()
-                deletion_succeeded = True
+                with busy_overlay("Deleting account and data", "Removing clinic records, reminder history, and uploaded data."):
+                    delete_clinic_account_and_data(clinic_id)
             except Exception as e:
                 record_error_tracker_event(
                     "delete_account_failed",
@@ -7126,8 +7171,47 @@ def render_delete_account_dialog():
                     source="delete_account_and_data",
                 )
                 st.error("Could not delete the account. Please try again or contact support before retrying.")
-            if deletion_succeeded:
-                st.rerun()
+                return
+
+            try:
+                google_session_active = get_google_user_info().get("is_logged_in", False)
+            except Exception as e:
+                google_session_active = False
+                record_error_tracker_event(
+                    "delete_account_cleanup_failed",
+                    stage="delete_account_google_state",
+                    error=e,
+                    source="delete_account_and_data",
+                )
+            try:
+                clear_remember_login_token()
+            except Exception as e:
+                record_error_tracker_event(
+                    "delete_account_cleanup_failed",
+                    stage="delete_account_remember_token",
+                    error=e,
+                    source="delete_account_and_data",
+                )
+            try:
+                clear_account_session_state(
+                    reset_uploader=False,
+                    preserve_keys={"delete_account_confirm_text"},
+                )
+            except Exception as e:
+                record_error_tracker_event(
+                    "delete_account_cleanup_failed",
+                    stage="delete_account_session_state",
+                    error=e,
+                    source="delete_account_and_data",
+                )
+                st.session_state["logged_in"] = False
+                st.session_state.pop("clinic_id", None)
+            st.session_state["logout_notice"] = "The clinic account and saved data were deleted."
+            st.session_state["pending_google_signup"] = google_session_active
+            if google_session_active:
+                st.session_state["google_onboarding_mode"] = "recreate_after_delete"
+            close_delete_account_dialog()
+            st.rerun()
 
         if st.button("Cancel", key="delete_account_cancel", use_container_width=True):
             close_delete_account_dialog()
