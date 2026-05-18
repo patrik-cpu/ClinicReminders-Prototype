@@ -534,6 +534,19 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn("Clinic financial data is not sold", text)
         self.assertIn("Delete account and data", text)
 
+    def test_upload_sales_data_help_copy_shows_minimum_required_shape(self):
+        html = self.app.upload_sales_data_help_html()
+
+        self.assertIn("What should uploaded sales data look like?", html)
+        self.assertIn("One row per billed item", html)
+        self.assertIn("single billed product or service", html)
+        self.assertIn("Four required fields", html)
+        self.assertIn("Date billed", html)
+        self.assertIn("Client name", html)
+        self.assertIn("Animal name", html)
+        self.assertIn("Billed product or service", html)
+        self.assertIn("Extra columns are fine", html)
+
     def test_data_privacy_dialog_html_escapes_policy_text(self):
         html = self.app.data_privacy_dialog_html(
             {

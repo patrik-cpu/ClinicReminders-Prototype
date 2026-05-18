@@ -548,6 +548,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "show_profile_dialog",
     "show_delete_account_dialog",
     "show_new_account_welcome_dialog",
+    "show_upload_sales_data_help_dialog",
     "delete_account_confirm_text",
     "_scroll_to_whatsapp_composer",
     "_settings_row_cache",
@@ -4451,6 +4452,131 @@ def data_assurance_box_html() -> str:
     return ""
 
 
+def upload_sales_data_help_html() -> str:
+    return textwrap.dedent("""
+    <style>
+      .cr-upload-help {
+        color: #0f172a;
+      }
+      .cr-upload-help-hero {
+        background: linear-gradient(135deg, rgba(41, 210, 114, 0.16), rgba(255, 255, 255, 0.98));
+        border: 1px solid rgba(29, 167, 89, 0.24);
+        border-radius: 8px;
+        margin-bottom: 0.85rem;
+        padding: 1rem 1.05rem;
+      }
+      .cr-upload-help-hero h3 {
+        color: #082f1f;
+        font-size: 1.25rem;
+        font-weight: 850;
+        letter-spacing: 0;
+        line-height: 1.2;
+        margin: 0 0 0.45rem;
+      }
+      .cr-upload-help-hero p,
+      .cr-upload-help-rule p,
+      .cr-upload-help-caption {
+        color: #475569;
+        font-size: 0.94rem;
+        line-height: 1.45;
+        margin: 0;
+      }
+      .cr-upload-help-rules {
+        display: grid;
+        gap: 0.65rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-bottom: 0.75rem;
+      }
+      @media (max-width: 720px) {
+        .cr-upload-help-rules {
+          grid-template-columns: 1fr;
+        }
+      }
+      .cr-upload-help-rule,
+      .cr-upload-help-table {
+        background: #ffffff;
+        border: 1px solid rgba(15, 23, 42, 0.11);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
+      }
+      .cr-upload-help-rule {
+        padding: 0.82rem 0.9rem;
+      }
+      .cr-upload-help-rule strong {
+        color: #0f172a;
+        display: block;
+        font-size: 0.98rem;
+        margin-bottom: 0.3rem;
+      }
+      .cr-upload-help-table {
+        overflow: hidden;
+      }
+      .cr-upload-help-row {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr 1fr 1.7fr;
+      }
+      .cr-upload-help-row > div {
+        border-right: 1px solid rgba(15, 23, 42, 0.08);
+        padding: 0.62rem 0.7rem;
+      }
+      .cr-upload-help-row > div:last-child {
+        border-right: 0;
+      }
+      .cr-upload-help-head {
+        background: #f1f5f9;
+        color: #334155;
+        font-size: 0.78rem;
+        font-weight: 850;
+        text-transform: uppercase;
+      }
+      .cr-upload-help-body {
+        color: #0f172a;
+        font-size: 0.9rem;
+      }
+      .cr-upload-help-caption {
+        margin-top: 0.65rem;
+      }
+    </style>
+    <div class="cr-upload-help">
+      <div class="cr-upload-help-hero">
+        <h3>What should uploaded sales data look like?</h3>
+        <p>Exports look different across PMSs. Clinic Reminders only needs the information required to find reminder dates.</p>
+      </div>
+      <div class="cr-upload-help-rules">
+        <div class="cr-upload-help-rule">
+          <strong>One row per billed item</strong>
+          <p>Each row should be a single billed product or service, such as a vaccine, medication, food item, or consultation.</p>
+        </div>
+        <div class="cr-upload-help-rule">
+          <strong>Four required fields</strong>
+          <p>The upload needs the billed date, client name, animal name, and billed product or service.</p>
+        </div>
+      </div>
+      <div class="cr-upload-help-table">
+        <div class="cr-upload-help-row cr-upload-help-head">
+          <div>Date billed</div>
+          <div>Client name</div>
+          <div>Animal name</div>
+          <div>Billed product or service</div>
+        </div>
+        <div class="cr-upload-help-row cr-upload-help-body">
+          <div>02 Jan 2024</div>
+          <div>Alexandra Field</div>
+          <div>Sausage</div>
+          <div>Kennel cough and rabies vaccine</div>
+        </div>
+        <div class="cr-upload-help-row cr-upload-help-body">
+          <div>08 Jan 2024</div>
+          <div>Nicole Mansour</div>
+          <div>Fluffy</div>
+          <div>Bravecto tablet</div>
+        </div>
+      </div>
+      <p class="cr-upload-help-caption">Extra columns are fine. The app ignores columns it does not need.</p>
+    </div>
+    """).strip()
+
+
 def new_account_welcome_dialog_html() -> str:
     steps = [
         (
@@ -4705,6 +4831,10 @@ def close_new_account_welcome_dialog():
     st.session_state["show_new_account_welcome_dialog"] = False
 
 
+def close_upload_sales_data_help_dialog():
+    st.session_state["show_upload_sales_data_help_dialog"] = False
+
+
 def mark_new_account_welcome_pending():
     st.session_state["show_new_account_welcome_dialog"] = True
 
@@ -4736,6 +4866,35 @@ def render_new_account_welcome_dialog():
         _welcome_dialog()
     else:
         with st.expander("Welcome to Clinic Reminders", expanded=True):
+            _render_dialog_body()
+
+
+def render_upload_sales_data_help_dialog():
+    if not st.session_state.get("show_upload_sales_data_help_dialog", False):
+        return
+
+    def _render_dialog_body():
+        help_html = upload_sales_data_help_html()
+        if hasattr(st, "html"):
+            st.html(help_html)
+        else:
+            st.markdown(help_html, unsafe_allow_html=True)
+        if st.button("Close", key="close_upload_sales_data_help_dialog", use_container_width=True):
+            close_upload_sales_data_help_dialog()
+            st.rerun()
+
+    if hasattr(st, "dialog"):
+        @st.dialog("Uploaded sales data", width="large", on_dismiss=close_upload_sales_data_help_dialog)
+        def _upload_help_dialog():
+            _render_dialog_body()
+        _upload_help_dialog()
+    elif hasattr(st, "experimental_dialog"):
+        @st.experimental_dialog("Uploaded sales data")
+        def _upload_help_dialog():
+            _render_dialog_body()
+        _upload_help_dialog()
+    else:
+        with st.expander("Uploaded sales data", expanded=True):
             _render_dialog_body()
 
 
@@ -6911,6 +7070,8 @@ elif st.session_state.get("show_data_privacy_dialog", False):
     render_data_privacy_dialog()
 elif st.session_state.get("show_new_account_welcome_dialog", False):
     render_new_account_welcome_dialog()
+elif st.session_state.get("show_upload_sales_data_help_dialog", False):
+    render_upload_sales_data_help_dialog()
 
 # Block access to rest of app until logged in
 if not st.session_state["logged_in"]:
@@ -8326,6 +8487,9 @@ with data_tab:
         render_dataset_date_range(saved_rows=saved_dataset_rows)
         render_dataset_summary_checks(saved_dataset_rows)
     st.caption("Supported systems: VETport, ezyVet, Xpress, or a clean sales export.")
+    if st.button("What should uploaded sales data look like?", key="open_upload_sales_data_help"):
+        st.session_state["show_upload_sales_data_help_dialog"] = True
+        st.rerun()
 
     datasets = []
     summary_rows = []
@@ -8368,6 +8532,7 @@ with data_tab:
         st.toast("Files changed - refreshing upload.")
 
         close_account_dialogs()
+        close_upload_sales_data_help_dialog()
         st.session_state["last_uploaded_files"] = current_files
         st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
         reset_uploaded_data_state(clear_cache=False)
