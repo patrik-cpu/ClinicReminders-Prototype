@@ -2297,7 +2297,9 @@ st.markdown(
     }
     [class*="st-key-del_client_excl_"] button,
     [class*="st-key-del_patient_excl_"] button,
-    [class*="st-key-del_excl_"] button {
+    [class*="st-key-del_excl_"] button,
+    [class*="st-key-del_passaway_keyword_"] button,
+    [class*="st-key-del_auto_patient_excl_"] button {
         background: transparent !important;
         border: 0 !important;
         box-shadow: none !important;
@@ -2308,13 +2310,17 @@ st.markdown(
     }
     [class*="st-key-del_client_excl_"] button:hover,
     [class*="st-key-del_patient_excl_"] button:hover,
-    [class*="st-key-del_excl_"] button:hover {
+    [class*="st-key-del_excl_"] button:hover,
+    [class*="st-key-del_passaway_keyword_"] button:hover,
+    [class*="st-key-del_auto_patient_excl_"] button:hover {
         background: rgba(217, 45, 32, 0.08) !important;
         border-radius: 999px !important;
     }
     [class*="st-key-del_client_excl_"] button p,
     [class*="st-key-del_patient_excl_"] button p,
-    [class*="st-key-del_excl_"] button p {
+    [class*="st-key-del_excl_"] button p,
+    [class*="st-key-del_passaway_keyword_"] button p,
+    [class*="st-key-del_auto_patient_excl_"] button p {
         color: #d92d20 !important;
         font-size: 1.55rem !important;
         font-weight: 700 !important;

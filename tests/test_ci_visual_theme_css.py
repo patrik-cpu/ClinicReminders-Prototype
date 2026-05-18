@@ -39,6 +39,21 @@ class VisualThemeCssTests(unittest.TestCase):
             source,
         )
 
+    def test_all_exclusion_delete_buttons_share_red_x_styling(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        for key_prefix in [
+            "st-key-del_client_excl_",
+            "st-key-del_patient_excl_",
+            "st-key-del_excl_",
+            "st-key-del_passaway_keyword_",
+            "st-key-del_auto_patient_excl_",
+        ]:
+            with self.subTest(key_prefix=key_prefix):
+                self.assertIn(f'[class*="{key_prefix}"] button', source)
+                self.assertIn(f'[class*="{key_prefix}"] button:hover', source)
+                self.assertIn(f'[class*="{key_prefix}"] button p', source)
+
     def test_streamlit_theme_defaults_to_light(self):
         config = (REPO_ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
 
