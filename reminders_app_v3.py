@@ -10954,6 +10954,7 @@ def prepare_sales_for_outcomes(sales_df: pd.DataFrame) -> pd.DataFrame:
         "OutcomePatientKey",
         "OutcomeItemKey",
         "OutcomeAmount",
+        "OutcomeSaleID",
     ]
     if sales_df is None or getattr(sales_df, "empty", True):
         return pd.DataFrame(columns=columns)
@@ -10965,9 +10966,10 @@ def prepare_sales_for_outcomes(sales_df: pd.DataFrame) -> pd.DataFrame:
     if "Amount" not in working.columns:
         working["Amount"] = 0
 
-    working["OutcomeChargeDate"] = pd.to_datetime(working["ChargeDate"], errors="coerce").dt.date
-    working["OutcomeClientKey"] = working["Client Name"].map(normalize_outcome_identity)
-    working["OutcomePatientKey"] = working["Animal Name"].map(normalize_outcome_identity)
+    working["OutcomeSaleID"] = np.arange(len(working))
+    working["OutcomeChargeDate"] = pd.to_datetime(working["ChargeDate"], errors="coerce").dt.normalize()
+    working["OutcomeClientKey"] = normalize_key_series(working["Client Name"], index=working.index)
+    working["OutcomePatientKey"] = normalize_key_series(working["Animal Name"], index=working.index)
     working["OutcomeItemKey"] = working["Item Name"].map(normalize_outcome_item_text)
     working["OutcomeAmount"] = pd.to_numeric(working["Amount"], errors="coerce").fillna(0)
     working = working.dropna(subset=["OutcomeChargeDate"])
@@ -10988,6 +10990,7 @@ def outcome_timing_label(days_vs_due, on_time_grace_days: int) -> str:
     return "Late"
 
 
+@st.cache_data(show_spinner=False, max_entries=8)
 def build_reminder_outcomes(
     action_records: list[dict],
     sales_df: pd.DataFrame,
@@ -11022,7 +11025,7 @@ def build_reminder_outcomes(
         return empty_outcome_frame()
 
     rows = []
-    for record in sent_records:
+    for record_id, record in enumerate(sent_records):
         actioned_dt = _parse_reminder_log_time(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
         actioned_date = actioned_dt.date() if actioned_dt else None
         reminder_date = first_statistics_date(record.get("Reminder Date", ""))
@@ -11040,40 +11043,9 @@ def build_reminder_outcomes(
         animal_name = normalize_display_case(str(record.get("Animal Name", "") or "").strip())
         item_name = normalize_display_case(str(record.get("Plan Item", "") or "").strip())
         sender = str(record.get("Actioned By", "") or "").strip() or "Unknown"
-        success_row = None
+        terms = outcome_search_terms_for_record(record, item_name, rules)
 
-        if sent_date and not sales.empty:
-            client_key = normalize_outcome_identity(client_name)
-            patient_key = normalize_outcome_identity(animal_name)
-            candidate_mask = (
-                (sales["OutcomeClientKey"] == client_key)
-                & (sales["OutcomePatientKey"] == patient_key)
-                & (sales["OutcomeChargeDate"] >= window_start)
-                & (sales["OutcomeChargeDate"] <= window_end)
-            )
-            candidates = sales.loc[candidate_mask].copy()
-            if not candidates.empty:
-                candidates = candidates.loc[
-                    candidates["Item Name"].map(lambda value: outcome_item_matches(item_name, value, rules, record=record))
-                ].sort_values("OutcomeChargeDate")
-                if not candidates.empty:
-                    success_row = candidates.iloc[0]
-
-        success_date = None
-        matched_item = ""
-        revenue = 0.0
-        days_to_success = None
-        days_vs_due = None
-        timing = ""
-        if success_row is not None:
-            success_date = success_row["OutcomeChargeDate"]
-            matched_item = normalize_display_case(str(success_row.get("Item Name", "") or "").strip())
-            revenue = float(success_row.get("OutcomeAmount", 0) or 0)
-            days_to_success = (success_date - sent_date).days if sent_date else None
-            days_vs_due = (success_date - due_date).days if due_date else None
-            timing = outcome_timing_label(days_vs_due, on_time_grace_days)
-            outcome = "Reminder Success"
-        elif sent_date is None:
+        if sent_date is None:
             outcome = "Not Measurable"
         elif window_end and window_end >= today:
             outcome = "Pending"
@@ -11081,25 +11053,115 @@ def build_reminder_outcomes(
             outcome = "No Match"
 
         rows.append({
+            "_OutcomeRecordID": record_id,
+            "_OutcomeClientKey": normalize_outcome_identity(client_name),
+            "_OutcomePatientKey": normalize_outcome_identity(animal_name),
+            "_OutcomeTerms": terms,
             "Sent Date": pd.Timestamp(sent_date) if sent_date else pd.NaT,
             "Actioned Date": pd.Timestamp(actioned_date) if actioned_date else pd.NaT,
             "Due Date": pd.Timestamp(due_date) if due_date else pd.NaT,
             "Window Starts": pd.Timestamp(window_start) if window_start else pd.NaT,
-            "Success Date": pd.Timestamp(success_date) if success_date else pd.NaT,
+            "Success Date": pd.NaT,
             "Window Ends": pd.Timestamp(window_end) if window_end else pd.NaT,
             "Client Name": client_name,
             "Animal Name": animal_name,
             "Item": item_name,
             "Sender": sender,
             "Outcome": outcome,
-            "Timing": timing,
-            "Days to Success": days_to_success,
-            "Days vs Due Date": days_vs_due,
-            "Revenue": revenue,
-            "Matched Item": matched_item,
+            "Timing": "",
+            "Days to Success": None,
+            "Days vs Due Date": None,
+            "Revenue": 0.0,
+            "Matched Item": "",
         })
 
-    return pd.DataFrame(rows, columns=OUTCOME_TABLE_COLUMNS)
+    outcomes = pd.DataFrame(rows)
+    if outcomes.empty:
+        return empty_outcome_frame()
+
+    measurable = outcomes.loc[
+        outcomes["Sent Date"].notna()
+        & outcomes["Window Starts"].notna()
+        & outcomes["Window Ends"].notna()
+        & outcomes["_OutcomeTerms"].map(bool),
+        [
+            "_OutcomeRecordID",
+            "_OutcomeClientKey",
+            "_OutcomePatientKey",
+            "_OutcomeTerms",
+            "Sent Date",
+            "Due Date",
+            "Window Starts",
+            "Window Ends",
+        ],
+    ]
+
+    if not measurable.empty and not sales.empty:
+        term_rows = measurable.explode("_OutcomeTerms").rename(columns={"_OutcomeTerms": "_OutcomeTerm"})
+        term_rows = term_rows.loc[term_rows["_OutcomeTerm"].astype(str).str.len().gt(0)]
+        if not term_rows.empty:
+            merged = term_rows.merge(
+                sales[
+                    [
+                        "OutcomeClientKey",
+                        "OutcomePatientKey",
+                        "OutcomeChargeDate",
+                        "OutcomeItemKey",
+                        "OutcomeAmount",
+                        "Item Name",
+                        "OutcomeSaleID",
+                    ]
+                ],
+                left_on=["_OutcomeClientKey", "_OutcomePatientKey"],
+                right_on=["OutcomeClientKey", "OutcomePatientKey"],
+                how="inner",
+            )
+            if not merged.empty:
+                date_mask = (
+                    (merged["OutcomeChargeDate"] >= merged["Window Starts"])
+                    & (merged["OutcomeChargeDate"] <= merged["Window Ends"])
+                )
+                merged = merged.loc[date_mask]
+            if not merged.empty:
+                sale_keys = merged["OutcomeItemKey"].astype(str).to_numpy()
+                terms = merged["_OutcomeTerm"].astype(str).to_numpy()
+                term_mask = np.fromiter(
+                    (term in sale_key for term, sale_key in zip(terms, sale_keys)),
+                    dtype=bool,
+                    count=len(merged),
+                )
+                merged = merged.loc[term_mask]
+            if not merged.empty:
+                first_matches = (
+                    merged.sort_values(["_OutcomeRecordID", "OutcomeChargeDate", "OutcomeSaleID"])
+                    .drop_duplicates("_OutcomeRecordID", keep="first")
+                )
+                for match in first_matches.to_dict("records"):
+                    record_id = int(match["_OutcomeRecordID"])
+                    success_date = pd.Timestamp(match["OutcomeChargeDate"])
+                    sent_value = outcomes.at[record_id, "Sent Date"]
+                    due_value = outcomes.at[record_id, "Due Date"]
+                    days_to_success = (
+                        (success_date.date() - pd.Timestamp(sent_value).date()).days
+                        if pd.notna(sent_value)
+                        else None
+                    )
+                    days_vs_due = (
+                        (success_date.date() - pd.Timestamp(due_value).date()).days
+                        if pd.notna(due_value)
+                        else None
+                    )
+                    outcomes.at[record_id, "Success Date"] = success_date
+                    outcomes.at[record_id, "Matched Item"] = normalize_display_case(
+                        str(match.get("Item Name", "") or "").strip()
+                    )
+                    outcomes.at[record_id, "Revenue"] = float(match.get("OutcomeAmount", 0) or 0)
+                    outcomes.at[record_id, "Days to Success"] = days_to_success
+                    outcomes.at[record_id, "Days vs Due Date"] = days_vs_due
+                    outcomes.at[record_id, "Timing"] = outcome_timing_label(days_vs_due, on_time_grace_days)
+                    outcomes.at[record_id, "Outcome"] = "Reminder Success"
+
+    return outcomes[OUTCOME_TABLE_COLUMNS]
 
 
 def filter_outcomes_for_period(outcomes_df: pd.DataFrame, period: str, today: date | None = None) -> pd.DataFrame:
