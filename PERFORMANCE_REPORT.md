@@ -11,7 +11,93 @@ The app's highest-confidence performance risks are from external Google I/O and 
 - upload parsing/publishing that can hold large files/DataFrames in caches
 - settings autosave and tracker logging that can create multiple synchronous sheet writes
 
-I did not edit code. This is a report-only audit.
+The original audit was report-only. The 2026-05-18 follow-up below includes one
+small performance cleanup.
+
+## Follow-up pass: 2026-05-18
+
+This follow-up pass included both performance review and a user-action smoke
+inventory after the live-pilot UI changes.
+
+### What was checked
+
+- Enumerated Streamlit user actions: login, signup, Google signup/login,
+  profile save/close, data privacy, account deletion/cancel, logout, upload
+  help, file upload, saved-upload removal, clear clinic data, reminder refresh,
+  WhatsApp, sent, decline, undo, template update/reset, search-term add/delete,
+  search-term reset, exclusion add/delete, statistics rendering, and dormant
+  admin/export buttons.
+- Re-ran focused Upload Data and Streamlit startup/login checks.
+- Re-ran full CI-style tests and release gates.
+- Rechecked active upload parsing/cache code against the earlier cache-layering
+  finding.
+
+### Change made
+
+Removed the nested `@st.cache_resource` wrapper around upload summarisation in
+the Upload Data tab. The wrapper was defined inside the tab render path and
+only delegated to `summarize_uploads`, which is already a module-level
+`@st.cache_data` function. This reduces cache layering and keeps upload cache
+invalidation easier to reason about without changing upload behavior.
+
+Evidence:
+
+- Previous wrapper: `reminders_app_v3.py` Upload Data tab, `load_persistent_dataset`.
+- Current calls go directly to `summarize_uploads(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)`.
+
+Validation:
+
+```bash
+python -m py_compile reminders_app_v3.py settings_pointer_utils.py scripts/*.py
+python -m unittest tests.test_ci_dataset_update tests.test_ci_streamlit_login_render tests.test_ci_streamlit_startup
+python -m unittest discover -s tests -p "test_ci_*.py"
+bash scripts/pre_merge_check.sh
+bash scripts/pilot_release_check.sh
+python -m pip check
+```
+
+Results:
+
+- Compile passed.
+- Focused upload/startup/login checks passed: 33 tests.
+- CI-pattern tests passed: 157 tests.
+- `scripts/pre_merge_check.sh` passed.
+- `scripts/pilot_release_check.sh` passed local checks and skipped live Google
+  smoke because no service-account credentials were present locally.
+- Dependency consistency passed: `No broken requirements found.`
+
+### User-action status
+
+No local automated failures were found for the covered actions. The strongest
+coverage is around state-changing helpers and workflows: auth/session handling,
+upload validation and saved-upload state, reminder sent/decline/undo, settings
+save state, profile/delete behavior, privacy/copy rendering, statistics
+summaries, and Streamlit startup/login rendering.
+
+Remaining gaps:
+
+- This is still not true browser-click E2E coverage of the deployed app.
+- Live Google Sheets/Drive writes were not exercised locally because credentials
+  were not available in the workspace.
+- Visual correctness still depends partly on manual checks in Streamlit Cloud,
+  especially dialogs, tabs, and file uploader rendering.
+
+### Remaining performance risks
+
+No new P0 performance issues were found. The main remaining risks are the same
+structural risks already listed below:
+
+- Full Google Sheets scans on login/settings/action-history paths.
+- Synchronous Google Sheets/Drive writes on user actions.
+- Potentially heavy reminder and action-history rendering for large clinics.
+- Google Sheets/Drive as the backing store, with no transactional guarantees.
+
+Recommended next performance PR:
+
+Split action-history loading into two paths: a small recent/current-reminder
+state load for normal reminder rendering, and a broader history load only when
+statistics needs it. This should reduce login/refresh cost as the action tracker
+grows.
 
 ## Method
 

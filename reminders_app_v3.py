@@ -8495,14 +8495,6 @@ with data_tab:
     summary_rows = []
     working_df = None
     
-    # --------------------------------
-    # Cached dataset loader (persistent across reruns)
-    # --------------------------------
-    @st.cache_resource(show_spinner=False)
-    def load_persistent_dataset(file_blobs, cache_version: int = UPLOAD_SUMMARY_SCHEMA_VERSION):
-        return summarize_uploads(file_blobs, cache_version)
-    
-    # --------------------------------
     # File uploader
     # --------------------------------
     render_field_label(
@@ -8574,7 +8566,7 @@ with data_tab:
             saved_upload_history,
         ):
             try:
-                _, summary_rows = load_persistent_dataset(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
+                _, summary_rows = summarize_uploads(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
             except Exception:
                 summary_rows = []
             existing_history_rows = normalize_dataset_upload_history(saved_upload_history)
@@ -8582,10 +8574,10 @@ with data_tab:
                 repair_dataset_upload_history_from_rows(summary_rows)
                 st.rerun()
         else:
-            # ✅ Use cached dataset loader (faster after first run)
+            # summarize_uploads is cached, so repeated reruns reuse parsed upload data.
             parse_started = time.perf_counter()
             try:
-                datasets, summary_rows = load_persistent_dataset(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
+                datasets, summary_rows = summarize_uploads(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
             except UploadResourceLimitError as e:
                 record_dataset_tracker_event(
                     "upload_parse_failed",
@@ -8596,7 +8588,7 @@ with data_tab:
                 )
                 record_error_tracker_event(
                     "upload_parse_failed",
-                    stage="load_persistent_dataset",
+                    stage="summarize_uploads",
                     error=e,
                     source="file_uploader",
                 )
@@ -8620,7 +8612,7 @@ with data_tab:
                 )
                 record_error_tracker_event(
                     "upload_parse_failed",
-                    stage="load_persistent_dataset",
+                    stage="summarize_uploads",
                     error=e,
                     source="file_uploader",
                 )
@@ -8648,7 +8640,7 @@ with data_tab:
                 )
                 record_error_tracker_event(
                     "upload_parse_failed",
-                    stage="load_persistent_dataset",
+                    stage="summarize_uploads",
                     error=e,
                     source="file_uploader",
                 )
