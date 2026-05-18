@@ -9548,49 +9548,50 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
 
 
 def mark_all_listed_reminders_sent_action(rows: list[dict], key_prefix: str, msg_key: str):
-    set_main_section_tab("Reminders")
-    now = utc_now()
-    rows_to_send = []
-    messages_by_key = {}
-    tracker_rows = []
+    with busy_overlay("Marking reminders as sent", "Saving the listed reminders and updating action history."):
+        set_main_section_tab("Reminders")
+        now = utc_now()
+        rows_to_send = []
+        messages_by_key = {}
+        tracker_rows = []
 
-    for row_data in rows or []:
-        if not isinstance(row_data, dict):
-            continue
-        hidden_record = get_hidden_reminder_record(row_data)
-        hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
-        if hidden_action == REMINDER_ACTION_SENT:
-            continue
-        message = build_whatsapp_message_for_row(row_data)
-        tracker_rows.append(
-            action_tracker_row_values(
-                row_data,
-                REMINDER_ACTION_SENT,
-                message=message,
-                source=f"{key_prefix}_send_all",
-                now=now,
+        for row_data in rows or []:
+            if not isinstance(row_data, dict):
+                continue
+            hidden_record = get_hidden_reminder_record(row_data)
+            hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
+            if hidden_action == REMINDER_ACTION_SENT:
+                continue
+            message = build_whatsapp_message_for_row(row_data)
+            tracker_rows.append(
+                action_tracker_row_values(
+                    row_data,
+                    REMINDER_ACTION_SENT,
+                    message=message,
+                    source=f"{key_prefix}_send_all",
+                    now=now,
+                )
             )
-        )
-        rows_to_send.append(row_data)
-        messages_by_key[hidden_reminder_key(row_data)] = message
+            rows_to_send.append(row_data)
+            messages_by_key[hidden_reminder_key(row_data)] = message
 
-    if not rows_to_send:
-        st.session_state["_bulk_sent_success"] = "No active reminders needed marking as sent."
+        if not rows_to_send:
+            st.session_state["_bulk_sent_success"] = "No active reminders needed marking as sent."
+            hide_revealed_reminders_after_action(key_prefix)
+            return
+
+        if not append_tracker_rows(ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS, tracker_rows):
+            remember_action_tracker_save_failure()
+            return
+
+        for row_data in rows_to_send:
+            message = messages_by_key.get(hidden_reminder_key(row_data), "")
+            st.session_state[msg_key] = message
+            record_wa_reminder_click(row_data.get("Client Name", ""), now=now, row=row_data, save=False)
+            upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
+
+        st.session_state["_bulk_sent_success"] = f"Marked {len(rows_to_send)} reminder{'s' if len(rows_to_send) != 1 else ''} as sent."
         hide_revealed_reminders_after_action(key_prefix)
-        return
-
-    if not append_tracker_rows(ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS, tracker_rows):
-        remember_action_tracker_save_failure()
-        return
-
-    for row_data in rows_to_send:
-        message = messages_by_key.get(hidden_reminder_key(row_data), "")
-        st.session_state[msg_key] = message
-        record_wa_reminder_click(row_data.get("Client Name", ""), now=now, row=row_data, save=False)
-        upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
-
-    st.session_state["_bulk_sent_success"] = f"Marked {len(rows_to_send)} reminder{'s' if len(rows_to_send) != 1 else ''} as sent."
-    hide_revealed_reminders_after_action(key_prefix)
 
 
 def decline_reminder_action(row_data: dict, key_prefix: str):
@@ -11162,7 +11163,8 @@ def refresh_outcome_results_state() -> None:
 
 def refresh_outcome_results_action() -> None:
     set_main_section_tab("Outcomes")
-    refresh_outcome_results_state()
+    with busy_overlay("Refreshing outcome results", "Re-syncing reminder actions and saved clinic data."):
+        refresh_outcome_results_state()
     st.rerun()
 
 
@@ -11237,7 +11239,7 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
             label_visibility="collapsed",
         )
 
-    with st.spinner("Matching sent reminders to later sales..."):
+    with busy_overlay("Calculating outcome results", "Matching sent reminders to later sales."):
         outcome_rows = build_reminder_outcomes(
             statistics_current_action_records(),
             sales_df,
