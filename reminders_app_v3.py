@@ -11261,7 +11261,6 @@ def refresh_outcome_results_action() -> None:
     set_main_section_tab("Outcomes")
     with busy_overlay("Refreshing outcome results", "Re-syncing reminder actions and saved clinic data."):
         refresh_outcome_results_state()
-    st.rerun()
 
 
 def render_outcomes_tab(sales_df: pd.DataFrame):
