@@ -24,7 +24,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("color-scheme: light !important;", source)
         self.assertIn("background: #ffffff !important;", source)
         self.assertIn("-webkit-text-fill-color: #101828 !important;", source)
-        self.assertIn("padding-top: 3rem !important;", source)
+        self.assertIn("padding-top: 3.25rem !important;", source)
         self.assertIn("padding-bottom: max(7rem, 42vh) !important;", source)
         self.assertIn('[data-baseweb="checkbox"] input[type="checkbox"]', source)
         self.assertRegex(
