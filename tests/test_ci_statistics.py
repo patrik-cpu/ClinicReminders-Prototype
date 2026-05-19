@@ -175,6 +175,7 @@ class StatisticsTests(unittest.TestCase):
                     self.assertTrue(config[display_column]["help"])
 
         self.assertIn("Percentage of sent reminders", config["Success Rate"]["help"])
+        self.assertIn("Overall average purchase gap compared with the desired gap", config["Gap Day % to Desired"]["help"])
         self.assertIn("Percentage of matching purchases", config["Repeat Purchase %"]["help"])
         self.assertEqual(config["Sent"]["type_config"]["format"], "%d")
         self.assertEqual(config["No Match"]["type_config"]["format"], "%d")
@@ -1540,15 +1541,21 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(rows["Nurse A"]["No Match"], 2)
         self.assertEqual(rows["Nurse A"]["Success Rate"], 1 / 4)
         self.assertEqual(rows["Nurse A"]["Avg Success Gap Days"], 365)
+        self.assertAlmostEqual(rows["Nurse A"]["Gap Day % to Desired"], 370 / 365)
         self.assertEqual(rows["Nurse A"]["Overall Repeat Purchases"], 3)
         self.assertEqual(rows["Nurse A"]["Overall Purchases"], 4)
         self.assertEqual(rows["Nurse A"]["Repeat Purchase %"], 0.75)
         self.assertEqual(rows["Nurse B"]["Desired Gap Days"], 90)
+        self.assertEqual(rows["Nurse B"]["Gap Day % to Desired"], 120 / 90)
         self.assertEqual(rows["Nurse B"]["Overall Repeat Purchases"], 2)
         self.assertEqual(rows["Nurse B"]["Overall Purchases"], 5)
         self.assertEqual(rows["Nurse B"]["Repeat Purchase %"], 0.4)
         self.assertLess(
             self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Avg Item Purchase Gap Days"),
+            self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Gap Day % to Desired"),
+        )
+        self.assertLess(
+            self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Gap Day % to Desired"),
             self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Overall Repeat Purchases"),
         )
         self.assertLess(
@@ -1575,6 +1582,7 @@ class StatisticsTests(unittest.TestCase):
                 "Success Rate": 0.25,
                 "Desired Gap Days": 365,
                 "Avg Item Purchase Gap Days": 370,
+                "Gap Day % to Desired": 370 / 365,
                 "Overall Repeat Purchases": 3,
                 "Overall Purchases": 4,
                 "Repeat Purchase %": 0.75,
@@ -1595,15 +1603,19 @@ class StatisticsTests(unittest.TestCase):
         rendered_frame = dataframe.call_args.args[0]
         column_config = dataframe.call_args.kwargs["column_config"]
         self.assertIn("Overall Avg Purchase Gap Days", rendered_frame.columns)
+        self.assertIn("Gap Day % to Desired", rendered_frame.columns)
         self.assertIn("Overall Repeat Purchases", rendered_frame.columns)
         self.assertIn("Overall Purchases", rendered_frame.columns)
         self.assertIn("Repeat Purchase %", rendered_frame.columns)
         self.assertIn("Success Rate", column_config)
         self.assertIn("Repeat Purchase %", column_config)
         self.assertEqual(column_config["Overall Avg Purchase Gap Days"]["type_config"]["format"], "%.0f")
+        self.assertEqual(column_config["Gap Day % to Desired"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Repeat Purchase %"]["type_config"]["format"], "%.0f%%")
+        self.assertEqual(round(rendered_frame.iloc[0]["Gap Day % to Desired"]), 101)
         self.assertEqual(rendered_frame.iloc[0]["Repeat Purchase %"], 75)
         self.assertIn("Average gap", column_config["Overall Avg Purchase Gap Days"]["help"])
+        self.assertIn("Overall average purchase gap compared with the desired gap", column_config["Gap Day % to Desired"]["help"])
         self.assertIn("Percentage of matching purchases", column_config["Repeat Purchase %"]["help"])
         self.assertIn("Current result", column_config["Outcome"]["help"])
         self.assertNotIn("Avg Item Purchase Gap Days", rendered_frame.columns)
@@ -1621,7 +1633,9 @@ class StatisticsTests(unittest.TestCase):
                     "Success Date": pd.Timestamp("2024-03-05"),
                     "Window Ends": pd.Timestamp("2024-04-30"),
                     "Next Purchase Date": pd.Timestamp("2024-03-06"),
+                    "Desired Gap Days": 365,
                     "Avg Item Purchase Gap Days": 370,
+                    "Gap Day % to Desired": 370 / 365,
                     "Overall Repeat Purchases": 3,
                     "Overall Purchases": 4,
                     "Repeat Purchase %": 0.75,
@@ -1638,9 +1652,11 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(display_frame.iloc[0]["Reminder Date"], "Jan-10-2024")
         self.assertNotIn("Charge Date", display_frame.columns)
         self.assertIn("Overall Avg Purchase Gap Days", display_frame.columns)
+        self.assertIn("Gap Day % to Desired", display_frame.columns)
         self.assertIn("Overall Repeat Purchases", display_frame.columns)
         self.assertIn("Overall Purchases", display_frame.columns)
         self.assertIn("Repeat Purchase %", display_frame.columns)
+        self.assertEqual(round(display_frame.iloc[0]["Gap Day % to Desired"]), 101)
         self.assertEqual(display_frame.iloc[0]["Repeat Purchase %"], 75)
         self.assertNotIn("Avg Item Purchase Gap Days", display_frame.columns)
         self.assertEqual(display_frame.iloc[0]["Due Date"], "")

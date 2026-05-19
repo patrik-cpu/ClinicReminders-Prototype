@@ -11252,6 +11252,7 @@ OUTCOME_TABLE_COLUMNS = [
     "Success Gap Days",
     "Next Purchase Gap Days",
     "Avg Item Purchase Gap Days",
+    "Gap Day % to Desired",
     "Overall Repeat Purchases",
     "Overall Purchases",
     "Repeat Purchase %",
@@ -11299,6 +11300,7 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Next Purchase Gap Days": "Days from the billed date to the next matching purchase.",
     "Avg Success Gap Days": "Average successful repeat-purchase gap in this view.",
     "Overall Avg Purchase Gap Days": "Average gap between repeat purchases across all uploaded sales for this item.",
+    "Gap Day % to Desired": "Overall average purchase gap compared with the desired gap. 100% means they match.",
     "Overall Repeat Purchases": "Repeat purchases used to calculate the overall average gap.",
     "Overall Purchases": "Total matching purchases found in uploaded sales data.",
     "Repeat Purchase %": "Percentage of matching purchases that are repeat purchases.",
@@ -11331,6 +11333,7 @@ OUTCOME_ITEM_GROUP_COLUMNS = [
     "Success Rate",
     "Desired Gap Days",
     "Avg Item Purchase Gap Days",
+    "Gap Day % to Desired",
     "Overall Repeat Purchases",
     "Overall Purchases",
     "Repeat Purchase %",
@@ -12474,6 +12477,7 @@ def build_reminder_outcomes(
             "Success Gap Days": None,
             "Next Purchase Gap Days": None,
             "Avg Item Purchase Gap Days": None,
+            "Gap Day % to Desired": None,
             "Overall Repeat Purchases": 0,
             "Overall Purchases": 0,
             "Repeat Purchase %": 0.0,
@@ -12501,6 +12505,13 @@ def build_reminder_outcomes(
         outcomes["Repeat Purchase %"] = outcomes["_OutcomeGapCacheKey"].map(
             lambda key: (gap_map.get(key) or {}).get("repeat_rate", 0.0)
         )
+    desired_gap_values = pd.to_numeric(outcomes["Desired Gap Days"], errors="coerce")
+    overall_gap_values = pd.to_numeric(outcomes["Avg Item Purchase Gap Days"], errors="coerce")
+    outcomes["Gap Day % to Desired"] = np.where(
+        desired_gap_values.gt(0) & overall_gap_values.notna(),
+        overall_gap_values / desired_gap_values,
+        None,
+    )
 
     measurable = outcomes.loc[
         outcomes["Sent Date"].notna()
@@ -12696,6 +12707,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             "avg_success_gap_days": None,
             "avg_desired_gap_days": None,
             "avg_item_purchase_gap_days": None,
+            "gap_day_rate_to_desired": None,
             "overall_repeat_purchases": 0,
             "overall_purchases": 0,
             "repeat_purchase_rate": 0.0,
@@ -12719,6 +12731,8 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
     )
     if "Item" in outcomes_df.columns and "Avg Item Purchase Gap Days" in outcomes_df.columns:
         gap_columns = ["Item", "Avg Item Purchase Gap Days"]
+        if "Desired Gap Days" in outcomes_df.columns:
+            gap_columns.append("Desired Gap Days")
         if "Overall Repeat Purchases" in outcomes_df.columns:
             gap_columns.append("Overall Repeat Purchases")
         if "Overall Purchases" in outcomes_df.columns:
@@ -12750,6 +12764,12 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         item_purchase_total_counts = pd.Series(dtype=float)
     overall_repeat_purchases = int(item_purchase_gap_counts.sum()) if not item_purchase_gap_counts.empty else 0
     overall_purchases = int(item_purchase_total_counts.sum()) if not item_purchase_total_counts.empty else 0
+    avg_item_purchase_gap_days = item_purchase_gap_values.mean()
+    avg_desired_gap_days = desired_gap_values.mean()
+    if pd.notna(avg_item_purchase_gap_days) and pd.notna(avg_desired_gap_days) and float(avg_desired_gap_days) > 0:
+        gap_day_rate_to_desired = float(avg_item_purchase_gap_days) / float(avg_desired_gap_days)
+    else:
+        gap_day_rate_to_desired = None
     return {
         "sent": sent,
         "successes": successes,
@@ -12757,8 +12777,9 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         "no_match": no_match,
         "success_rate": (successes / sent) if sent else 0.0,
         "avg_success_gap_days": success_gap_values.mean() if successes else None,
-        "avg_desired_gap_days": desired_gap_values.mean(),
-        "avg_item_purchase_gap_days": item_purchase_gap_values.mean(),
+        "avg_desired_gap_days": avg_desired_gap_days,
+        "avg_item_purchase_gap_days": avg_item_purchase_gap_days,
+        "gap_day_rate_to_desired": gap_day_rate_to_desired,
         "overall_repeat_purchases": overall_repeat_purchases,
         "overall_purchases": overall_purchases,
         "repeat_purchase_rate": (overall_repeat_purchases / overall_purchases) if overall_purchases else 0.0,
@@ -12781,6 +12802,7 @@ def build_outcome_group_frame(
         "Desired Gap Days",
         "Avg Success Gap Days",
         "Avg Item Purchase Gap Days",
+        "Gap Day % to Desired",
         "Overall Repeat Purchases",
         "Overall Purchases",
         "Repeat Purchase %",
@@ -12805,6 +12827,7 @@ def build_outcome_group_frame(
             "Desired Gap Days": summary["avg_desired_gap_days"],
             "Avg Success Gap Days": summary["avg_success_gap_days"],
             "Avg Item Purchase Gap Days": summary["avg_item_purchase_gap_days"],
+            "Gap Day % to Desired": summary["gap_day_rate_to_desired"],
             "Overall Repeat Purchases": summary["overall_repeat_purchases"],
             "Overall Purchases": summary["overall_purchases"],
             "Repeat Purchase %": summary["repeat_purchase_rate"],
@@ -12899,6 +12922,7 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
         "Desired Gap Days",
         "Avg Success Gap Days",
         "Avg Item Purchase Gap Days",
+        "Gap Day % to Desired",
         "Overall Repeat Purchases",
         "Overall Purchases",
         "Repeat Purchase %",
@@ -12922,6 +12946,7 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
             "Desired Gap Days": summary["avg_desired_gap_days"],
             "Avg Success Gap Days": summary["avg_success_gap_days"],
             "Avg Item Purchase Gap Days": summary["avg_item_purchase_gap_days"],
+            "Gap Day % to Desired": summary["gap_day_rate_to_desired"],
             "Overall Repeat Purchases": summary["overall_repeat_purchases"],
             "Overall Purchases": summary["overall_purchases"],
             "Repeat Purchase %": summary["repeat_purchase_rate"],
@@ -12961,6 +12986,10 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     if "Repeat Purchase %" in display_frame.columns:
         display_frame["Repeat Purchase %"] = (
             pd.to_numeric(display_frame["Repeat Purchase %"], errors="coerce") * 100
+        )
+    if "Gap Day % to Desired" in display_frame.columns:
+        display_frame["Gap Day % to Desired"] = (
+            pd.to_numeric(display_frame["Gap Day % to Desired"], errors="coerce") * 100
         )
     display_frame = display_frame.rename(columns=OUTCOME_DISPLAY_COLUMN_LABELS)
     return display_frame
@@ -13016,6 +13045,11 @@ def outcome_display_column_config() -> dict:
             "Overall Avg Purchase Gap Days",
             help=OUTCOME_DISPLAY_COLUMN_HELP["Overall Avg Purchase Gap Days"],
             format="%.0f",
+        ),
+        "Gap Day % to Desired": st.column_config.NumberColumn(
+            "Gap Day % to Desired",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Gap Day % to Desired"],
+            format="%.0f%%",
         ),
         "Overall Repeat Purchases": st.column_config.NumberColumn(
             "Overall Repeat Purchases",
