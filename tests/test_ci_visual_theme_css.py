@@ -54,6 +54,17 @@ class VisualThemeCssTests(unittest.TestCase):
                 self.assertIn(f'[class*="{key_prefix}"] button:hover', source)
                 self.assertIn(f'[class*="{key_prefix}"] button p', source)
 
+        for selector in [
+            ".auto-death-keyword-panel-title",
+            ".auto-death-keyword-panel-copy",
+            ".auto-death-keyword-chip",
+            ".auto-death-patient-section-title",
+            '[class*="st-key-del_passaway_keyword_"] button',
+            "keyword_panel = st.container(border=True)",
+        ]:
+            with self.subTest(selector=selector):
+                self.assertIn(selector, source)
+
     def test_streamlit_theme_defaults_to_light(self):
         config = (REPO_ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
 

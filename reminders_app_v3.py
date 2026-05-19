@@ -2343,7 +2343,6 @@ st.markdown(
     [class*="st-key-del_client_excl_"] button,
     [class*="st-key-del_patient_excl_"] button,
     [class*="st-key-del_excl_"] button,
-    [class*="st-key-del_passaway_keyword_"] button,
     [class*="st-key-del_auto_patient_excl_"] button {
         background: transparent !important;
         border: 0 !important;
@@ -2356,7 +2355,6 @@ st.markdown(
     [class*="st-key-del_client_excl_"] button:hover,
     [class*="st-key-del_patient_excl_"] button:hover,
     [class*="st-key-del_excl_"] button:hover,
-    [class*="st-key-del_passaway_keyword_"] button:hover,
     [class*="st-key-del_auto_patient_excl_"] button:hover {
         background: rgba(217, 45, 32, 0.08) !important;
         border-radius: 999px !important;
@@ -2364,11 +2362,61 @@ st.markdown(
     [class*="st-key-del_client_excl_"] button p,
     [class*="st-key-del_patient_excl_"] button p,
     [class*="st-key-del_excl_"] button p,
-    [class*="st-key-del_passaway_keyword_"] button p,
     [class*="st-key-del_auto_patient_excl_"] button p {
         color: #d92d20 !important;
         font-size: 1.55rem !important;
         font-weight: 700 !important;
+        line-height: 1 !important;
+        margin: 0 !important;
+    }
+    .auto-death-keyword-panel-title {
+        color: var(--cr-text);
+        font-weight: 800;
+        margin-bottom: 0.18rem;
+    }
+    .auto-death-keyword-panel-copy {
+        color: var(--cr-muted);
+        font-size: 0.9rem;
+        margin-bottom: 0.65rem;
+    }
+    .auto-death-keyword-chip {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid rgba(41, 210, 114, 0.28);
+        border-radius: 999px;
+        background: #ecfdf3;
+        color: #05603a;
+        font-size: 0.92rem;
+        font-weight: 700;
+        line-height: 1.2;
+        margin-top: 0.32rem;
+        padding: 0.38rem 0.62rem;
+    }
+    .auto-death-patient-section-title {
+        border-top: 1px solid var(--cr-border);
+        color: var(--cr-text);
+        font-weight: 800;
+        margin-top: 1.25rem;
+        padding-top: 1rem;
+    }
+    [class*="st-key-del_passaway_keyword_"] button {
+        background: #ecfdf3 !important;
+        border: 1px solid rgba(41, 210, 114, 0.28) !important;
+        border-radius: 999px !important;
+        box-shadow: none !important;
+        color: #05603a !important;
+        min-height: 1.9rem !important;
+        min-width: 1.9rem !important;
+        padding: 0 0.4rem !important;
+    }
+    [class*="st-key-del_passaway_keyword_"] button:hover {
+        background: #d1fadf !important;
+        border-color: rgba(29, 167, 89, 0.42) !important;
+    }
+    [class*="st-key-del_passaway_keyword_"] button p {
+        color: #05603a !important;
+        font-size: 1.05rem !important;
+        font-weight: 800 !important;
         line-height: 1 !important;
         margin: 0 !important;
     }
@@ -13417,92 +13465,111 @@ if st.session_state.get("logged_in", False):
             st.session_state.get("automatic_patient_exclusions", [])
         )
 
-        if st.session_state["patient_passaway_keywords"]:
-            st.markdown("**Keywords used during upload checks**")
-            keyword_cols = st.columns([4, 1], gap="small")
-            with keyword_cols[0]:
-                st.markdown(
-                    ", ".join(f"`{keyword}`" for keyword in st.session_state["patient_passaway_keywords"])
-                )
-            with keyword_cols[1]:
-                if st.button(
-                    "Reset keywords",
-                    key=f"reset_passaway_keywords_{row_id}",
-                    help="Restore the default automatic death exclusion keywords.",
-                ):
-                    st.session_state["patient_passaway_keywords"] = PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()
-                    save_settings_quietly()
-                    record_settings_audit_event(
-                        "exclusion_keyword_reset",
-                        "exclusions",
-                        "automatic patient death keywords",
-                        "patient_passaway_keyword",
-                        "",
-                        st.session_state["patient_passaway_keywords"],
-                        "exclusions_tab",
-                    )
-                    st.rerun()
-            for keyword in st.session_state["patient_passaway_keywords"]:
-                safe_keyword = re.sub(r'[^a-zA-Z0-9_-]', '_', keyword)
-                with st.container():
-                    cols = st.columns([1.4, 0.18, 6], gap="small")
-                    with cols[0]:
-                        st.markdown(padded_html_text(keyword), unsafe_allow_html=True)
-                    with cols[1]:
-                        if st.button("×", key=f"del_passaway_keyword_{safe_keyword}", help="Remove automatic keyword"):
-                            st.session_state["patient_passaway_keywords"].remove(keyword)
-                            save_settings_quietly()
-                            record_settings_audit_event(
-                                "exclusion_keyword_deleted",
-                                "exclusions",
-                                keyword,
-                                "patient_passaway_keyword",
-                                keyword,
-                                "",
-                                "exclusions_tab",
-                            )
-                            st.rerun()
-        else:
-            st.caption("No automatic death keywords are active.")
+        try:
+            keyword_panel = st.container(border=True)
+        except TypeError:
+            keyword_panel = st.container()
 
-        kw1, kw2 = st.columns([4, 1], gap="small")
-        with kw1:
-            render_field_label(
-                st,
-                "Add Automatic Keyword",
-                "Uploaded item names containing this word or phrase will add the matching patient to automatic exclusions."
+        with keyword_panel:
+            st.markdown(
+                """
+                <div class="auto-death-keyword-panel-title">Upload-check keywords</div>
+                <div class="auto-death-keyword-panel-copy">These words trigger automatic patient exclusions when they appear in uploaded item text.</div>
+                """,
+                unsafe_allow_html=True,
             )
-            new_passaway_keyword = st.text_input(
-                "Add Automatic Keyword",
-                key=f"new_passaway_keyword_{row_id}",
-                label_visibility="collapsed",
-            )
-        with kw2:
-            st.markdown("<div style='height:1.65rem;'></div>", unsafe_allow_html=True)
-            if st.button("➕ Add Keyword", key=f"add_passaway_keyword_{row_id}"):
-                safe_keyword = _SPACE_RX.sub(" ", str(new_passaway_keyword or "").strip()).lower()
-                if safe_keyword:
-                    existing_keywords = set(st.session_state["patient_passaway_keywords"])
-                    if safe_keyword not in existing_keywords:
-                        st.session_state["patient_passaway_keywords"].append(safe_keyword)
+
+            if st.session_state["patient_passaway_keywords"]:
+                keyword_cols = st.columns([4, 1], gap="small")
+                with keyword_cols[0]:
+                    st.markdown(
+                        ", ".join(f"`{keyword}`" for keyword in st.session_state["patient_passaway_keywords"])
+                    )
+                with keyword_cols[1]:
+                    if st.button(
+                        "Reset keywords",
+                        key=f"reset_passaway_keywords_{row_id}",
+                        help="Restore the default automatic death exclusion keywords.",
+                    ):
+                        st.session_state["patient_passaway_keywords"] = PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()
                         save_settings_quietly()
                         record_settings_audit_event(
-                            "exclusion_keyword_added",
+                            "exclusion_keyword_reset",
                             "exclusions",
-                            safe_keyword,
+                            "automatic patient death keywords",
                             "patient_passaway_keyword",
                             "",
-                            safe_keyword,
+                            st.session_state["patient_passaway_keywords"],
                             "exclusions_tab",
                         )
-                        st.session_state["new_rule_counter"] += 1
                         st.rerun()
-                    else:
-                        st.info("This automatic keyword already exists.")
-                else:
-                    st.error("Enter a valid keyword")
+                for keyword in st.session_state["patient_passaway_keywords"]:
+                    safe_keyword = re.sub(r'[^a-zA-Z0-9_-]', '_', keyword)
+                    with st.container():
+                        cols = st.columns([0.58, 0.18, 6.84], gap="small")
+                        with cols[0]:
+                            st.markdown(
+                                f"<span class='auto-death-keyword-chip'>{safe_html_text(keyword)}</span>",
+                                unsafe_allow_html=True,
+                            )
+                        with cols[1]:
+                            if st.button("×", key=f"del_passaway_keyword_{safe_keyword}", help="Remove automatic keyword"):
+                                st.session_state["patient_passaway_keywords"].remove(keyword)
+                                save_settings_quietly()
+                                record_settings_audit_event(
+                                    "exclusion_keyword_deleted",
+                                    "exclusions",
+                                    keyword,
+                                    "patient_passaway_keyword",
+                                    keyword,
+                                    "",
+                                    "exclusions_tab",
+                                )
+                                st.rerun()
+            else:
+                st.caption("No automatic death keywords are active.")
 
-        st.markdown("**Automatically added patients**")
+            kw1, kw2 = st.columns([4, 1], gap="small")
+            with kw1:
+                render_field_label(
+                    st,
+                    "Add Automatic Keyword",
+                    "Uploaded item names containing this word or phrase will add the matching patient to automatic exclusions."
+                )
+                new_passaway_keyword = st.text_input(
+                    "Add Automatic Keyword",
+                    key=f"new_passaway_keyword_{row_id}",
+                    label_visibility="collapsed",
+                )
+            with kw2:
+                st.markdown("<div style='height:1.65rem;'></div>", unsafe_allow_html=True)
+                if st.button("➕ Add Keyword", key=f"add_passaway_keyword_{row_id}"):
+                    safe_keyword = _SPACE_RX.sub(" ", str(new_passaway_keyword or "").strip()).lower()
+                    if safe_keyword:
+                        existing_keywords = set(st.session_state["patient_passaway_keywords"])
+                        if safe_keyword not in existing_keywords:
+                            st.session_state["patient_passaway_keywords"].append(safe_keyword)
+                            save_settings_quietly()
+                            record_settings_audit_event(
+                                "exclusion_keyword_added",
+                                "exclusions",
+                                safe_keyword,
+                                "patient_passaway_keyword",
+                                "",
+                                safe_keyword,
+                                "exclusions_tab",
+                            )
+                            st.session_state["new_rule_counter"] += 1
+                            st.rerun()
+                        else:
+                            st.info("This automatic keyword already exists.")
+                    else:
+                        st.error("Enter a valid keyword")
+
+        st.markdown(
+            "<div class='auto-death-patient-section-title'>Automatically added patients</div>",
+            unsafe_allow_html=True,
+        )
         if st.session_state["automatic_patient_exclusions"]:
             sorted_auto_exclusions = sorted(
                 st.session_state["automatic_patient_exclusions"],
