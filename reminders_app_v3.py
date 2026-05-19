@@ -11660,12 +11660,12 @@ STATS_TEAM_COLUMNS = [
 ]
 STATS_ITEM_ACTIONING_COLUMN_HELP = {
     "Item": "Actual item or service from generated reminders.",
-    STATISTICS_SCHEDULED_REMINDERS_LABEL: "Reminders scheduled for this actual item.",
-    "Actioned": "Scheduled reminders marked sent or declined.",
-    "Actioned %": "Actioned reminders divided by scheduled reminders.",
-    "Sent": "Scheduled reminders marked sent.",
-    "Declined": "Scheduled reminders declined.",
-    "Sent %": "Sent reminders divided by actioned reminders.",
+    STATISTICS_SCHEDULED_REMINDERS_LABEL: "Unique item purchase cycles scheduled for this actual item.",
+    "Actioned": "Scheduled item purchase cycles marked sent or declined.",
+    "Actioned %": "Actioned item purchase cycles divided by scheduled item purchase cycles.",
+    "Sent": "Scheduled item purchase cycles marked sent.",
+    "Declined": "Scheduled item purchase cycles declined.",
+    "Sent %": "Sent item purchase cycles divided by actioned item purchase cycles.",
 }
 STATS_TEAM_COLUMN_HELP = {
     "Team Member": "Team member who sent or actioned reminders.",
@@ -11919,6 +11919,36 @@ def expand_rows_for_statistics_item_period(
     ]
 
 
+def statistics_item_purchase_cycle_key(row: dict) -> tuple[str, ...]:
+    key = outcome_purchase_cycle_key(row)
+    return key if any(key) else hidden_reminder_key(row)
+
+
+def _statistics_item_action_sort_time(row: dict) -> datetime:
+    action_time = _parse_reminder_log_time(row.get("ActionedAt", "") or row.get("DeletedAt", ""))
+    if action_time:
+        return action_time
+    reminder_date = statistics_primary_reminder_date(row)
+    if reminder_date:
+        return datetime.combine(reminder_date, datetime.min.time())
+    return datetime.min
+
+
+def dedupe_statistics_item_cycle_rows(rows: list[dict], *, latest_action: bool = False) -> list[dict]:
+    rows_by_cycle: dict[tuple[str, ...], dict] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        key = statistics_item_purchase_cycle_key(row)
+        existing = rows_by_cycle.get(key)
+        if existing is None:
+            rows_by_cycle[key] = dict(row)
+            continue
+        if latest_action and _statistics_item_action_sort_time(row) >= _statistics_item_action_sort_time(existing):
+            rows_by_cycle[key] = dict(row)
+    return list(rows_by_cycle.values())
+
+
 def statistics_summary_for_period(
     generated_df: pd.DataFrame,
     action_records: list[dict],
@@ -12040,13 +12070,15 @@ def build_statistics_item_frame(
         else []
     )
     generated_rows = expand_rows_for_statistics_item_period(generated_source_rows, period, today)
+    generated_rows = dedupe_statistics_item_cycle_rows(generated_rows)
     generated_counts = {}
     for row in generated_rows:
         item = normalize_display_case(str(row.get("Plan Item", "") or "Unknown").strip() or "Unknown")
         generated_counts[item] = generated_counts.get(item, 0) + 1
 
     action_counts = {}
-    for record in expand_rows_for_statistics_item_period(action_records, period, today):
+    action_rows = expand_rows_for_statistics_item_period(action_records, period, today)
+    for record in dedupe_statistics_item_cycle_rows(action_rows, latest_action=True):
         item = normalize_display_case(str(record.get("Plan Item", "") or "Unknown").strip() or "Unknown")
         counts = action_counts.setdefault(item, {"Sent": 0, "Declined": 0})
         action = str(record.get("Action", "")).strip().lower()

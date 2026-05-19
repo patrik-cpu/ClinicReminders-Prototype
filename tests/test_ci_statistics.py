@@ -161,6 +161,45 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(item_rows["Tricat Vaccine"]["Generated"], 1)
         self.assertEqual(item_rows["Tricat Vaccine"]["Sent"], 1)
 
+    def test_statistics_item_frame_dedupes_multiple_steps_for_same_purchase_cycle(self):
+        first_step = {
+            "Reminder Date": "01 May 2026",
+            "Due Date": "31 May 2026",
+            "Charge Date": "31 May 2025",
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies Vaccine",
+            "Qty": "1",
+            "Days": "365",
+        }
+        second_step = {
+            **first_step,
+            "Reminder Date": "15 May 2026",
+        }
+        generated = pd.DataFrame([first_step, second_step])
+        actions = [
+            {
+                **first_step,
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-01T09:00:00",
+                "Actioned By": "Nurse A",
+            },
+            {
+                **second_step,
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-15T09:00:00",
+                "Actioned By": "Nurse A",
+            },
+        ]
+
+        items = self.app.build_statistics_item_frame(generated, actions, "All time", today=date(2026, 5, 16))
+        row = items.loc[items["Item"] == "Rabies Vaccine"].iloc[0]
+
+        self.assertEqual(row["Generated"], 1)
+        self.assertEqual(row["Actioned"], 1)
+        self.assertEqual(row["Sent"], 1)
+        self.assertEqual(row["Declined"], 0)
+
     def test_stats_team_frame_combines_outcomes_and_actioning(self):
         outcome_sender = pd.DataFrame(
             [
@@ -206,10 +245,10 @@ class StatisticsTests(unittest.TestCase):
                 self.assertIn(column, team_config)
                 self.assertTrue(team_config[column]["help"])
 
-        self.assertIn("Reminders scheduled", item_config["Scheduled reminders"]["help"])
+        self.assertIn("Unique item purchase cycles", item_config["Scheduled reminders"]["help"])
         self.assertIn("sent or declined", item_config["Actioned"]["help"])
-        self.assertIn("Actioned reminders divided", item_config["Actioned %"]["help"])
-        self.assertIn("Sent reminders divided", item_config["Sent %"]["help"])
+        self.assertIn("Actioned item purchase cycles divided", item_config["Actioned %"]["help"])
+        self.assertIn("Sent item purchase cycles divided", item_config["Sent %"]["help"])
         self.assertEqual(item_config["Actioned %"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(item_config["Sent %"]["type_config"]["format"], "%.0f%%")
         self.assertIn("outcome matching", team_config["Sent Reminders"]["help"])
