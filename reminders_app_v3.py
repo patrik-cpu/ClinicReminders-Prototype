@@ -1614,6 +1614,28 @@ st.markdown(
     .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; padding-bottom: max(7rem, 42vh) !important; }
     h2[id] { scroll-margin-top: 80px; }
     .anchor-offset { position: relative; top: -100px; height: 0; }
+    .stats-summary-card {
+        background: #e7f8ef;
+        border: 1px solid rgba(29, 167, 89, 0.26);
+        border-radius: 8px;
+        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+        padding: 0.9rem 1rem 0.95rem;
+        min-height: 6rem;
+    }
+    .stats-summary-label {
+        color: var(--cr-muted);
+        font-size: 0.82rem;
+        font-weight: 700;
+        line-height: 1.2;
+        margin-bottom: 0.7rem;
+    }
+    .stats-summary-value {
+        color: var(--cr-text);
+        font-size: 2rem;
+        font-weight: 700;
+        letter-spacing: 0;
+        line-height: 1;
+    }
     .sidebar-clinic-block {
         font-size: 15px;
         line-height: 1.5;
@@ -11615,7 +11637,17 @@ def build_statistics_item_frame(
 
 
 def render_statistics_metric_card(label: str, value: str):
-    st.metric(label, value)
+    safe_label = html_lib.escape(str(label or ""))
+    safe_value = html_lib.escape(str(value or "0"))
+    st.markdown(
+        f"""
+        <div class="stats-summary-card">
+          <div class="stats-summary-label">{safe_label}</div>
+          <div class="stats-summary-value">{safe_value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def prepare_statistics_display_frame(frame: pd.DataFrame) -> pd.DataFrame:

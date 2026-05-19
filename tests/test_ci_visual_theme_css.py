@@ -123,6 +123,8 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('STATS_SENT_REMINDER_PERIODS = ["Today", "Previous 7 days", "Previous 30 days", "All-time"]', source)
         self.assertIn('"Sent reminders period"', source)
         self.assertIn("filtered by Sent Date", source)
+        self.assertIn(".stats-summary-card", source)
+        self.assertIn("stats-summary-value", source)
         self.assertIn("build_stats_team_frame", source)
         self.assertIn("All time; generated reminders and saved actions grouped by item.", source)
         self.assertIn("All time; outcome results by sender plus reminder actions by actioned date.", source)
