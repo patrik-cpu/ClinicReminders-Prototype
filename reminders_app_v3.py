@@ -14280,6 +14280,75 @@ def stats_export_csv_bytes(frame: pd.DataFrame) -> bytes:
     return frame.to_csv(index=False).encode("utf-8")
 
 
+STATS_EXPORT_PERCENT_COLUMNS = {
+    "Success Rate",
+    "Gap Day % to Desired",
+    "Repeat Purchase %",
+    "Captured Revenue %",
+    "Actioned %",
+    "Sent %",
+}
+STATS_EXPORT_WHOLE_NUMBER_COLUMNS = {
+    "Sent",
+    "Successes",
+    "Pending",
+    "No Match",
+    "Desired Gap Days",
+    "Success Gap Days",
+    "Next Purchase Gap Days",
+    "Avg Success Gap Days",
+    "Overall Avg Purchase Gap Days",
+    "Overall Repeat Purchases",
+    "Overall Purchases",
+    "Scheduled reminders",
+    "Actioned",
+    "Declined",
+    "Sent Reminders",
+    "Sent Actions",
+    "Declined Actions",
+}
+STATS_EXPORT_CURRENCY_COLUMNS = {
+    "Revenue",
+    "Revenue per Item",
+    "Revenue from Successes",
+    "Revenue per Year",
+    "Theoretical Max Revenue",
+    "Capturable Revenue per Year",
+}
+
+
+def format_stats_export_currency(value) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    try:
+        return f"{float(value):,.0f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def prepare_stats_csv_export_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    export_frame = frame.copy()
+    for column in STATS_EXPORT_PERCENT_COLUMNS:
+        if column in export_frame.columns:
+            export_frame[column] = (
+                pd.to_numeric(export_frame[column], errors="coerce")
+                .round()
+                .div(100)
+                .round(4)
+            )
+    for column in STATS_EXPORT_WHOLE_NUMBER_COLUMNS:
+        if column in export_frame.columns:
+            export_frame[column] = (
+                pd.to_numeric(export_frame[column], errors="coerce")
+                .round()
+                .astype("Int64")
+            )
+    for column in STATS_EXPORT_CURRENCY_COLUMNS:
+        if column in export_frame.columns:
+            export_frame[column] = export_frame[column].map(format_stats_export_currency)
+    return export_frame
+
+
 def render_stats_csv_export(
     frame: pd.DataFrame,
     view_name: str,
@@ -14294,6 +14363,7 @@ def render_stats_csv_export(
         export_frame = export_frame[[column for column in columns if column in export_frame.columns]]
     if display_preparer is not None:
         export_frame = display_preparer(export_frame)
+    export_frame = prepare_stats_csv_export_frame(export_frame)
     csv_bytes = stats_export_csv_bytes(export_frame)
     if not csv_bytes:
         return
