@@ -12227,13 +12227,29 @@ def outcome_sale_item_matches(exact_item_keys, term, sale_key: str) -> bool:
     sale_key = str(sale_key or "")
     if isinstance(exact_item_keys, list) and exact_item_keys:
         for exact_key in exact_item_keys:
-            if exact_key and (sale_key == exact_key or exact_key in sale_key):
+            if outcome_item_key_matches_sale_key(exact_key, sale_key):
                 return True
         return False
     if term is None or pd.isna(term):
         return False
     term_key = str(term or "")
     return bool(term_key and term_key in sale_key)
+
+
+def compact_outcome_item_key(value) -> str:
+    return re.sub(r"\s+", "", normalize_outcome_item_text(value))
+
+
+def outcome_item_key_matches_sale_key(match_key, sale_key) -> bool:
+    normalized_match_key = normalize_outcome_item_text(match_key)
+    normalized_sale_key = normalize_outcome_item_text(sale_key)
+    if not normalized_match_key or not normalized_sale_key:
+        return False
+    if normalized_match_key in normalized_sale_key:
+        return True
+    compact_match_key = compact_outcome_item_key(normalized_match_key)
+    compact_sale_key = compact_outcome_item_key(normalized_sale_key)
+    return bool(compact_match_key and compact_match_key in compact_sale_key)
 
 
 def outcome_next_purchase_gap_is_success(next_gap_days, desired_gap_days, due_date_window_days: int) -> bool:
@@ -12288,7 +12304,9 @@ def build_outcome_item_match_map(sales: pd.DataFrame, match_keys: Iterable[str])
 
     mapped_frames = []
     for key in keys:
-        matched_keys = sale_item_keys.loc[sale_item_keys.str.contains(key, regex=False, na=False)]
+        matched_keys = sale_item_keys.loc[
+            sale_item_keys.map(lambda sale_key: outcome_item_key_matches_sale_key(key, sale_key))
+        ]
         if matched_keys.empty:
             continue
         mapped_frames.append(pd.DataFrame({"_OutcomeMatchKey": key, "OutcomeItemKey": matched_keys.to_numpy()}))

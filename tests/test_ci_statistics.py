@@ -721,6 +721,64 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(int(outcomes.iloc[0]["Overall Repeat Purchases"]), 1)
         self.assertEqual(int(outcomes.iloc[0]["Avg Item Purchase Gap Days"]), 91)
 
+    def test_reminder_outcomes_exact_variant_matches_sales_with_spaced_units(self):
+        actions = [
+            {
+                "Reminder Date": "18 Mar 2025",
+                "Due Date": "01 Apr 2025",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto Spot-On Cats 0.89mL 2.8-6.25kg",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-18T09:00:00",
+                "Actioned By": "Nurse A",
+                "ReminderDetails": [
+                    {
+                        "Reminder Date": "18 Mar 2025",
+                        "Due Date": "01 Apr 2025",
+                        "Charge Date": "01 Jan 2025",
+                        "Animal Name": "Pet A",
+                        "Plan Item": "Bravecto Spot-On Cats 0.89mL 2.8-6.25kg",
+                        "Search Terms": "bravecto",
+                    }
+                ],
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2025-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto Spot On Cats 0.89 ml 2.8 - 6.25 kg",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2025-04-02",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto Spot On Cats 0.89 ml 2.8 - 6.25 kg",
+                    "Amount": 90,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            today=date(2025, 5, 1),
+            rules={"bravecto": {"days": 90, "visible_text": "Bravecto"}},
+        )
+
+        row = outcomes.iloc[0]
+        self.assertEqual(row["Outcome"], "Reminder Success")
+        self.assertEqual(int(row["Overall Purchases"]), 2)
+        self.assertEqual(int(row["Overall Repeat Purchases"]), 1)
+        self.assertEqual(int(row["Avg Item Purchase Gap Days"]), 91)
+        self.assertEqual(row["Matched Item"], "Bravecto Spot On Cats 0.89 ml 2.8 - 6.25 kg")
+
     def test_reminder_outcomes_counts_success_inside_user_defined_window(self):
         actions = [
             {
