@@ -11682,6 +11682,35 @@ def expand_grouped_action_records(records: list[dict]) -> list[dict]:
     return expanded
 
 
+def outcome_purchase_cycle_key(record: dict) -> tuple[str, ...]:
+    fields = ("Client Name", "Animal Name", "Plan Item", "Charge Date", "Due Date")
+    return tuple(_hidden_reminder_key_part(record.get(field, "")) for field in fields)
+
+
+def _outcome_sent_record_sort_time(record: dict) -> datetime:
+    action_time = _parse_reminder_log_time(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
+    if action_time:
+        return action_time
+    reminder_date = first_statistics_date(record.get("Reminder Date", ""))
+    if reminder_date:
+        return datetime.combine(reminder_date, datetime.min.time())
+    return datetime.max
+
+
+def dedupe_outcome_sent_records(records: list[dict]) -> list[dict]:
+    earliest_by_purchase: dict[tuple[str, ...], dict] = {}
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        key = outcome_purchase_cycle_key(record)
+        if not any(key):
+            key = hidden_reminder_key(record)
+        existing = earliest_by_purchase.get(key)
+        if existing is None or _outcome_sent_record_sort_time(record) < _outcome_sent_record_sort_time(existing):
+            earliest_by_purchase[key] = dict(record)
+    return sorted(earliest_by_purchase.values(), key=_outcome_sent_record_sort_time)
+
+
 def prepare_sales_for_outcomes(sales_df: pd.DataFrame) -> pd.DataFrame:
     columns = [
         "ChargeDate",
@@ -12001,10 +12030,10 @@ def build_reminder_outcomes(
         record for record in action_records or []
         if isinstance(record, dict)
     ])
-    sent_records = expand_grouped_action_records([
+    sent_records = dedupe_outcome_sent_records(expand_grouped_action_records([
         record for record in reduced_records
         if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT
-    ])
+    ]))
     if not sent_records:
         return empty_outcome_frame()
 

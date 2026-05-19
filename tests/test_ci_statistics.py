@@ -919,6 +919,80 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(rows["Revolution"]["Outcome"], "Reminder Success")
         self.assertEqual(float(outcomes["Revenue"].sum()), 100.0)
 
+    def test_outcomes_count_multiple_sent_steps_for_same_purchase_once(self):
+        actions = [
+            {
+                "Reminder Date": "18 Mar 2025",
+                "Due Date": "01 Apr 2025",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto",
+                "Days": "90",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2025-03-18T09:00:00",
+                "Actioned By": "Nurse A",
+            },
+            {
+                "Reminder Date": "25 Mar 2025",
+                "Due Date": "01 Apr 2025",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto",
+                "Days": "90",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2025-03-25T09:00:00",
+                "Actioned By": "Nurse B",
+            },
+            {
+                "Reminder Date": "08 Apr 2025",
+                "Due Date": "01 Apr 2025",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto",
+                "Days": "90",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2025-04-08T09:00:00",
+                "Actioned By": "Nurse C",
+            },
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2025-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2025-04-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto",
+                    "Amount": 95,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            today=date(2025, 5, 1),
+        )
+        summary = self.app.summarize_outcomes(outcomes)
+
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(summary["sent"], 1)
+        self.assertEqual(summary["successes"], 1)
+        self.assertEqual(summary["success_rate"], 1.0)
+        self.assertEqual(float(summary["revenue"]), 95.0)
+        self.assertEqual(outcomes.iloc[0]["Sender"], "Nurse A")
+        self.assertEqual(str(outcomes.iloc[0]["Reminder Date"].date()), "2025-03-18")
+
     def test_action_tracker_preserves_grouped_reminder_details(self):
         row = {
             "Reminder Date": "08 Mar 2026 | 09 Mar 2026",
