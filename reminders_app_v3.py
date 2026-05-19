@@ -83,8 +83,10 @@ MAIN_SECTION_TAB_TO_SLUG = {
     "Stats": "stats",
 }
 REMINDERS_START_DATE_INPUT_KEY = "reminders_start_date_input"
+DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14
 OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY = "_outcome_due_date_window_days_dirty"
 OUTCOME_DUE_DATE_WINDOW_LOADED_KEY = "_outcome_due_date_window_days_loaded"
+_SETTING_MISSING = object()
 
 
 def canonical_main_section_tab(tab_name: str) -> str:
@@ -3919,6 +3921,58 @@ def publish_dataset_for_clinic(
 # --------------------------------
 # 💾 Per-clinic settings persistence via Google Sheets
 # --------------------------------
+def normalized_outcome_due_date_window_days(value=None) -> int:
+    value = (
+        st.session_state.get("outcome_due_date_window_days", DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS)
+        if value is None
+        else value
+    )
+    try:
+        return min(1095, max(0, int(value)))
+    except (TypeError, ValueError):
+        return DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+
+
+def load_outcome_due_date_window_days(settings: dict) -> None:
+    raw_value = settings.get("outcome_due_date_window_days", _SETTING_MISSING)
+    has_current_value = "outcome_due_date_window_days" in st.session_state
+    current_value = (
+        normalized_outcome_due_date_window_days()
+        if has_current_value
+        else DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+    )
+    loaded_value = st.session_state.get(OUTCOME_DUE_DATE_WINDOW_LOADED_KEY, _SETTING_MISSING)
+
+    if raw_value is _SETTING_MISSING or raw_value in (None, ""):
+        if has_current_value:
+            st.session_state["outcome_due_date_window_days"] = current_value
+            return
+        st.session_state["outcome_due_date_window_days"] = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+        st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+        st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
+        return
+
+    saved_value = normalized_outcome_due_date_window_days(raw_value)
+    if has_current_value and st.session_state.get(OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY):
+        if current_value == saved_value:
+            st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
+            st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = saved_value
+        else:
+            st.session_state["outcome_due_date_window_days"] = current_value
+        return
+
+    if has_current_value and loaded_value is not _SETTING_MISSING:
+        loaded_value = normalized_outcome_due_date_window_days(loaded_value)
+        if current_value != loaded_value and current_value != saved_value:
+            st.session_state["outcome_due_date_window_days"] = current_value
+            st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = True
+            return
+
+    st.session_state["outcome_due_date_window_days"] = saved_value
+    st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = saved_value
+    st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
+
+
 def load_settings():
     """Load settings for the current clinic from the Google Sheet."""
     clinic_id = st.session_state.get("clinic_id")
@@ -4022,10 +4076,6 @@ def load_settings():
         st.session_state["dataset_upload_history"] = []
         st.session_state["user_country"] = ""
         st.session_state["action_tracker_migrated_at"] = ""
-
-
-_SETTING_MISSING = object()
-
 
 def _settings_copy(value):
     try:
@@ -9175,58 +9225,6 @@ def normalized_reminder_warning_days(value=None) -> int:
         return 0
 
 
-def normalized_outcome_due_date_window_days(value=None) -> int:
-    value = (
-        st.session_state.get("outcome_due_date_window_days", DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS)
-        if value is None
-        else value
-    )
-    try:
-        return min(1095, max(0, int(value)))
-    except (TypeError, ValueError):
-        return DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
-
-
-def load_outcome_due_date_window_days(settings: dict) -> None:
-    raw_value = settings.get("outcome_due_date_window_days", _SETTING_MISSING)
-    has_current_value = "outcome_due_date_window_days" in st.session_state
-    current_value = (
-        normalized_outcome_due_date_window_days()
-        if has_current_value
-        else DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
-    )
-    loaded_value = st.session_state.get(OUTCOME_DUE_DATE_WINDOW_LOADED_KEY, _SETTING_MISSING)
-
-    if raw_value is _SETTING_MISSING or raw_value in (None, ""):
-        if has_current_value:
-            st.session_state["outcome_due_date_window_days"] = current_value
-            return
-        st.session_state["outcome_due_date_window_days"] = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
-        st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
-        st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
-        return
-
-    saved_value = normalized_outcome_due_date_window_days(raw_value)
-    if has_current_value and st.session_state.get(OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY):
-        if current_value == saved_value:
-            st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
-            st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = saved_value
-        else:
-            st.session_state["outcome_due_date_window_days"] = current_value
-        return
-
-    if has_current_value and loaded_value is not _SETTING_MISSING:
-        loaded_value = normalized_outcome_due_date_window_days(loaded_value)
-        if current_value != loaded_value and current_value != saved_value:
-            st.session_state["outcome_due_date_window_days"] = current_value
-            st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = True
-            return
-
-    st.session_state["outcome_due_date_window_days"] = saved_value
-    st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = saved_value
-    st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
-
-
 def save_outcome_due_date_window_days() -> None:
     value = normalized_outcome_due_date_window_days()
     st.session_state["outcome_due_date_window_days"] = value
@@ -11148,7 +11146,6 @@ STATS_SENT_REMINDER_PERIOD_MAP = {
     "Previous 30 days": "30 days",
     "All-time": "All time",
 }
-DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14
 REMINDER_TABLE_PAGE_SIZE = 50
 OUTCOME_SENT_PAGE_SIZE = 100
 OUTCOME_TABLE_COLUMNS = [

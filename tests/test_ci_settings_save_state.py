@@ -3,6 +3,7 @@ import importlib
 import io
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from requests import Response
@@ -263,6 +264,18 @@ class SettingsSaveStateTests(unittest.TestCase):
             self.app.load_settings()
 
         self.assertEqual(self.app.st.session_state["outcome_due_date_window_days"], 30)
+
+    def test_outcome_due_date_window_load_helper_is_defined_before_load_settings(self):
+        source = Path("reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertLess(
+            source.index("def load_outcome_due_date_window_days"),
+            source.index("def load_settings"),
+        )
+        self.assertLess(
+            source.index("DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14"),
+            source.index("def load_settings"),
+        )
 
     def test_load_settings_preserves_dirty_outcome_due_date_window_days(self):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
