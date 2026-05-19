@@ -11016,6 +11016,7 @@ OUTCOME_TABLE_COLUMNS = [
     "Success Gap Days",
     "Next Purchase Gap Days",
     "Avg Item Purchase Gap Days",
+    "Overall Repeat Purchases",
     "Revenue",
     "Matched Item",
     "Next Matched Item",
@@ -11058,6 +11059,7 @@ OUTCOME_ITEM_GROUP_COLUMNS = [
     "Success Rate",
     "Desired Gap Days",
     "Avg Item Purchase Gap Days",
+    "Overall Repeat Purchases",
     "Revenue",
 ]
 OUTCOME_SENDER_GROUP_COLUMNS = [
@@ -11081,6 +11083,7 @@ OUTCOME_SORT_NUMERIC_COLUMNS = {
     "Next Purchase Gap Days",
     "Avg Success Gap Days",
     "Avg Item Purchase Gap Days",
+    "Overall Repeat Purchases",
     "Revenue",
 }
 
@@ -11950,9 +11953,9 @@ def build_average_sales_purchase_gap_map(
     sales: pd.DataFrame,
     gap_key_matches: dict[tuple[str, ...], list[str]],
     item_match_map: pd.DataFrame,
-) -> dict[tuple[str, ...], float | None]:
+) -> dict[tuple[str, ...], dict[str, float | int | None]]:
     if sales is None or sales.empty or not gap_key_matches:
-        return {key: None for key in gap_key_matches}
+        return {key: {"average": None, "count": 0} for key in gap_key_matches}
 
     gap_lookup = {idx: key for idx, key in enumerate(gap_key_matches)}
     exact_rows = []
@@ -11982,7 +11985,7 @@ def build_average_sales_purchase_gap_map(
         if not term_key_frame.empty:
             key_frames.append(term_key_frame.drop_duplicates(["_GapID", "OutcomeItemKey"]))
     if not key_frames:
-        return {key: None for key in gap_key_matches}
+        return {key: {"average": None, "count": 0} for key in gap_key_matches}
 
     gap_item_keys = pd.concat(key_frames, ignore_index=True).drop_duplicates(["_GapID", "OutcomeItemKey"])
     matched = gap_item_keys.merge(
@@ -11991,7 +11994,7 @@ def build_average_sales_purchase_gap_map(
         how="inner",
     )
     if matched.empty:
-        return {key: None for key in gap_key_matches}
+        return {key: {"average": None, "count": 0} for key in gap_key_matches}
 
     matched = matched.loc[
         matched["OutcomeClientKey"].astype(str).ne("")
@@ -11999,7 +12002,7 @@ def build_average_sales_purchase_gap_map(
         & pd.to_datetime(matched["OutcomeChargeDate"], errors="coerce").notna()
     ].copy()
     if matched.empty:
-        return {key: None for key in gap_key_matches}
+        return {key: {"average": None, "count": 0} for key in gap_key_matches}
 
     matched["OutcomeChargeDate"] = pd.to_datetime(matched["OutcomeChargeDate"], errors="coerce")
     matched = matched.drop_duplicates(["_GapID", "OutcomeClientKey", "OutcomePatientKey", "OutcomeChargeDate"])
@@ -12010,9 +12013,14 @@ def build_average_sales_purchase_gap_map(
         .diff()
         .dt.days
     )
-    gap_means = matched.loc[matched["_GapDays"].gt(0)].groupby("_GapID")["_GapDays"].mean()
+    positive_gaps = matched.loc[matched["_GapDays"].gt(0)]
+    gap_means = positive_gaps.groupby("_GapID")["_GapDays"].mean()
+    gap_counts = positive_gaps.groupby("_GapID")["_GapDays"].count()
     return {
-        gap_key: (float(gap_means.loc[gap_id]) if gap_id in gap_means.index else None)
+        gap_key: {
+            "average": float(gap_means.loc[gap_id]) if gap_id in gap_means.index else None,
+            "count": int(gap_counts.loc[gap_id]) if gap_id in gap_counts.index else 0,
+        }
         for gap_id, gap_key in gap_lookup.items()
     }
 
@@ -12115,6 +12123,7 @@ def build_reminder_outcomes(
             "Success Gap Days": None,
             "Next Purchase Gap Days": None,
             "Avg Item Purchase Gap Days": None,
+            "Overall Repeat Purchases": 0,
             "Revenue": 0.0,
             "Matched Item": "",
             "Next Matched Item": "",
@@ -12127,7 +12136,12 @@ def build_reminder_outcomes(
     item_match_map = build_outcome_item_match_map(sales, all_match_keys)
     if gap_key_matches:
         gap_map = build_average_sales_purchase_gap_map(sales, gap_key_matches, item_match_map)
-        outcomes["Avg Item Purchase Gap Days"] = outcomes["_OutcomeGapCacheKey"].map(gap_map)
+        outcomes["Avg Item Purchase Gap Days"] = outcomes["_OutcomeGapCacheKey"].map(
+            lambda key: (gap_map.get(key) or {}).get("average")
+        )
+        outcomes["Overall Repeat Purchases"] = outcomes["_OutcomeGapCacheKey"].map(
+            lambda key: (gap_map.get(key) or {}).get("count", 0)
+        )
 
     measurable = outcomes.loc[
         outcomes["Sent Date"].notna()
@@ -12245,6 +12259,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             "avg_success_gap_days": None,
             "avg_desired_gap_days": None,
             "avg_item_purchase_gap_days": None,
+            "overall_repeat_purchases": 0,
             "revenue": 0.0,
         }
     sent = len(outcomes_df.index)
@@ -12264,14 +12279,27 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         else pd.Series(dtype=float)
     )
     if "Item" in outcomes_df.columns and "Avg Item Purchase Gap Days" in outcomes_df.columns:
-        item_purchase_gap_values = pd.to_numeric(
-            outcomes_df[["Item", "Avg Item Purchase Gap Days"]]
+        gap_columns = ["Item", "Avg Item Purchase Gap Days"]
+        if "Overall Repeat Purchases" in outcomes_df.columns:
+            gap_columns.append("Overall Repeat Purchases")
+        item_purchase_gap_frame = (
+            outcomes_df[gap_columns]
             .dropna(subset=["Avg Item Purchase Gap Days"])
-            .drop_duplicates("Item")["Avg Item Purchase Gap Days"],
+            .drop_duplicates("Item")
+        )
+        if "Overall Repeat Purchases" not in item_purchase_gap_frame.columns:
+            item_purchase_gap_frame["Overall Repeat Purchases"] = 0
+        item_purchase_gap_values = pd.to_numeric(
+            item_purchase_gap_frame["Avg Item Purchase Gap Days"],
             errors="coerce",
         )
+        item_purchase_gap_counts = pd.to_numeric(
+            item_purchase_gap_frame["Overall Repeat Purchases"],
+            errors="coerce",
+        ).fillna(0)
     else:
         item_purchase_gap_values = pd.Series(dtype=float)
+        item_purchase_gap_counts = pd.Series(dtype=float)
     return {
         "sent": sent,
         "successes": successes,
@@ -12281,6 +12309,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         "avg_success_gap_days": success_gap_values.mean() if successes else None,
         "avg_desired_gap_days": desired_gap_values.mean(),
         "avg_item_purchase_gap_days": item_purchase_gap_values.mean(),
+        "overall_repeat_purchases": int(item_purchase_gap_counts.sum()) if not item_purchase_gap_counts.empty else 0,
         "revenue": float(pd.to_numeric(success_df["Revenue"], errors="coerce").fillna(0).sum()) if successes else 0.0,
     }
 
@@ -12300,6 +12329,7 @@ def build_outcome_group_frame(
         "Desired Gap Days",
         "Avg Success Gap Days",
         "Avg Item Purchase Gap Days",
+        "Overall Repeat Purchases",
         "Revenue",
     ]
     columns = columns or base_columns
@@ -12321,6 +12351,7 @@ def build_outcome_group_frame(
             "Desired Gap Days": summary["avg_desired_gap_days"],
             "Avg Success Gap Days": summary["avg_success_gap_days"],
             "Avg Item Purchase Gap Days": summary["avg_item_purchase_gap_days"],
+            "Overall Repeat Purchases": summary["overall_repeat_purchases"],
             "Revenue": summary["revenue"],
         })
     frame = pd.DataFrame(rows, columns=base_columns)
@@ -12339,6 +12370,7 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
         "Desired Gap Days",
         "Avg Success Gap Days",
         "Avg Item Purchase Gap Days",
+        "Overall Repeat Purchases",
         "Revenue",
     ]
     if outcomes_df is None or outcomes_df.empty:
@@ -12359,6 +12391,7 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
             "Desired Gap Days": summary["avg_desired_gap_days"],
             "Avg Success Gap Days": summary["avg_success_gap_days"],
             "Avg Item Purchase Gap Days": summary["avg_item_purchase_gap_days"],
+            "Overall Repeat Purchases": summary["overall_repeat_purchases"],
             "Revenue": summary["revenue"],
         })
     return pd.DataFrame(rows, columns=columns).sort_values("Sent Date")
@@ -12560,7 +12593,7 @@ def format_outcome_table_value(column: str, value) -> str:
             return ""
     except (TypeError, ValueError):
         pass
-    if column in {"Sent", "Successes", "Pending", "No Match"}:
+    if column in {"Sent", "Successes", "Pending", "No Match", "Overall Repeat Purchases"}:
         try:
             return f"{int(float(value)):,}"
         except (TypeError, ValueError):
@@ -12662,6 +12695,7 @@ def render_outcome_success_meter_table(
         "Desired Gap Days",
         "Avg Success Gap Days",
         "Avg Item Purchase Gap Days",
+        "Overall Repeat Purchases",
         "Revenue",
     }
     rows_html = []
@@ -12707,6 +12741,7 @@ def render_outcome_dataframe(
         "Next Purchase Gap Days": st.column_config.NumberColumn("Next Purchase Gap Days", format="%.0f"),
         "Avg Success Gap Days": st.column_config.NumberColumn("Avg Success Gap Days", format="%.1f"),
         "Overall Avg Purchase Gap Days": st.column_config.NumberColumn("Overall Avg Purchase Gap Days", format="%.1f"),
+        "Overall Repeat Purchases": st.column_config.NumberColumn("Overall Repeat Purchases", format="%d"),
         "Revenue": st.column_config.NumberColumn("Revenue", format="localized"),
     }
     column_config["Success Rate"] = st.column_config.ProgressColumn("Success Rate", format="percent", min_value=0, max_value=1)

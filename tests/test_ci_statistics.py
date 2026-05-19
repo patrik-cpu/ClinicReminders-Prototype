@@ -544,11 +544,13 @@ class StatisticsTests(unittest.TestCase):
         plus_row = rows["Bravecto Plus Cat"]
         self.assertEqual(dog_row["Outcome"], "No Match")
         self.assertEqual(int(dog_row["Avg Item Purchase Gap Days"]), 151)
+        self.assertEqual(int(dog_row["Overall Repeat Purchases"]), 1)
         self.assertEqual(int(dog_row["Desired Gap Days"]), 90)
         self.assertEqual(plus_row["Outcome"], "Reminder Success")
         self.assertEqual(str(plus_row["Success Date"].date()), "2026-03-05")
         self.assertEqual(int(plus_row["Desired Gap Days"]), 60)
         self.assertEqual(int(plus_row["Success Gap Days"]), 63)
+        self.assertEqual(int(plus_row["Overall Repeat Purchases"]), 2)
         self.assertEqual(self.app.outcome_search_terms_for_record(actions[1], "Bravecto Plus Cat", {}), ["bravecto plus"])
 
     def test_reminder_outcomes_exact_variant_allows_extra_sale_item_words(self):
@@ -1226,11 +1228,11 @@ class StatisticsTests(unittest.TestCase):
     def test_outcome_group_frame_summarizes_success_rates(self):
         outcomes = pd.DataFrame(
             [
-                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Reminder Success", "Success Gap Days": 365, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Revenue": 120},
-                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "No Match", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Revenue": 0},
-                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Pending", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Revenue": 0},
-                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Not Measurable", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Revenue": 0},
-                {"Sender": "Nurse B", "Item": "Bravecto", "Outcome": "Reminder Success", "Success Gap Days": 95, "Desired Gap Days": 90, "Avg Item Purchase Gap Days": 120, "Revenue": 80},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Reminder Success", "Success Gap Days": 365, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Revenue": 120},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "No Match", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Revenue": 0},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Pending", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Revenue": 0},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Not Measurable", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Revenue": 0},
+                {"Sender": "Nurse B", "Item": "Bravecto", "Outcome": "Reminder Success", "Success Gap Days": 95, "Desired Gap Days": 90, "Avg Item Purchase Gap Days": 120, "Overall Repeat Purchases": 2, "Revenue": 80},
             ]
         )
 
@@ -1243,7 +1245,17 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(rows["Nurse A"]["No Match"], 2)
         self.assertEqual(rows["Nurse A"]["Success Rate"], 1 / 4)
         self.assertEqual(rows["Nurse A"]["Avg Success Gap Days"], 365)
+        self.assertEqual(rows["Nurse A"]["Overall Repeat Purchases"], 3)
         self.assertEqual(rows["Nurse B"]["Desired Gap Days"], 90)
+        self.assertEqual(rows["Nurse B"]["Overall Repeat Purchases"], 2)
+        self.assertLess(
+            self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Avg Item Purchase Gap Days"),
+            self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Overall Repeat Purchases"),
+        )
+        self.assertLess(
+            self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Overall Repeat Purchases"),
+            self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Revenue"),
+        )
 
     def test_outcome_success_meter_style_shows_success_pending_and_no_match_segments(self):
         row = pd.Series({
@@ -1292,6 +1304,7 @@ class StatisticsTests(unittest.TestCase):
                 "Success Rate": 0.25,
                 "Desired Gap Days": 365,
                 "Avg Item Purchase Gap Days": 370,
+                "Overall Repeat Purchases": 3,
                 "Revenue": 120,
             }
         ])
@@ -1309,6 +1322,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Item", sort_button_labels)
         self.assertIn("Successes ↓", sort_button_labels)
         self.assertIn("Overall Avg Purchase Gap Days", sort_button_labels)
+        self.assertIn("Overall Repeat Purchases", sort_button_labels)
         self.assertIn("cr-outcome-meter-table", rendered_html)
         self.assertIn("cr-outcome-meter-segment is-success", rendered_html)
         self.assertIn("cr-outcome-meter-segment is-pending", rendered_html)
@@ -1345,6 +1359,7 @@ class StatisticsTests(unittest.TestCase):
                     "Window Ends": pd.Timestamp("2024-04-30"),
                     "Next Purchase Date": pd.Timestamp("2024-03-06"),
                     "Avg Item Purchase Gap Days": 370,
+                    "Overall Repeat Purchases": 3,
                     "Client Name": "Client A",
                 }
             ]
@@ -1358,6 +1373,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(display_frame.iloc[0]["Reminder Date"], "Jan-10-2024")
         self.assertNotIn("Charge Date", display_frame.columns)
         self.assertIn("Overall Avg Purchase Gap Days", display_frame.columns)
+        self.assertIn("Overall Repeat Purchases", display_frame.columns)
         self.assertNotIn("Avg Item Purchase Gap Days", display_frame.columns)
         self.assertEqual(display_frame.iloc[0]["Due Date"], "")
         self.assertEqual(display_frame.iloc[0]["Next Purchase Date"], "Mar-06-2024")
