@@ -255,6 +255,32 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("sent or declined", team_config["Actioned"]["help"])
         self.assertEqual(team_config["Success Rate"]["type_config"]["format"], "%.0f%%")
 
+    def test_all_paged_tables_use_50_rows(self):
+        self.assertEqual(self.app.TABLE_PAGE_SIZE, 50)
+        self.assertEqual(self.app.REMINDER_TABLE_PAGE_SIZE, 50)
+        self.assertEqual(self.app.STATS_TABLE_PAGE_SIZE, 50)
+        self.assertEqual(self.app.OUTCOME_SENT_PAGE_SIZE, 50)
+
+    def test_pagination_caption_says_50_per_page(self):
+        class FakeColumn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        frame = pd.DataFrame({"Item": [f"Item {idx}" for idx in range(55)]})
+
+        with (
+            mock.patch.object(self.app.st, "caption") as caption,
+            mock.patch.object(self.app.st, "columns", return_value=[FakeColumn(), FakeColumn(), FakeColumn()]),
+            mock.patch.object(self.app.st, "button", return_value=False),
+        ):
+            paged = self.app.paginate_dataframe(frame, "stats_test", 50, "test rows")
+
+        self.assertEqual(len(paged), 50)
+        caption.assert_called_once_with("Showing 1-50 of 55 test rows (50 per page).")
+
     def test_prepare_stats_team_display_frame_formats_success_rate_as_whole_percent(self):
         frame = pd.DataFrame([{"Team Member": "Nurse A", "Success Rate": 1 / 3, "Revenue": 120}])
 

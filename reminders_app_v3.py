@@ -11321,7 +11321,7 @@ def paginate_dataframe(frame: pd.DataFrame, key: str, page_size: int, item_label
 
     start = current_page * page_size
     end = min(start + page_size, total_rows)
-    st.caption(f"Showing {start + 1:,}-{end:,} of {total_rows:,} {item_label}.")
+    st.caption(f"Showing {start + 1:,}-{end:,} of {total_rows:,} {item_label} ({page_size:,} per page).")
     prev_col, next_col, _ = st.columns([1, 1, 6])
     with prev_col:
         if st.button("Previous", key=f"{page_key}_prev", disabled=current_page <= 0):
@@ -12036,8 +12036,10 @@ STATS_SENT_REMINDER_PERIOD_MAP = {
     "Previous 30 days": "30 days",
     "All-time": "All time",
 }
-REMINDER_TABLE_PAGE_SIZE = 50
-OUTCOME_SENT_PAGE_SIZE = 100
+TABLE_PAGE_SIZE = 50
+REMINDER_TABLE_PAGE_SIZE = TABLE_PAGE_SIZE
+STATS_TABLE_PAGE_SIZE = TABLE_PAGE_SIZE
+OUTCOME_SENT_PAGE_SIZE = TABLE_PAGE_SIZE
 STATS_TABLE_HEIGHT = 700
 OUTCOME_TABLE_COLUMNS = [
     "Charge Date",
@@ -14415,12 +14417,15 @@ def render_outcome_dataframe(
     table_key: str = "outcome_table",
     default_sort_column: str = "Successes",
     default_sort_ascending: bool = False,
+    page_size: int = STATS_TABLE_PAGE_SIZE,
+    item_label: str = "outcome rows",
 ):
     if columns is not None and frame is not None and not frame.empty:
         frame = frame[[column for column in columns if column in frame.columns]]
     if frame.empty:
         st.info("No outcome rows for this view yet.")
         return
+    frame = paginate_dataframe(frame, table_key, page_size, item_label)
     display_frame = prepare_outcome_dataframe_for_display(frame)
     st.dataframe(
         display_frame,
@@ -14632,6 +14637,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         render_outcome_dataframe(
             item_frame,
             table_key="stats_items",
+            item_label="item rows",
         )
 
     with item_actioning_tab:
@@ -14646,8 +14652,14 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 "stats_item_actioning",
                 display_preparer=prepare_statistics_display_frame,
             )
+            paged_item_actioning_frame = paginate_dataframe(
+                item_actioning_frame,
+                "stats_item_actioning",
+                STATS_TABLE_PAGE_SIZE,
+                "item actioning rows",
+            )
             st.dataframe(
-                prepare_statistics_display_frame(item_actioning_frame),
+                prepare_statistics_display_frame(paged_item_actioning_frame),
                 hide_index=True,
                 use_container_width=True,
                 height=STATS_TABLE_HEIGHT,
@@ -14670,8 +14682,14 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 "stats_team",
                 display_preparer=prepare_stats_team_display_frame,
             )
+            paged_team_frame = paginate_dataframe(
+                team_frame,
+                "stats_team",
+                STATS_TABLE_PAGE_SIZE,
+                "team rows",
+            )
             st.dataframe(
-                prepare_stats_team_display_frame(team_frame),
+                prepare_stats_team_display_frame(paged_team_frame),
                 hide_index=True,
                 use_container_width=True,
                 height=STATS_TABLE_HEIGHT,
@@ -14690,8 +14708,13 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             columns=OUTCOME_SENT_DISPLAY_COLUMNS,
             display_preparer=prepare_outcome_dataframe_for_display,
         )
-        paged_sent_rows = paginate_dataframe(sent_rows, "outcomes_sent", OUTCOME_SENT_PAGE_SIZE, "sent outcome rows")
-        render_outcome_dataframe(paged_sent_rows, OUTCOME_SENT_DISPLAY_COLUMNS, table_key="outcomes_sent")
+        render_outcome_dataframe(
+            sent_rows,
+            OUTCOME_SENT_DISPLAY_COLUMNS,
+            table_key="outcomes_sent",
+            page_size=OUTCOME_SENT_PAGE_SIZE,
+            item_label="sent outcome rows",
+        )
 
     with success_tab:
         st.caption("All time; sent reminders matched to a later sale inside the success window.")
@@ -14706,7 +14729,12 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             columns=OUTCOME_SENT_DISPLAY_COLUMNS,
             display_preparer=prepare_outcome_dataframe_for_display,
         )
-        render_outcome_dataframe(success_rows, OUTCOME_SENT_DISPLAY_COLUMNS, table_key="outcomes_successes")
+        render_outcome_dataframe(
+            success_rows,
+            OUTCOME_SENT_DISPLAY_COLUMNS,
+            table_key="outcomes_successes",
+            item_label="success rows",
+        )
 
 
 def render_search_terms_editor():
