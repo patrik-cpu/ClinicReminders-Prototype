@@ -59,6 +59,8 @@ class ReminderGroupingTests(unittest.TestCase):
         self.app.st.session_state["patient_exclusions"] = [
             {"client": "Same Client", "patient": "Alpha"}
         ]
+        self.app.st.session_state["client_item_exclusions"] = []
+        self.app.st.session_state["automatic_patient_exclusions"] = []
         self.app.st.session_state["exclusions"] = []
 
         filtered = self.app.apply_reminder_exclusion_filters(due_df, self.app.DEFAULT_RULES)
@@ -71,6 +73,7 @@ class ReminderGroupingTests(unittest.TestCase):
         due_df = self.make_due_df()
         self.app.st.session_state["client_exclusions"] = []
         self.app.st.session_state["patient_exclusions"] = []
+        self.app.st.session_state["client_item_exclusions"] = []
         self.app.st.session_state["automatic_patient_exclusions"] = [
             {"client": "Same Client", "patient": "Bravo"}
         ]
@@ -80,6 +83,30 @@ class ReminderGroupingTests(unittest.TestCase):
 
         self.assertNotIn("Bravo", " ".join(filtered["Animal Name"].astype(str)))
         self.assertIn("Alpha", " ".join(filtered["Animal Name"].astype(str)))
+
+    def test_client_item_exclusions_only_hide_matching_item_for_that_client(self):
+        due_df = pd.DataFrame(
+            {
+                "Client Name": ["Client A", "Client A", "Client B"],
+                "Animal Name": ["Alpha", "Alpha", "Bravo"],
+                "Item Name": ["Dental Descale", "Rabies Vaccine", "Dental Descale"],
+                "ReminderDate": pd.to_datetime(["2026-05-01", "2026-05-01", "2026-05-01"]),
+            }
+        )
+        self.app.st.session_state["client_exclusions"] = []
+        self.app.st.session_state["patient_exclusions"] = []
+        self.app.st.session_state["client_item_exclusions"] = [
+            {"client": "Client A", "item": "dental"}
+        ]
+        self.app.st.session_state["automatic_patient_exclusions"] = []
+        self.app.st.session_state["exclusions"] = []
+
+        filtered = self.app.apply_reminder_exclusion_filters(due_df, self.app.DEFAULT_RULES)
+
+        remaining = set(zip(filtered["Client Name"], filtered["Item Name"]))
+        self.assertNotIn(("Client A", "Dental Descale"), remaining)
+        self.assertIn(("Client A", "Rabies Vaccine"), remaining)
+        self.assertIn(("Client B", "Dental Descale"), remaining)
 
     def test_passaway_keywords_create_automatic_patient_exclusions_from_upload(self):
         state = self.app.st.session_state

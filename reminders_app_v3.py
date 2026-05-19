@@ -580,6 +580,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "exclusions",
     "client_exclusions",
     "patient_exclusions",
+    "client_item_exclusions",
     "automatic_patient_exclusions",
     "patient_passaway_keywords",
     "user_name",
@@ -1477,6 +1478,24 @@ def normalize_patient_exclusions(exclusions) -> list[dict]:
         if key in seen:
             continue
         normalized.append({"client": client, "patient": patient})
+        seen.add(key)
+    return normalized
+
+
+def normalize_client_item_exclusions(exclusions) -> list[dict]:
+    normalized = []
+    seen = set()
+    for item in exclusions or []:
+        if not isinstance(item, dict):
+            continue
+        client = _SPACE_RX.sub(" ", str(item.get("client", "") or "").strip())
+        item_name = _SPACE_RX.sub(" ", str(item.get("item", "") or "").strip())
+        if not client or not item_name:
+            continue
+        key = (client.lower(), item_name.lower())
+        if key in seen:
+            continue
+        normalized.append({"client": client, "item": item_name})
         seen.add(key)
     return normalized
 
@@ -4355,6 +4374,7 @@ def load_settings():
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["client_exclusions"] = settings.get("client_exclusions", [])
         st.session_state["patient_exclusions"] = normalize_patient_exclusions(settings.get("patient_exclusions", []))
+        st.session_state["client_item_exclusions"] = normalize_client_item_exclusions(settings.get("client_item_exclusions", []))
         st.session_state["automatic_patient_exclusions"] = normalize_patient_exclusions(settings.get("automatic_patient_exclusions", []))
         st.session_state["patient_passaway_keywords"] = normalize_passaway_keywords(
             settings.get("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT)
@@ -4404,6 +4424,7 @@ def load_settings():
         st.session_state["exclusions"] = []
         st.session_state["client_exclusions"] = []
         st.session_state["patient_exclusions"] = []
+        st.session_state["client_item_exclusions"] = []
         st.session_state["automatic_patient_exclusions"] = []
         st.session_state["patient_passaway_keywords"] = PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()
         st.session_state["user_name"] = ""
@@ -4508,6 +4529,14 @@ def _patient_exclusion_key(value) -> str:
     client = _text_list_key(value.get("client", ""))
     patient = _text_list_key(value.get("patient", ""))
     return f"{client}|{patient}" if client or patient else ""
+
+
+def _client_item_exclusion_key(value) -> str:
+    if not isinstance(value, dict):
+        return ""
+    client = _text_list_key(value.get("client", ""))
+    item = _text_list_key(value.get("item", ""))
+    return f"{client}|{item}" if client or item else ""
 
 
 def merge_keyed_list_setting_for_save(base_list, remote_list, local_list, key_fn) -> list:
@@ -4657,6 +4686,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         exclusions_for_save = setting_for_save("exclusions", [])
         client_exclusions_for_save = setting_for_save("client_exclusions", [])
         patient_exclusions_for_save = setting_for_save("patient_exclusions", [])
+        client_item_exclusions_for_save = setting_for_save("client_item_exclusions", [])
         automatic_patient_exclusions_for_save = setting_for_save("automatic_patient_exclusions", [])
         patient_passaway_keywords_for_save = setting_for_save("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy())
     else:
@@ -4683,6 +4713,12 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
             setting_for_save("patient_exclusions", []),
             _patient_exclusion_key,
         )
+        client_item_exclusions_for_save = merge_keyed_list_setting_for_save(
+            base_settings.get("client_item_exclusions", []),
+            remote_settings.get("client_item_exclusions", []),
+            setting_for_save("client_item_exclusions", []),
+            _client_item_exclusion_key,
+        )
         automatic_patient_exclusions_for_save = merge_keyed_list_setting_for_save(
             base_settings.get("automatic_patient_exclusions", []),
             remote_settings.get("automatic_patient_exclusions", []),
@@ -4702,6 +4738,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "exclusions": exclusions_for_save,
         "client_exclusions": client_exclusions_for_save,
         "patient_exclusions": normalize_patient_exclusions(patient_exclusions_for_save),
+        "client_item_exclusions": normalize_client_item_exclusions(client_item_exclusions_for_save),
         "automatic_patient_exclusions": normalize_patient_exclusions(automatic_patient_exclusions_for_save),
         "patient_passaway_keywords": normalize_passaway_keywords(patient_passaway_keywords_for_save),
         "user_name": user_name_for_save,
@@ -7178,6 +7215,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "exclusions": [],
         "client_exclusions": [],
         "patient_exclusions": [],
+        "client_item_exclusions": [],
         "automatic_patient_exclusions": [],
         "patient_passaway_keywords": PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy(),
         "user_name": "",
@@ -9290,6 +9328,7 @@ st.session_state.setdefault("search_term_added_at", "")
 st.session_state.setdefault("user_name_updated_at", "")
 st.session_state.setdefault("wa_template_updated_at", "")
 st.session_state.setdefault("dataset_upload_history", [])
+st.session_state.setdefault("client_item_exclusions", [])
 st.session_state.setdefault("automatic_patient_exclusions", [])
 st.session_state.setdefault("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy())
 
@@ -9869,6 +9908,23 @@ def apply_reminder_exclusion_filters(df: pd.DataFrame, rules: dict) -> pd.DataFr
                 df["Animal Name"].map(_exclusion_key),
             ))
             df = df[[pair not in excluded_patient_pairs for pair in row_pairs]]
+    client_item_exclusions = normalize_client_item_exclusions(st.session_state.get("client_item_exclusions", []))
+    if client_item_exclusions and "Client Name" in df.columns:
+        target_col = "Item Name" if "Item Name" in df.columns else "Plan Item"
+        if target_col in df.columns:
+            client_keys = df["Client Name"].map(_exclusion_key)
+            item_text = df[target_col].astype(str).str.lower()
+            exclude_mask = pd.Series(False, index=df.index)
+            for exclusion in client_item_exclusions:
+                client_key = _exclusion_key(exclusion.get("client", ""))
+                item_term = str(exclusion.get("item", "") or "").strip().lower()
+                if not client_key or not item_term:
+                    continue
+                exclude_mask |= (
+                    client_keys.eq(client_key)
+                    & item_text.str.contains(re.escape(item_term), regex=True, na=False)
+                )
+            df = df[~exclude_mask]
     item_exclusions = [str(term or "").strip().lower() for term in st.session_state.get("exclusions", []) if str(term or "").strip()]
     if item_exclusions:
         excl_pattern = "|".join(map(re.escape, item_exclusions))
@@ -12234,10 +12290,20 @@ def statistics_exclusion_fp() -> str:
         if client and patient:
             patient_exclusions.append({"client": client, "patient": patient})
 
+    client_item_exclusions = []
+    for item in st.session_state.get("client_item_exclusions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        client = _SPACE_RX.sub(" ", str(item.get("client", "") or "").strip()).lower()
+        item_name = _SPACE_RX.sub(" ", str(item.get("item", "") or "").strip()).lower()
+        if client and item_name:
+            client_item_exclusions.append({"client": client, "item": item_name})
+
     payload = {
         "items": normalized_text_list(st.session_state.get("exclusions", [])),
         "clients": normalized_text_list(st.session_state.get("client_exclusions", [])),
         "patients": sorted(patient_exclusions, key=lambda row: (row["client"], row["patient"])),
+        "client_items": sorted(client_item_exclusions, key=lambda row: (row["client"], row["item"])),
         "automatic_patients": normalized_text_list(
             f"{item.get('client', '')}|{item.get('patient', '')}"
             for item in normalize_patient_exclusions(st.session_state.get("automatic_patient_exclusions", []))
@@ -14863,6 +14929,7 @@ def render_search_terms_editor():
         st.session_state["exclusions"] = []
         st.session_state["client_exclusions"] = []
         st.session_state["patient_exclusions"] = []
+        st.session_state["client_item_exclusions"] = []
         st.session_state["search_terms_reviewed"] = False
         st.session_state["search_term_added"] = False
         st.session_state["search_term_added_at"] = ""
@@ -15184,8 +15251,92 @@ if st.session_state.get("logged_in", False):
                 else:
                     st.error("Enter both client and patient names")
 
-        st.markdown("### Item Exclusions")
-        st.caption("Hide reminders when the item text contains a specific word or phrase.")
+        st.markdown("### Client-Specific Item Exclusions")
+        st.caption("Hide one item or service only for a specific client.")
+        st.session_state["client_item_exclusions"] = normalize_client_item_exclusions(
+            st.session_state.get("client_item_exclusions", [])
+        )
+        if st.session_state["client_item_exclusions"]:
+            sorted_client_item_exclusions = sorted(
+                st.session_state["client_item_exclusions"],
+                key=lambda item: (
+                    str(item.get("client", "")).casefold() if isinstance(item, dict) else "",
+                    str(item.get("item", "")).casefold() if isinstance(item, dict) else "",
+                ),
+            )
+            for exclusion_idx, exclusion in enumerate(sorted_client_item_exclusions):
+                if not isinstance(exclusion, dict):
+                    continue
+                client_name = _SPACE_RX.sub(" ", str(exclusion.get("client", "") or "").strip())
+                item_name = _SPACE_RX.sub(" ", str(exclusion.get("item", "") or "").strip())
+                if not client_name or not item_name:
+                    continue
+                safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"{client_name}_{item_name}_{exclusion_idx}")
+                with st.container():
+                    cols = st.columns([1.4, 0.18, 6], gap="small")
+                    with cols[0]:
+                        st.markdown(patient_exclusion_label_html(client_name, item_name), unsafe_allow_html=True)
+                    with cols[1]:
+                        if st.button("×", key=f"del_client_item_excl_{safe_pair}", help="Remove client-specific item exclusion"):
+                            st.session_state["client_item_exclusions"].remove(exclusion)
+                            save_settings_quietly()
+                            record_settings_audit_event("exclusion_deleted", "exclusions", f"{client_name} - {item_name}", "client_item", exclusion, "", "exclusions_tab")
+                            st.rerun()
+        else:
+            st.caption("No client-specific item exclusions yet.")
+
+        ci1, ci2, ci3 = st.columns([2, 2, 1], gap="small")
+        with ci1:
+            render_field_label(
+                st,
+                "Client Name",
+                "Enter the client name exactly as it appears in the reminder table."
+            )
+            new_client_item_client = st.text_input(
+                "Client-specific item exclusion client name",
+                key=f"new_client_item_client_excl_{row_id}",
+                label_visibility="collapsed",
+            )
+        with ci2:
+            render_field_label(
+                st,
+                "Item Name",
+                "Enter a product, service, or wording fragment to hide for this client only."
+            )
+            new_client_item_name = st.text_input(
+                "Client-specific item exclusion item name",
+                key=f"new_client_item_name_excl_{row_id}",
+                label_visibility="collapsed",
+            )
+        with ci3:
+            st.markdown("<div style='height:1.65rem;'></div>", unsafe_allow_html=True)
+            if st.button("➕ Add Item", key=f"add_client_item_excl_{row_id}"):
+                safe_client = _SPACE_RX.sub(" ", str(new_client_item_client or "").strip())
+                safe_item = _SPACE_RX.sub(" ", str(new_client_item_name or "").strip())
+                if safe_client and safe_item:
+                    client_item_key = (safe_client.lower(), safe_item.lower())
+                    existing_pairs = {
+                        (
+                            _SPACE_RX.sub(" ", str(item.get("client", "") or "").strip()).lower(),
+                            _SPACE_RX.sub(" ", str(item.get("item", "") or "").strip()).lower(),
+                        )
+                        for item in st.session_state["client_item_exclusions"]
+                        if isinstance(item, dict)
+                    }
+                    if client_item_key not in existing_pairs:
+                        new_client_item_exclusion = {"client": safe_client, "item": safe_item}
+                        st.session_state["client_item_exclusions"].append(new_client_item_exclusion)
+                        save_settings_quietly()
+                        record_settings_audit_event("exclusion_added", "exclusions", f"{safe_client} - {safe_item}", "client_item", "", new_client_item_exclusion, "exclusions_tab")
+                        st.session_state["new_rule_counter"] += 1
+                        st.rerun()
+                    else:
+                        st.info("This client-specific item exclusion already exists.")
+                else:
+                    st.error("Enter both client and item names")
+
+        st.markdown("### General Item Exclusions")
+        st.caption("Hide reminders for an item or phrase across every client.")
         if st.session_state["exclusions"]:
             for term in sorted(st.session_state["exclusions"]):
                 safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)

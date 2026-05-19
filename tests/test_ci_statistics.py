@@ -379,9 +379,10 @@ class StatisticsTests(unittest.TestCase):
         state["exclusions"] = ["Rabies"]
         state["client_exclusions"] = ["Client A"]
         state["patient_exclusions"] = [{"client": "Client B", "patient": "Pet B"}]
+        state["client_item_exclusions"] = [{"client": "Client C", "item": "Dental"}]
         original_fp = self.app.statistics_exclusion_fp()
 
-        state["patient_exclusions"] = [{"client": "Client B", "patient": "Pet C"}]
+        state["client_item_exclusions"] = [{"client": "Client C", "item": "Rabies"}]
         changed_fp = self.app.statistics_exclusion_fp()
 
         self.assertNotEqual(original_fp, changed_fp)

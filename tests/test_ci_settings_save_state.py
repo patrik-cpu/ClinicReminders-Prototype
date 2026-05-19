@@ -62,6 +62,9 @@ class SettingsSaveStateTests(unittest.TestCase):
             "exclusions": ["old"],
             "client_exclusions": [],
             "patient_exclusions": [],
+            "client_item_exclusions": [
+                {"client": "Existing Client", "item": "Dental"}
+            ],
         }
         remote_settings = {
             "rules": {
@@ -71,16 +74,32 @@ class SettingsSaveStateTests(unittest.TestCase):
             "exclusions": ["old", "remote-only"],
             "client_exclusions": [],
             "patient_exclusions": [],
+            "client_item_exclusions": [
+                {"client": "Existing Client", "item": "Dental"},
+                {"client": "Remote Client", "item": "Rabies"},
+            ],
         }
         self.app.cache_remote_settings("Clinic Save State", base_settings)
         self.app.st.session_state["rules"] = {"rabies": {"days": 400, "use_qty": False}}
         self.app.st.session_state["exclusions"] = ["old", "local-only"]
+        self.app.st.session_state["client_item_exclusions"] = [
+            {"client": "Existing Client", "item": "Dental"},
+            {"client": "Local Client", "item": "Groom"},
+        ]
 
         saved = self.run_save_with_remote(remote_settings)
 
         self.assertEqual(saved["rules"]["rabies"]["days"], 400)
         self.assertEqual(saved["rules"]["librela"]["days"], 30)
         self.assertEqual(saved["exclusions"], ["old", "remote-only", "local-only"])
+        self.assertEqual(
+            saved["client_item_exclusions"],
+            [
+                {"client": "Existing Client", "item": "Dental"},
+                {"client": "Remote Client", "item": "Rabies"},
+                {"client": "Local Client", "item": "Groom"},
+            ],
+        )
 
     def test_save_settings_persists_automatic_patient_exclusions_and_keywords(self):
         self.app.cache_remote_settings(
