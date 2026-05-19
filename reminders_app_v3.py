@@ -2539,7 +2539,6 @@ st.markdown(
         position: absolute;
         text-align: left;
         bottom: calc(100% + 0.45rem);
-        transition-delay: 75ms;
         transform: translateX(-50%);
         white-space: normal;
         z-index: 9999;
@@ -2555,8 +2554,8 @@ st.markdown(
         border-radius: 8px !important;
         box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16) !important;
         color: #101828 !important;
-        transition-delay: 75ms !important;
-        animation-delay: 75ms !important;
+        animation: none !important;
+        transition: none !important;
     }
     div[data-baseweb="tooltip"] *,
     div[data-baseweb="popover"][role="tooltip"] *,
