@@ -114,6 +114,10 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("Multiple reminder steps for the same purchase cycle still count once.", source)
         self.assertIn("on_change=save_outcome_due_date_window_days", source)
         self.assertIn("on_change=save_outcome_post_reminder_window_days", source)
+        self.assertIn("on_change=save_reminder_lookback_days", source)
+        self.assertIn("on_change=save_reminder_window_days", source)
+        self.assertIn("on_change=save_reminder_group_days", source)
+        self.assertIn("on_change=save_reminder_warning_days", source)
         self.assertNotIn("Days to define success", source)
 
     def test_busy_overlay_is_self_styled_for_callbacks(self):

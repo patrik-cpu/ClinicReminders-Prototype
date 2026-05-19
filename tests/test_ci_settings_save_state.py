@@ -245,6 +245,20 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         self.assertEqual(saved["reminder_lookback_days"], 7)
 
+    def test_save_settings_persists_reminder_filter_days(self):
+        self.app.cache_remote_settings("Clinic Save State", {})
+        self.app.st.session_state["reminder_lookback_days"] = 7
+        self.app.st.session_state["reminder_window_days"] = 5
+        self.app.st.session_state["client_group_days"] = 3
+        self.app.st.session_state["reminder_warning_days"] = 4
+
+        saved = self.run_save_with_remote({})
+
+        self.assertEqual(saved["reminder_lookback_days"], 7)
+        self.assertEqual(saved["reminder_window_days"], 5)
+        self.assertEqual(saved["client_group_days"], 3)
+        self.assertEqual(saved["reminder_warning_days"], 4)
+
     def test_save_settings_persists_outcome_due_date_window_days(self):
         self.app.cache_remote_settings("Clinic Save State", {})
         self.app.st.session_state["outcome_due_date_window_days"] = 30
@@ -309,6 +323,14 @@ class SettingsSaveStateTests(unittest.TestCase):
             source.index("def load_settings"),
         )
         self.assertLess(
+            source.index("def normalized_reminder_lookback_days"),
+            source.index("def load_settings"),
+        )
+        self.assertLess(
+            source.index("def load_reminder_filter_settings"),
+            source.index("def load_settings"),
+        )
+        self.assertLess(
             source.index("DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14"),
             source.index("def load_settings"),
         )
@@ -331,6 +353,38 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         self.assertEqual(self.app.st.session_state["outcome_due_date_window_days"], 30)
         self.assertTrue(self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY])
+
+    def test_load_settings_preserves_dirty_reminder_filter_days(self):
+        headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        sheet = FakeSettingsSheet({
+            "reminder_lookback_days": 2,
+            "reminder_window_days": 1,
+            "client_group_days": 1,
+            "reminder_warning_days": 0,
+        })
+        self.app.st.session_state["reminder_lookback_days"] = 7
+        self.app.st.session_state["reminder_window_days"] = 5
+        self.app.st.session_state["client_group_days"] = 3
+        self.app.st.session_state["reminder_warning_days"] = 4
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY] = True
+        self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_DIRTY_KEY] = True
+        self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_DIRTY_KEY] = True
+        self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_DIRTY_KEY] = True
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "load_action_tracker_records_for_clinic", return_value=[]),
+        ):
+            self.app.load_settings()
+
+        self.assertEqual(self.app.st.session_state["reminder_lookback_days"], 7)
+        self.assertEqual(self.app.st.session_state["reminder_window_days"], 5)
+        self.assertEqual(self.app.st.session_state["client_group_days"], 3)
+        self.assertEqual(self.app.st.session_state["reminder_warning_days"], 4)
+        self.assertTrue(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY])
+        self.assertTrue(self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_DIRTY_KEY])
+        self.assertTrue(self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_DIRTY_KEY])
+        self.assertTrue(self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_DIRTY_KEY])
 
     def test_load_settings_preserves_dirty_outcome_post_reminder_window_days(self):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
@@ -406,6 +460,27 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(self.app.st.session_state["outcome_post_reminder_window_days"], 7)
         self.assertTrue(self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY])
         self.assertNotIn(self.app.OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY, self.app.st.session_state)
+
+    def test_reminder_filter_callbacks_stay_dirty_without_logged_in_clinic(self):
+        del self.app.st.session_state["clinic_id"]
+        self.app.st.session_state["reminder_lookback_days"] = 7
+        self.app.st.session_state["reminder_window_days"] = 5
+        self.app.st.session_state["client_group_days"] = 3
+        self.app.st.session_state["reminder_warning_days"] = 4
+
+        self.app.save_reminder_lookback_days()
+        self.app.save_reminder_window_days()
+        self.app.save_reminder_group_days()
+        self.app.save_reminder_warning_days()
+
+        self.assertEqual(self.app.st.session_state["reminder_lookback_days"], 7)
+        self.assertEqual(self.app.st.session_state["reminder_window_days"], 5)
+        self.assertEqual(self.app.st.session_state["client_group_days"], 3)
+        self.assertEqual(self.app.st.session_state["reminder_warning_days"], 4)
+        self.assertTrue(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY])
+        self.assertTrue(self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_DIRTY_KEY])
+        self.assertTrue(self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_DIRTY_KEY])
+        self.assertTrue(self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_DIRTY_KEY])
 
     def test_quiet_settings_save_handles_sheets_api_error(self):
         response = Response()

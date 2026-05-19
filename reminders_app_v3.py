@@ -89,6 +89,14 @@ OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY = "_outcome_due_date_window_days_dirty"
 OUTCOME_DUE_DATE_WINDOW_LOADED_KEY = "_outcome_due_date_window_days_loaded"
 OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY = "_outcome_post_reminder_window_days_dirty"
 OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY = "_outcome_post_reminder_window_days_loaded"
+REMINDER_LOOKBACK_DAYS_DIRTY_KEY = "_reminder_lookback_days_dirty"
+REMINDER_LOOKBACK_DAYS_LOADED_KEY = "_reminder_lookback_days_loaded"
+REMINDER_WINDOW_DAYS_DIRTY_KEY = "_reminder_window_days_dirty"
+REMINDER_WINDOW_DAYS_LOADED_KEY = "_reminder_window_days_loaded"
+REMINDER_GROUP_DAYS_DIRTY_KEY = "_client_group_days_dirty"
+REMINDER_GROUP_DAYS_LOADED_KEY = "_client_group_days_loaded"
+REMINDER_WARNING_DAYS_DIRTY_KEY = "_reminder_warning_days_dirty"
+REMINDER_WARNING_DAYS_LOADED_KEY = "_reminder_warning_days_loaded"
 _SETTING_MISSING = object()
 
 
@@ -4087,6 +4095,116 @@ def load_outcome_post_reminder_window_days(settings: dict) -> None:
     st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = False
 
 
+def normalized_reminder_window_days(value=None) -> int:
+    value = st.session_state.get("reminder_window_days", 1) if value is None else value
+    try:
+        return min(30, max(0, int(value)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def normalized_reminder_lookback_days(value=None) -> int:
+    value = st.session_state.get("reminder_lookback_days", DEFAULT_REMINDER_LOOKBACK_DAYS) if value is None else value
+    try:
+        return min(30, max(0, int(value)))
+    except (TypeError, ValueError):
+        return DEFAULT_REMINDER_LOOKBACK_DAYS
+
+
+def normalized_reminder_group_days(value=None) -> int:
+    value = st.session_state.get("client_group_days", 1) if value is None else value
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 1
+
+
+def normalized_reminder_warning_days(value=None) -> int:
+    value = st.session_state.get("reminder_warning_days", 0) if value is None else value
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def load_reminder_int_setting(
+    settings: dict,
+    key: str,
+    default_value: int,
+    dirty_key: str,
+    loaded_key: str,
+    normalizer,
+) -> None:
+    raw_value = settings.get(key, _SETTING_MISSING)
+    has_current_value = key in st.session_state
+    current_value = normalizer() if has_current_value else default_value
+    loaded_value = st.session_state.get(loaded_key, _SETTING_MISSING)
+
+    if raw_value is _SETTING_MISSING or raw_value in (None, ""):
+        if has_current_value:
+            st.session_state[key] = current_value
+            return
+        st.session_state[key] = default_value
+        st.session_state[loaded_key] = default_value
+        st.session_state[dirty_key] = False
+        return
+
+    saved_value = normalizer(raw_value)
+    if has_current_value and st.session_state.get(dirty_key):
+        if current_value == saved_value:
+            st.session_state[dirty_key] = False
+            st.session_state[loaded_key] = saved_value
+        else:
+            st.session_state[key] = current_value
+        return
+
+    if has_current_value and loaded_value is not _SETTING_MISSING:
+        loaded_value = normalizer(loaded_value)
+        if current_value != loaded_value and current_value != saved_value:
+            st.session_state[key] = current_value
+            st.session_state[dirty_key] = True
+            return
+
+    st.session_state[key] = saved_value
+    st.session_state[loaded_key] = saved_value
+    st.session_state[dirty_key] = False
+
+
+def load_reminder_filter_settings(settings: dict) -> None:
+    load_reminder_int_setting(
+        settings,
+        "client_group_days",
+        1,
+        REMINDER_GROUP_DAYS_DIRTY_KEY,
+        REMINDER_GROUP_DAYS_LOADED_KEY,
+        normalized_reminder_group_days,
+    )
+    load_reminder_int_setting(
+        settings,
+        "reminder_window_days",
+        1,
+        REMINDER_WINDOW_DAYS_DIRTY_KEY,
+        REMINDER_WINDOW_DAYS_LOADED_KEY,
+        normalized_reminder_window_days,
+    )
+    load_reminder_int_setting(
+        settings,
+        "reminder_lookback_days",
+        DEFAULT_REMINDER_LOOKBACK_DAYS,
+        REMINDER_LOOKBACK_DAYS_DIRTY_KEY,
+        REMINDER_LOOKBACK_DAYS_LOADED_KEY,
+        normalized_reminder_lookback_days,
+    )
+    load_reminder_int_setting(
+        settings,
+        "reminder_warning_days",
+        0,
+        REMINDER_WARNING_DAYS_DIRTY_KEY,
+        REMINDER_WARNING_DAYS_LOADED_KEY,
+        normalized_reminder_warning_days,
+    )
+
+
 def load_settings():
     """Load settings for the current clinic from the Google Sheet."""
     clinic_id = st.session_state.get("clinic_id")
@@ -4124,18 +4242,7 @@ def load_settings():
         )
         st.session_state["user_name"] = settings.get("user_name", "")
         st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
-        st.session_state["client_group_days"] = max(0, int(settings.get("client_group_days", 1) or 0))
-        raw_window_days = settings.get("reminder_window_days", 1)
-        try:
-            st.session_state["reminder_window_days"] = max(0, int(raw_window_days if raw_window_days not in (None, "") else 1))
-        except (TypeError, ValueError):
-            st.session_state["reminder_window_days"] = 1
-        raw_lookback_days = settings.get("reminder_lookback_days", DEFAULT_REMINDER_LOOKBACK_DAYS)
-        try:
-            st.session_state["reminder_lookback_days"] = max(0, int(raw_lookback_days if raw_lookback_days not in (None, "") else DEFAULT_REMINDER_LOOKBACK_DAYS))
-        except (TypeError, ValueError):
-            st.session_state["reminder_lookback_days"] = DEFAULT_REMINDER_LOOKBACK_DAYS
-        st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
+        load_reminder_filter_settings(settings)
         load_outcome_due_date_window_days(settings)
         load_outcome_post_reminder_window_days(settings)
         migrated_legacy_actions = False
@@ -4173,10 +4280,7 @@ def load_settings():
         st.session_state["patient_passaway_keywords"] = PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()
         st.session_state["user_name"] = ""
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
-        st.session_state["client_group_days"] = 1
-        st.session_state["reminder_window_days"] = 1
-        st.session_state["reminder_lookback_days"] = DEFAULT_REMINDER_LOOKBACK_DAYS
-        st.session_state["reminder_warning_days"] = 0
+        load_reminder_filter_settings(settings)
         load_outcome_due_date_window_days(settings)
         load_outcome_post_reminder_window_days(settings)
         st.session_state["wa_reminder_log"] = []
@@ -4546,6 +4650,40 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
     ):
         st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = False
         st.session_state[OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY] = saved_outcome_post_reminder_window_days
+    reminder_saved_specs = [
+        (
+            "client_group_days",
+            REMINDER_GROUP_DAYS_DIRTY_KEY,
+            REMINDER_GROUP_DAYS_LOADED_KEY,
+            normalized_reminder_group_days(settings_data.get("client_group_days")),
+            normalized_reminder_group_days,
+        ),
+        (
+            "reminder_window_days",
+            REMINDER_WINDOW_DAYS_DIRTY_KEY,
+            REMINDER_WINDOW_DAYS_LOADED_KEY,
+            normalized_reminder_window_days(settings_data.get("reminder_window_days")),
+            normalized_reminder_window_days,
+        ),
+        (
+            "reminder_lookback_days",
+            REMINDER_LOOKBACK_DAYS_DIRTY_KEY,
+            REMINDER_LOOKBACK_DAYS_LOADED_KEY,
+            normalized_reminder_lookback_days(settings_data.get("reminder_lookback_days")),
+            normalized_reminder_lookback_days,
+        ),
+        (
+            "reminder_warning_days",
+            REMINDER_WARNING_DAYS_DIRTY_KEY,
+            REMINDER_WARNING_DAYS_LOADED_KEY,
+            normalized_reminder_warning_days(settings_data.get("reminder_warning_days")),
+            normalized_reminder_warning_days,
+        ),
+    ]
+    for key, dirty_key, loaded_key, saved_value, normalizer in reminder_saved_specs:
+        if key in st.session_state and normalizer() == saved_value:
+            st.session_state[dirty_key] = False
+            st.session_state[loaded_key] = saved_value
     if track_user:
         upsert_user_tracker(clinic_id, country=st.session_state.get("user_country", ""), event="settings_saved")
     return True
@@ -9327,36 +9465,49 @@ def reminder_row_has_date(row: dict, target_date: date) -> bool:
     return target_date in reminder_row_dates(row)
 
 
-def normalized_reminder_window_days(value=None) -> int:
-    value = st.session_state.get("reminder_window_days", 1) if value is None else value
-    try:
-        return min(30, max(0, int(value)))
-    except (TypeError, ValueError):
-        return 1
+def save_reminder_int_setting(key: str, dirty_key: str, loaded_key: str, normalizer) -> None:
+    value = normalizer()
+    st.session_state[key] = value
+    st.session_state[dirty_key] = True
+    if save_settings_quietly():
+        st.session_state[dirty_key] = False
+        st.session_state[loaded_key] = value
 
 
-def normalized_reminder_lookback_days(value=None) -> int:
-    value = st.session_state.get("reminder_lookback_days", DEFAULT_REMINDER_LOOKBACK_DAYS) if value is None else value
-    try:
-        return min(30, max(0, int(value)))
-    except (TypeError, ValueError):
-        return DEFAULT_REMINDER_LOOKBACK_DAYS
+def save_reminder_lookback_days() -> None:
+    save_reminder_int_setting(
+        "reminder_lookback_days",
+        REMINDER_LOOKBACK_DAYS_DIRTY_KEY,
+        REMINDER_LOOKBACK_DAYS_LOADED_KEY,
+        normalized_reminder_lookback_days,
+    )
 
 
-def normalized_reminder_group_days(value=None) -> int:
-    value = st.session_state.get("client_group_days", 1) if value is None else value
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return 1
+def save_reminder_window_days() -> None:
+    save_reminder_int_setting(
+        "reminder_window_days",
+        REMINDER_WINDOW_DAYS_DIRTY_KEY,
+        REMINDER_WINDOW_DAYS_LOADED_KEY,
+        normalized_reminder_window_days,
+    )
 
 
-def normalized_reminder_warning_days(value=None) -> int:
-    value = st.session_state.get("reminder_warning_days", 0) if value is None else value
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return 0
+def save_reminder_group_days() -> None:
+    save_reminder_int_setting(
+        "client_group_days",
+        REMINDER_GROUP_DAYS_DIRTY_KEY,
+        REMINDER_GROUP_DAYS_LOADED_KEY,
+        normalized_reminder_group_days,
+    )
+
+
+def save_reminder_warning_days() -> None:
+    save_reminder_int_setting(
+        "reminder_warning_days",
+        REMINDER_WARNING_DAYS_DIRTY_KEY,
+        REMINDER_WARNING_DAYS_LOADED_KEY,
+        normalized_reminder_warning_days,
+    )
 
 
 def save_outcome_due_date_window_days() -> None:
@@ -14109,7 +14260,7 @@ if st.session_state.get("logged_in", False):
                 max_value=30,
                 step=1,
                 key="reminder_lookback_days",
-                on_change=save_settings_quietly,
+                on_change=save_reminder_lookback_days,
                 label_visibility="collapsed",
             )
         with window_col:
@@ -14125,7 +14276,7 @@ if st.session_state.get("logged_in", False):
                 max_value=30,
                 step=1,
                 key="reminder_window_days",
-                on_change=save_settings_quietly,
+                on_change=save_reminder_window_days,
                 label_visibility="collapsed",
             )
         with group_col:
@@ -14140,7 +14291,7 @@ if st.session_state.get("logged_in", False):
                 min_value=0,
                 step=1,
                 key="client_group_days",
-                on_change=save_settings_quietly,
+                on_change=save_reminder_group_days,
                 label_visibility="collapsed",
             )
         with warning_col:
@@ -14155,7 +14306,7 @@ if st.session_state.get("logged_in", False):
                 min_value=0,
                 step=1,
                 key="reminder_warning_days",
-                on_change=save_settings_quietly,
+                on_change=save_reminder_warning_days,
                 label_visibility="collapsed",
             )
 
