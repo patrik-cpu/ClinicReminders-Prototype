@@ -107,6 +107,7 @@ class VisualThemeCssTests(unittest.TestCase):
 
         self.assertIn("Success window around due date", source)
         self.assertIn("Success window after sent date", source)
+        self.assertIn("st.columns([0.8, 0.8, 3.4]", source)
         self.assertIn("within this many days before or after the due date", source)
         self.assertIn("within this many days after the reminder is sent", source)
         self.assertIn("A success is one matching repeat purchase either near the due date or soon after the reminder was sent.", source)

@@ -13217,8 +13217,8 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     if refresh_success:
         st.success(refresh_success)
 
-    controls = st.columns([2, 1, 1], gap="large")
-    with controls[1]:
+    controls = st.columns([0.8, 0.8, 3.4], gap="large")
+    with controls[0]:
         render_field_label(
             st,
             "Success window around due date",
@@ -13235,7 +13235,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             label_visibility="collapsed",
         )
         due_date_window_days = normalized_outcome_due_date_window_days(due_date_window_days)
-    with controls[2]:
+    with controls[1]:
         render_field_label(
             st,
             "Success window after sent date",
