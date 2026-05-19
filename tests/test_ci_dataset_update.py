@@ -304,6 +304,72 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertEqual(tracker_events[1]["drive_file_id"], "orphan-drive-file")
         self.assertIn("stage=settings_pointer_update", tracker_events[1]["message"])
 
+    def test_publish_dataset_fails_closed_when_existing_dataset_load_fails(self):
+        state = self.app.st.session_state
+        state["clinic_id"] = "Clinic A"
+        state["logged_in"] = True
+        new_df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01"]),
+                "Client Name": ["Client A"],
+                "Animal Name": ["Pet A"],
+                "Item Name": ["Rabies"],
+            }
+        )
+
+        with (
+            patch.object(self.app, "require_clinic_dataset_file_access"),
+            patch.object(self.app, "load_existing_shared_df", side_effect=RuntimeError("download failed")),
+            patch.object(self.app, "drive_upsert_csv_bytes") as upsert,
+            patch.object(self.app, "update_clinic_dataset_pointer") as update_pointer,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Could not load the saved clinic data"):
+                self.app.publish_dataset_for_clinic(
+                    "Clinic A",
+                    new_df,
+                    "datasets-folder",
+                    existing_file_id="existing-drive-file",
+                    existing_name="clinic-a.csv",
+                )
+
+        upsert.assert_not_called()
+        update_pointer.assert_not_called()
+
+    def test_publish_dataset_recovery_flag_allows_new_copy_when_existing_load_fails(self):
+        state = self.app.st.session_state
+        state["clinic_id"] = "Clinic A"
+        state["logged_in"] = True
+        new_df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01"]),
+                "Client Name": ["Client A"],
+                "Animal Name": ["Pet A"],
+                "Item Name": ["Rabies"],
+            }
+        )
+
+        with (
+            patch.object(self.app, "require_clinic_dataset_file_access"),
+            patch.object(self.app, "load_existing_shared_df", side_effect=RuntimeError("download failed")),
+            patch.object(self.app, "drive_upsert_csv_bytes", return_value="new-drive-file") as upsert,
+            patch.object(self.app, "update_clinic_dataset_pointer", return_value="2026-05-16T00:00:00") as update_pointer,
+            patch.object(self.app, "record_dataset_tracker_event"),
+        ):
+            merged, file_id, filename = self.app.publish_dataset_for_clinic(
+                "Clinic A",
+                new_df,
+                "datasets-folder",
+                existing_file_id="existing-drive-file",
+                existing_name="clinic-a.csv",
+                allow_publish_without_existing_dataset=True,
+            )
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(file_id, "new-drive-file")
+        self.assertEqual(filename, "Clinic A_shared_dataset.csv")
+        upsert.assert_called_once()
+        update_pointer.assert_called_once_with("Clinic A", "new-drive-file", "Clinic A_shared_dataset.csv")
+
     def test_history_row_count_accepts_float_string(self):
         self.assertEqual(self.app.parse_history_int("56,123.0"), 56123)
 

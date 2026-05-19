@@ -3882,6 +3882,7 @@ def publish_dataset_for_clinic(
     existing_file_id: str | None = None,
     existing_name: str | None = None,
     existing_df: pd.DataFrame | None = None,
+    allow_publish_without_existing_dataset: bool = False,
 ) -> tuple[pd.DataFrame, str, str]:
     """
     Save an upload for the whole clinic:
@@ -3906,8 +3907,12 @@ def publish_dataset_for_clinic(
     if existing_df is None:
         try:
             existing_df = load_existing_shared_df(existing_file_id, existing_name, clinic_id=clinic_id)
-        except Exception:
-            # show signal but still allow publish
+        except Exception as e:
+            if existing_file_id and not allow_publish_without_existing_dataset:
+                raise RuntimeError(
+                    "Could not load the saved clinic data, so this upload was not saved. "
+                    "Please try again before replacing clinic data."
+                ) from e
             st.warning("Could not load the saved clinic data, so this upload will be saved as a new copy.")
             existing_df = None
 
