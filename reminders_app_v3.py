@@ -3755,6 +3755,7 @@ def dataset_summary_checks(rows: list[dict]) -> list[dict]:
         {
             "good": supported_pms and same_pms,
             "text": "Same supported PMS" if supported_pms and same_pms else "Upload formats need attention",
+            "help": "Checks that saved uploads use one recognized PMS/export format. Mixing formats can make columns map differently.",
         },
         {
             "good": has_impact_window,
@@ -3763,10 +3764,12 @@ def dataset_summary_checks(rows: list[dict]) -> list[dict]:
                 if has_impact_window
                 else "30-365 day reminder window needs data"
             ),
+            "help": "Checks that uploaded sales cover the dates needed to generate 30-365 day reminders from today.",
         },
         {
             "good": no_large_gaps,
             "text": "No 3+ day gaps between uploads" if no_large_gaps else f"{max_gap} day gap between uploads",
+            "help": "Checks for missing days between uploaded date ranges. Gaps of 3+ days can hide purchases and affect reminders.",
         },
     ]
 
@@ -3785,8 +3788,10 @@ def dataset_summary_checks_html(rows: list[dict]) -> str:
         status_class = "good" if check.get("good") else "bad"
         icon = "✅" if check.get("good") else "⚠️"
         text = html_lib.escape(str(check.get("text", "")))
+        help_text = html_lib.escape(str(check.get("help", "")))
+        help_icon = f" <span class='column-help' data-tooltip='{help_text}'>?</span>" if help_text else ""
         check_items.append(
-            f"<div class='dataset-check {status_class}'>{icon} {text}</div>"
+            f"<div class='dataset-check {status_class}'>{icon} {text}{help_icon}</div>"
         )
     return f"<div class='dataset-check-grid'>{''.join(check_items)}</div>"
 
