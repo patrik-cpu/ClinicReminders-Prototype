@@ -7934,21 +7934,27 @@ def get_started_incomplete_count() -> int:
     return sum(1 for step in get_setup_checklist_steps() if not step["done"])
 
 
-def tab_badge_label(tab_name: str, count: int, alt_text: str) -> str:
-    count = int(count or 0)
-    if count <= 0:
+def tab_badge_label_text(tab_name: str, badge_text: str, alt_text: str, fill: str = "#dc2626") -> str:
+    badge_text = str(badge_text or "").strip()
+    if not badge_text:
         return tab_name
-    display_count = str(count)
-    width = max(26, 18 + (len(display_count) * 8))
+    width = max(26, 18 + (len(badge_text) * 8))
     text_x = width / 2
     badge_svg = f"""
     <svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="22" viewBox="0 0 {width} 22">
-      <rect x="1" y="2" width="{width - 2}" height="18" rx="9" fill="#dc2626"/>
-      <text x="{text_x}" y="15" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle">{display_count}</text>
+      <rect x="1" y="2" width="{width - 2}" height="18" rx="9" fill="{fill}"/>
+      <text x="{text_x}" y="15" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle">{html_lib.escape(badge_text)}</text>
     </svg>
     """
     encoded_badge = base64.b64encode(badge_svg.encode("utf-8")).decode("ascii")
     return f"{tab_name} ![{alt_text}](data:image/svg+xml;base64,{encoded_badge})"
+
+
+def tab_badge_label(tab_name: str, count: int, alt_text: str) -> str:
+    count = int(count or 0)
+    if count <= 0:
+        return tab_name
+    return tab_badge_label_text(tab_name, str(count), alt_text)
 
 
 def get_started_badge_label(count: int | None = None) -> str:
@@ -7971,6 +7977,10 @@ def upload_data_badge_label(count: int | None = None) -> str:
     return tab_badge_label("Upload Data", count, f"{count} upload data checks need attention")
 
 
+def stats_badge_label() -> str:
+    return tab_badge_label_text("Stats", "New", "New Stats tab")
+
+
 def main_section_tab_label(tab_name: str) -> str:
     if tab_name == "Reminders":
         return reminders_badge_label()
@@ -7978,6 +7988,8 @@ def main_section_tab_label(tab_name: str) -> str:
         return get_started_badge_label()
     if tab_name == "Upload Data":
         return upload_data_badge_label()
+    if tab_name == "Stats":
+        return stats_badge_label()
     return tab_name
 
 

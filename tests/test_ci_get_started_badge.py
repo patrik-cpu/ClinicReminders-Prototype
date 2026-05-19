@@ -37,6 +37,13 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertEqual(self.app.get_started_incomplete_count(), 0)
         self.assertEqual(self.app.get_started_badge_label(), "Get Started")
 
+    def test_stats_tab_shows_new_badge(self):
+        label = self.app.main_section_tab_label("Stats")
+
+        self.assertIn("Stats", label)
+        self.assertIn("New Stats tab", label)
+        self.assertIn("data:image/svg+xml;base64", label)
+
     def test_new_account_welcome_copy_is_clear_and_actionable(self):
         html = self.app.new_account_welcome_dialog_html()
 
