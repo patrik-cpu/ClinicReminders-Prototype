@@ -272,7 +272,59 @@ class AuthSessionTests(unittest.TestCase):
     def test_login_tracker_events_include_google_and_remembered_login(self):
         self.assertIn("login", self.app.LOGIN_TRACKER_EVENTS)
         self.assertIn("google_login", self.app.LOGIN_TRACKER_EVENTS)
+        self.assertIn("clinic_access_login", self.app.LOGIN_TRACKER_EVENTS)
         self.assertIn("remembered_login", self.app.LOGIN_TRACKER_EVENTS)
+
+    def test_clinic_access_code_is_normalized_and_hashed(self):
+        stored_hash = self.app.clinic_access_code_hash_for_storage("ab12-cd34 ef56")
+
+        self.assertTrue(stored_hash.startswith(f"{self.app.PASSWORD_HASH_ALGORITHM}$"))
+        self.assertNotIn("AB12CD34EF56", stored_hash)
+        self.assertTrue(self.app.verify_clinic_access_code("AB12 CD34-EF56", stored_hash))
+        self.assertFalse(self.app.verify_clinic_access_code("AB12 CD34 WRONG", stored_hash))
+        self.assertEqual(self.app.format_clinic_access_code("ab12cd34ef56"), "AB12-CD34-EF56")
+
+    def test_authenticate_clinic_access_uses_settings_hash(self):
+        stored_hash = self.app.clinic_access_code_hash_for_storage("AB12-CD34-EF56")
+        row = {
+            "ClinicID": "Clinic A",
+            self.app.SHEET_COL_SETTINGS_JSON: json.dumps({"clinic_access_code_hash": stored_hash}),
+        }
+
+        with patch.object(self.app, "get_clinic_row", return_value=row):
+            authenticated = self.app.authenticate_clinic_access("clinic a", "ab12 cd34 ef56")
+            rejected = self.app.authenticate_clinic_access("clinic a", "wrong-code")
+
+        self.assertEqual(authenticated, row)
+        self.assertIsNone(rejected)
+
+    def test_finish_staff_access_session_sets_display_name_without_google_identity(self):
+        state = self.app.st.session_state
+
+        with (
+            patch.object(self.app, "close_account_dialogs"),
+            patch.object(self.app, "reset_uploaded_data_state"),
+            patch.object(self.app, "load_settings") as load_settings,
+            patch.object(self.app, "load_shared_dataset_for_clinic"),
+            patch.object(self.app, "record_settings_account_event"),
+            patch.object(self.app, "upsert_user_tracker"),
+        ):
+            def load_settings_side_effect():
+                state["user_name"] = "Saved Clinic Name"
+
+            load_settings.side_effect = load_settings_side_effect
+            self.app.finish_authenticated_session(
+                "Clinic A",
+                event="clinic_access_login",
+                auth_provider=self.app.CLINIC_ACCESS_AUTH_PROVIDER,
+                session_user_name="Nurse A",
+            )
+
+        self.assertTrue(state["logged_in"])
+        self.assertEqual(state["clinic_id"], "Clinic A")
+        self.assertEqual(state["auth_provider"], self.app.CLINIC_ACCESS_AUTH_PROVIDER)
+        self.assertEqual(state["user_name"], "Nurse A")
+        self.assertNotIn("google_email", state)
 
     def test_failed_login_attempts_lock_username_temporarily(self):
         state = {}

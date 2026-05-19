@@ -16,6 +16,7 @@ import hashlib
 import base64
 import hmac
 import uuid
+import secrets
 from urllib.parse import urlparse
 from typing import Iterable
 import numpy as np
@@ -364,6 +365,8 @@ SHEET_COL_LAST_LOGIN_AT_GST = "LastLoginAtGST"
 SHEET_COL_LAST_LOGIN_PROVIDER = "LastLoginProvider"
 SHEET_COL_ACCOUNT_STATUS = "AccountStatus"
 GOOGLE_AUTH_PROVIDER = "google"
+CLINIC_ACCESS_AUTH_PROVIDER = "clinic_access"
+CLINIC_ACCESS_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 SETTINGS_BASE_COLUMNS = [
     SHEET_COL_CLINIC_ID,
     SHEET_COL_PASSWORD_HASH,
@@ -631,6 +634,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "show_data_privacy_dialog",
     "show_profile_dialog",
     "show_delete_account_dialog",
+    "show_clinic_access_dialog",
     "show_new_account_welcome_dialog",
     "show_upload_sales_data_help_dialog",
     "delete_account_confirm_text",
@@ -641,6 +645,9 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_hidden_reminders_index_cache",
     "pending_google_signup",
     "google_onboarding_mode",
+    "show_staff_access_login",
+    "_clinic_access_generated_code",
+    "clinic_access_code_hash",
     "google_signup_error",
     "google_onboarding_clinic_name",
     "google_onboarding_country",
@@ -1964,6 +1971,7 @@ st.markdown(
         color: #0b3d26 !important;
     }
     .st-key-top_account_profile button,
+    .st-key-top_account_clinic_access button,
     .st-key-top_account_data_privacy button,
     .st-key-top_account_show_change_password button,
     .st-key-top_account_delete button,
@@ -1977,6 +1985,7 @@ st.markdown(
         min-height: 2.45rem !important;
     }
     .st-key-top_account_profile button:hover,
+    .st-key-top_account_clinic_access button:hover,
     .st-key-top_account_data_privacy button:hover,
     .st-key-top_account_show_change_password button:hover,
     .st-key-top_account_logout button:hover {
@@ -1995,6 +2004,7 @@ st.markdown(
         color: #881337 !important;
     }
     .st-key-google_signup_button button,
+    .st-key-toggle_staff_access button,
     .st-key-toggle_create_account button {
         min-height: 2.75rem !important;
         width: 100% !important;
@@ -2021,6 +2031,7 @@ st.markdown(
         padding-right: 15px !important;
     }
     .st-key-google_signup_button,
+    .st-key-toggle_staff_access,
     .st-key-toggle_create_account {
         width: 100% !important;
     }
@@ -2110,16 +2121,19 @@ st.markdown(
         width: 1.15rem;
     }
     .st-key-google_signup_button button p,
+    .st-key-toggle_staff_access button p,
     .st-key-toggle_create_account button p {
         font-weight: inherit !important;
         margin: 0 !important;
     }
+    .st-key-toggle_staff_access button,
     .st-key-toggle_create_account button {
         background: #ffffff !important;
         border: 1px solid #d0d7e2 !important;
         color: #101828 !important;
         font-weight: 700 !important;
     }
+    .st-key-toggle_staff_access button:hover,
     .st-key-toggle_create_account button:hover {
         background: #f8fafc !important;
         border-color: #98a2b3 !important;
@@ -2849,7 +2863,7 @@ COMMON_PASSWORD_KEYS = {
     "qwerty123456",
     "welcome123456",
 }
-LOGIN_TRACKER_EVENTS = {"login", "google_login", "remembered_login"}
+LOGIN_TRACKER_EVENTS = {"login", "google_login", "clinic_access_login", "remembered_login"}
 AUTH_ABUSE_STATE_KEY = "_auth_abuse_controls"
 LOGIN_FAILURE_LIMIT = 5
 LOGIN_FAILURE_WINDOW_SECONDS = 10 * 60
@@ -4297,6 +4311,7 @@ def load_settings():
         load_reminder_filter_settings(settings)
         load_outcome_due_date_window_days(settings)
         load_outcome_post_reminder_window_days(settings)
+        st.session_state["clinic_access_code_hash"] = str(settings.get("clinic_access_code_hash", "") or "").strip()
         migrated_legacy_actions = False
         legacy_wa_log = settings.get("wa_reminder_log", [])
         legacy_deleted_reminders = settings.get("deleted_reminders", [])
@@ -4335,6 +4350,7 @@ def load_settings():
         load_reminder_filter_settings(settings)
         load_outcome_due_date_window_days(settings)
         load_outcome_post_reminder_window_days(settings)
+        st.session_state["clinic_access_code_hash"] = ""
         st.session_state["wa_reminder_log"] = []
         st.session_state["deleted_reminders"] = []
         st.session_state["search_terms_reviewed"] = False
@@ -4556,6 +4572,11 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
 
     outcome_due_date_window_default = globals().get("DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS", 14)
     outcome_post_reminder_window_default = globals().get("DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS", 7)
+    user_name_for_save = (
+        remote_settings.get("user_name", base_settings.get("user_name", ""))
+        if st.session_state.get("auth_provider") == CLINIC_ACCESS_AUTH_PROVIDER
+        else setting_for_save("user_name", "")
+    )
     replace_search_settings = st.session_state.pop("_replace_search_settings_once", False)
     if replace_search_settings:
         rules_for_save = setting_for_save("rules", DEFAULT_RULES.copy())
@@ -4609,7 +4630,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "patient_exclusions": normalize_patient_exclusions(patient_exclusions_for_save),
         "automatic_patient_exclusions": normalize_patient_exclusions(automatic_patient_exclusions_for_save),
         "patient_passaway_keywords": normalize_passaway_keywords(patient_passaway_keywords_for_save),
-        "user_name": setting_for_save("user_name", ""),
+        "user_name": user_name_for_save,
         "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
         "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
         "reminder_window_days": max(0, int_setting_for_save("reminder_window_days", 1)),
@@ -4621,6 +4642,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "outcome_post_reminder_window_days": normalized_outcome_post_reminder_window_days(
             int_setting_for_save("outcome_post_reminder_window_days", outcome_post_reminder_window_default)
         ),
+        "clinic_access_code_hash": setting_for_save("clinic_access_code_hash", remote_settings.get("clinic_access_code_hash", "")),
         OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY: bool(
             setting_for_save(OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY, False)
         ),
@@ -5837,6 +5859,7 @@ def render_upload_sales_data_help_dialog():
 ACCOUNT_DIALOG_STATE_KEYS = (
     "show_profile_dialog",
     "show_data_privacy_dialog",
+    "show_clinic_access_dialog",
     "show_delete_account_dialog",
 )
 
@@ -5867,6 +5890,7 @@ def open_account_dialog(dialog_name: str):
         st.session_state.pop("delete_account_confirm_text", None)
     st.session_state["show_profile_dialog"] = dialog_name == "profile"
     st.session_state["show_data_privacy_dialog"] = dialog_name == "privacy"
+    st.session_state["show_clinic_access_dialog"] = dialog_name == "clinic_access"
     st.session_state["show_delete_account_dialog"] = dialog_name == "delete"
 
 
@@ -6809,6 +6833,32 @@ def verify_password(password: str, stored_hash: str) -> bool:
     return hmac.compare_digest(stored_hash, hash_pw(password))
 
 
+def normalize_clinic_access_code(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def format_clinic_access_code(value: str) -> str:
+    normalized = normalize_clinic_access_code(value)
+    return "-".join(normalized[idx:idx + 4] for idx in range(0, len(normalized), 4))
+
+
+def generate_clinic_access_code(length: int = 12) -> str:
+    raw = "".join(secrets.choice(CLINIC_ACCESS_CODE_ALPHABET) for _ in range(length))
+    return format_clinic_access_code(raw)
+
+
+def clinic_access_code_hash_for_storage(access_code: str) -> str:
+    normalized = normalize_clinic_access_code(access_code)
+    if not normalized:
+        return ""
+    return password_hash_for_storage(normalized)
+
+
+def verify_clinic_access_code(access_code: str, stored_hash: str) -> bool:
+    normalized = normalize_clinic_access_code(access_code)
+    return bool(normalized and verify_password(normalized, stored_hash))
+
+
 def password_policy_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
 
@@ -6894,6 +6944,17 @@ def google_identity_matches_row(row: dict, google_user: dict) -> bool:
     return bool(row_email and google_email and hmac.compare_digest(row_email, google_email))
 
 
+def settings_json_from_row(row: dict | None) -> dict:
+    raw = str((row or {}).get(SHEET_COL_SETTINGS_JSON, "") or "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def authenticate_user(username, password):
     """Check username/password pair against the sheet."""
     sheet = get_settings_sheet()
@@ -6903,6 +6964,15 @@ def authenticate_user(username, password):
         if normalize_clinic_id_key(r.get("ClinicID", "")) == username_key:
             if verify_password(password, r.get("PasswordHash", "")):
                 return r
+    return None
+
+
+def authenticate_clinic_access(clinic_id: str, access_code: str) -> dict | None:
+    row = get_clinic_row(clinic_id)
+    settings = settings_json_from_row(row)
+    stored_hash = str(settings.get("clinic_access_code_hash", "") or "").strip()
+    if verify_clinic_access_code(access_code, stored_hash):
+        return row
     return None
 
 def get_clinic_row(username):
@@ -7044,6 +7114,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "reminder_warning_days": 0,
         "outcome_due_date_window_days": DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
         "outcome_post_reminder_window_days": DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
+        "clinic_access_code_hash": "",
         "action_tracker_migrated_at": "",
         "search_terms_reviewed": False,
         "search_term_added": False,
@@ -7575,6 +7646,116 @@ def close_profile_dialog():
     st.session_state["show_profile_dialog"] = False
 
 
+def clinic_access_dialog_html(access_enabled: bool, generated_code: str = "") -> str:
+    status = (
+        "Staff access is enabled. Share the current code only with people who should use this clinic account."
+        if access_enabled
+        else "Staff access is off. Generate a code when you want team members to access this clinic without sharing a Google login."
+    )
+    code_html = ""
+    if generated_code:
+        code_html = f"""
+        <div class="clinic-access-code">
+          <div class="clinic-access-code-label">New access code</div>
+          <div class="clinic-access-code-value">{html_lib.escape(generated_code)}</div>
+          <div class="clinic-access-code-note">This code is shown once. If it is lost, rotate it.</div>
+        </div>
+        """
+    return f"""
+    <style>
+      .clinic-access-note {{
+        background: #f8fafc;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 8px;
+        color: #526174;
+        font-size: 0.92rem;
+        line-height: 1.45;
+        margin-bottom: 0.95rem;
+        padding: 0.8rem 0.9rem;
+      }}
+      .clinic-access-code {{
+        background: #ecfdf3;
+        border: 1px solid rgba(41, 210, 114, 0.34);
+        border-radius: 8px;
+        margin-bottom: 0.95rem;
+        padding: 0.9rem 1rem;
+      }}
+      .clinic-access-code-label {{
+        color: #166534;
+        font-size: 0.78rem;
+        font-weight: 850;
+        letter-spacing: 0.06em;
+        margin-bottom: 0.35rem;
+        text-transform: uppercase;
+      }}
+      .clinic-access-code-value {{
+        color: #052e16;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 1.3rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+      }}
+      .clinic-access-code-note {{
+        color: #3f6f55;
+        font-size: 0.86rem;
+        margin-top: 0.35rem;
+      }}
+    </style>
+    <div class="clinic-access-note">{html_lib.escape(status)}</div>
+    {code_html}
+    """
+
+
+def close_clinic_access_dialog():
+    st.session_state["show_clinic_access_dialog"] = False
+    st.session_state.pop("_clinic_access_generated_code", None)
+
+
+def render_clinic_access_dialog():
+    if not st.session_state.get("show_clinic_access_dialog", False):
+        return
+
+    clinic_id = str(st.session_state.get("clinic_id", "")).strip()
+
+    def _render_dialog_body():
+        access_hash = str(st.session_state.get("clinic_access_code_hash", "") or "").strip()
+        generated_code = str(st.session_state.get("_clinic_access_generated_code", "") or "").strip()
+        st.markdown(clinic_access_dialog_html(bool(access_hash), generated_code), unsafe_allow_html=True)
+
+        primary_label = "Rotate access code" if access_hash else "Generate access code"
+        if st.button(primary_label, key="clinic_access_generate_button", type="primary", use_container_width=True):
+            access_code = generate_clinic_access_code()
+            update_clinic_access_code_hash(clinic_id, clinic_access_code_hash_for_storage(access_code))
+            st.session_state["_clinic_access_generated_code"] = access_code
+            st.success("Clinic access code updated.")
+            st.rerun()
+
+        if access_hash:
+            if st.button("Disable staff access", key="clinic_access_disable_button", use_container_width=True):
+                update_clinic_access_code_hash(clinic_id, "")
+                st.session_state.pop("_clinic_access_generated_code", None)
+                st.success("Staff access disabled.")
+                st.rerun()
+
+        if st.button("Close", key="clinic_access_close_button", use_container_width=True):
+            close_clinic_access_dialog()
+            st.rerun()
+
+    if hasattr(st, "dialog"):
+        @st.dialog("Clinic Access", on_dismiss=close_clinic_access_dialog)
+        def _clinic_access_dialog():
+            _render_dialog_body()
+        _clinic_access_dialog()
+    elif hasattr(st, "experimental_dialog"):
+        @st.experimental_dialog("Clinic Access")
+        def _clinic_access_dialog():
+            _render_dialog_body()
+        _clinic_access_dialog()
+    else:
+        with st.expander("Clinic Access", expanded=True):
+            _render_dialog_body()
+
+
 def render_profile_dialog():
     if not st.session_state.get("show_profile_dialog", False):
         return
@@ -7788,6 +7969,38 @@ def update_clinic_password(clinic_id: str, new_password: str):
     )
     return password_hash
 
+
+def update_clinic_access_code_hash(clinic_id: str, access_code_hash: str) -> None:
+    clinic_id = require_authenticated_tenant_access(clinic_id)
+    _sheet, _headers, _row_idx, row_values = get_authorized_fresh_settings_row_values(clinic_id)
+    row = {
+        header: row_values[idx] if idx < len(row_values) else ""
+        for idx, header in enumerate(_headers)
+    }
+    settings = settings_json_from_row(row)
+    settings["clinic_access_code_hash"] = str(access_code_hash or "").strip()
+    settings_json = json.dumps(settings)
+    updated_at = utc_now_iso()
+    update_authorized_settings_row_fields(
+        clinic_id,
+        {
+            SHEET_COL_SETTINGS_JSON: settings_json,
+            SHEET_COL_UPDATED_AT: updated_at,
+            SHEET_COL_ACCOUNT_STATUS: "active",
+        },
+        SETTINGS_REQUIRED_COLUMNS,
+    )
+    update_cached_settings_row_fields(
+        clinic_id,
+        {
+            SHEET_COL_SETTINGS_JSON: settings_json,
+            SHEET_COL_UPDATED_AT: updated_at,
+            SHEET_COL_ACCOUNT_STATUS: "active",
+        },
+    )
+    cache_remote_settings(clinic_id, settings)
+    st.session_state["clinic_access_code_hash"] = settings["clinic_access_code_hash"]
+
 def _to_blob(uploaded):
     # Deterministic blob for caching; avoids .read() side effects
     declared_size = getattr(uploaded, "size", None)
@@ -7823,6 +8036,7 @@ def finish_authenticated_session(
     event: str,
     auth_provider: str = "password",
     google_user: dict | None = None,
+    session_user_name: str = "",
 ):
     clinic_id = str(clinic_id or "").strip()
     close_account_dialogs()
@@ -7836,6 +8050,9 @@ def finish_authenticated_session(
 
     reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
     load_settings()
+    session_user_name = str(session_user_name or "").strip()
+    if session_user_name:
+        st.session_state["user_name"] = session_user_name
     load_shared_dataset_for_clinic()
     record_settings_account_event(
         clinic_id,
@@ -8082,7 +8299,7 @@ if not st.session_state["logged_in"]:
         google_signup_error = st.session_state.pop("google_signup_error", "")
         if google_signup_error:
             st.warning(google_signup_error)
-        google_signup_col, manual_signup_col = st.columns(2, gap="small")
+        google_signup_col, staff_access_col, manual_signup_col = st.columns(3, gap="small")
         with google_signup_col:
             st.button(
                 "Continue with Google",
@@ -8091,6 +8308,17 @@ if not st.session_state["logged_in"]:
                 disabled=not google_auth_ready,
                 on_click=begin_google_login,
             )
+        with staff_access_col:
+            if "show_staff_access_login" not in st.session_state:
+                st.session_state["show_staff_access_login"] = False
+            if st.button(
+                "Staff Access",
+                key="toggle_staff_access",
+                use_container_width=True,
+            ):
+                st.session_state["show_staff_access_login"] = (
+                    not st.session_state["show_staff_access_login"]
+                )
         with manual_signup_col:
             if "show_create_account" not in st.session_state:
                 st.session_state["show_create_account"] = False
@@ -8145,6 +8373,38 @@ if not st.session_state["logged_in"]:
                 else:
                     record_failed_login_attempt(username)
                     st.error("❌ Invalid username or password.")
+
+        if st.session_state.get("show_staff_access_login", False):
+            st.markdown("### Staff Access")
+            with st.form("staff_access_login_form"):
+                staff_clinic = st.text_input("Clinic name", key="staff_access_clinic_input").strip()
+                staff_name = st.text_input("Your name", key="staff_access_name_input").strip()
+                staff_code = st.text_input("Clinic access code", type="password", key="staff_access_code_input")
+                staff_submitted = st.form_submit_button("Access clinic", type="primary", use_container_width=True)
+
+            if staff_submitted:
+                if not staff_clinic or not staff_name or not staff_code:
+                    st.error("Enter the clinic name, your name, and the access code.")
+                else:
+                    login_allowed, retry_after = login_attempt_allowed(staff_clinic)
+                    if not login_allowed:
+                        st.error(auth_retry_message("login", retry_after))
+                    else:
+                        access_row = authenticate_clinic_access(staff_clinic, staff_code)
+                        if access_row:
+                            record_successful_login_attempt(staff_clinic)
+                            clear_remember_login_token()
+                            finish_authenticated_session(
+                                str(access_row.get("ClinicID", staff_clinic)).strip(),
+                                event="clinic_access_login",
+                                auth_provider=CLINIC_ACCESS_AUTH_PROVIDER,
+                                session_user_name=staff_name,
+                            )
+                            st.success(f"✅ Welcome, {staff_name}!")
+                            st.rerun()
+                        else:
+                            record_failed_login_attempt(staff_clinic)
+                            st.error("❌ Invalid clinic access code.")
 
         if st.session_state["show_create_account"]:
             st.markdown("### Sign Up")
@@ -8202,18 +8462,25 @@ else:
     clinic_id = st.session_state.get("clinic_id", "")
     with top_account_slot.container():
         with st.popover("Account", use_container_width=False):
-            if st.button("Profile", key="top_account_profile", use_container_width=True):
-                open_account_dialog("profile")
+            signed_in_with_staff_access = st.session_state.get("auth_provider") == CLINIC_ACCESS_AUTH_PROVIDER
+            if not signed_in_with_staff_access:
+                if st.button("Profile", key="top_account_profile", use_container_width=True):
+                    open_account_dialog("profile")
 
             if st.button("Data & Privacy", key="top_account_data_privacy", use_container_width=True):
                 open_account_dialog("privacy")
 
-            if st.session_state.get("auth_provider") != GOOGLE_AUTH_PROVIDER:
+            if not signed_in_with_staff_access:
+                if st.button("Clinic access", key="top_account_clinic_access", use_container_width=True):
+                    open_account_dialog("clinic_access")
+
+            if st.session_state.get("auth_provider") != GOOGLE_AUTH_PROVIDER and not signed_in_with_staff_access:
                 if st.button("Change password", key="top_account_show_change_password", use_container_width=True):
                     st.session_state["show_top_change_password"] = not st.session_state.get("show_top_change_password", False)
 
-            if st.button("Delete account and data", key="top_account_delete", use_container_width=True):
-                open_account_dialog("delete")
+            if not signed_in_with_staff_access:
+                if st.button("Delete account and data", key="top_account_delete", use_container_width=True):
+                    open_account_dialog("delete")
 
             if st.button("Logout", key="top_account_logout", use_container_width=True):
                 google_session_active = get_google_user_info().get("is_logged_in", False)
@@ -8258,6 +8525,8 @@ if upload_widget_has_files() and account_dialog_is_open():
 
 if st.session_state.get("show_delete_account_dialog", False):
     render_delete_account_dialog()
+elif st.session_state.get("show_clinic_access_dialog", False):
+    render_clinic_access_dialog()
 elif st.session_state.get("show_profile_dialog", False):
     render_profile_dialog()
 elif st.session_state.get("show_data_privacy_dialog", False):
