@@ -324,6 +324,33 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(saved["client_group_days"], 3)
         self.assertEqual(saved["reminder_warning_days"], 4)
 
+    def test_same_clinic_settings_changes_from_other_computer_are_preserved(self):
+        base_settings = {
+            "rules": {},
+            "reminder_lookback_days": 2,
+            "reminder_window_days": 1,
+            "client_group_days": 1,
+            "reminder_warning_days": 0,
+        }
+        remote_settings = {
+            **base_settings,
+            "reminder_lookback_days": 9,
+            "reminder_window_days": 6,
+        }
+        self.app.cache_remote_settings("Clinic Save State", base_settings)
+        self.app.st.session_state["rules"] = {}
+        self.app.st.session_state["reminder_lookback_days"] = 2
+        self.app.st.session_state["reminder_window_days"] = 1
+        self.app.st.session_state["client_group_days"] = 4
+        self.app.st.session_state["reminder_warning_days"] = 0
+
+        saved = self.run_save_with_remote(remote_settings)
+
+        self.assertEqual(saved["reminder_lookback_days"], 9)
+        self.assertEqual(saved["reminder_window_days"], 6)
+        self.assertEqual(saved["client_group_days"], 4)
+        self.assertEqual(saved["reminder_warning_days"], 0)
+
     def test_save_settings_persists_outcome_due_date_window_days(self):
         self.app.cache_remote_settings("Clinic Save State", {})
         self.app.st.session_state["outcome_due_date_window_days"] = 30
@@ -684,6 +711,61 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(state["deleted_reminders"][-1]["Action"], self.app.REMINDER_ACTION_SENT)
         self.assertEqual(state["wa_reminder_log"][-1]["ReminderKey"], list(self.app.hidden_reminder_key(row)))
         self.assertFalse(state["daily_reveal_hidden_reminders"])
+
+    def test_different_staff_users_append_sent_actions_for_same_clinic(self):
+        row_a = {
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies",
+            "Reminder Date": "01 Jun 2026",
+            "Due Date": "01 Jun 2026",
+            "Charge Date": "01 Jun 2025",
+            "Qty": "1",
+            "Days": "365",
+        }
+        row_b = {
+            "Client Name": "Client B",
+            "Animal Name": "Pet B",
+            "Plan Item": "Librela",
+            "Reminder Date": "02 Jun 2026",
+            "Due Date": "02 Jun 2026",
+            "Charge Date": "02 May 2026",
+            "Qty": "1",
+            "Days": "30",
+        }
+        appended = []
+        appended_raw = []
+
+        def capture_append(title, headers, values):
+            appended_raw.append({
+                header: values[idx] if idx < len(values) else ""
+                for idx, header in enumerate(headers)
+            })
+            appended.append(self.app.action_tracker_values_to_record(headers, values))
+            return True
+
+        with (
+            patch.object(self.app, "build_whatsapp_message_for_row", return_value="Reminder message"),
+            patch.object(self.app, "append_tracker_row", side_effect=capture_append),
+            patch.object(self.app, "save_settings_quietly") as save_settings,
+        ):
+            for user_name, row, idx in [("Nurse A", row_a, 0), ("Nurse B", row_b, 1)]:
+                self.app.st.session_state.clear()
+                self.app.st.session_state["clinic_id"] = "Clinic Save State"
+                self.app.st.session_state["user_name"] = user_name
+                self.app.st.session_state["deleted_reminders"] = []
+                self.app.st.session_state["wa_reminder_log"] = []
+                self.app.mark_reminder_sent_action(row, "daily", "wa_message", idx)
+
+        save_settings.assert_not_called()
+        self.assertEqual(len(appended), 2)
+        self.assertEqual([row["ClinicID"] for row in appended_raw], ["Clinic Save State", "Clinic Save State"])
+        self.assertEqual([record["Actioned By"] for record in appended], ["Nurse A", "Nurse B"])
+        self.assertEqual([record["Action"] for record in appended], [self.app.REMINDER_ACTION_SENT, self.app.REMINDER_ACTION_SENT])
+        self.assertEqual(
+            {tuple(json.loads(row["ReminderKey"])) for row in appended_raw},
+            {tuple(self.app.hidden_reminder_key(row_a)), tuple(self.app.hidden_reminder_key(row_b))},
+        )
 
     def test_decline_action_skips_redundant_settings_save_and_overlay(self):
         row = {
