@@ -12764,7 +12764,7 @@ def outcome_display_column_config() -> dict:
         "Repeat Purchase %": st.column_config.NumberColumn(
             "Repeat Purchase %",
             help=OUTCOME_DISPLAY_COLUMN_HELP["Repeat Purchase %"],
-            format="%.0f%%",
+            format="percent",
         ),
         "Revenue": st.column_config.NumberColumn(
             "Revenue",
