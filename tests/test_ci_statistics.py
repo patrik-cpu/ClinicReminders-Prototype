@@ -110,16 +110,35 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(item_rows["Rabies"]["Sent"], 1)
         self.assertEqual(item_rows["Librela"]["Declined"], 1)
 
-    def test_statistics_completion_labels_follow_selected_period(self):
-        self.assertEqual(
-            self.app.statistics_completion_metric_labels("All time"),
+    def test_stats_team_frame_combines_outcomes_and_actioning(self):
+        outcome_sender = pd.DataFrame(
             [
-                "All time Scheduled reminders",
-                "All time Actioned",
-                "All time Remaining",
-                "All time Ring",
-            ],
+                {
+                    "Sender": "Nurse A",
+                    "Sent": 3,
+                    "Successes": 1,
+                    "Pending": 1,
+                    "No Match": 1,
+                    "Success Rate": 1 / 3,
+                    "Revenue": 120,
+                },
+            ]
         )
+
+        team = self.app.build_stats_team_frame(
+            outcome_sender,
+            self.make_action_records(),
+            "Today",
+            today=date(2026, 5, 16),
+        )
+        rows = {row["Team Member"]: row for row in team.to_dict("records")}
+
+        self.assertEqual(rows["Nurse A"]["Sent Reminders"], 3)
+        self.assertEqual(rows["Nurse A"]["Successes"], 1)
+        self.assertEqual(rows["Nurse A"]["Actioned"], 1)
+        self.assertEqual(rows["Nurse A"]["Sent Actions"], 1)
+        self.assertEqual(rows["Nurse B"]["Sent Reminders"], 0)
+        self.assertEqual(rows["Nurse B"]["Declined Actions"], 1)
 
     def test_statistics_display_frame_renames_generated_for_users(self):
         frame = pd.DataFrame([{"Generated": 2, "Actioned": 1}])

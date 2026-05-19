@@ -106,6 +106,18 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertEqual(self.app.st.session_state["main_section_tab"], "Upload Data")
         clear_query_param.assert_called_once_with(self.app.MAIN_SECTION_TAB_QUERY_PARAM)
 
+    def test_legacy_reporting_query_params_select_stats_tab(self):
+        for slug in ["outcomes", "statistics", "stats"]:
+            with self.subTest(slug=slug):
+                self.app.st.session_state.pop("main_section_tab", None)
+                with (
+                    mock.patch.object(self.app, "get_query_param_value", return_value=slug),
+                    mock.patch.object(self.app, "clear_query_param"),
+                ):
+                    self.app.consume_main_section_tab_query_param()
+
+                self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -104,13 +104,18 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("within this many days before or after the due date", source)
         self.assertNotIn("Days to define success", source)
 
-    def test_statistics_explains_mixed_date_filters(self):
+    def test_stats_page_folds_outcomes_and_actioning_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
-        self.assertIn("Overview, Items, Completion, and the daily chart are filtered by Reminder Date", source)
-        self.assertIn("Team is filtered by Actioned Date", source)
-        self.assertIn('st.caption("Filtered by Reminder Date")', source)
-        self.assertIn('st.caption("Filtered by Actioned Date")', source)
+        self.assertIn('MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Stats"]', source)
+        self.assertIn('"outcomes": "Stats"', source)
+        self.assertIn('"statistics": "Stats"', source)
+        self.assertIn('["Items", "Item Actioning", "Team", "Sent Reminders", "Successes"]', source)
+        self.assertIn("build_stats_team_frame", source)
+        self.assertIn("All time; generated reminders and saved actions grouped by item.", source)
+        self.assertIn("All time; outcome results by sender plus reminder actions by actioned date.", source)
+        self.assertNotIn('st.segmented_control(\n            "Statistics period"', source)
+        self.assertNotIn('["Overview", "Team", "Items", "Completion"]', source)
         self.assertIn('STATISTICS_SCHEDULED_REMINDERS_LABEL = "Scheduled reminders"', source)
 
 

@@ -61,23 +61,40 @@ DRIVE_SCOPE = [
 
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
-MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Outcomes", "Statistics"]
+MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Stats"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 PENDING_MAIN_SECTION_TAB_KEY = "_pending_main_section_tab"
 MAIN_SECTION_TAB_SLUGS = {
     "reminders": "Reminders",
-    "outcomes": "Outcomes",
+    "stats": "Stats",
+    "outcomes": "Stats",
     "get-started": "Get Started",
     "upload-data": "Upload Data",
     "search-terms": "Search Terms",
     "exclusions": "Exclusions",
-    "statistics": "Statistics",
+    "statistics": "Stats",
 }
-MAIN_SECTION_TAB_TO_SLUG = {tab: slug for slug, tab in MAIN_SECTION_TAB_SLUGS.items()}
+MAIN_SECTION_TAB_TO_SLUG = {
+    "Reminders": "reminders",
+    "Get Started": "get-started",
+    "Upload Data": "upload-data",
+    "Search Terms": "search-terms",
+    "Exclusions": "exclusions",
+    "Stats": "stats",
+}
 REMINDERS_START_DATE_INPUT_KEY = "reminders_start_date_input"
 
 
+def canonical_main_section_tab(tab_name: str) -> str:
+    legacy = {
+        "Outcomes": "Stats",
+        "Statistics": "Stats",
+    }
+    return legacy.get(str(tab_name or "").strip(), str(tab_name or "").strip())
+
+
 def set_main_section_tab(tab_name: str):
+    tab_name = canonical_main_section_tab(tab_name)
     if tab_name in MAIN_SECTION_TABS:
         try:
             st.session_state["main_section_tab"] = tab_name
@@ -94,6 +111,7 @@ def navigate_main_section_tab(tab_name: str):
 
 def consume_main_section_tab_query_param():
     pending_tab = st.session_state.pop(PENDING_MAIN_SECTION_TAB_KEY, "")
+    pending_tab = canonical_main_section_tab(pending_tab)
     if pending_tab in MAIN_SECTION_TABS:
         set_main_section_tab(pending_tab)
     tab_slug = get_query_param_value(MAIN_SECTION_TAB_QUERY_PARAM).strip().lower()
@@ -9556,7 +9574,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 consume_main_section_tab_query_param()
-default_main_section_tab = st.session_state.get("main_section_tab", "Reminders")
+default_main_section_tab = canonical_main_section_tab(st.session_state.get("main_section_tab", "Reminders"))
 if default_main_section_tab not in MAIN_SECTION_TABS:
     default_main_section_tab = "Reminders"
 st.session_state["main_section_tab"] = default_main_section_tab
@@ -11090,6 +11108,19 @@ OUTCOME_SENDER_GROUP_COLUMNS = [
     "Success Rate",
     "Revenue",
 ]
+STATS_TEAM_COLUMNS = [
+    "Team Member",
+    "Sent Reminders",
+    "Successes",
+    "Pending",
+    "No Match",
+    "Success Rate",
+    "Revenue",
+    "Actioned",
+    "Sent Actions",
+    "Declined Actions",
+    "Last Actioned",
+]
 OUTCOME_SUCCESS_METER_COLUMNS = {"Sent", "Successes", "Pending", "No Match", "Success Rate"}
 
 
@@ -12428,6 +12459,79 @@ def build_outcome_group_frame(
     return frame.sort_values(["Successes", "Sent"], ascending=False)
 
 
+def build_stats_team_frame(
+    outcome_sender_frame: pd.DataFrame,
+    action_records: list[dict],
+    period: str = "All time",
+    today: date | None = None,
+) -> pd.DataFrame:
+    outcome_columns = [
+        "Team Member",
+        "Sent Reminders",
+        "Successes",
+        "Pending",
+        "No Match",
+        "Success Rate",
+        "Revenue",
+    ]
+    action_columns = ["Team Member", "Actioned", "Sent Actions", "Declined Actions", "Last Actioned"]
+    if outcome_sender_frame is None or outcome_sender_frame.empty:
+        outcome_frame = pd.DataFrame(columns=outcome_columns)
+    else:
+        outcome_frame = outcome_sender_frame.rename(
+            columns={
+                "Sender": "Team Member",
+                "Sent": "Sent Reminders",
+            }
+        )
+        outcome_frame = outcome_frame[[column for column in outcome_columns if column in outcome_frame.columns]]
+
+    action_frame = build_statistics_team_frame(action_records, period, today).rename(
+        columns={
+            "User": "Team Member",
+            "Sent": "Sent Actions",
+            "Declined": "Declined Actions",
+        }
+    )
+    action_frame = action_frame[[column for column in action_columns if column in action_frame.columns]]
+
+    if outcome_frame.empty and action_frame.empty:
+        return pd.DataFrame(columns=STATS_TEAM_COLUMNS)
+    if outcome_frame.empty:
+        merged = action_frame.copy()
+    elif action_frame.empty:
+        merged = outcome_frame.copy()
+    else:
+        merged = outcome_frame.merge(action_frame, on="Team Member", how="outer")
+
+    for column in STATS_TEAM_COLUMNS:
+        if column not in merged.columns:
+            merged[column] = "" if column in {"Team Member", "Last Actioned"} else 0
+
+    numeric_columns = [
+        "Sent Reminders",
+        "Successes",
+        "Pending",
+        "No Match",
+        "Success Rate",
+        "Revenue",
+        "Actioned",
+        "Sent Actions",
+        "Declined Actions",
+    ]
+    for column in numeric_columns:
+        merged[column] = pd.to_numeric(merged[column], errors="coerce").fillna(0)
+    for column in ["Sent Reminders", "Successes", "Pending", "No Match", "Actioned", "Sent Actions", "Declined Actions"]:
+        merged[column] = merged[column].astype(int)
+    merged["Team Member"] = merged["Team Member"].fillna("").astype(str).str.strip().replace("", "Unknown")
+    merged["Last Actioned"] = merged["Last Actioned"].fillna("").astype(str)
+    return (
+        merged[STATS_TEAM_COLUMNS]
+        .sort_values(["Actioned", "Successes", "Sent Reminders"], ascending=False)
+        .reset_index(drop=True)
+    )
+
+
 def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
     columns = [
         "Sent Date",
@@ -12555,31 +12659,31 @@ def refresh_outcome_results_state() -> None:
         if shared_dataset_reload_needed_for_clinic(clinic_id):
             st.session_state.pop("_shared_dataset_load_attempted_for", None)
             load_shared_dataset_for_clinic()
-    st.session_state["_outcomes_refresh_success"] = "Outcome results refreshed."
+    st.session_state["_outcomes_refresh_success"] = "Stats refreshed."
 
 
 def refresh_outcome_results_action() -> None:
-    set_main_section_tab("Outcomes")
-    with busy_overlay("Refreshing outcome results", "Re-syncing reminder actions and saved clinic data."):
+    set_main_section_tab("Stats")
+    with busy_overlay("Refreshing stats", "Re-syncing reminder actions and saved clinic data."):
         refresh_outcome_results_state()
 
 
-def render_outcomes_tab(sales_df: pd.DataFrame):
-    st.markdown("<div id='outcomes' class='anchor-offset'></div>", unsafe_allow_html=True)
+def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict):
+    st.markdown("<div id='stats' class='anchor-offset'></div><div id='outcomes' class='anchor-offset'></div>", unsafe_allow_html=True)
     title_col, refresh_col = st.columns([4, 1], gap="large")
     with title_col:
-        st.markdown("## Reminder Outcomes")
+        st.markdown("## Stats")
     with refresh_col:
         st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
         st.button(
-            "Refresh Results",
+            "Refresh Stats",
             key="outcomes_refresh_results",
             type="primary",
             use_container_width=True,
-            help="Re-sync sent reminders and saved clinic data, then recalculate outcomes.",
+            help="Re-sync sent reminders and saved clinic data, then recalculate stats.",
             on_click=refresh_outcome_results_action,
         )
-    st.caption("Match sent reminders against uploaded sales around the due date for the same client and patient, using the reminder search term.")
+    st.caption("Outcome matching is the primary view here. Actioning tables are all-time summaries from generated reminders and saved actions.")
     refresh_success = st.session_state.pop("_outcomes_refresh_success", "")
     if refresh_success:
         st.success(refresh_success)
@@ -12603,19 +12707,37 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
         )
         due_date_window_days = normalized_outcome_due_date_window_days(due_date_window_days)
     outcomes_as_of_date = outcome_as_of_date(sales_df)
-    with busy_overlay("Calculating outcome results", "Matching sent reminders to later sales."):
+    stats_period = "All time"
+    try:
+        statistics_group_days = max(0, int(st.session_state.get("client_group_days", 1) or 0))
+    except (TypeError, ValueError):
+        statistics_group_days = 1
+    try:
+        statistics_data_version = int(st.session_state.get("data_version", 0) or 0)
+    except (TypeError, ValueError):
+        statistics_data_version = 0
+
+    with busy_overlay("Calculating stats", "Matching sent reminders to later sales and summarising actioning."):
+        action_records = statistics_current_action_records()
         outcome_rows = build_reminder_outcomes(
-            statistics_current_action_records(),
+            action_records,
             sales_df,
             due_date_window_days=due_date_window_days,
             today=outcomes_as_of_date,
-            rules=get_applied_reminder_rules(),
+            rules=rules,
+        )
+        generated_df = cached_statistics_generated_rows(
+            prepared,
+            rules,
+            group_days=statistics_group_days,
+            period=stats_period,
+            today_iso=user_today().isoformat(),
+            data_version=statistics_data_version,
+            rules_fp=_rules_fp(rules),
+            exclusion_fp=statistics_exclusion_fp(),
+            schema_version=STATISTICS_GENERATED_SCHEMA_VERSION,
         )
         period_rows = outcome_rows
-
-    if outcome_rows.empty:
-        st.info("No sent reminders have been recorded yet.")
-        return
 
     summary = summarize_outcomes(period_rows)
     metric_cols = st.columns(5)
@@ -12630,170 +12752,63 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
         with col:
             render_statistics_metric_card(label, value)
 
-    sent_tab, success_tab, item_tab, sender_tab = st.tabs(
-        ["Sent", "Successes", "By Item", "By Sender"]
+    item_tab, item_actioning_tab, team_tab, sent_tab, success_tab = st.tabs(
+        ["Items", "Item Actioning", "Team", "Sent Reminders", "Successes"]
     )
 
+    with item_tab:
+        st.caption("All time; matched sent reminders grouped by item.")
+        render_outcome_dataframe(
+            build_outcome_group_frame(period_rows, "Item", OUTCOME_ITEM_GROUP_COLUMNS),
+            table_key="stats_items",
+        )
+
+    with item_actioning_tab:
+        st.caption("All time; generated reminders and saved actions grouped by item.")
+        item_actioning_frame = build_statistics_item_frame(generated_df, action_records, stats_period)
+        if item_actioning_frame.empty:
+            st.info("No item actioning stats yet.")
+        else:
+            st.dataframe(
+                prepare_statistics_display_frame(item_actioning_frame),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+    with team_tab:
+        st.caption("All time; outcome results by sender plus reminder actions by actioned date.")
+        team_frame = build_stats_team_frame(
+            build_outcome_group_frame(period_rows, "Sender", OUTCOME_SENDER_GROUP_COLUMNS),
+            action_records,
+            stats_period,
+        )
+        if team_frame.empty:
+            st.info("No team stats yet.")
+        else:
+            st.dataframe(
+                team_frame,
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "Success Rate": st.column_config.NumberColumn("Success Rate", format="percent"),
+                    "Revenue": st.column_config.NumberColumn("Revenue", format="localized"),
+                },
+            )
+
     with sent_tab:
+        st.caption("All time; individual sent reminders used by outcome matching.")
         sent_rows = period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
         sent_rows = paginate_dataframe(sent_rows, "outcomes_sent", OUTCOME_SENT_PAGE_SIZE, "sent outcome rows")
         render_outcome_dataframe(sent_rows, OUTCOME_SENT_DISPLAY_COLUMNS, table_key="outcomes_sent")
 
     with success_tab:
+        st.caption("All time; sent reminders matched to a later sale inside the success window.")
         success_rows = period_rows.loc[period_rows["Outcome"].eq("Reminder Success")].sort_values(
             ["Success Date", "Client Name"],
             ascending=[False, True],
         )
         render_outcome_dataframe(success_rows, OUTCOME_SENT_DISPLAY_COLUMNS, table_key="outcomes_successes")
 
-    with item_tab:
-        render_outcome_dataframe(
-            build_outcome_group_frame(period_rows, "Item", OUTCOME_ITEM_GROUP_COLUMNS),
-            table_key="outcomes_by_item",
-        )
-
-    with sender_tab:
-        render_outcome_dataframe(
-            build_outcome_group_frame(period_rows, "Sender", OUTCOME_SENDER_GROUP_COLUMNS),
-            table_key="outcomes_by_sender",
-        )
-
-
-def statistics_completion_metric_labels(period: str) -> list[str]:
-    period_label = str(period or "Today").strip() or "Today"
-    return [
-        f"{period_label} {STATISTICS_SCHEDULED_REMINDERS_LABEL}",
-        f"{period_label} Actioned",
-        f"{period_label} Remaining",
-        f"{period_label} Ring",
-    ]
-
-
-def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
-    st.markdown("<div id='statistics' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("## Statistics")
-    st.caption(
-        "Overview, Items, Completion, and the daily chart are filtered by Reminder Date. "
-        "Team is filtered by Actioned Date."
-    )
-
-    if not STATISTICS_PERIODS:
-        selected_period = "Today"
-    elif hasattr(st, "segmented_control"):
-        selected_period = st.segmented_control(
-            "Statistics period",
-            STATISTICS_PERIODS,
-            selection_mode="single",
-            default=st.session_state.get("statistics_period", "Today") if st.session_state.get("statistics_period", "Today") in STATISTICS_PERIODS else "Today",
-            key="statistics_period",
-            label_visibility="collapsed",
-        ) or "Today"
-    else:
-        selected_period = st.radio(
-            "Statistics period",
-            STATISTICS_PERIODS,
-            index=STATISTICS_PERIODS.index(st.session_state.get("statistics_period", "Today")) if st.session_state.get("statistics_period", "Today") in STATISTICS_PERIODS else 0,
-            horizontal=True,
-            key="statistics_period",
-            label_visibility="collapsed",
-        )
-
-    try:
-        statistics_group_days = max(0, int(st.session_state.get("client_group_days", 1) or 0))
-    except (TypeError, ValueError):
-        statistics_group_days = 1
-    try:
-        statistics_data_version = int(st.session_state.get("data_version", 0) or 0)
-    except (TypeError, ValueError):
-        statistics_data_version = 0
-
-    with st.spinner("Calculating statistics..."):
-        generated_df = cached_statistics_generated_rows(
-            prepared,
-            rules,
-            group_days=statistics_group_days,
-            period=selected_period,
-            today_iso=user_today().isoformat(),
-            data_version=statistics_data_version,
-            rules_fp=_rules_fp(rules),
-            exclusion_fp=statistics_exclusion_fp(),
-            schema_version=STATISTICS_GENERATED_SCHEMA_VERSION,
-        )
-        action_records = statistics_current_action_records()
-
-    summary = statistics_summary_for_period(generated_df, action_records, selected_period)
-    overview_tab, team_tab, items_tab, completion_tab = st.tabs(["Overview", "Team", "Items", "Completion"])
-
-    with overview_tab:
-        st.caption("Filtered by Reminder Date")
-        metric_cols = st.columns(5)
-        metrics = [
-            (STATISTICS_SCHEDULED_REMINDERS_LABEL, f"{summary['generated']:,}"),
-            ("Actioned", f"{summary['actioned']:,}"),
-            ("Sent", f"{summary['sent']:,}"),
-            ("Declined", f"{summary['declined']:,}"),
-            ("Complete", f"{summary['completion_rate']:.0%}"),
-        ]
-        for col, (label, value) in zip(metric_cols, metrics):
-            with col:
-                render_statistics_metric_card(label, value)
-
-        daily_frame = build_statistics_daily_frame(generated_df, action_records, selected_period)
-        if daily_frame.empty:
-            st.info("No reminder statistics for this period yet.")
-        else:
-            chart_frame = prepare_statistics_display_frame(daily_frame)
-            chart_source = chart_frame.melt(
-                id_vars=["Date"],
-                value_vars=[STATISTICS_SCHEDULED_REMINDERS_LABEL, "Actioned", "Sent", "Declined"],
-                var_name="Metric",
-                value_name="Count",
-            )
-            chart = (
-                alt.Chart(chart_source)
-                .mark_line(point=True)
-                .encode(
-                    x=alt.X("Date:T", title="Date"),
-                    y=alt.Y("Count:Q", title="Reminders"),
-                    color=alt.Color("Metric:N", title="Metric"),
-                    tooltip=["Date:T", "Metric:N", "Count:Q"],
-                )
-                .properties(height=300)
-            )
-            st.altair_chart(chart, use_container_width=True)
-
-    with team_tab:
-        st.caption("Filtered by Actioned Date")
-        team_frame = build_statistics_team_frame(action_records, selected_period)
-        if team_frame.empty:
-            st.info("No team activity for this period yet.")
-        else:
-            st.dataframe(team_frame, hide_index=True, use_container_width=True)
-
-    with items_tab:
-        st.caption("Filtered by Reminder Date")
-        item_frame = build_statistics_item_frame(generated_df, action_records, selected_period)
-        if item_frame.empty:
-            st.info("No item statistics for this period yet.")
-        else:
-            st.dataframe(prepare_statistics_display_frame(item_frame.head(25)), hide_index=True, use_container_width=True)
-
-    with completion_tab:
-        st.caption("Filtered by Reminder Date")
-        completion_summary = summary
-        completion_pct = completion_summary["completion_rate"]
-        comp_cols = st.columns(4)
-        generated_label, actioned_label, remaining_label, ring_label = statistics_completion_metric_labels(selected_period)
-        completion_metrics = [
-            (generated_label, f"{completion_summary['generated']:,}"),
-            (actioned_label, f"{completion_summary['actioned']:,}"),
-            (remaining_label, f"{completion_summary['remaining']:,}"),
-            (ring_label, f"{completion_pct:.0%}"),
-        ]
-        for col, (label, value) in zip(comp_cols, completion_metrics):
-            with col:
-                render_statistics_metric_card(label, value)
-        st.progress(min(max(completion_pct, 0.0), 1.0))
 
 def render_search_terms_editor():
     # Rules editor (unchanged UI; behavior preserved)
@@ -13113,8 +13128,8 @@ if st.session_state.get("logged_in", False) and active_main_section == "Search T
 
 has_working_df = st.session_state.get("working_df") is not None
 if st.session_state.get("logged_in", False):
-    needs_working_df = active_main_section in {"Reminders", "Outcomes", "Statistics"}
-    needs_prepared_df = active_main_section == "Statistics"
+    needs_working_df = active_main_section in {"Reminders", "Stats"}
+    needs_prepared_df = active_main_section == "Stats"
     df = st.session_state["working_df"].copy() if has_working_df and needs_working_df else pd.DataFrame()
     applied_rules = get_applied_reminder_rules() if needs_working_df else {}
     prepared = (
@@ -13262,8 +13277,8 @@ if st.session_state.get("logged_in", False):
             elif should_show_no_reminders_info(reminders_before_exclusions, active_reminder_count):
                 st.info("No reminders in the selected date range.")
 
-    if active_main_section == "Outcomes":
-        render_outcomes_tab(df)
+    if active_main_section == "Stats":
+        render_stats_tab(df, prepared, applied_rules)
 
     if active_main_section == "Exclusions":
         # Exclusions
@@ -13605,9 +13620,6 @@ if st.session_state.get("logged_in", False):
         else:
             st.caption("No automatic patient death exclusions yet.")
 
-    if active_main_section == "Statistics":
-        render_statistics_tab(prepared, applied_rules)
-    
 # --------------------------------
 # 📊 Factoids Section (temporarily hidden)
 # --------------------------------

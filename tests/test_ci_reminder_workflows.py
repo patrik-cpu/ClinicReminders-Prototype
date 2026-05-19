@@ -161,7 +161,7 @@ class ReminderWorkflowTests(unittest.TestCase):
         self.assertEqual(len(state["deleted_reminders"]), 1)
         self.assertEqual(state["deleted_reminders"][0]["Action"], self.app.REMINDER_ACTION_SENT)
         self.assertEqual(len(state["wa_reminder_log"]), 1)
-        self.assertEqual(state["_outcomes_refresh_success"], "Outcome results refreshed.")
+        self.assertEqual(state["_outcomes_refresh_success"], "Stats refreshed.")
 
     def test_decline_action_preserves_existing_sent_state_when_tracker_write_fails(self):
         row = sample_reminder_row()
