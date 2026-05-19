@@ -7748,18 +7748,6 @@ def clinic_access_dialog_html(access_enabled: bool, generated_code: str = "") ->
 
 
 def clinic_access_app_url() -> str:
-    explicit_url = read_config_entry(os.environ, "APP_PUBLIC_URL") or read_config_entry(os.environ, "PUBLIC_APP_URL")
-    if explicit_url:
-        return explicit_url.rstrip("/")
-    try:
-        auth_config = read_raw_config_entry(st.secrets, "auth", {})
-        redirect_uri = read_config_entry(auth_config, "redirect_uri")
-    except Exception:
-        redirect_uri = ""
-    if redirect_uri:
-        parsed = urlparse(redirect_uri)
-        if parsed.scheme and parsed.netloc:
-            return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
     return "https://clinic-reminders.streamlit.app"
 
 

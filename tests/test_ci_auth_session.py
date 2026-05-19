@@ -296,6 +296,9 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn("Access code: AB12-CD34-EF56", share_text)
         self.assertIn("choose Staff Access", share_text)
 
+    def test_clinic_access_app_url_is_public_login_url(self):
+        self.assertEqual(self.app.clinic_access_app_url(), "https://clinic-reminders.streamlit.app")
+
     def test_authenticate_clinic_access_uses_settings_hash(self):
         stored_hash = self.app.clinic_access_code_hash_for_storage("AB12-CD34-EF56")
         row = {
