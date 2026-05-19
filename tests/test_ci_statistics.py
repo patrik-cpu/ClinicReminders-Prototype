@@ -159,6 +159,15 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("sent or declined", item_config["Actioned"]["help"])
         self.assertIn("outcome matching", team_config["Sent Reminders"]["help"])
         self.assertIn("sent or declined", team_config["Actioned"]["help"])
+        self.assertEqual(team_config["Success Rate"]["type_config"]["format"], "%.0f%%")
+
+    def test_prepare_stats_team_display_frame_formats_success_rate_as_whole_percent(self):
+        frame = pd.DataFrame([{"Team Member": "Nurse A", "Success Rate": 1 / 3, "Revenue": 120}])
+
+        display_frame = self.app.prepare_stats_team_display_frame(frame)
+
+        self.assertAlmostEqual(display_frame.iloc[0]["Success Rate"], 100 / 3)
+        self.assertAlmostEqual(frame.iloc[0]["Success Rate"], 1 / 3)
 
     def test_outcome_column_config_explains_every_stats_table_header(self):
         config = self.app.outcome_display_column_config()
@@ -1784,6 +1793,9 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Success Rate", column_config)
         self.assertIn("Repeat Purchase %", column_config)
         self.assertIn("Revenue from Successes", column_config)
+        self.assertEqual(column_config["Success Rate"]["type_config"]["format"], "%.0f%%")
+        self.assertEqual(column_config["Success Rate"]["type_config"]["min_value"], 0)
+        self.assertEqual(column_config["Success Rate"]["type_config"]["max_value"], 100)
         self.assertEqual(column_config["Overall Avg Purchase Gap Days"]["type_config"]["format"], "%.0f")
         self.assertEqual(column_config["Gap Day % to Desired"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Repeat Purchase %"]["type_config"]["format"], "%.0f%%")
@@ -1795,6 +1807,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(column_config["Revenue from Successes"]["label"], "Revenue from\nSuccesses")
         self.assertEqual(column_config["Revenue per Item"]["label"], "Revenue\nper Item")
         self.assertEqual(column_config["Overall Avg Purchase Gap Days"]["label"], "Overall Avg\nPurchase Gap\nDays")
+        self.assertEqual(rendered_frame.iloc[0]["Success Rate"], 25)
         self.assertEqual(round(rendered_frame.iloc[0]["Gap Day % to Desired"]), 101)
         self.assertEqual(rendered_frame.iloc[0]["Repeat Purchase %"], 75)
         self.assertEqual(rendered_frame.iloc[0]["Captured Revenue %"], 50)
@@ -1833,6 +1846,7 @@ class StatisticsTests(unittest.TestCase):
                     "Overall Repeat Purchases": 3,
                     "Overall Purchases": 4,
                     "Repeat Purchase %": 0.75,
+                    "Success Rate": 0.25,
                     "Revenue per Item": 120.4,
                     "Revenue": 120.4,
                     "Revenue per Year": 300.6,
@@ -1860,6 +1874,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Revenue per Year", display_frame.columns)
         self.assertIn("Theoretical Max Revenue", display_frame.columns)
         self.assertIn("Captured Revenue %", display_frame.columns)
+        self.assertEqual(display_frame.iloc[0]["Success Rate"], 25)
         self.assertEqual(round(display_frame.iloc[0]["Gap Day % to Desired"]), 101)
         self.assertEqual(display_frame.iloc[0]["Repeat Purchase %"], 75)
         self.assertEqual(display_frame.iloc[0]["Captured Revenue %"], 50)

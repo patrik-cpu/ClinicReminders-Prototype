@@ -13239,6 +13239,10 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     for column in OUTCOME_DISPLAY_DATE_COLUMNS:
         if column in display_frame.columns:
             display_frame[column] = display_frame[column].map(format_outcome_display_date)
+    if "Success Rate" in display_frame.columns:
+        display_frame["Success Rate"] = (
+            pd.to_numeric(display_frame["Success Rate"], errors="coerce") * 100
+        )
     if "Repeat Purchase %" in display_frame.columns:
         display_frame["Repeat Purchase %"] = (
             pd.to_numeric(display_frame["Repeat Purchase %"], errors="coerce") * 100
@@ -13324,13 +13328,22 @@ def outcome_display_column_config() -> dict:
         "Success Rate": st.column_config.ProgressColumn(
             outcome_display_column_title("Success Rate"),
             help=OUTCOME_DISPLAY_COLUMN_HELP["Success Rate"],
-            format="percent",
+            format="%.0f%%",
             min_value=0,
-            max_value=1,
+            max_value=100,
             width=outcome_display_column_width("Success Rate"),
         ),
     })
     return column_config
+
+
+def prepare_stats_team_display_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    display_frame = frame.copy()
+    if "Success Rate" in display_frame.columns:
+        display_frame["Success Rate"] = (
+            pd.to_numeric(display_frame["Success Rate"], errors="coerce") * 100
+        )
+    return display_frame
 
 
 def stats_item_actioning_column_config() -> dict:
@@ -13354,7 +13367,7 @@ def stats_team_column_config() -> dict:
         "Successes": st.column_config.NumberColumn("Successes", help=STATS_TEAM_COLUMN_HELP["Successes"], format="%d"),
         "Pending": st.column_config.NumberColumn("Pending", help=STATS_TEAM_COLUMN_HELP["Pending"], format="%d"),
         "No Match": st.column_config.NumberColumn("No Match", help=STATS_TEAM_COLUMN_HELP["No Match"], format="%d"),
-        "Success Rate": st.column_config.NumberColumn("Success Rate", help=STATS_TEAM_COLUMN_HELP["Success Rate"], format="percent"),
+        "Success Rate": st.column_config.NumberColumn("Success Rate", help=STATS_TEAM_COLUMN_HELP["Success Rate"], format="%.0f%%"),
         "Revenue": st.column_config.NumberColumn("Revenue", help=STATS_TEAM_COLUMN_HELP["Revenue"], format="localized"),
         "Actioned": st.column_config.NumberColumn("Actioned", help=STATS_TEAM_COLUMN_HELP["Actioned"], format="%d"),
         "Sent Actions": st.column_config.NumberColumn("Sent Actions", help=STATS_TEAM_COLUMN_HELP["Sent Actions"], format="%d"),
@@ -13590,7 +13603,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             st.info("No team stats yet.")
         else:
             st.dataframe(
-                team_frame,
+                prepare_stats_team_display_frame(team_frame),
                 hide_index=True,
                 use_container_width=True,
                 column_config=stats_team_column_config(),
