@@ -127,6 +127,71 @@ class SettingsSaveStateTests(unittest.TestCase):
         )
         self.assertEqual(saved["patient_passaway_keywords"], ["euthanasia", "pentobarb"])
 
+    def test_wa_templates_migrate_legacy_template_to_general(self):
+        templates = self.app.normalize_wa_templates({}, "Legacy [Pet Name] template")
+
+        self.assertEqual(templates, {"General": "Legacy [Pet Name] template"})
+
+    def test_save_settings_persists_named_wa_templates_and_current_selection(self):
+        self.app.cache_remote_settings(
+            "Clinic Save State",
+            {
+                "rules": {},
+                "exclusions": [],
+                "client_exclusions": [],
+                "patient_exclusions": [],
+                "wa_templates": {"General": "General message"},
+                "current_wa_template_name": "General",
+                "user_template": "General message",
+            },
+        )
+        self.app.st.session_state["rules"] = {}
+        self.app.st.session_state["exclusions"] = []
+        self.app.st.session_state["client_exclusions"] = []
+        self.app.st.session_state["patient_exclusions"] = []
+        self.app.st.session_state["automatic_patient_exclusions"] = []
+        self.app.st.session_state["patient_passaway_keywords"] = []
+        self.app.st.session_state["wa_templates"] = {
+            "General": "General message",
+            "Puppy School": "Puppy school reminder for [Pet Name]",
+        }
+        self.app.st.session_state["current_wa_template_name"] = "Puppy School"
+        self.app.st.session_state["user_template"] = "Puppy school reminder for [Pet Name]"
+
+        saved = self.run_save_with_remote({
+            "rules": {},
+            "exclusions": [],
+            "client_exclusions": [],
+            "patient_exclusions": [],
+            "wa_templates": {"General": "General message"},
+            "current_wa_template_name": "General",
+            "user_template": "General message",
+        })
+
+        self.assertEqual(saved["wa_templates"]["General"], "General message")
+        self.assertEqual(saved["wa_templates"]["Puppy School"], "Puppy school reminder for [Pet Name]")
+        self.assertEqual(saved["current_wa_template_name"], "Puppy School")
+        self.assertEqual(saved["user_template"], "Puppy school reminder for [Pet Name]")
+
+    def test_whatsapp_message_uses_selected_named_template(self):
+        state = self.app.st.session_state
+        state["user_name"] = "Nurse"
+        state["wa_templates"] = {
+            "General": "General [Pet Name]",
+            "Puppy School": "Hi [Client Name], [Pet Name] is booked for puppy school.",
+        }
+        state["current_wa_template_name"] = "Puppy School"
+        state["user_template"] = "General [Pet Name]"
+
+        message = self.app.build_whatsapp_message_for_row({
+            "Client Name": "Client A",
+            "Animal Name": "Fluffy",
+            "Plan Item": "Puppy School",
+            "Due Date": "01 Jun 2026",
+        })
+
+        self.assertEqual(message, "Hi Client, Fluffy is booked for puppy school.")
+
     def test_quiet_save_refreshes_remote_by_default_to_avoid_stale_overwrite(self):
         base_settings = {
             "rules": {"rabies": {"days": 365, "use_qty": False}},

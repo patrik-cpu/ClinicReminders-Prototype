@@ -585,6 +585,8 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "patient_passaway_keywords",
     "user_name",
     "user_template",
+    "wa_templates",
+    "current_wa_template_name",
     "wa_template",
     "reminders_start_date",
     REMINDERS_START_DATE_INPUT_KEY,
@@ -2834,6 +2836,57 @@ DEFAULT_WA_TEMPLATE = (
     "[Pet Name] is due for their [Item] on the [Due Date]. "
     "Get in touch with us any time, and we look forward to hearing from you soon!"
 )
+DEFAULT_WA_TEMPLATE_NAME = "General"
+
+
+def normalized_wa_template_name(value: str) -> str:
+    name = _SPACE_RX.sub(" ", str(value or "").strip())
+    return name[:60] if name else ""
+
+
+def normalize_wa_templates(templates, legacy_template: str = "") -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    if isinstance(templates, dict):
+        for raw_name, raw_template in templates.items():
+            name = normalized_wa_template_name(raw_name)
+            template = str(raw_template or "").strip()
+            if name and template:
+                normalized[name] = template
+    legacy = str(legacy_template or "").strip() or DEFAULT_WA_TEMPLATE
+    if DEFAULT_WA_TEMPLATE_NAME not in normalized:
+        normalized = {DEFAULT_WA_TEMPLATE_NAME: legacy, **normalized}
+    return normalized or {DEFAULT_WA_TEMPLATE_NAME: DEFAULT_WA_TEMPLATE}
+
+
+def current_wa_template_name(templates: dict[str, str] | None = None) -> str:
+    templates = templates or st.session_state.get("wa_templates", {})
+    templates = normalize_wa_templates(templates, st.session_state.get("user_template", DEFAULT_WA_TEMPLATE))
+    name = normalized_wa_template_name(st.session_state.get("current_wa_template_name", DEFAULT_WA_TEMPLATE_NAME))
+    return name if name in templates else DEFAULT_WA_TEMPLATE_NAME
+
+
+def selected_wa_template_text() -> str:
+    templates = normalize_wa_templates(
+        st.session_state.get("wa_templates", {}),
+        st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
+    )
+    name = current_wa_template_name(templates)
+    return str(templates.get(name) or DEFAULT_WA_TEMPLATE).strip()
+
+
+def set_current_wa_template(name: str) -> str:
+    templates = normalize_wa_templates(
+        st.session_state.get("wa_templates", {}),
+        st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
+    )
+    selected_name = normalized_wa_template_name(name)
+    if selected_name not in templates:
+        selected_name = DEFAULT_WA_TEMPLATE_NAME
+    st.session_state["wa_templates"] = templates
+    st.session_state["current_wa_template_name"] = selected_name
+    st.session_state["user_template"] = templates[selected_name]
+    st.session_state["wa_template"] = templates[selected_name]
+    return selected_name
 
 # --------------------------------
 # 🔐 Login authorisation & per-clinic settings persistence (Google Sheets)
@@ -4307,7 +4360,15 @@ def load_settings():
             settings.get("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT)
         )
         st.session_state["user_name"] = settings.get("user_name", "")
-        st.session_state["user_template"] = settings.get("user_template", DEFAULT_WA_TEMPLATE)
+        wa_templates = normalize_wa_templates(settings.get("wa_templates", {}), settings.get("user_template", DEFAULT_WA_TEMPLATE))
+        st.session_state["wa_templates"] = wa_templates
+        st.session_state["current_wa_template_name"] = (
+            normalized_wa_template_name(settings.get("current_wa_template_name", DEFAULT_WA_TEMPLATE_NAME))
+            if normalized_wa_template_name(settings.get("current_wa_template_name", DEFAULT_WA_TEMPLATE_NAME)) in wa_templates
+            else DEFAULT_WA_TEMPLATE_NAME
+        )
+        st.session_state["user_template"] = wa_templates[st.session_state["current_wa_template_name"]]
+        st.session_state["wa_template"] = st.session_state["user_template"]
         load_reminder_filter_settings(settings)
         load_outcome_due_date_window_days(settings)
         load_outcome_post_reminder_window_days(settings)
@@ -4346,7 +4407,10 @@ def load_settings():
         st.session_state["automatic_patient_exclusions"] = []
         st.session_state["patient_passaway_keywords"] = PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()
         st.session_state["user_name"] = ""
+        st.session_state["wa_templates"] = {DEFAULT_WA_TEMPLATE_NAME: DEFAULT_WA_TEMPLATE}
+        st.session_state["current_wa_template_name"] = DEFAULT_WA_TEMPLATE_NAME
         st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
+        st.session_state["wa_template"] = DEFAULT_WA_TEMPLATE
         load_reminder_filter_settings(settings)
         load_outcome_due_date_window_days(settings)
         load_outcome_post_reminder_window_days(settings)
@@ -4577,6 +4641,16 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         if st.session_state.get("auth_provider") == CLINIC_ACCESS_AUTH_PROVIDER
         else setting_for_save("user_name", "")
     )
+    templates_for_save = normalize_wa_templates(
+        setting_for_save("wa_templates", remote_settings.get("wa_templates", {})),
+        setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
+    )
+    current_template_name_for_save = normalized_wa_template_name(
+        setting_for_save("current_wa_template_name", remote_settings.get("current_wa_template_name", DEFAULT_WA_TEMPLATE_NAME))
+    )
+    if current_template_name_for_save not in templates_for_save:
+        current_template_name_for_save = DEFAULT_WA_TEMPLATE_NAME
+    current_template_for_save = templates_for_save.get(current_template_name_for_save, DEFAULT_WA_TEMPLATE)
     replace_search_settings = st.session_state.pop("_replace_search_settings_once", False)
     if replace_search_settings:
         rules_for_save = setting_for_save("rules", DEFAULT_RULES.copy())
@@ -4631,7 +4705,9 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "automatic_patient_exclusions": normalize_patient_exclusions(automatic_patient_exclusions_for_save),
         "patient_passaway_keywords": normalize_passaway_keywords(patient_passaway_keywords_for_save),
         "user_name": user_name_for_save,
-        "user_template": setting_for_save("user_template", DEFAULT_WA_TEMPLATE),
+        "user_template": current_template_for_save,
+        "wa_templates": templates_for_save,
+        "current_wa_template_name": current_template_name_for_save,
         "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
         "reminder_window_days": max(0, int_setting_for_save("reminder_window_days", 1)),
         "reminder_lookback_days": max(0, int_setting_for_save("reminder_lookback_days", DEFAULT_REMINDER_LOOKBACK_DAYS)),
@@ -7108,6 +7184,8 @@ def default_settings_for_country(country: str = "") -> dict:
         "patient_passaway_keywords": PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy(),
         "user_name": "",
         "user_template": DEFAULT_WA_TEMPLATE,
+        "wa_templates": {DEFAULT_WA_TEMPLATE_NAME: DEFAULT_WA_TEMPLATE},
+        "current_wa_template_name": DEFAULT_WA_TEMPLATE_NAME,
         "client_group_days": 1,
         "reminder_window_days": 1,
         "reminder_lookback_days": DEFAULT_REMINDER_LOOKBACK_DAYS,
@@ -10824,7 +10902,7 @@ def build_whatsapp_message_for_row(row) -> str:
     user = st.session_state.get("user_name", "").strip()
     due_date_fmt = format_due_dates_for_message(str(row.get("Due Date", "")))
 
-    template = (st.session_state.get("user_template", "") or DEFAULT_WA_TEMPLATE).strip()
+    template = selected_wa_template_text()
 
     def replace_case_insensitive(text, placeholder, value):
         pattern = re.compile(re.escape(placeholder), re.IGNORECASE)
@@ -10891,6 +10969,7 @@ def prepare_whatsapp_action(row_data: dict, key_prefix: str, msg_key: str, idx):
 
     message = build_whatsapp_message_for_row(row_data)
     st.session_state[msg_key] = message
+    st.session_state[f"{msg_key}_source_row"] = dict(row_data)
     st.session_state["_scroll_to_whatsapp_composer"] = True
 
 
@@ -10906,6 +10985,7 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
 
     message = build_whatsapp_message_for_row(row_data)
     st.session_state[msg_key] = message
+    st.session_state[f"{msg_key}_source_row"] = dict(row_data)
     if hidden_action != REMINDER_ACTION_SENT:
         if not record_action_tracker(row_data, REMINDER_ACTION_SENT, message=message, source=f"{key_prefix}_sent", now=now):
             remember_action_tracker_save_failure()
@@ -11555,6 +11635,9 @@ def render_table_with_buttons(df, key_prefix, msg_key):
 def render_whatsapp_tools(key_prefix: str, msg_key: str):
     # --- WhatsApp Composer section (after the table) ---
     st.markdown("<div id='whatsapp-composer' class='anchor-offset'></div>", unsafe_allow_html=True)
+    template_selector_ver_key = f"{key_prefix}_wa_template_selector_ver"
+    if template_selector_ver_key not in st.session_state:
+        st.session_state[template_selector_ver_key] = 0
     if st.session_state.pop("_scroll_to_whatsapp_composer", False):
         components.html(
             """
@@ -11577,6 +11660,26 @@ def render_whatsapp_tools(key_prefix: str, msg_key: str):
         st.write("### WhatsApp Composer")
         st.caption("Review and edit the prepared message before opening WhatsApp.")
 
+        templates = normalize_wa_templates(
+            st.session_state.get("wa_templates", {}),
+            st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
+        )
+        st.session_state["wa_templates"] = templates
+        selected_template_name = current_wa_template_name(templates)
+        template_names = list(templates.keys())
+        selected_from_ui = st.selectbox(
+            "Template",
+            template_names,
+            index=template_names.index(selected_template_name) if selected_template_name in template_names else 0,
+            key=f"wa_composer_template_{key_prefix}_{st.session_state[template_selector_ver_key]}",
+            help="Choose which saved WhatsApp template to use for prepared messages.",
+        )
+        if selected_from_ui != selected_template_name:
+            set_current_wa_template(selected_from_ui)
+            source_row = st.session_state.get(f"{msg_key}_source_row")
+            if isinstance(source_row, dict):
+                st.session_state[msg_key] = build_whatsapp_message_for_row(source_row)
+            save_settings_quietly()
 
         if msg_key not in st.session_state:
             st.session_state[msg_key] = ""
@@ -11672,13 +11775,31 @@ def render_whatsapp_tools(key_prefix: str, msg_key: str):
     tmpl_main, _ = st.columns([4, 1])
     with tmpl_main:
         st.markdown("### 🧩 WhatsApp Template Editor")
-        st.caption("Setup tool: keep the default message, or edit it when your clinic needs different wording.")
-        if "wa_template" not in st.session_state or not st.session_state.get("wa_template"):
-            st.session_state["wa_template"] = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE) or DEFAULT_WA_TEMPLATE
+        st.caption("Create reusable WhatsApp messages for different reminder types. General is your default template.")
+        templates = normalize_wa_templates(
+            st.session_state.get("wa_templates", {}),
+            st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
+        )
+        st.session_state["wa_templates"] = templates
+        selected_template_name = current_wa_template_name(templates)
+        template_names = list(templates.keys())
 
         ver_key = f"{key_prefix}_tmpl_ver"
         if ver_key not in st.session_state:
             st.session_state[ver_key] = 0
+
+        chosen_template_name = st.selectbox(
+            "Current template",
+            template_names,
+            index=template_names.index(selected_template_name) if selected_template_name in template_names else 0,
+            key=f"wa_template_select_{key_prefix}_{st.session_state[ver_key]}",
+            help="This is the template used by the WhatsApp Composer.",
+        )
+        if chosen_template_name != selected_template_name:
+            selected_template_name = set_current_wa_template(chosen_template_name)
+            st.session_state[template_selector_ver_key] += 1
+            save_settings_quietly()
+            st.rerun()
 
         editor_key = f"wa_template_editor_{key_prefix}_{st.session_state[ver_key]}"
         render_field_label(
@@ -11688,39 +11809,69 @@ def render_whatsapp_tools(key_prefix: str, msg_key: str):
         )
         st.text_area(
             "Customize your WhatsApp message template:",
-            value=st.session_state["wa_template"],
+            value=templates.get(selected_template_name, DEFAULT_WA_TEMPLATE),
             height=200,
             key=editor_key,
             label_visibility="collapsed",
         )
 
-        col_update, col_reset, _button_spacer = st.columns([1.1, 1.1, 2], gap="small")
+        new_template_name_key = f"wa_new_template_name_{key_prefix}"
+        st.text_input(
+            "New template name",
+            key=new_template_name_key,
+            placeholder="e.g. Puppy School reminders",
+            help="Name used when you save the editor text as a new template.",
+        )
+
+        col_update, col_new, col_delete, _button_spacer = st.columns([1.15, 1.15, 1.1, 1.4], gap="small")
         with col_update:
-            if st.button("✅ Update Template", key=f"update_template_{key_prefix}", use_container_width=True):
+            if st.button("Save current template", key=f"update_template_{key_prefix}", type="primary", use_container_width=True):
                 new_template = st.session_state.get(editor_key, "").strip()
                 if new_template:
-                    old_template = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE)
-                    st.session_state["wa_template"] = new_template
-                    st.session_state["user_template"] = new_template
+                    old_template = templates.get(selected_template_name, DEFAULT_WA_TEMPLATE)
+                    templates[selected_template_name] = new_template
+                    st.session_state["wa_templates"] = templates
+                    set_current_wa_template(selected_template_name)
                     st.session_state["wa_template_reviewed"] = True
                     st.session_state["wa_template_updated"] = True
                     st.session_state["wa_template_updated_at"] = user_now().isoformat()
                     save_settings_quietly()
-                    record_settings_audit_event("template_updated", "template", "whatsapp", "user_template", old_template, new_template, "reminders_tab")
+                    record_settings_audit_event("template_updated", "template", f"whatsapp:{selected_template_name}", "wa_templates", old_template, new_template, "reminders_tab")
                     st.success("Template updated successfully!")
                     st.rerun()
-        with col_reset:
-            if st.button("🗑️ Reset Template", key=f"reset_template_{key_prefix}", use_container_width=True):
-                old_template = st.session_state.get("user_template", DEFAULT_WA_TEMPLATE)
-                st.session_state["wa_template"] = DEFAULT_WA_TEMPLATE
-                st.session_state["user_template"] = DEFAULT_WA_TEMPLATE
-                st.session_state["wa_template_reviewed"] = False
-                st.session_state["wa_template_updated"] = False
-                st.session_state["wa_template_updated_at"] = ""
+        with col_new:
+            if st.button("Save as new template", key=f"save_new_template_{key_prefix}", use_container_width=True):
+                new_template = st.session_state.get(editor_key, "").strip()
+                new_name = normalized_wa_template_name(st.session_state.get(new_template_name_key, ""))
+                if not new_name:
+                    st.error("Enter a name for the new template.")
+                elif new_name in templates:
+                    st.error("A template with that name already exists.")
+                elif not new_template:
+                    st.error("Enter template text before saving.")
+                else:
+                    templates[new_name] = new_template
+                    st.session_state["wa_templates"] = templates
+                    set_current_wa_template(new_name)
+                    st.session_state["wa_template_reviewed"] = True
+                    st.session_state["wa_template_updated"] = True
+                    st.session_state["wa_template_updated_at"] = user_now().isoformat()
+                    save_settings_quietly()
+                    record_settings_audit_event("template_created", "template", f"whatsapp:{new_name}", "wa_templates", "", new_template, "reminders_tab")
+                    st.session_state[template_selector_ver_key] += 1
+                    st.session_state[ver_key] += 1
+                    st.success(f"Saved {new_name}.")
+                    st.rerun()
+        with col_delete:
+            delete_disabled = selected_template_name == DEFAULT_WA_TEMPLATE_NAME
+            if st.button("Delete template", key=f"delete_template_{key_prefix}", use_container_width=True, disabled=delete_disabled):
+                old_template = templates.pop(selected_template_name, "")
+                st.session_state["wa_templates"] = normalize_wa_templates(templates, DEFAULT_WA_TEMPLATE)
+                set_current_wa_template(DEFAULT_WA_TEMPLATE_NAME)
+                st.session_state["wa_template_updated_at"] = user_now().isoformat()
                 save_settings_quietly()
-                record_settings_audit_event("template_reset", "template", "whatsapp", "user_template", old_template, DEFAULT_WA_TEMPLATE, "reminders_tab")
-                st.session_state[ver_key] += 1
-                st.success("Template reset to default!")
+                record_settings_audit_event("template_deleted", "template", f"whatsapp:{selected_template_name}", "wa_templates", old_template, "", "reminders_tab")
+                st.session_state[template_selector_ver_key] += 1
                 st.rerun()
 
         st.markdown(
