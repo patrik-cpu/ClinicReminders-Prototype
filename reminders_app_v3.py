@@ -7730,15 +7730,6 @@ def clinic_access_dialog_html(access_enabled: bool, generated_code: str = "") ->
         if access_enabled
         else "Staff access is off. Generate a code when you want team members to access this clinic without sharing a Google login."
     )
-    code_html = ""
-    if generated_code:
-        code_html = f"""
-        <div class="clinic-access-code">
-          <div class="clinic-access-code-label">New access code</div>
-          <div class="clinic-access-code-value">{html_lib.escape(generated_code)}</div>
-          <div class="clinic-access-code-note">This code is shown once. If it is lost, rotate it.</div>
-        </div>
-        """
     return f"""
     <style>
       .clinic-access-note {{
@@ -7751,37 +7742,99 @@ def clinic_access_dialog_html(access_enabled: bool, generated_code: str = "") ->
         margin-bottom: 0.95rem;
         padding: 0.8rem 0.9rem;
       }}
-      .clinic-access-code {{
-        background: #ecfdf3;
-        border: 1px solid rgba(41, 210, 114, 0.34);
-        border-radius: 8px;
-        margin-bottom: 0.95rem;
-        padding: 0.9rem 1rem;
-      }}
-      .clinic-access-code-label {{
-        color: #166534;
-        font-size: 0.78rem;
-        font-weight: 850;
-        letter-spacing: 0.06em;
-        margin-bottom: 0.35rem;
-        text-transform: uppercase;
-      }}
-      .clinic-access-code-value {{
-        color: #052e16;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        font-size: 1.3rem;
-        font-weight: 850;
-        letter-spacing: 0.08em;
-      }}
-      .clinic-access-code-note {{
-        color: #3f6f55;
-        font-size: 0.86rem;
-        margin-top: 0.35rem;
-      }}
     </style>
     <div class="clinic-access-note">{html_lib.escape(status)}</div>
-    {code_html}
     """
+
+
+def clinic_access_app_url() -> str:
+    explicit_url = read_config_entry(os.environ, "APP_PUBLIC_URL") or read_config_entry(os.environ, "PUBLIC_APP_URL")
+    if explicit_url:
+        return explicit_url.rstrip("/")
+    try:
+        auth_config = read_raw_config_entry(st.secrets, "auth", {})
+        redirect_uri = read_config_entry(auth_config, "redirect_uri")
+    except Exception:
+        redirect_uri = ""
+    if redirect_uri:
+        parsed = urlparse(redirect_uri)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    return "https://clinic-reminders.streamlit.app"
+
+
+def clinic_access_share_text(clinic_id: str, app_url: str, access_code: str) -> str:
+    clinic = str(clinic_id or "").strip()
+    url = str(app_url or "").strip().rstrip("/")
+    code = str(access_code or "").strip()
+    return "\n".join([
+        "Clinic Reminders staff access",
+        "",
+        f"Clinic name: {clinic}",
+        f"Login URL: {url}",
+        f"Access code: {code}",
+        "",
+        "Open the link, choose Staff Access, then enter the clinic name and access code.",
+    ])
+
+
+def render_clipboard_button(text: str, key: str, label: str = "Copy to Clipboard") -> None:
+    button_id = f"copy_{re.sub(r'[^a-zA-Z0-9_]+', '_', key)}"
+    components.html(
+        f"""
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body {{
+                margin: 0;
+                font-family: "Source Sans Pro", sans-serif;
+              }}
+              button {{
+                background: #29d272;
+                border: 1px solid #20b963;
+                border-radius: 8px;
+                color: #052e16;
+                cursor: pointer;
+                font-family: "Source Sans Pro", sans-serif;
+                font-size: 1rem;
+                font-weight: 750;
+                min-height: 2.7rem;
+                width: 100%;
+              }}
+              button:hover {{
+                background: #22c55e;
+              }}
+            </style>
+          </head>
+          <body>
+            <button id="{button_id}" type="button">{html_lib.escape(label)}</button>
+            <script>
+              const copyText = {json.dumps(text)};
+              const btn = document.getElementById({json.dumps(button_id)});
+              btn.addEventListener("click", async function() {{
+                try {{
+                  await navigator.clipboard.writeText(copyText);
+                  const oldText = btn.innerText;
+                  btn.innerText = "Copied";
+                  window.setTimeout(() => btn.innerText = oldText, 1400);
+                }} catch (err) {{
+                  const ta = document.createElement("textarea");
+                  ta.value = copyText;
+                  document.body.appendChild(ta);
+                  ta.select();
+                  try {{ document.execCommand("copy"); }} finally {{ document.body.removeChild(ta); }}
+                  const oldText = btn.innerText;
+                  btn.innerText = "Copied";
+                  window.setTimeout(() => btn.innerText = oldText, 1400);
+                }}
+              }});
+            </script>
+          </body>
+        </html>
+        """,
+        height=48,
+    )
 
 
 def close_clinic_access_dialog():
@@ -7799,6 +7852,27 @@ def render_clinic_access_dialog():
         access_hash = str(st.session_state.get("clinic_access_code_hash", "") or "").strip()
         generated_code = str(st.session_state.get("_clinic_access_generated_code", "") or "").strip()
         st.markdown(clinic_access_dialog_html(bool(access_hash), generated_code), unsafe_allow_html=True)
+
+        if generated_code:
+            share_text = clinic_access_share_text(clinic_id, clinic_access_app_url(), generated_code)
+            with st.container(border=True):
+                st.markdown("**Staff access details**")
+                st.caption("Copy this message into WhatsApp or email for the team member.")
+                st.text_area(
+                    "Staff access details",
+                    value=share_text,
+                    height=170,
+                    key="clinic_access_share_text",
+                    label_visibility="collapsed",
+                    disabled=True,
+                )
+                render_clipboard_button(
+                    share_text,
+                    "clinic_access_share_copy",
+                    "Copy staff access details",
+                )
+        elif access_hash:
+            st.info("For security, the current access code is not stored in plain text. Rotate the code to copy a fresh staff access message.")
 
         primary_label = "Rotate access code" if access_hash else "Generate access code"
         if st.button(primary_label, key="clinic_access_generate_button", type="primary", use_container_width=True):

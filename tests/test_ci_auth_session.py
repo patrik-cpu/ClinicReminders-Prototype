@@ -284,6 +284,18 @@ class AuthSessionTests(unittest.TestCase):
         self.assertFalse(self.app.verify_clinic_access_code("AB12 CD34 WRONG", stored_hash))
         self.assertEqual(self.app.format_clinic_access_code("ab12cd34ef56"), "AB12-CD34-EF56")
 
+    def test_clinic_access_share_text_contains_required_login_details(self):
+        share_text = self.app.clinic_access_share_text(
+            "Clinic A",
+            "https://clinic-reminders.streamlit.app/",
+            "AB12-CD34-EF56",
+        )
+
+        self.assertIn("Clinic name: Clinic A", share_text)
+        self.assertIn("Login URL: https://clinic-reminders.streamlit.app", share_text)
+        self.assertIn("Access code: AB12-CD34-EF56", share_text)
+        self.assertIn("choose Staff Access", share_text)
+
     def test_authenticate_clinic_access_uses_settings_hash(self):
         stored_hash = self.app.clinic_access_code_hash_for_storage("AB12-CD34-EF56")
         row = {
