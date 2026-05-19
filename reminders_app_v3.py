@@ -3922,24 +3922,26 @@ def publish_dataset_for_clinic(
 # 💾 Per-clinic settings persistence via Google Sheets
 # --------------------------------
 def normalized_outcome_due_date_window_days(value=None) -> int:
+    default_value = globals().get("DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS", 14)
     value = (
-        st.session_state.get("outcome_due_date_window_days", DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS)
+        st.session_state.get("outcome_due_date_window_days", default_value)
         if value is None
         else value
     )
     try:
         return min(1095, max(0, int(value)))
     except (TypeError, ValueError):
-        return DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+        return default_value
 
 
 def load_outcome_due_date_window_days(settings: dict) -> None:
+    default_value = globals().get("DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS", 14)
     raw_value = settings.get("outcome_due_date_window_days", _SETTING_MISSING)
     has_current_value = "outcome_due_date_window_days" in st.session_state
     current_value = (
         normalized_outcome_due_date_window_days()
         if has_current_value
-        else DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+        else default_value
     )
     loaded_value = st.session_state.get(OUTCOME_DUE_DATE_WINDOW_LOADED_KEY, _SETTING_MISSING)
 
@@ -3947,8 +3949,8 @@ def load_outcome_due_date_window_days(settings: dict) -> None:
         if has_current_value:
             st.session_state["outcome_due_date_window_days"] = current_value
             return
-        st.session_state["outcome_due_date_window_days"] = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
-        st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+        st.session_state["outcome_due_date_window_days"] = default_value
+        st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = default_value
         st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
         return
 
@@ -4282,6 +4284,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
     def setting_for_save(key: str, default):
         return _merged_scalar_setting(key, default, base_settings, remote_settings)
 
+    outcome_due_date_window_default = globals().get("DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS", 14)
     replace_search_settings = st.session_state.pop("_replace_search_settings_once", False)
     if replace_search_settings:
         rules_for_save = setting_for_save("rules", DEFAULT_RULES.copy())
@@ -4342,7 +4345,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "reminder_lookback_days": max(0, int_setting_for_save("reminder_lookback_days", DEFAULT_REMINDER_LOOKBACK_DAYS)),
         "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", 0)),
         "outcome_due_date_window_days": normalized_outcome_due_date_window_days(
-            int_setting_for_save("outcome_due_date_window_days", DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS)
+            int_setting_for_save("outcome_due_date_window_days", outcome_due_date_window_default)
         ),
         "search_terms_reviewed": bool(setting_for_save("search_terms_reviewed", False)),
         "search_term_added": bool(setting_for_save("search_term_added", False)),

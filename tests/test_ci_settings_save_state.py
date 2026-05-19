@@ -253,6 +253,18 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         self.assertEqual(saved["outcome_due_date_window_days"], 30)
 
+    def test_save_settings_falls_back_when_outcome_window_default_is_missing(self):
+        self.app.cache_remote_settings("Clinic Save State", {})
+        default_value = self.app.DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+
+        try:
+            delattr(self.app, "DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS")
+            saved = self.run_save_with_remote({})
+        finally:
+            self.app.DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = default_value
+
+        self.assertEqual(saved["outcome_due_date_window_days"], 14)
+
     def test_load_settings_restores_outcome_due_date_window_days(self):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
         sheet = FakeSettingsSheet({"outcome_due_date_window_days": 30})
