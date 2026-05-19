@@ -10169,9 +10169,7 @@ def render_table(df, title, key_prefix, msg_key, rules):
     active_tab, actioned_tab = st.tabs(["Active Reminders", "Actioned Reminders"])
     with active_tab:
         active_df = filter_hidden_reminders(df)
-        if active_df.empty:
-            st.info("All reminders have been actioned.")
-        else:
+        if not active_df.empty:
             render_table_with_buttons(active_df, key_prefix, msg_key)
 
     with actioned_tab:
