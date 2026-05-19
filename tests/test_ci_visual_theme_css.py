@@ -116,6 +116,15 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("on_change=save_outcome_post_reminder_window_days", source)
         self.assertNotIn("Days to define success", source)
 
+    def test_busy_overlay_is_self_styled_for_callbacks(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+        overlay_fn = source[source.index("def render_busy_overlay") : source.index("@contextmanager", source.index("def render_busy_overlay"))]
+
+        self.assertIn("<style>", overlay_fn)
+        self.assertIn(".cr-busy-overlay", overlay_fn)
+        self.assertIn("position: fixed;", overlay_fn)
+        self.assertIn(".cr-busy-spinner", overlay_fn)
+
     def test_reminder_range_tooltips_explain_stepper_pattern(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 

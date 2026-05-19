@@ -2668,6 +2668,55 @@ def render_busy_overlay(target, message: str, detail: str = ""):
     detail_html = f"<div class='cr-busy-copy'>{safe_detail}</div>" if safe_detail else ""
     target.markdown(
         f"""
+        <style>
+        .cr-busy-overlay {{
+            align-items: center;
+            background: rgba(246, 250, 247, 0.72);
+            backdrop-filter: blur(2px);
+            display: flex;
+            inset: 0;
+            justify-content: center;
+            position: fixed;
+            z-index: 2147483000;
+        }}
+        .cr-busy-card {{
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid rgba(41, 210, 114, 0.24);
+            border-radius: 14px;
+            box-shadow: 0 20px 56px rgba(15, 23, 42, 0.14);
+            color: #101828;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            min-width: min(22rem, calc(100vw - 2rem));
+            padding: 1.25rem 1.45rem;
+            text-align: center;
+        }}
+        .cr-busy-spinner {{
+            animation: cr-spin 0.85s linear infinite;
+            border: 4px solid rgba(41, 210, 114, 0.18);
+            border-radius: 999px;
+            border-top-color: #29d272;
+            height: 2.75rem;
+            width: 2.75rem;
+        }}
+        .cr-busy-title {{
+            color: #101828;
+            font-size: 1rem;
+            font-weight: 800;
+            line-height: 1.25;
+        }}
+        .cr-busy-copy {{
+            color: #667085;
+            font-size: 0.88rem;
+            line-height: 1.35;
+            max-width: 19rem;
+        }}
+        @keyframes cr-spin {{
+            to {{ transform: rotate(360deg); }}
+        }}
+        </style>
         <div class="cr-busy-overlay" role="status" aria-live="polite">
           <div class="cr-busy-card">
             <div class="cr-busy-spinner"></div>
