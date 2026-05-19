@@ -1636,6 +1636,9 @@ st.markdown(
         letter-spacing: 0;
         line-height: 1;
     }
+    .stats-summary-tab-gap {
+        height: 1rem;
+    }
     .sidebar-clinic-block {
         font-size: 15px;
         line-height: 1.5;
@@ -13087,6 +13090,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     for col, (label, value) in zip(metric_cols, metrics):
         with col:
             render_statistics_metric_card(label, value)
+    st.markdown("<div class='stats-summary-tab-gap' aria-hidden='true'></div>", unsafe_allow_html=True)
 
     item_tab, item_actioning_tab, team_tab, sent_tab, success_tab = st.tabs(
         ["Items", "Item Actioning", "Team", "Sent Reminders", "Successes"]

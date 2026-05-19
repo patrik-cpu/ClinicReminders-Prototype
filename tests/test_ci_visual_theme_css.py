@@ -129,6 +129,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("filtered by Sent Date", source)
         self.assertIn(".stats-summary-card", source)
         self.assertIn("stats-summary-value", source)
+        self.assertIn("stats-summary-tab-gap", source)
         self.assertIn('div[data-baseweb="tooltip"]', source)
         self.assertIn("transition-delay: 75ms", source)
         self.assertIn("build_stats_team_frame", source)
