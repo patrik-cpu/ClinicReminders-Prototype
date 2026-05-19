@@ -140,6 +140,44 @@ class ReminderWorkflowTests(unittest.TestCase):
         self.assertNotIn("wa_message", state)
         self.assertIn("was not saved", state["_pending_action_sync_warning"])
 
+    def test_actioned_reminder_rows_reuse_preparsed_actioned_datetime(self):
+        actioned_at = "2026-05-16T12:00:00"
+        record = sample_reminder_row(
+            **{
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": actioned_at,
+                "Actioned By": "Nurse",
+            }
+        )
+        state = self.app.st.session_state
+        state["deleted_reminders"] = [record]
+
+        with patch.object(self.app, "user_now", return_value=datetime(2026, 5, 16, 13, 0, 0)):
+            rows = self.app.get_actioned_reminders_for_period("Daily")
+
+        self.assertEqual(len(rows), 1)
+        parsed = rows[0][self.app.ACTIONED_REMINDER_DATETIME_KEY]
+        self.assertEqual(parsed, datetime(2026, 5, 16, 12, 0, 0))
+
+        with patch.object(
+            self.app,
+            "_parse_reminder_log_time",
+            side_effect=AssertionError("preparsed actioned datetime should be reused"),
+        ):
+            self.assertEqual(
+                self.app.actioned_reminder_sort_value(rows[0], "Actioned Date", ascending=False),
+                parsed,
+            )
+            self.assertEqual(self.app.format_actioned_reminder_date(rows[0]), "16 May 2026")
+
+    def test_actioned_reminder_datetime_fallback_accepts_plain_records(self):
+        row = {"ActionedAt": "2026-05-16T12:00:00"}
+
+        self.assertEqual(
+            self.app.get_actioned_reminder_datetime(row),
+            datetime(2026, 5, 16, 12, 0, 0),
+        )
+
     def test_refresh_outcomes_syncs_actions_and_reloads_dataset(self):
         tracked_record = sample_reminder_row(
             **{

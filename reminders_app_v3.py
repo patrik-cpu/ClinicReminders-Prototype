@@ -524,6 +524,7 @@ TRACKER_SHEET_DEFINITIONS = [
 ]
 TRACKER_CELL_TEXT_LIMIT = 500
 PERFORMANCE_TRACKER_SLOW_LOAD_MS = 3000
+PERFORMANCE_TRACKER_SLOW_RENDER_MS = 1000
 COUNTRY_OPTIONS = [
     "United Arab Emirates", "Saudi Arabia", "Qatar", "Bahrain", "Kuwait", "Oman",
     "United Kingdom", "Ireland", "United States", "Canada", "Australia", "New Zealand",
@@ -5365,11 +5366,12 @@ def migrate_legacy_actions_to_tracker(clinic_id: str, legacy_deleted: list[dict]
     return append_tracker_rows(ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS, rows)
 
 
-def get_hidden_reminder_record(row) -> dict | None:
+def get_hidden_reminder_record(row, hidden_index: dict[tuple[str, ...], dict] | None = None) -> dict | None:
     target_key = hidden_reminder_key(row)
     if not any(target_key):
         return None
-    return get_hidden_reminders_index().get(target_key)
+    index = hidden_index if hidden_index is not None else get_hidden_reminders_index()
+    return index.get(target_key)
 
 
 def upsert_hidden_reminder(row, action: str, message: str = "", now: datetime | None = None) -> dict:
@@ -6839,6 +6841,29 @@ def record_performance_tracker_event(
         tracker_cell_value(safe_message),
         tracker_cell_value(source),
     ])
+
+
+def record_slow_render_performance(
+    event: str,
+    started_at: float,
+    rows: int | str = "",
+    source: str = "",
+    threshold_ms: int | float = PERFORMANCE_TRACKER_SLOW_RENDER_MS,
+) -> bool:
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    try:
+        if duration_ms < float(threshold_ms):
+            return False
+    except (TypeError, ValueError):
+        return False
+    return record_performance_tracker_event(
+        event,
+        duration_ms,
+        rows=rows,
+        status="slow",
+        message=f"phase={event}",
+        source=source,
+    )
 
 
 def account_lifecycle_clinic_ref(clinic_id: str) -> str:
@@ -11378,12 +11403,15 @@ if active_main_section == "Upload Data":
 # Render Tables
 # --------------------------------
 def render_table(df, title, key_prefix, msg_key, rules):
+    render_started = time.perf_counter()
     if df.empty:
         st.info(f"No reminders in {title}.")
+        record_slow_render_performance("reminders_table_render", render_started, rows=0, source=key_prefix)
         return
     df = apply_reminder_exclusion_filters(df, rules)
     if df.empty:
         st.info("All reminders in this view are hidden by exclusions.")
+        record_slow_render_performance("reminders_table_render", render_started, rows=0, source=key_prefix)
         return
 
     show_pending_recent_reminder_warning()
@@ -11392,12 +11420,13 @@ def render_table(df, title, key_prefix, msg_key, rules):
     with active_tab:
         active_df = filter_hidden_reminders(df)
         if not active_df.empty:
-            render_table_with_buttons(active_df, key_prefix, msg_key)
+            render_table_with_buttons(active_df, key_prefix, msg_key, hidden_index=get_hidden_reminders_index())
 
     with actioned_tab:
         render_actioned_reminders_tab(key_prefix)
 
     render_whatsapp_tools(key_prefix, msg_key)
+    record_slow_render_performance("reminders_table_render", render_started, rows=len(df), source=key_prefix)
 
 
 def render_sender_name_input(key_suffix: str):
@@ -11903,9 +11932,17 @@ def render_reminder_action_button_batch_styles(button_states: list[tuple[str, st
         st.markdown(css, unsafe_allow_html=True)
 
 
+ACTIONED_REMINDER_DATETIME_KEY = "_ActionedReminderDateTime"
+
+
 def get_actioned_reminder_datetime(row) -> datetime | None:
     if not isinstance(row, dict):
         return None
+    parsed_value = row.get(ACTIONED_REMINDER_DATETIME_KEY)
+    if isinstance(parsed_value, datetime):
+        return parsed_value
+    if isinstance(parsed_value, pd.Timestamp) and pd.notna(parsed_value):
+        return parsed_value.to_pydatetime()
     return _parse_reminder_log_time(row.get("ActionedAt", "") or row.get("DeletedAt", ""))
 
 
@@ -11940,7 +11977,10 @@ def get_actioned_reminders_for_period(period: str) -> list[dict]:
         actioned_at = get_actioned_reminder_datetime(entry)
         if period_start and (not actioned_at or actioned_at < period_start):
             continue
-        rows.append(dict(entry))
+        row = dict(entry)
+        if actioned_at:
+            row[ACTIONED_REMINDER_DATETIME_KEY] = actioned_at
+        rows.append(row)
     return sorted(
         rows,
         key=lambda row: get_actioned_reminder_datetime(row) or datetime.min,
@@ -12132,14 +12172,15 @@ def render_actioned_reminders_tab(key_prefix: str):
         )
 
 
-def render_table_with_buttons(df, key_prefix, msg_key):
+def render_table_with_buttons(df, key_prefix, msg_key, hidden_index=None):
+    render_started = time.perf_counter()
     df = sort_reminder_table(df, key_prefix)
     df = paginate_dataframe(df, f"{key_prefix}_reminders", REMINDER_TABLE_PAGE_SIZE, "listed reminders")
     rendered_rows = []
     for idx, row in df.iterrows():
         row_data = row.to_dict()
         vals = {h: str(row.get(h, "")) for h in ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]}
-        hidden_record = get_hidden_reminder_record(row_data)
+        hidden_record = get_hidden_reminder_record(row_data, hidden_index=hidden_index)
         hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
         wa_key = f"{key_prefix}_wa_{idx}"
         sent_key = f"{key_prefix}_sent_{idx}"
@@ -12256,6 +12297,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         on_click=mark_all_listed_reminders_sent_action,
         args=(listed_rows, key_prefix, msg_key),
     )
+    record_slow_render_performance("active_reminder_rows_render", render_started, rows=len(rendered_rows), source=key_prefix)
 
 def render_whatsapp_tools(key_prefix: str, msg_key: str):
     # --- WhatsApp Composer section (after the table) ---
@@ -15234,6 +15276,22 @@ def render_stats_sent_reminders_period_selector() -> str:
     return selected_period or current
 
 
+def stats_sent_rows_for_render(period_rows: pd.DataFrame, selected_period: str) -> pd.DataFrame:
+    sent_period_rows = filter_stats_sent_tab_rows(period_rows, selected_period)
+    if sent_period_rows.empty:
+        return sent_period_rows
+    return sent_period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
+
+
+def stats_success_rows_for_render(period_rows: pd.DataFrame) -> pd.DataFrame:
+    if period_rows.empty:
+        return period_rows
+    success_rows = period_rows.loc[period_rows["Outcome"].eq("Reminder Success")]
+    if success_rows.empty:
+        return success_rows
+    return success_rows.sort_values(["Success Date", "Client Name"], ascending=[False, True])
+
+
 def refresh_outcome_results_state(sync_remote: bool = False) -> None:
     try:
         build_reminder_outcomes.clear()
@@ -15276,6 +15334,7 @@ def refresh_outcome_results_action() -> None:
 
 
 def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict):
+    render_started = time.perf_counter()
     st.markdown("<div id='stats' class='anchor-offset'></div><div id='outcomes' class='anchor-offset'></div>", unsafe_allow_html=True)
     title_col, refresh_col = st.columns([4, 1], gap="large")
     with title_col:
@@ -15388,6 +15447,18 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         )
         period_rows = outcome_rows
         stats_outcome_rows = outcome_summary_precompute_numeric_columns(period_rows.copy())
+        stats_item_outcome_frame = build_outcome_group_frame(
+            stats_outcome_rows,
+            "Item",
+            OUTCOME_ITEM_GROUP_COLUMNS,
+            numeric_precomputed=True,
+        )
+        stats_sender_outcome_frame = build_outcome_group_frame(
+            stats_outcome_rows,
+            "Sender",
+            OUTCOME_SENDER_GROUP_COLUMNS,
+            numeric_precomputed=True,
+        )
 
     summary = summarize_outcomes(stats_outcome_rows)
     metric_cols = st.columns(5)
@@ -15409,12 +15480,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     with item_tab:
         st.caption("All time; matched sent reminders grouped by item.")
-        item_frame = build_outcome_group_frame(
-            stats_outcome_rows,
-            "Item",
-            OUTCOME_ITEM_GROUP_COLUMNS,
-            numeric_precomputed=True,
-        )
+        item_frame = stats_item_outcome_frame
         render_stats_csv_export(
             item_frame,
             "stats-items",
@@ -15467,12 +15533,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     with team_tab:
         st.caption("All time; outcome results by sender plus reminder actions by actioned date.")
         team_frame = build_stats_team_frame(
-            build_outcome_group_frame(
-                stats_outcome_rows,
-                "Sender",
-                OUTCOME_SENDER_GROUP_COLUMNS,
-                numeric_precomputed=True,
-            ),
+            stats_sender_outcome_frame,
             action_records,
             stats_period,
             action_rows=stats_actioned_rows,
@@ -15507,9 +15568,8 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     with sent_tab:
         selected_sent_period = render_stats_sent_reminders_period_selector()
-        sent_period_rows = filter_stats_sent_tab_rows(period_rows, selected_sent_period)
         st.caption(f"{selected_sent_period}; filtered by Sent Date.")
-        sent_rows = sent_period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
+        sent_rows = stats_sent_rows_for_render(period_rows, selected_sent_period)
         render_stats_csv_export(
             sent_rows,
             f"stats-sent-reminders-{selected_sent_period}",
@@ -15527,10 +15587,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     with success_tab:
         st.caption("All time; sent reminders matched to a later sale inside the success window.")
-        success_rows = period_rows.loc[period_rows["Outcome"].eq("Reminder Success")].sort_values(
-            ["Success Date", "Client Name"],
-            ascending=[False, True],
-        )
+        success_rows = stats_success_rows_for_render(period_rows)
         render_stats_csv_export(
             success_rows,
             "stats-successes",
@@ -15544,6 +15601,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             table_key="outcomes_successes",
             item_label="success rows",
         )
+    record_slow_render_performance("stats_tab_render", render_started, rows=len(period_rows), source="stats")
 
 
 def render_search_terms_editor():

@@ -115,6 +115,44 @@ class ErrorHandlingObservabilityTests(unittest.TestCase):
             self.assertNotIn("1AbCdEfGhIjKlMnOpQrStUv", row["Message"])
             self.assertNotIn("secret-token", row["Message"])
 
+    def test_slow_render_performance_is_thresholded_and_compact(self):
+        with (
+            patch.object(self.app.time, "perf_counter", return_value=10.5),
+            patch.object(self.app, "record_performance_tracker_event") as record_performance,
+        ):
+            recorded = self.app.record_slow_render_performance(
+                "stats_tab_render",
+                started_at=10.0,
+                rows=25,
+                source="stats",
+                threshold_ms=1000,
+            )
+
+        self.assertFalse(recorded)
+        record_performance.assert_not_called()
+
+        with (
+            patch.object(self.app.time, "perf_counter", return_value=11.5),
+            patch.object(self.app, "record_performance_tracker_event", return_value=True) as record_performance,
+        ):
+            recorded = self.app.record_slow_render_performance(
+                "stats_tab_render",
+                started_at=10.0,
+                rows=25,
+                source="stats",
+                threshold_ms=1000,
+            )
+
+        self.assertTrue(recorded)
+        record_performance.assert_called_once_with(
+            "stats_tab_render",
+            1500.0,
+            rows=25,
+            status="slow",
+            message="phase=stats_tab_render",
+            source="stats",
+        )
+
     def test_dataset_tracker_batch_uses_one_append_rows_call(self):
         class FakeTrackerSheet:
             def __init__(self):

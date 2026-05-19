@@ -197,6 +197,24 @@ class RemindersBadgeTests(unittest.TestCase):
         self.assertNotIn(original_key, updated_index)
         self.assertIn(updated_key, updated_index)
 
+    def test_hidden_reminder_record_uses_provided_index(self):
+        row = {
+            "Reminder Date": "16 May 2026",
+            "Due Date": "16 May 2026",
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies",
+        }
+        record = {**row, "Action": self.app.REMINDER_ACTION_SENT}
+        hidden_index = {self.app.hidden_reminder_key(row): record}
+
+        with mock.patch.object(
+            self.app,
+            "get_hidden_reminders_index",
+            side_effect=AssertionError("provided hidden index should be reused"),
+        ):
+            self.assertIs(self.app.get_hidden_reminder_record(row, hidden_index=hidden_index), record)
+
     def test_active_reminder_window_reuses_filter_exclusion_and_grouping_work(self):
         prepared = pd.DataFrame({
             "ReminderDateTs": pd.to_datetime(["2026-05-15", "2026-05-16", "2026-05-20"]),

@@ -1126,6 +1126,48 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(seven_day_rows["Client Name"].tolist(), ["Sent Today", "Sent Seven Days"])
         self.assertEqual(thirty_day_rows["Client Name"].tolist(), ["Sent Today", "Sent Seven Days", "Sent Thirty Days"])
 
+    def test_stats_sent_rows_for_render_skips_sort_for_empty_period(self):
+        outcomes = pd.DataFrame(
+            [
+                {"Sent Date": pd.Timestamp("2026-05-12"), "Outcome": "No Match", "Client Name": "Older"},
+            ]
+        )
+
+        with mock.patch.object(self.app, "user_today", return_value=date(2026, 5, 19)):
+            rows = self.app.stats_sent_rows_for_render(outcomes, "Today")
+
+        self.assertTrue(rows.empty)
+
+    def test_stats_sent_and_success_rows_for_render_preserve_sort_order(self):
+        outcomes = pd.DataFrame(
+            [
+                {
+                    "Sent Date": pd.Timestamp("2026-05-18"),
+                    "Success Date": pd.Timestamp("2026-05-20"),
+                    "Outcome": "Reminder Success",
+                    "Client Name": "Client B",
+                },
+                {
+                    "Sent Date": pd.Timestamp("2026-05-19"),
+                    "Success Date": pd.Timestamp("2026-05-19"),
+                    "Outcome": "No Match",
+                    "Client Name": "Client C",
+                },
+                {
+                    "Sent Date": pd.Timestamp("2026-05-18"),
+                    "Success Date": pd.Timestamp("2026-05-21"),
+                    "Outcome": "Reminder Success",
+                    "Client Name": "Client A",
+                },
+            ]
+        )
+
+        sent_rows = self.app.stats_sent_rows_for_render(outcomes, "All-time")
+        success_rows = self.app.stats_success_rows_for_render(outcomes)
+
+        self.assertEqual(sent_rows["Client Name"].tolist(), ["Client C", "Client A", "Client B"])
+        self.assertEqual(success_rows["Client Name"].tolist(), ["Client A", "Client B"])
+
     def test_reminder_outcomes_use_actioned_date_as_sent_date_for_historical_backtests(self):
         actions = [
             {
