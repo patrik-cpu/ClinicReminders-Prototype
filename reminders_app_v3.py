@@ -11083,6 +11083,34 @@ OUTCOME_DISPLAY_COLUMN_LABELS = {
     "Charge Date": "Billed Date",
     "Avg Item Purchase Gap Days": "Overall Avg Purchase Gap Days",
 }
+OUTCOME_DISPLAY_COLUMN_HELP = {
+    "Billed Date": "The original sale date from the uploaded data.",
+    "Reminder Date": "The date the reminder was scheduled to appear in the Reminders workflow.",
+    "Sent Date": "The date the reminder was marked as sent.",
+    "Actioned Date": "The date the reminder was last marked sent or declined.",
+    "Due Date": "The date the client was expected to buy this item again.",
+    "Window Starts": "The first purchase date that can count as a success for this reminder.",
+    "Window Ends": "The last purchase date that can count as a success for this reminder.",
+    "Next Purchase Date": "The next matching purchase found after the billed date.",
+    "Success Date": "The matching purchase date that made this reminder successful.",
+    "Client Name": "The client linked to the reminder.",
+    "Animal Name": "The patient linked to the reminder.",
+    "Item": "The reminded item or service.",
+    "Sender": "The team member who marked the reminder as sent.",
+    "Outcome": "Whether the reminder is successful, pending, or has no matching purchase.",
+    "Desired Gap Days": "The expected number of days between purchases for this item.",
+    "Success Gap Days": "The days between the original billed date and the successful repeat purchase.",
+    "Next Purchase Gap Days": "The days between the original billed date and the next matching purchase.",
+    "Avg Success Gap Days": "The average successful repeat-purchase gap for the rows in this table.",
+    "Overall Avg Purchase Gap Days": "The average repeat-purchase gap across all uploaded purchases for this item.",
+    "Overall Repeat Purchases": "The number of repeat purchases used to calculate the overall average gap.",
+    "Overall Purchases": "The total number of matching purchases found in the uploaded data.",
+    "Repeat Purchase %": "The share of matching purchases that are repeat purchases.",
+    "Success Rate": "Successful reminders divided by sent reminders.",
+    "Revenue": "Revenue from successful repeat purchases.",
+    "Matched Item": "The purchased item that counted as the successful match.",
+    "Next Matched Item": "The next matching purchased item found after the billed date.",
+}
 OUTCOME_SENT_DISPLAY_COLUMNS = [
     "Charge Date",
     "Reminder Date",
@@ -11133,6 +11161,26 @@ STATS_TEAM_COLUMNS = [
     "Declined Actions",
     "Last Actioned",
 ]
+STATS_ITEM_ACTIONING_COLUMN_HELP = {
+    "Item": "The generated reminder item.",
+    STATISTICS_SCHEDULED_REMINDERS_LABEL: "How many reminders were scheduled for this item.",
+    "Actioned": "How many scheduled reminders were marked sent or declined.",
+    "Sent": "How many scheduled reminders were marked sent.",
+    "Declined": "How many scheduled reminders were declined.",
+}
+STATS_TEAM_COLUMN_HELP = {
+    "Team Member": "The team member who actioned or sent reminders.",
+    "Sent Reminders": "Sent reminders included in outcome matching for this team member.",
+    "Successes": "Sent reminders from this team member that led to matching repeat purchases.",
+    "Pending": "Sent reminders still inside the success window.",
+    "No Match": "Sent reminders with no matching repeat purchase found after the success window.",
+    "Success Rate": "Successful reminders divided by sent reminders for this team member.",
+    "Revenue": "Revenue from successful repeat purchases linked to this team member.",
+    "Actioned": "All reminders this team member marked sent or declined.",
+    "Sent Actions": "Reminders this team member marked sent.",
+    "Declined Actions": "Reminders this team member declined.",
+    "Last Actioned": "The latest date this team member marked a reminder sent or declined.",
+}
 OUTCOME_SUCCESS_METER_COLUMNS = {"Sent", "Successes", "Pending", "No Match", "Success Rate"}
 
 
@@ -12618,6 +12666,98 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     return display_frame
 
 
+def outcome_display_column_config() -> dict:
+    column_config = {
+        column: st.column_config.TextColumn(column, help=help_text)
+        for column, help_text in OUTCOME_DISPLAY_COLUMN_HELP.items()
+    }
+    column_config.update({
+        "Desired Gap Days": st.column_config.NumberColumn(
+            "Desired Gap Days",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Desired Gap Days"],
+            format="%.0f",
+        ),
+        "Success Gap Days": st.column_config.NumberColumn(
+            "Success Gap Days",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Success Gap Days"],
+            format="%.0f",
+        ),
+        "Next Purchase Gap Days": st.column_config.NumberColumn(
+            "Next Purchase Gap Days",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Next Purchase Gap Days"],
+            format="%.0f",
+        ),
+        "Avg Success Gap Days": st.column_config.NumberColumn(
+            "Avg Success Gap Days",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Avg Success Gap Days"],
+            format="%.1f",
+        ),
+        "Overall Avg Purchase Gap Days": st.column_config.NumberColumn(
+            "Overall Avg Purchase Gap Days",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Overall Avg Purchase Gap Days"],
+            format="%.0f",
+        ),
+        "Overall Repeat Purchases": st.column_config.NumberColumn(
+            "Overall Repeat Purchases",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Overall Repeat Purchases"],
+            format="%d",
+        ),
+        "Overall Purchases": st.column_config.NumberColumn(
+            "Overall Purchases",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Overall Purchases"],
+            format="%d",
+        ),
+        "Repeat Purchase %": st.column_config.NumberColumn(
+            "Repeat Purchase %",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Repeat Purchase %"],
+            format="%.0f%%",
+        ),
+        "Revenue": st.column_config.NumberColumn(
+            "Revenue",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Revenue"],
+            format="localized",
+        ),
+        "Success Rate": st.column_config.ProgressColumn(
+            "Success Rate",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Success Rate"],
+            format="percent",
+            min_value=0,
+            max_value=1,
+        ),
+    })
+    return column_config
+
+
+def stats_item_actioning_column_config() -> dict:
+    return {
+        "Item": st.column_config.TextColumn("Item", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Item"]),
+        STATISTICS_SCHEDULED_REMINDERS_LABEL: st.column_config.NumberColumn(
+            STATISTICS_SCHEDULED_REMINDERS_LABEL,
+            help=STATS_ITEM_ACTIONING_COLUMN_HELP[STATISTICS_SCHEDULED_REMINDERS_LABEL],
+            format="%d",
+        ),
+        "Actioned": st.column_config.NumberColumn("Actioned", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Actioned"], format="%d"),
+        "Sent": st.column_config.NumberColumn("Sent", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Sent"], format="%d"),
+        "Declined": st.column_config.NumberColumn("Declined", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Declined"], format="%d"),
+    }
+
+
+def stats_team_column_config() -> dict:
+    return {
+        "Team Member": st.column_config.TextColumn("Team Member", help=STATS_TEAM_COLUMN_HELP["Team Member"]),
+        "Sent Reminders": st.column_config.NumberColumn("Sent Reminders", help=STATS_TEAM_COLUMN_HELP["Sent Reminders"], format="%d"),
+        "Successes": st.column_config.NumberColumn("Successes", help=STATS_TEAM_COLUMN_HELP["Successes"], format="%d"),
+        "Pending": st.column_config.NumberColumn("Pending", help=STATS_TEAM_COLUMN_HELP["Pending"], format="%d"),
+        "No Match": st.column_config.NumberColumn("No Match", help=STATS_TEAM_COLUMN_HELP["No Match"], format="%d"),
+        "Success Rate": st.column_config.NumberColumn("Success Rate", help=STATS_TEAM_COLUMN_HELP["Success Rate"], format="percent"),
+        "Revenue": st.column_config.NumberColumn("Revenue", help=STATS_TEAM_COLUMN_HELP["Revenue"], format="localized"),
+        "Actioned": st.column_config.NumberColumn("Actioned", help=STATS_TEAM_COLUMN_HELP["Actioned"], format="%d"),
+        "Sent Actions": st.column_config.NumberColumn("Sent Actions", help=STATS_TEAM_COLUMN_HELP["Sent Actions"], format="%d"),
+        "Declined Actions": st.column_config.NumberColumn("Declined Actions", help=STATS_TEAM_COLUMN_HELP["Declined Actions"], format="%d"),
+        "Last Actioned": st.column_config.TextColumn("Last Actioned", help=STATS_TEAM_COLUMN_HELP["Last Actioned"]),
+    }
+
+
 def render_outcome_dataframe(
     frame: pd.DataFrame,
     columns: list[str] | None = None,
@@ -12631,23 +12771,11 @@ def render_outcome_dataframe(
         st.info("No outcome rows for this view yet.")
         return
     display_frame = prepare_outcome_dataframe_for_display(frame)
-    column_config = {
-        "Desired Gap Days": st.column_config.NumberColumn("Desired Gap Days", format="%.0f"),
-        "Success Gap Days": st.column_config.NumberColumn("Success Gap Days", format="%.0f"),
-        "Next Purchase Gap Days": st.column_config.NumberColumn("Next Purchase Gap Days", format="%.0f"),
-        "Avg Success Gap Days": st.column_config.NumberColumn("Avg Success Gap Days", format="%.1f"),
-        "Overall Avg Purchase Gap Days": st.column_config.NumberColumn("Overall Avg Purchase Gap Days", format="%.0f"),
-        "Overall Repeat Purchases": st.column_config.NumberColumn("Overall Repeat Purchases", format="%d"),
-        "Overall Purchases": st.column_config.NumberColumn("Overall Purchases", format="%d"),
-        "Repeat Purchase %": st.column_config.NumberColumn("Repeat Purchase %", format="%.0f%%"),
-        "Revenue": st.column_config.NumberColumn("Revenue", format="localized"),
-    }
-    column_config["Success Rate"] = st.column_config.ProgressColumn("Success Rate", format="percent", min_value=0, max_value=1)
     st.dataframe(
         display_frame,
         hide_index=True,
         use_container_width=True,
-        column_config=column_config,
+        column_config=outcome_display_column_config(),
     )
 
 
@@ -12787,6 +12915,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 prepare_statistics_display_frame(item_actioning_frame),
                 hide_index=True,
                 use_container_width=True,
+                column_config=stats_item_actioning_column_config(),
             )
 
     with team_tab:
@@ -12803,10 +12932,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 team_frame,
                 hide_index=True,
                 use_container_width=True,
-                column_config={
-                    "Success Rate": st.column_config.NumberColumn("Success Rate", format="percent"),
-                    "Revenue": st.column_config.NumberColumn("Revenue", format="localized"),
-                },
+                column_config=stats_team_column_config(),
             )
 
     with sent_tab:

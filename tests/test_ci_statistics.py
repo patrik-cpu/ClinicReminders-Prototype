@@ -140,6 +140,15 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(rows["Nurse B"]["Sent Reminders"], 0)
         self.assertEqual(rows["Nurse B"]["Declined Actions"], 1)
 
+    def test_stats_actioning_column_configs_explain_headers(self):
+        item_config = self.app.stats_item_actioning_column_config()
+        team_config = self.app.stats_team_column_config()
+
+        self.assertIn("scheduled for this item", item_config["Scheduled reminders"]["help"])
+        self.assertIn("marked sent or declined", item_config["Actioned"]["help"])
+        self.assertIn("outcome matching", team_config["Sent Reminders"]["help"])
+        self.assertIn("All reminders this team member", team_config["Actioned"]["help"])
+
     def test_statistics_display_frame_renames_generated_for_users(self):
         frame = pd.DataFrame([{"Generated": 2, "Actioned": 1}])
 
@@ -1404,6 +1413,9 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Repeat Purchase %", column_config)
         self.assertEqual(column_config["Overall Avg Purchase Gap Days"]["type_config"]["format"], "%.0f")
         self.assertEqual(column_config["Repeat Purchase %"]["type_config"]["format"], "%.0f%%")
+        self.assertIn("average repeat-purchase gap", column_config["Overall Avg Purchase Gap Days"]["help"])
+        self.assertIn("share of matching purchases", column_config["Repeat Purchase %"]["help"])
+        self.assertIn("Whether the reminder is successful", column_config["Outcome"]["help"])
         self.assertNotIn("Avg Item Purchase Gap Days", rendered_frame.columns)
 
     def test_prepare_outcome_dataframe_for_display_formats_dates_without_time(self):
