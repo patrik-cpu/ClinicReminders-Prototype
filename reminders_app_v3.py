@@ -4329,7 +4329,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
     """Save current clinic’s settings back to the Google Sheet."""
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id:
-        return
+        return False
 
     row = None
     headers = []
@@ -4548,6 +4548,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         st.session_state[OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY] = saved_outcome_post_reminder_window_days
     if track_user:
         upsert_user_tracker(clinic_id, country=st.session_state.get("user_country", ""), event="settings_saved")
+    return True
 
 
 def remember_settings_save_failure(error) -> None:
@@ -4570,8 +4571,7 @@ def remember_settings_preservation_warning(error) -> None:
 
 def save_settings_quietly(refresh_remote: bool = True) -> bool:
     try:
-        save_settings(track_user=False, refresh_remote=refresh_remote)
-        return True
+        return bool(save_settings(track_user=False, refresh_remote=refresh_remote))
     except APIError as e:
         remember_settings_save_failure(e)
         return False

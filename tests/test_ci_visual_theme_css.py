@@ -166,7 +166,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertNotIn("animation-delay: 75ms", source)
         self.assertNotIn("transition-delay: 75ms", source)
         self.assertIn("build_stats_team_frame", source)
-        self.assertIn("All time; generated reminders and saved actions grouped by item.", source)
+        self.assertIn("All time; generated reminders and saved actions by actual item.", source)
         self.assertIn("All time; outcome results by sender plus reminder actions by actioned date.", source)
         self.assertNotIn('st.segmented_control(\n            "Statistics period"', source)
         self.assertNotIn('["Overview", "Team", "Items", "Completion"]', source)

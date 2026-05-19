@@ -332,6 +332,21 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(self.app.st.session_state["outcome_due_date_window_days"], 30)
         self.assertTrue(self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY])
 
+    def test_load_settings_preserves_dirty_outcome_post_reminder_window_days(self):
+        headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        sheet = FakeSettingsSheet({"outcome_post_reminder_window_days": 0})
+        self.app.st.session_state["outcome_post_reminder_window_days"] = 7
+        self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = True
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "load_action_tracker_records_for_clinic", return_value=[]),
+        ):
+            self.app.load_settings()
+
+        self.assertEqual(self.app.st.session_state["outcome_post_reminder_window_days"], 7)
+        self.assertTrue(self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY])
+
     def test_load_settings_keeps_existing_outcome_window_when_saved_key_missing(self):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
         sheet = FakeSettingsSheet({})
@@ -374,6 +389,23 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         self.assertFalse(self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY])
         self.assertEqual(self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY], 10)
+
+    def test_quiet_settings_save_reports_false_without_logged_in_clinic(self):
+        del self.app.st.session_state["clinic_id"]
+
+        saved = self.app.save_settings_quietly()
+
+        self.assertFalse(saved)
+
+    def test_post_reminder_window_callback_stays_dirty_without_logged_in_clinic(self):
+        del self.app.st.session_state["clinic_id"]
+        self.app.st.session_state["outcome_post_reminder_window_days"] = 7
+
+        self.app.save_outcome_post_reminder_window_days()
+
+        self.assertEqual(self.app.st.session_state["outcome_post_reminder_window_days"], 7)
+        self.assertTrue(self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY])
+        self.assertNotIn(self.app.OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY, self.app.st.session_state)
 
     def test_quiet_settings_save_handles_sheets_api_error(self):
         response = Response()
