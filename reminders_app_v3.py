@@ -12887,6 +12887,10 @@ def filter_sent_outcomes_for_period(
     )
 
 
+def filter_stats_sent_tab_rows(outcomes_df: pd.DataFrame, period_label: str) -> pd.DataFrame:
+    return filter_sent_outcomes_for_period(outcomes_df, period_label, today=user_today())
+
+
 def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
     if outcomes_df is None or outcomes_df.empty:
         return {
@@ -13628,7 +13632,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     with sent_tab:
         selected_sent_period = render_stats_sent_reminders_period_selector()
-        sent_period_rows = filter_sent_outcomes_for_period(period_rows, selected_sent_period, outcomes_as_of_date)
+        sent_period_rows = filter_stats_sent_tab_rows(period_rows, selected_sent_period)
         st.caption(f"{selected_sent_period}; filtered by Sent Date.")
         sent_rows = sent_period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
         sent_rows = paginate_dataframe(sent_rows, "outcomes_sent", OUTCOME_SENT_PAGE_SIZE, "sent outcome rows")
