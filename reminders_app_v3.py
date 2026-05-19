@@ -12424,6 +12424,18 @@ def outcome_purchase_cycle_key(record: dict) -> tuple[str, ...]:
     return tuple(_hidden_reminder_key_part(record.get(field, "")) for field in fields)
 
 
+def outcome_purchase_cycle_or_hidden_key(record: dict) -> tuple[str, ...]:
+    key = outcome_purchase_cycle_key(record)
+    return key if any(key) else hidden_reminder_key(record)
+
+
+def outcome_sent_date(record: dict) -> date | None:
+    actioned_dt = _parse_reminder_log_time(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
+    actioned_date = actioned_dt.date() if actioned_dt else None
+    reminder_date = first_statistics_date(record.get("Reminder Date", ""))
+    return actioned_date or reminder_date
+
+
 def _outcome_sent_record_sort_time(record: dict) -> datetime:
     action_time = _parse_reminder_log_time(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
     if action_time:
@@ -12439,13 +12451,26 @@ def dedupe_outcome_sent_records(records: list[dict]) -> list[dict]:
     for record in records or []:
         if not isinstance(record, dict):
             continue
-        key = outcome_purchase_cycle_key(record)
-        if not any(key):
-            key = hidden_reminder_key(record)
+        key = outcome_purchase_cycle_or_hidden_key(record)
         existing = earliest_by_purchase.get(key)
         if existing is None or _outcome_sent_record_sort_time(record) < _outcome_sent_record_sort_time(existing):
             earliest_by_purchase[key] = dict(record)
     return sorted(earliest_by_purchase.values(), key=_outcome_sent_record_sort_time)
+
+
+def outcome_sent_dates_by_purchase_cycle(records: list[dict]) -> dict[tuple[str, ...], list[date]]:
+    dates_by_purchase: dict[tuple[str, ...], set[date]] = {}
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        key = outcome_purchase_cycle_or_hidden_key(record)
+        if not any(key):
+            continue
+        sent_date = outcome_sent_date(record)
+        if sent_date is None:
+            continue
+        dates_by_purchase.setdefault(key, set()).add(sent_date)
+    return {key: sorted(values) for key, values in dates_by_purchase.items()}
 
 
 def prepare_sales_for_outcomes(sales_df: pd.DataFrame) -> pd.DataFrame:
@@ -12795,10 +12820,12 @@ def build_reminder_outcomes(
         record for record in action_records or []
         if isinstance(record, dict)
     ])
-    sent_records = dedupe_outcome_sent_records(expand_grouped_action_records([
+    expanded_sent_records = expand_grouped_action_records([
         record for record in reduced_records
         if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT
-    ]))
+    ])
+    sent_dates_by_purchase_cycle = outcome_sent_dates_by_purchase_cycle(expanded_sent_records)
+    sent_records = dedupe_outcome_sent_records(expanded_sent_records)
     if not sent_records:
         return empty_outcome_frame()
 
@@ -12806,10 +12833,11 @@ def build_reminder_outcomes(
     gap_key_matches: dict[tuple[str, ...], list[str]] = {}
     all_match_keys: set[str] = set()
     for record_id, record in enumerate(sent_records):
+        purchase_cycle_key = outcome_purchase_cycle_or_hidden_key(record)
+        reminder_date = first_statistics_date(record.get("Reminder Date", ""))
+        sent_date = outcome_sent_date(record)
         actioned_dt = _parse_reminder_log_time(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
         actioned_date = actioned_dt.date() if actioned_dt else None
-        reminder_date = first_statistics_date(record.get("Reminder Date", ""))
-        sent_date = actioned_date or reminder_date
         due_date = first_statistics_date(record.get("Due Date", ""))
         original_charge_date = first_statistics_date(record.get("Charge Date", ""))
         if due_date:
@@ -12837,14 +12865,18 @@ def build_reminder_outcomes(
             all_match_keys.update(gap_key_matches[gap_cache_key])
         all_match_keys.update(match_keys)
 
-        post_reminder_window_end = (
-            sent_date + timedelta(days=post_reminder_window_days)
-            if sent_date and sent_date <= today
-            else None
-        )
+        sent_dates = list(sent_dates_by_purchase_cycle.get(purchase_cycle_key, []))
+        if sent_date and sent_date not in sent_dates:
+            sent_dates.append(sent_date)
+            sent_dates = sorted(sent_dates)
+        post_reminder_window_ends = [
+            sent_date_value + timedelta(days=post_reminder_window_days)
+            for sent_date_value in sent_dates
+            if sent_date_value and sent_date_value <= today
+        ]
         pending_window_ends = [
             candidate
-            for candidate in [window_end, post_reminder_window_end]
+            for candidate in [window_end, *post_reminder_window_ends]
             if candidate is not None
         ]
 
@@ -12863,6 +12895,7 @@ def build_reminder_outcomes(
             "_OutcomeExactItemKeys": exact_item_keys,
             "_OutcomeMatchKeys": match_keys,
             "_OutcomeGapCacheKey": gap_cache_key,
+            "_OutcomeSentDates": sent_dates,
             "Charge Date": pd.Timestamp(original_charge_date) if original_charge_date else pd.NaT,
             "Reminder Date": pd.Timestamp(reminder_date) if reminder_date else pd.NaT,
             "Sent Date": pd.Timestamp(sent_date) if sent_date else pd.NaT,
@@ -13053,27 +13086,35 @@ def build_reminder_outcomes(
                             "_SuccessPriority": 0,
                         }))
 
-                    sent_date_by_record = pd.to_datetime(outcomes["Sent Date"], errors="coerce")
                     charge_date_by_record = pd.to_datetime(outcomes["Charge Date"], errors="coerce")
-                    post_candidates = merged.copy()
-                    post_candidates["OutcomeChargeDate"] = pd.to_datetime(post_candidates["OutcomeChargeDate"], errors="coerce")
-                    post_candidates["_SentDate"] = post_candidates["_OutcomeRecordID"].map(sent_date_by_record)
-                    post_candidates["_PostReminderWindowEnd"] = (
-                        post_candidates["_SentDate"] + pd.to_timedelta(post_reminder_window_days, unit="D")
-                    )
-                    post_candidates = post_candidates.loc[
-                        post_candidates["_SentDate"].notna()
-                        & (post_candidates["_SentDate"].dt.date <= today)
-                        & post_candidates["OutcomeChargeDate"].notna()
-                        & post_candidates["OutcomeChargeDate"].between(
-                            post_candidates["_SentDate"],
-                            post_candidates["_PostReminderWindowEnd"],
-                            inclusive="both",
+                    sent_date_rows = []
+                    for outcome_record_id, sent_dates in outcomes[["_OutcomeRecordID", "_OutcomeSentDates"]].itertuples(index=False):
+                        for sent_date_value in sent_dates or []:
+                            sent_date_rows.append({
+                                "_OutcomeRecordID": int(outcome_record_id),
+                                "_SentDate": pd.Timestamp(sent_date_value),
+                            })
+                    sent_date_frame = pd.DataFrame(sent_date_rows, columns=["_OutcomeRecordID", "_SentDate"])
+                    post_candidates = pd.DataFrame()
+                    if not sent_date_frame.empty:
+                        post_candidates = merged.merge(sent_date_frame, on="_OutcomeRecordID", how="inner")
+                        post_candidates["OutcomeChargeDate"] = pd.to_datetime(post_candidates["OutcomeChargeDate"], errors="coerce")
+                        post_candidates["_PostReminderWindowEnd"] = (
+                            post_candidates["_SentDate"] + pd.to_timedelta(post_reminder_window_days, unit="D")
                         )
-                    ]
+                        post_candidates = post_candidates.loc[
+                            post_candidates["_SentDate"].notna()
+                            & (post_candidates["_SentDate"].dt.date <= today)
+                            & post_candidates["OutcomeChargeDate"].notna()
+                            & post_candidates["OutcomeChargeDate"].between(
+                                post_candidates["_SentDate"],
+                                post_candidates["_PostReminderWindowEnd"],
+                                inclusive="both",
+                            )
+                        ]
                     if not post_candidates.empty:
                         post_first_purchases = (
-                            post_candidates.sort_values(["_OutcomeRecordID", "OutcomeChargeDate", "OutcomeSaleID"])
+                            post_candidates.sort_values(["_OutcomeRecordID", "OutcomeChargeDate", "OutcomeSaleID", "_SentDate"])
                             .drop_duplicates("_OutcomeRecordID", keep="first")
                         )
                         post_record_ids = post_first_purchases["_OutcomeRecordID"].astype(int)
