@@ -12133,7 +12133,7 @@ STATS_SUMMARY_CARD_HELP = {
     "Reminder Successes": "Reminded items with a matching repeat purchase in either success window.",
     "Success Rate": "Reminder successes divided by total reminded items.",
     "Pending": "Reminded items where at least one success window is still open.",
-    "Revenue": "Revenue from matching repeat purchases that counted as reminder successes.",
+    "Revenue from Successes": "Revenue from matching repeat purchases that counted as reminder successes.",
 }
 OUTCOME_SENT_DISPLAY_COLUMNS = [
     "Charge Date",
@@ -14473,7 +14473,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         ("Reminder Successes", f"{summary['successes']:,}"),
         ("Success Rate", f"{summary['success_rate']:.0%}"),
         ("Pending", f"{summary['pending']:,}"),
-        ("Revenue", format_outcome_currency(summary["revenue"])),
+        ("Revenue from Successes", format_outcome_currency(summary["revenue"])),
     ]
     for col, (label, value) in zip(metric_cols, metrics):
         with col:

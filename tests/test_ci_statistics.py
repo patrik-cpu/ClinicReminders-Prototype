@@ -291,7 +291,7 @@ class StatisticsTests(unittest.TestCase):
             "Reminder Successes",
             "Success Rate",
             "Pending",
-            "Revenue",
+            "Revenue from Successes",
         ]
 
         for label in expected_labels:
