@@ -2028,7 +2028,8 @@ st.markdown(
     .login-form-marker {
         display: none;
     }
-    div[data-testid="stHorizontalBlock"]:has(.st-key-google_signup_button) {
+    div[data-testid="stHorizontalBlock"]:has(.st-key-google_signup_button),
+    div[data-testid="stHorizontalBlock"]:has(.st-key-toggle_staff_access):has(.st-key-toggle_create_account) {
         padding-left: 15px !important;
         padding-right: 15px !important;
     }
@@ -8439,7 +8440,7 @@ if not st.session_state["logged_in"]:
         google_signup_error = st.session_state.pop("google_signup_error", "")
         if google_signup_error:
             st.warning(google_signup_error)
-        google_signup_col, staff_access_col, manual_signup_col = st.columns(3, gap="small")
+        google_signup_col = st.columns(1)[0]
         with google_signup_col:
             st.button(
                 "Continue with Google",
@@ -8448,6 +8449,7 @@ if not st.session_state["logged_in"]:
                 disabled=not google_auth_ready,
                 on_click=begin_google_login,
             )
+        staff_access_col, manual_signup_col = st.columns(2, gap="small")
         with staff_access_col:
             if "show_staff_access_login" not in st.session_state:
                 st.session_state["show_staff_access_login"] = False

@@ -149,6 +149,16 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("Reset keywords", source)
         self.assertNotIn('", ".join(f"`{keyword}`"', source)
 
+    def test_login_google_button_sits_above_staff_and_signup_buttons(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn("google_signup_col = st.columns(1)[0]", source)
+        self.assertIn("staff_access_col, manual_signup_col = st.columns(2, gap=\"small\")", source)
+        self.assertIn(
+            'div[data-testid="stHorizontalBlock"]:has(.st-key-toggle_staff_access):has(.st-key-toggle_create_account)',
+            source,
+        )
+
     def test_stats_page_folds_outcomes_and_actioning_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
