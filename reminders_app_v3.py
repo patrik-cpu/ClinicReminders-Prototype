@@ -9168,7 +9168,13 @@ st.markdown(
       div[data-testid="stHorizontalBlock"]:has([class*="st-key-main_section_nav_"]) {
         align-items: flex-end;
         column-gap: 0.2rem !important;
+        justify-content: flex-start !important;
         margin: 0.35rem 0 0 !important;
+      }
+      div[data-testid="stHorizontalBlock"]:has([class*="st-key-main_section_nav_"]) > div[data-testid="column"] {
+        flex: 0 0 auto !important;
+        min-width: fit-content !important;
+        width: auto !important;
       }
       .cr-main-section-nav-rule {
         border-bottom: 1px solid var(--cr-border);
@@ -9182,14 +9188,14 @@ st.markdown(
         box-shadow: inset 0 -1px 0 var(--cr-border);
         color: #23513a !important;
         display: inline-flex;
-        font-size: 1.35rem;
+        font-size: 1.08rem;
         font-weight: 800;
         gap: 0.35rem;
         justify-content: center;
         line-height: 1.2;
         margin: 0 0 -1px;
-        min-height: 3rem;
-        padding: 0.55rem 0.9rem;
+        min-height: 2.55rem;
+        padding: 0.45rem 0.75rem;
         text-decoration: none !important;
         white-space: nowrap;
       }
@@ -9202,7 +9208,7 @@ st.markdown(
       [class*="st-key-main_section_nav_"] button p,
       [class*="st-key-main_section_nav_"] button span {
         color: #23513a !important;
-        font-size: 1.35rem !important;
+        font-size: 1.08rem !important;
         font-weight: 800 !important;
         line-height: 1.2 !important;
       }

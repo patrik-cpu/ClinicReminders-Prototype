@@ -66,6 +66,7 @@ class VisualThemeCssTests(unittest.TestCase):
         for selector in [
             ".cr-main-section-nav-rule",
             '[class*="st-key-main_section_nav_"] button',
+            'div[data-testid="stHorizontalBlock"]:has([class*="st-key-main_section_nav_"]) > div[data-testid="column"]',
             ".st-key-{active_button_key} button",
             '.st-key-main_section_tab [data-baseweb="button-group"] [aria-checked="true"]',
             '.st-key-main_section_tab [data-baseweb="button"][aria-checked="true"]',
@@ -81,6 +82,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertNotIn('href="?{MAIN_SECTION_TAB_QUERY_PARAM}', source)
         self.assertIn("box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;", source)
         self.assertIn("background: var(--cr-primary) !important;", source)
+        self.assertIn("flex: 0 0 auto !important;", source)
 
     def test_outcome_success_window_label_matches_due_date_logic(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
