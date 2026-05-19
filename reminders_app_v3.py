@@ -14298,12 +14298,8 @@ if st.session_state.get("logged_in", False):
             )
 
             if st.session_state["patient_passaway_keywords"]:
-                keyword_cols = st.columns([4, 1], gap="small")
-                with keyword_cols[0]:
-                    st.markdown(
-                        ", ".join(f"`{keyword}`" for keyword in st.session_state["patient_passaway_keywords"])
-                    )
-                with keyword_cols[1]:
+                reset_cols = st.columns([4, 1], gap="small")
+                with reset_cols[1]:
                     if st.button(
                         "Reset keywords",
                         key=f"reset_passaway_keywords_{row_id}",

@@ -138,6 +138,13 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("Good job! All due reminders have been actioned.", source)
         self.assertNotIn('st.info("All reminders have been actioned.")', source)
 
+    def test_death_keyword_panel_does_not_render_inline_keyword_summary(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn("auto-death-keyword-chip", source)
+        self.assertIn("Reset keywords", source)
+        self.assertNotIn('", ".join(f"`{keyword}`"', source)
+
     def test_stats_page_folds_outcomes_and_actioning_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
