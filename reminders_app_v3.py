@@ -13314,7 +13314,7 @@ if st.session_state.get("logged_in", False):
             render_field_label(
                 st,
                 "Days to look back",
-                "0 shows the selected day only. 1 includes the selected day plus the previous day.",
+                "0 shows the selected day only. 1 includes the selected day plus the previous day, and so on.",
                 class_name="reminder-control-label",
             )
             reminder_lookback_days = st.number_input(
@@ -13330,7 +13330,7 @@ if st.session_state.get("logged_in", False):
             render_field_label(
                 st,
                 "Days to look ahead",
-                "0 shows the selected day only. 1 includes the selected day plus the next day.",
+                "0 shows the selected day only. 1 includes the selected day plus the next day, and so on.",
                 class_name="reminder-control-label",
             )
             reminder_window_days = st.number_input(

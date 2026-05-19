@@ -104,6 +104,12 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("within this many days before or after the due date", source)
         self.assertNotIn("Days to define success", source)
 
+    def test_reminder_range_tooltips_explain_stepper_pattern(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn("0 shows the selected day only. 1 includes the selected day plus the previous day, and so on.", source)
+        self.assertIn("0 shows the selected day only. 1 includes the selected day plus the next day, and so on.", source)
+
     def test_stats_page_folds_outcomes_and_actioning_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
