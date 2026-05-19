@@ -106,8 +106,13 @@ class VisualThemeCssTests(unittest.TestCase):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
         self.assertIn("Success window around due date", source)
+        self.assertIn("Success window after sent date", source)
         self.assertIn("within this many days before or after the due date", source)
+        self.assertIn("within this many days after the reminder is sent", source)
+        self.assertIn("A success is one matching repeat purchase either near the due date or soon after the reminder was sent.", source)
+        self.assertIn("Multiple reminder steps for the same purchase cycle still count once.", source)
         self.assertIn("on_change=save_outcome_due_date_window_days", source)
+        self.assertIn("on_change=save_outcome_post_reminder_window_days", source)
         self.assertNotIn("Days to define success", source)
 
     def test_reminder_range_tooltips_explain_stepper_pattern(self):

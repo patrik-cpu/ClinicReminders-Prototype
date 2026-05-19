@@ -84,8 +84,11 @@ MAIN_SECTION_TAB_TO_SLUG = {
 }
 REMINDERS_START_DATE_INPUT_KEY = "reminders_start_date_input"
 DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14
+DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS = 7
 OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY = "_outcome_due_date_window_days_dirty"
 OUTCOME_DUE_DATE_WINDOW_LOADED_KEY = "_outcome_due_date_window_days_loaded"
+OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY = "_outcome_post_reminder_window_days_dirty"
+OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY = "_outcome_post_reminder_window_days_loaded"
 _SETTING_MISSING = object()
 
 
@@ -579,6 +582,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "reminder_lookback_days",
     "reminder_warning_days",
     "outcome_due_date_window_days",
+    "outcome_post_reminder_window_days",
     "wa_reminder_log",
     "deleted_reminders",
     "dataset_upload_history",
@@ -3934,6 +3938,19 @@ def normalized_outcome_due_date_window_days(value=None) -> int:
         return default_value
 
 
+def normalized_outcome_post_reminder_window_days(value=None) -> int:
+    default_value = globals().get("DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS", 7)
+    value = (
+        st.session_state.get("outcome_post_reminder_window_days", default_value)
+        if value is None
+        else value
+    )
+    try:
+        return min(1095, max(0, int(value)))
+    except (TypeError, ValueError):
+        return default_value
+
+
 def load_outcome_due_date_window_days(settings: dict) -> None:
     default_value = globals().get("DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS", 14)
     raw_value = settings.get("outcome_due_date_window_days", _SETTING_MISSING)
@@ -3973,6 +3990,47 @@ def load_outcome_due_date_window_days(settings: dict) -> None:
     st.session_state["outcome_due_date_window_days"] = saved_value
     st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = saved_value
     st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
+
+
+def load_outcome_post_reminder_window_days(settings: dict) -> None:
+    default_value = globals().get("DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS", 7)
+    raw_value = settings.get("outcome_post_reminder_window_days", _SETTING_MISSING)
+    has_current_value = "outcome_post_reminder_window_days" in st.session_state
+    current_value = (
+        normalized_outcome_post_reminder_window_days()
+        if has_current_value
+        else default_value
+    )
+    loaded_value = st.session_state.get(OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY, _SETTING_MISSING)
+
+    if raw_value is _SETTING_MISSING or raw_value in (None, ""):
+        if has_current_value:
+            st.session_state["outcome_post_reminder_window_days"] = current_value
+            return
+        st.session_state["outcome_post_reminder_window_days"] = default_value
+        st.session_state[OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY] = default_value
+        st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = False
+        return
+
+    saved_value = normalized_outcome_post_reminder_window_days(raw_value)
+    if has_current_value and st.session_state.get(OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY):
+        if current_value == saved_value:
+            st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = False
+            st.session_state[OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY] = saved_value
+        else:
+            st.session_state["outcome_post_reminder_window_days"] = current_value
+        return
+
+    if has_current_value and loaded_value is not _SETTING_MISSING:
+        loaded_value = normalized_outcome_post_reminder_window_days(loaded_value)
+        if current_value != loaded_value and current_value != saved_value:
+            st.session_state["outcome_post_reminder_window_days"] = current_value
+            st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = True
+            return
+
+    st.session_state["outcome_post_reminder_window_days"] = saved_value
+    st.session_state[OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY] = saved_value
+    st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = False
 
 
 def load_settings():
@@ -4025,6 +4083,7 @@ def load_settings():
             st.session_state["reminder_lookback_days"] = DEFAULT_REMINDER_LOOKBACK_DAYS
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
         load_outcome_due_date_window_days(settings)
+        load_outcome_post_reminder_window_days(settings)
         migrated_legacy_actions = False
         legacy_wa_log = settings.get("wa_reminder_log", [])
         legacy_deleted_reminders = settings.get("deleted_reminders", [])
@@ -4065,6 +4124,7 @@ def load_settings():
         st.session_state["reminder_lookback_days"] = DEFAULT_REMINDER_LOOKBACK_DAYS
         st.session_state["reminder_warning_days"] = 0
         load_outcome_due_date_window_days(settings)
+        load_outcome_post_reminder_window_days(settings)
         st.session_state["wa_reminder_log"] = []
         st.session_state["deleted_reminders"] = []
         st.session_state["search_terms_reviewed"] = False
@@ -4285,6 +4345,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         return _merged_scalar_setting(key, default, base_settings, remote_settings)
 
     outcome_due_date_window_default = globals().get("DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS", 14)
+    outcome_post_reminder_window_default = globals().get("DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS", 7)
     replace_search_settings = st.session_state.pop("_replace_search_settings_once", False)
     if replace_search_settings:
         rules_for_save = setting_for_save("rules", DEFAULT_RULES.copy())
@@ -4346,6 +4407,9 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", 0)),
         "outcome_due_date_window_days": normalized_outcome_due_date_window_days(
             int_setting_for_save("outcome_due_date_window_days", outcome_due_date_window_default)
+        ),
+        "outcome_post_reminder_window_days": normalized_outcome_post_reminder_window_days(
+            int_setting_for_save("outcome_post_reminder_window_days", outcome_post_reminder_window_default)
         ),
         "search_terms_reviewed": bool(setting_for_save("search_terms_reviewed", False)),
         "search_term_added": bool(setting_for_save("search_term_added", False)),
@@ -4419,6 +4483,15 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
     ):
         st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
         st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = saved_outcome_due_date_window_days
+    saved_outcome_post_reminder_window_days = normalized_outcome_post_reminder_window_days(
+        settings_data.get("outcome_post_reminder_window_days")
+    )
+    if (
+        "outcome_post_reminder_window_days" in st.session_state
+        and normalized_outcome_post_reminder_window_days() == saved_outcome_post_reminder_window_days
+    ):
+        st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = False
+        st.session_state[OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY] = saved_outcome_post_reminder_window_days
     if track_user:
         upsert_user_tracker(clinic_id, country=st.session_state.get("user_country", ""), event="settings_saved")
 
@@ -6723,6 +6796,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "reminder_lookback_days": DEFAULT_REMINDER_LOOKBACK_DAYS,
         "reminder_warning_days": 0,
         "outcome_due_date_window_days": DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
+        "outcome_post_reminder_window_days": DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
         "action_tracker_migrated_at": "",
         "search_terms_reviewed": False,
         "search_term_added": False,
@@ -9237,6 +9311,15 @@ def save_outcome_due_date_window_days() -> None:
         st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = value
 
 
+def save_outcome_post_reminder_window_days() -> None:
+    value = normalized_outcome_post_reminder_window_days()
+    st.session_state["outcome_post_reminder_window_days"] = value
+    st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = True
+    if save_settings_quietly():
+        st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = False
+        st.session_state[OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY] = value
+
+
 def normalized_reminders_start_date(value=None, default_date: date | None = None) -> date:
     default_date = default_date or user_today()
     value = default_date if value is None else value
@@ -11159,6 +11242,7 @@ OUTCOME_TABLE_COLUMNS = [
     "Window Ends",
     "Next Purchase Date",
     "Success Date",
+    "Success Basis",
     "Client Name",
     "Animal Name",
     "Item",
@@ -11196,10 +11280,11 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Sent Date": "Date the reminder was marked as sent.",
     "Actioned Date": "Most recent date the reminder was sent or declined.",
     "Due Date": "Expected next purchase date for this item.",
-    "Window Starts": "Earliest purchase date that can count as a success.",
-    "Window Ends": "Latest purchase date that can count as a success.",
+    "Window Starts": "Earliest purchase date in the due-date success window.",
+    "Window Ends": "Latest purchase date in the due-date success window.",
     "Next Purchase Date": "Next matching purchase after the billed date.",
     "Success Date": "Purchase date that made the reminder successful.",
+    "Success Basis": "How the success was counted: near the due date or soon after the reminder was sent.",
     "Client Name": "Client linked to the reminder.",
     "Animal Name": "Patient linked to the reminder.",
     "Item": "Item or service the reminder is about.",
@@ -11207,8 +11292,8 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Outcome": "Current result: success, pending, no match, or not measurable.",
     "Sent": "Number of sent reminders in this row.",
     "Successes": "Sent reminders that led to a matching repeat purchase.",
-    "Pending": "Sent reminders still inside the success window.",
-    "No Match": "Sent reminders with no matching repeat purchase after the window closed.",
+    "Pending": "Sent reminders where at least one success window is still open.",
+    "No Match": "Sent reminders with no matching repeat purchase after all success windows closed.",
     "Desired Gap Days": "Expected days between purchases for this item.",
     "Success Gap Days": "Days from the billed date to the successful repeat purchase.",
     "Next Purchase Gap Days": "Days from the billed date to the next matching purchase.",
@@ -11217,7 +11302,7 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Overall Repeat Purchases": "Repeat purchases used to calculate the overall average gap.",
     "Overall Purchases": "Total matching purchases found in uploaded sales data.",
     "Repeat Purchase %": "Percentage of matching purchases that are repeat purchases.",
-    "Success Rate": "Percentage of sent reminders that became successes.",
+    "Success Rate": "Percentage of sent reminders that became successful by either success window.",
     "Revenue": "Revenue linked to successful repeat purchases.",
     "Matched Item": "Purchased item that counted as the success.",
     "Next Matched Item": "Next matching purchased item after the billed date.",
@@ -11230,6 +11315,7 @@ OUTCOME_SENT_DISPLAY_COLUMNS = [
     "Window Starts",
     "Window Ends",
     "Next Purchase Date",
+    "Success Basis",
     "Client Name",
     "Animal Name",
     "Item",
@@ -12278,6 +12364,7 @@ def build_reminder_outcomes(
     action_records: list[dict],
     sales_df: pd.DataFrame,
     due_date_window_days: int = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
+    post_reminder_window_days: int = DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
     on_time_grace_days: int | None = None,
     today: date | None = None,
     attribution_days: int | None = None,
@@ -12290,6 +12377,10 @@ def build_reminder_outcomes(
         due_date_window_days = max(0, int(due_date_window_days))
     except (TypeError, ValueError):
         due_date_window_days = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+    try:
+        post_reminder_window_days = max(0, int(post_reminder_window_days))
+    except (TypeError, ValueError):
+        post_reminder_window_days = DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS
 
     sales = prepare_sales_for_outcomes(sales_df)
     reduced_records = reduce_action_tracker_records([
@@ -12338,9 +12429,20 @@ def build_reminder_outcomes(
             all_match_keys.update(gap_key_matches[gap_cache_key])
         all_match_keys.update(match_keys)
 
+        post_reminder_window_end = (
+            sent_date + timedelta(days=post_reminder_window_days)
+            if sent_date and sent_date <= today
+            else None
+        )
+        pending_window_ends = [
+            candidate
+            for candidate in [window_end, post_reminder_window_end]
+            if candidate is not None
+        ]
+
         if sent_date is None:
             outcome = "Not Measurable"
-        elif window_end and window_end >= today:
+        elif pending_window_ends and max(pending_window_ends) >= today:
             outcome = "Pending"
         else:
             outcome = "No Match"
@@ -12367,6 +12469,7 @@ def build_reminder_outcomes(
             "Item": item_name,
             "Sender": sender,
             "Outcome": outcome,
+            "Success Basis": "",
             "Desired Gap Days": desired_gap_days,
             "Success Gap Days": None,
             "Next Purchase Gap Days": None,
@@ -12477,17 +12580,79 @@ def build_reminder_outcomes(
                     window_start = pd.to_datetime(outcomes.loc[record_ids, "Window Starts"], errors="coerce").reset_index(drop=True)
                     window_end = pd.to_datetime(outcomes.loc[record_ids, "Window Ends"], errors="coerce").reset_index(drop=True)
                     success_by_window = next_purchase_dates.reset_index(drop=True).between(window_start, window_end, inclusive="both")
-                    success_mask = (success_by_gap | success_by_window).fillna(False).to_numpy()
-                    success_record_ids = record_ids[success_mask]
-                    if len(success_record_ids):
-                        outcomes.loc[success_record_ids, "Success Date"] = next_purchase_dates.loc[success_mask].to_numpy()
-                        outcomes.loc[success_record_ids, "Matched Item"] = matched_items[success_mask]
-                        outcomes.loc[success_record_ids, "Revenue"] = (
-                            pd.to_numeric(first_next_purchases.loc[success_mask, "OutcomeAmount"], errors="coerce")
-                            .fillna(0)
-                            .to_numpy()
+                    success_by_due_window = (success_by_gap | success_by_window).fillna(False)
+                    due_success_mask = success_by_due_window.to_numpy()
+                    success_candidates = []
+                    if due_success_mask.any():
+                        success_candidates.append(pd.DataFrame({
+                            "_OutcomeRecordID": record_ids[due_success_mask],
+                            "Success Date": next_purchase_dates.iloc[due_success_mask].to_numpy(),
+                            "Matched Item": matched_items[due_success_mask],
+                            "Revenue": (
+                                pd.to_numeric(first_next_purchases.iloc[due_success_mask]["OutcomeAmount"], errors="coerce")
+                                .fillna(0)
+                                .to_numpy()
+                            ),
+                            "Success Gap Days": next_gap_days.iloc[due_success_mask].to_numpy(),
+                            "Success Basis": "Due date window",
+                            "_SuccessPriority": 0,
+                        }))
+
+                    sent_date_by_record = pd.to_datetime(outcomes["Sent Date"], errors="coerce")
+                    charge_date_by_record = pd.to_datetime(outcomes["Charge Date"], errors="coerce")
+                    post_candidates = merged.copy()
+                    post_candidates["OutcomeChargeDate"] = pd.to_datetime(post_candidates["OutcomeChargeDate"], errors="coerce")
+                    post_candidates["_SentDate"] = post_candidates["_OutcomeRecordID"].map(sent_date_by_record)
+                    post_candidates["_PostReminderWindowEnd"] = (
+                        post_candidates["_SentDate"] + pd.to_timedelta(post_reminder_window_days, unit="D")
+                    )
+                    post_candidates = post_candidates.loc[
+                        post_candidates["_SentDate"].notna()
+                        & (post_candidates["_SentDate"].dt.date <= today)
+                        & post_candidates["OutcomeChargeDate"].notna()
+                        & post_candidates["OutcomeChargeDate"].between(
+                            post_candidates["_SentDate"],
+                            post_candidates["_PostReminderWindowEnd"],
+                            inclusive="both",
                         )
-                        outcomes.loc[success_record_ids, "Success Gap Days"] = next_gap_days.loc[success_mask].to_numpy()
+                    ]
+                    if not post_candidates.empty:
+                        post_first_purchases = (
+                            post_candidates.sort_values(["_OutcomeRecordID", "OutcomeChargeDate", "OutcomeSaleID"])
+                            .drop_duplicates("_OutcomeRecordID", keep="first")
+                        )
+                        post_record_ids = post_first_purchases["_OutcomeRecordID"].astype(int)
+                        post_purchase_dates = pd.to_datetime(post_first_purchases["OutcomeChargeDate"], errors="coerce")
+                        post_charge_dates = post_record_ids.map(charge_date_by_record)
+                        post_gap_days = (post_purchase_dates.reset_index(drop=True) - post_charge_dates.reset_index(drop=True)).dt.days
+                        success_candidates.append(pd.DataFrame({
+                            "_OutcomeRecordID": post_record_ids.to_numpy(),
+                            "Success Date": post_purchase_dates.to_numpy(),
+                            "Matched Item": post_first_purchases["Item Name"].map(
+                                lambda value: normalize_display_case(str(value or "").strip())
+                            ).to_numpy(),
+                            "Revenue": (
+                                pd.to_numeric(post_first_purchases["OutcomeAmount"], errors="coerce")
+                                .fillna(0)
+                                .to_numpy()
+                            ),
+                            "Success Gap Days": post_gap_days.to_numpy(),
+                            "Success Basis": "After sent date",
+                            "_SuccessPriority": 1,
+                        }))
+
+                    if success_candidates:
+                        selected_successes = (
+                            pd.concat(success_candidates, ignore_index=True)
+                            .sort_values(["_OutcomeRecordID", "Success Date", "_SuccessPriority"])
+                            .drop_duplicates("_OutcomeRecordID", keep="first")
+                        )
+                        success_record_ids = selected_successes["_OutcomeRecordID"].astype(int).to_numpy()
+                        outcomes.loc[success_record_ids, "Success Date"] = selected_successes["Success Date"].to_numpy()
+                        outcomes.loc[success_record_ids, "Matched Item"] = selected_successes["Matched Item"].to_numpy()
+                        outcomes.loc[success_record_ids, "Revenue"] = selected_successes["Revenue"].to_numpy()
+                        outcomes.loc[success_record_ids, "Success Gap Days"] = selected_successes["Success Gap Days"].to_numpy()
+                        outcomes.loc[success_record_ids, "Success Basis"] = selected_successes["Success Basis"].to_numpy()
                         outcomes.loc[success_record_ids, "Outcome"] = "Reminder Success"
 
     return outcomes[OUTCOME_TABLE_COLUMNS]
@@ -13018,7 +13183,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     if refresh_success:
         st.success(refresh_success)
 
-    controls = st.columns([2, 1], gap="large")
+    controls = st.columns([2, 1, 1], gap="large")
     with controls[1]:
         render_field_label(
             st,
@@ -13036,6 +13201,27 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             label_visibility="collapsed",
         )
         due_date_window_days = normalized_outcome_due_date_window_days(due_date_window_days)
+    with controls[2]:
+        render_field_label(
+            st,
+            "Success window after sent date",
+            "Also counts as successful when a matching sale happens within this many days after the reminder is sent.",
+        )
+        st.session_state["outcome_post_reminder_window_days"] = normalized_outcome_post_reminder_window_days()
+        post_reminder_window_days = st.number_input(
+            "Success window after sent date",
+            min_value=0,
+            max_value=1095,
+            step=1,
+            key="outcome_post_reminder_window_days",
+            on_change=save_outcome_post_reminder_window_days,
+            label_visibility="collapsed",
+        )
+        post_reminder_window_days = normalized_outcome_post_reminder_window_days(post_reminder_window_days)
+    st.caption(
+        "A success is one matching repeat purchase either near the due date or soon after the reminder was sent. "
+        "Multiple reminder steps for the same purchase cycle still count once."
+    )
     outcomes_as_of_date = outcome_as_of_date(sales_df)
     stats_period = "All time"
     try:
@@ -13053,6 +13239,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             action_records,
             sales_df,
             due_date_window_days=due_date_window_days,
+            post_reminder_window_days=post_reminder_window_days,
             today=outcomes_as_of_date,
             rules=rules,
         )

@@ -253,6 +253,14 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         self.assertEqual(saved["outcome_due_date_window_days"], 30)
 
+    def test_save_settings_persists_outcome_post_reminder_window_days(self):
+        self.app.cache_remote_settings("Clinic Save State", {})
+        self.app.st.session_state["outcome_post_reminder_window_days"] = 10
+
+        saved = self.run_save_with_remote({})
+
+        self.assertEqual(saved["outcome_post_reminder_window_days"], 10)
+
     def test_save_settings_falls_back_when_outcome_window_default_is_missing(self):
         self.app.cache_remote_settings("Clinic Save State", {})
         default_value = self.app.DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
@@ -277,6 +285,18 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         self.assertEqual(self.app.st.session_state["outcome_due_date_window_days"], 30)
 
+    def test_load_settings_restores_outcome_post_reminder_window_days(self):
+        headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        sheet = FakeSettingsSheet({"outcome_post_reminder_window_days": 10})
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "load_action_tracker_records_for_clinic", return_value=[]),
+        ):
+            self.app.load_settings()
+
+        self.assertEqual(self.app.st.session_state["outcome_post_reminder_window_days"], 10)
+
     def test_outcome_due_date_window_load_helper_is_defined_before_load_settings(self):
         source = Path("reminders_app_v3.py").read_text(encoding="utf-8")
 
@@ -285,7 +305,15 @@ class SettingsSaveStateTests(unittest.TestCase):
             source.index("def load_settings"),
         )
         self.assertLess(
+            source.index("def load_outcome_post_reminder_window_days"),
+            source.index("def load_settings"),
+        )
+        self.assertLess(
             source.index("DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14"),
+            source.index("def load_settings"),
+        )
+        self.assertLess(
+            source.index("DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS = 7"),
             source.index("def load_settings"),
         )
 
@@ -308,6 +336,7 @@ class SettingsSaveStateTests(unittest.TestCase):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
         sheet = FakeSettingsSheet({})
         self.app.st.session_state["outcome_due_date_window_days"] = 30
+        self.app.st.session_state["outcome_post_reminder_window_days"] = 10
 
         with (
             patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
@@ -316,6 +345,7 @@ class SettingsSaveStateTests(unittest.TestCase):
             self.app.load_settings()
 
         self.assertEqual(self.app.st.session_state["outcome_due_date_window_days"], 30)
+        self.assertEqual(self.app.st.session_state["outcome_post_reminder_window_days"], 10)
 
     def test_outcome_due_date_window_save_callback_stays_dirty_until_saved(self):
         self.app.st.session_state["outcome_due_date_window_days"] = 30
@@ -330,6 +360,20 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         self.assertFalse(self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY])
         self.assertEqual(self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_LOADED_KEY], 30)
+
+    def test_outcome_post_reminder_window_save_callback_stays_dirty_until_saved(self):
+        self.app.st.session_state["outcome_post_reminder_window_days"] = 10
+
+        with patch.object(self.app, "save_settings_quietly", return_value=False):
+            self.app.save_outcome_post_reminder_window_days()
+
+        self.assertTrue(self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY])
+
+        with patch.object(self.app, "save_settings_quietly", return_value=True):
+            self.app.save_outcome_post_reminder_window_days()
+
+        self.assertFalse(self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY])
+        self.assertEqual(self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY], 10)
 
     def test_quiet_settings_save_handles_sheets_api_error(self):
         response = Response()

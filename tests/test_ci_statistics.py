@@ -739,6 +739,142 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(int(outcomes.iloc[0]["Success Gap Days"]), 90)
         self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 90.0)
 
+    def test_reminder_outcomes_counts_early_purchase_after_sent_date(self):
+        actions = [
+            {
+                "Reminder Date": "20 Apr 2025",
+                "Due Date": "20 May 2025",
+                "Charge Date": "20 May 2024",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies Vaccine",
+                "Days": "365",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2025-04-20T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2024-05-20",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2025-04-22",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 90,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            post_reminder_window_days=7,
+            today=date(2025, 6, 10),
+            rules={"rabies": {"days": 365, "visible_text": "Rabies"}},
+        )
+
+        row = outcomes.iloc[0]
+        self.assertEqual(row["Outcome"], "Reminder Success")
+        self.assertEqual(str(row["Success Date"].date()), "2025-04-22")
+        self.assertEqual(row["Success Basis"], "After sent date")
+        self.assertEqual(float(row["Revenue"]), 90.0)
+
+    def test_reminder_outcomes_counts_overdue_purchase_after_sent_date(self):
+        actions = [
+            {
+                "Reminder Date": "01 Mar 2025",
+                "Due Date": "01 Mar 2025",
+                "Charge Date": "01 Mar 2024",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies Vaccine",
+                "Days": "365",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2025-05-20T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2024-03-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2025-05-24",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 95,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            post_reminder_window_days=7,
+            today=date(2025, 6, 10),
+            rules={"rabies": {"days": 365, "visible_text": "Rabies"}},
+        )
+
+        row = outcomes.iloc[0]
+        self.assertEqual(row["Outcome"], "Reminder Success")
+        self.assertEqual(str(row["Success Date"].date()), "2025-05-24")
+        self.assertEqual(row["Success Basis"], "After sent date")
+        self.assertEqual(float(row["Revenue"]), 95.0)
+
+    def test_reminder_outcomes_keep_pending_until_post_sent_window_closes(self):
+        actions = [
+            {
+                "Reminder Date": "01 Mar 2025",
+                "Due Date": "01 Mar 2025",
+                "Charge Date": "01 Mar 2024",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies Vaccine",
+                "Days": "365",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2025-05-20T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2024-03-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 80,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            post_reminder_window_days=7,
+            today=date(2025, 5, 24),
+            rules={"rabies": {"days": 365, "visible_text": "Rabies"}},
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Pending")
+
     def test_reminder_outcomes_prefers_sent_days_over_base_rule_days_for_quantity_rules(self):
         actions = [
             {
