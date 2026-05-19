@@ -211,7 +211,7 @@ with title_col:
             border-radius: 16px;
             box-shadow: 0 12px 34px rgba(15, 23, 42, 0.045);
             margin-bottom: 0.45rem;
-            padding: 0.95rem 1rem;
+            padding: 0.55rem 1rem 0.45rem;
         }
         div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) div[data-testid="stPopover"] {
             display: flex;
@@ -2652,7 +2652,7 @@ st.markdown(
 st.markdown("""
 <style>
 .block-container {
-    padding-top: 7rem !important;
+    padding-top: 0.5rem !important;
 }
 </style>
 """, unsafe_allow_html=True)
