@@ -11496,8 +11496,10 @@ STATS_ITEM_ACTIONING_COLUMN_HELP = {
     "Item": "Item or service from generated reminders.",
     STATISTICS_SCHEDULED_REMINDERS_LABEL: "Reminders scheduled for this item.",
     "Actioned": "Scheduled reminders marked sent or declined.",
+    "Actioned %": "Actioned reminders divided by scheduled reminders.",
     "Sent": "Scheduled reminders marked sent.",
     "Declined": "Scheduled reminders declined.",
+    "Sent %": "Sent reminders divided by actioned reminders.",
 }
 STATS_TEAM_COLUMN_HELP = {
     "Team Member": "Team member who sent or actioned reminders.",
@@ -11907,7 +11909,37 @@ def render_statistics_metric_card(label: str, value: str, help_text: str = ""):
 def prepare_statistics_display_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if frame is None or getattr(frame, "empty", True):
         return frame
-    return frame.rename(columns={"Generated": STATISTICS_SCHEDULED_REMINDERS_LABEL})
+    display_frame = frame.copy()
+    scheduled_values = (
+        pd.to_numeric(display_frame["Generated"], errors="coerce").fillna(0)
+        if "Generated" in display_frame.columns
+        else pd.Series(0, index=display_frame.index)
+    )
+    actioned_values = (
+        pd.to_numeric(display_frame["Actioned"], errors="coerce").fillna(0)
+        if "Actioned" in display_frame.columns
+        else pd.Series(0, index=display_frame.index)
+    )
+    sent_values = (
+        pd.to_numeric(display_frame["Sent"], errors="coerce").fillna(0)
+        if "Sent" in display_frame.columns
+        else pd.Series(0, index=display_frame.index)
+    )
+    if "Actioned" in display_frame.columns:
+        actioned_position = display_frame.columns.get_loc("Actioned") + 1
+        display_frame.insert(
+            actioned_position,
+            "Actioned %",
+            np.where(scheduled_values.gt(0), actioned_values / scheduled_values * 100, 0),
+        )
+    if "Declined" in display_frame.columns:
+        declined_position = display_frame.columns.get_loc("Declined") + 1
+        display_frame.insert(
+            declined_position,
+            "Sent %",
+            np.where(actioned_values.gt(0), sent_values / actioned_values * 100, 0),
+        )
+    return display_frame.rename(columns={"Generated": STATISTICS_SCHEDULED_REMINDERS_LABEL})
 
 
 def empty_outcome_frame() -> pd.DataFrame:
@@ -13362,8 +13394,10 @@ def stats_item_actioning_column_config() -> dict:
             format="%d",
         ),
         "Actioned": st.column_config.NumberColumn("Actioned", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Actioned"], format="%d"),
+        "Actioned %": st.column_config.NumberColumn("Actioned %", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Actioned %"], format="%.0f%%"),
         "Sent": st.column_config.NumberColumn("Sent", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Sent"], format="%d"),
         "Declined": st.column_config.NumberColumn("Declined", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Declined"], format="%d"),
+        "Sent %": st.column_config.NumberColumn("Sent %", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Sent %"], format="%.0f%%"),
     }
 
 

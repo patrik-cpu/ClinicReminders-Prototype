@@ -145,7 +145,7 @@ class StatisticsTests(unittest.TestCase):
         item_config = self.app.stats_item_actioning_column_config()
         team_config = self.app.stats_team_column_config()
 
-        for column in ["Item", "Scheduled reminders", "Actioned", "Sent", "Declined"]:
+        for column in ["Item", "Scheduled reminders", "Actioned", "Actioned %", "Sent", "Declined", "Sent %"]:
             with self.subTest(column=column):
                 self.assertIn(column, item_config)
                 self.assertTrue(item_config[column]["help"])
@@ -157,6 +157,10 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertIn("Reminders scheduled", item_config["Scheduled reminders"]["help"])
         self.assertIn("sent or declined", item_config["Actioned"]["help"])
+        self.assertIn("Actioned reminders divided", item_config["Actioned %"]["help"])
+        self.assertIn("Sent reminders divided", item_config["Sent %"]["help"])
+        self.assertEqual(item_config["Actioned %"]["type_config"]["format"], "%.0f%%")
+        self.assertEqual(item_config["Sent %"]["type_config"]["format"], "%.0f%%")
         self.assertIn("outcome matching", team_config["Sent Reminders"]["help"])
         self.assertIn("sent or declined", team_config["Actioned"]["help"])
         self.assertEqual(team_config["Success Rate"]["type_config"]["format"], "%.0f%%")
@@ -218,14 +222,19 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Unique reminded item purchase cycles", html)
         self.assertNotIn(">Sent<", html)
 
-    def test_statistics_display_frame_renames_generated_for_users(self):
-        frame = pd.DataFrame([{"Generated": 2, "Actioned": 1}])
+    def test_statistics_display_frame_renames_generated_and_adds_actioning_rates(self):
+        frame = pd.DataFrame([{"Generated": 4, "Actioned": 2, "Sent": 1, "Declined": 1}])
 
         display_frame = self.app.prepare_statistics_display_frame(frame)
 
-        self.assertIn("Scheduled reminders", display_frame.columns)
+        self.assertEqual(
+            display_frame.columns.tolist(),
+            ["Scheduled reminders", "Actioned", "Actioned %", "Sent", "Declined", "Sent %"],
+        )
         self.assertNotIn("Generated", display_frame.columns)
-        self.assertEqual(display_frame.iloc[0]["Scheduled reminders"], 2)
+        self.assertEqual(display_frame.iloc[0]["Scheduled reminders"], 4)
+        self.assertEqual(display_frame.iloc[0]["Actioned %"], 50)
+        self.assertEqual(display_frame.iloc[0]["Sent %"], 50)
 
     def test_statistics_exclusion_fingerprint_tracks_filter_changes(self):
         state = self.app.st.session_state
