@@ -11360,10 +11360,61 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Success Rate": "Percentage of sent reminders that became successful by either success window.",
     "Revenue from Successes": "Revenue from repeat purchases that counted as reminder successes.",
     "Revenue per Year": "Estimated annual revenue from actual repeat purchases, using the overall average purchase gap.",
-    "Theoretical Max Revenue": "Estimated annual revenue if all matching purchases repeated at the desired gap.",
+    "Theoretical Max Revenue": "Estimated annual ceiling using all matching purchases and the faster of actual or desired cadence.",
     "Captured Revenue %": "Revenue per year divided by theoretical max revenue.",
     "Matched Item": "Purchased item that counted as the success.",
     "Next Matched Item": "Next matching purchased item after the billed date.",
+}
+OUTCOME_DISPLAY_CURRENCY_COLUMNS = [
+    "Revenue",
+    "Revenue per Year",
+    "Theoretical Max Revenue",
+]
+OUTCOME_DISPLAY_COLUMN_TITLES = {
+    "No Match": "No\nMatch",
+    "Success Rate": "Success\nRate",
+    "Desired Gap Days": "Desired\nGap Days",
+    "Success Gap Days": "Success\nGap Days",
+    "Next Purchase Gap Days": "Next Purchase\nGap Days",
+    "Avg Success Gap Days": "Avg Success\nGap Days",
+    "Overall Avg Purchase Gap Days": "Overall Avg\nPurchase Gap\nDays",
+    "Gap Day % to Desired": "Gap Day %\nto Desired",
+    "Overall Repeat Purchases": "Overall Repeat\nPurchases",
+    "Overall Purchases": "Overall\nPurchases",
+    "Repeat Purchase %": "Repeat\nPurchase %",
+    "Revenue from Successes": "Revenue from\nSuccesses",
+    "Revenue per Year": "Revenue\nper Year",
+    "Theoretical Max Revenue": "Theoretical\nMax Revenue",
+    "Captured Revenue %": "Captured\nRevenue %",
+}
+OUTCOME_DISPLAY_COLUMN_WIDTHS = {
+    "Billed Date": "small",
+    "Reminder Date": "small",
+    "Sent Date": "small",
+    "Actioned Date": "small",
+    "Due Date": "small",
+    "Window Starts": "small",
+    "Window Ends": "small",
+    "Next Purchase Date": "small",
+    "Success Date": "small",
+    "Sent": "small",
+    "Successes": "small",
+    "Pending": "small",
+    "No Match": "small",
+    "Success Rate": "small",
+    "Desired Gap Days": "small",
+    "Success Gap Days": "small",
+    "Next Purchase Gap Days": "small",
+    "Avg Success Gap Days": "small",
+    "Overall Avg Purchase Gap Days": "small",
+    "Gap Day % to Desired": "small",
+    "Overall Repeat Purchases": "small",
+    "Overall Purchases": "small",
+    "Repeat Purchase %": "small",
+    "Revenue from Successes": "small",
+    "Revenue per Year": "small",
+    "Theoretical Max Revenue": "small",
+    "Captured Revenue %": "small",
 }
 STATS_SUMMARY_CARD_HELP = {
     "Total Reminded Items": "Unique reminded item purchase cycles included in outcome matching. Multiple reminder steps for the same item cycle count once.",
@@ -12611,6 +12662,9 @@ def build_reminder_outcomes(
     average_item_revenue_values = pd.to_numeric(outcomes["_OutcomeAvgItemRevenue"], errors="coerce").fillna(0.0)
     overall_repeat_purchase_values = pd.to_numeric(outcomes["Overall Repeat Purchases"], errors="coerce").fillna(0.0)
     overall_purchase_values = pd.to_numeric(outcomes["Overall Purchases"], errors="coerce").fillna(0.0)
+    actual_interval_values = np.where(overall_gap_values.gt(0), 365 / overall_gap_values, np.nan)
+    desired_interval_values = np.where(desired_gap_values.gt(0), 365 / desired_gap_values, np.nan)
+    max_interval_values = np.fmax(actual_interval_values, desired_interval_values)
     outcomes["Gap Day % to Desired"] = np.where(
         desired_gap_values.gt(0) & overall_gap_values.notna(),
         overall_gap_values / desired_gap_values,
@@ -12622,8 +12676,8 @@ def build_reminder_outcomes(
         None,
     )
     outcomes["Theoretical Max Revenue"] = np.where(
-        desired_gap_values.gt(0),
-        average_item_revenue_values * overall_purchase_values * (365 / desired_gap_values),
+        ~np.isnan(max_interval_values),
+        average_item_revenue_values * overall_purchase_values * max_interval_values,
         None,
     )
     revenue_per_year_values = pd.to_numeric(outcomes["Revenue per Year"], errors="coerce")
@@ -13063,6 +13117,7 @@ def build_stats_team_frame(
         merged[column] = pd.to_numeric(merged[column], errors="coerce").fillna(0)
     for column in ["Sent Reminders", "Successes", "Pending", "No Match", "Actioned", "Sent Actions", "Declined Actions"]:
         merged[column] = merged[column].astype(int)
+    merged["Revenue"] = merged["Revenue"].round().astype("Int64")
     merged["Team Member"] = merged["Team Member"].fillna("").astype(str).str.strip().replace("", "Unknown")
     merged["Last Actioned"] = merged["Last Actioned"].fillna("").astype(str)
     return (
@@ -13162,107 +13217,82 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
         display_frame["Captured Revenue %"] = (
             pd.to_numeric(display_frame["Captured Revenue %"], errors="coerce") * 100
         )
+    for column in OUTCOME_DISPLAY_CURRENCY_COLUMNS:
+        if column in display_frame.columns:
+            display_frame[column] = (
+                pd.to_numeric(display_frame[column], errors="coerce")
+                .round()
+                .astype("Int64")
+            )
     display_frame = display_frame.rename(columns=OUTCOME_DISPLAY_COLUMN_LABELS)
     return display_frame
 
 
+def outcome_display_column_title(column: str) -> str:
+    return OUTCOME_DISPLAY_COLUMN_TITLES.get(column, column)
+
+
+def outcome_display_column_width(column: str) -> str | None:
+    return OUTCOME_DISPLAY_COLUMN_WIDTHS.get(column)
+
+
+def outcome_display_text_column(column: str):
+    kwargs = {
+        "help": OUTCOME_DISPLAY_COLUMN_HELP[column],
+    }
+    width = outcome_display_column_width(column)
+    if width:
+        kwargs["width"] = width
+    return st.column_config.TextColumn(
+        outcome_display_column_title(column),
+        **kwargs,
+    )
+
+
+def outcome_display_number_column(column: str, number_format: str):
+    kwargs = {
+        "help": OUTCOME_DISPLAY_COLUMN_HELP[column],
+        "format": number_format,
+    }
+    width = outcome_display_column_width(column)
+    if width:
+        kwargs["width"] = width
+    return st.column_config.NumberColumn(
+        outcome_display_column_title(column),
+        **kwargs,
+    )
+
+
 def outcome_display_column_config() -> dict:
     column_config = {
-        column: st.column_config.TextColumn(column, help=help_text)
-        for column, help_text in OUTCOME_DISPLAY_COLUMN_HELP.items()
+        column: outcome_display_text_column(column)
+        for column in OUTCOME_DISPLAY_COLUMN_HELP
     }
     column_config.update({
-        "Sent": st.column_config.NumberColumn(
-            "Sent",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Sent"],
-            format="%d",
-        ),
-        "Successes": st.column_config.NumberColumn(
-            "Successes",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Successes"],
-            format="%d",
-        ),
-        "Pending": st.column_config.NumberColumn(
-            "Pending",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Pending"],
-            format="%d",
-        ),
-        "No Match": st.column_config.NumberColumn(
-            "No Match",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["No Match"],
-            format="%d",
-        ),
-        "Desired Gap Days": st.column_config.NumberColumn(
-            "Desired Gap Days",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Desired Gap Days"],
-            format="%.0f",
-        ),
-        "Success Gap Days": st.column_config.NumberColumn(
-            "Success Gap Days",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Success Gap Days"],
-            format="%.0f",
-        ),
-        "Next Purchase Gap Days": st.column_config.NumberColumn(
-            "Next Purchase Gap Days",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Next Purchase Gap Days"],
-            format="%.0f",
-        ),
-        "Avg Success Gap Days": st.column_config.NumberColumn(
-            "Avg Success Gap Days",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Avg Success Gap Days"],
-            format="%.1f",
-        ),
-        "Overall Avg Purchase Gap Days": st.column_config.NumberColumn(
-            "Overall Avg Purchase Gap Days",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Overall Avg Purchase Gap Days"],
-            format="%.0f",
-        ),
-        "Gap Day % to Desired": st.column_config.NumberColumn(
-            "Gap Day % to Desired",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Gap Day % to Desired"],
-            format="%.0f%%",
-        ),
-        "Overall Repeat Purchases": st.column_config.NumberColumn(
-            "Overall Repeat Purchases",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Overall Repeat Purchases"],
-            format="%d",
-        ),
-        "Overall Purchases": st.column_config.NumberColumn(
-            "Overall Purchases",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Overall Purchases"],
-            format="%d",
-        ),
-        "Repeat Purchase %": st.column_config.NumberColumn(
-            "Repeat Purchase %",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Repeat Purchase %"],
-            format="%.0f%%",
-        ),
-        "Revenue from Successes": st.column_config.NumberColumn(
-            "Revenue from Successes",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Revenue from Successes"],
-            format="localized",
-        ),
-        "Revenue per Year": st.column_config.NumberColumn(
-            "Revenue per Year",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Revenue per Year"],
-            format="localized",
-        ),
-        "Theoretical Max Revenue": st.column_config.NumberColumn(
-            "Theoretical Max Revenue",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Theoretical Max Revenue"],
-            format="localized",
-        ),
-        "Captured Revenue %": st.column_config.NumberColumn(
-            "Captured Revenue %",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Captured Revenue %"],
-            format="%.0f%%",
-        ),
+        "Sent": outcome_display_number_column("Sent", "%d"),
+        "Successes": outcome_display_number_column("Successes", "%d"),
+        "Pending": outcome_display_number_column("Pending", "%d"),
+        "No Match": outcome_display_number_column("No Match", "%d"),
+        "Desired Gap Days": outcome_display_number_column("Desired Gap Days", "%.0f"),
+        "Success Gap Days": outcome_display_number_column("Success Gap Days", "%.0f"),
+        "Next Purchase Gap Days": outcome_display_number_column("Next Purchase Gap Days", "%.0f"),
+        "Avg Success Gap Days": outcome_display_number_column("Avg Success Gap Days", "%.1f"),
+        "Overall Avg Purchase Gap Days": outcome_display_number_column("Overall Avg Purchase Gap Days", "%.0f"),
+        "Gap Day % to Desired": outcome_display_number_column("Gap Day % to Desired", "%.0f%%"),
+        "Overall Repeat Purchases": outcome_display_number_column("Overall Repeat Purchases", "%d"),
+        "Overall Purchases": outcome_display_number_column("Overall Purchases", "%d"),
+        "Repeat Purchase %": outcome_display_number_column("Repeat Purchase %", "%.0f%%"),
+        "Revenue from Successes": outcome_display_number_column("Revenue from Successes", "localized"),
+        "Revenue per Year": outcome_display_number_column("Revenue per Year", "localized"),
+        "Theoretical Max Revenue": outcome_display_number_column("Theoretical Max Revenue", "localized"),
+        "Captured Revenue %": outcome_display_number_column("Captured Revenue %", "%.0f%%"),
         "Success Rate": st.column_config.ProgressColumn(
-            "Success Rate",
+            outcome_display_column_title("Success Rate"),
             help=OUTCOME_DISPLAY_COLUMN_HELP["Success Rate"],
             format="percent",
             min_value=0,
             max_value=1,
+            width=outcome_display_column_width("Success Rate"),
         ),
     })
     return column_config

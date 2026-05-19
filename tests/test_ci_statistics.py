@@ -120,7 +120,7 @@ class StatisticsTests(unittest.TestCase):
                     "Pending": 1,
                     "No Match": 1,
                     "Success Rate": 1 / 3,
-                    "Revenue": 120,
+                    "Revenue": 120.4,
                 },
             ]
         )
@@ -135,6 +135,7 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertEqual(rows["Nurse A"]["Sent Reminders"], 3)
         self.assertEqual(rows["Nurse A"]["Successes"], 1)
+        self.assertEqual(rows["Nurse A"]["Revenue"], 120)
         self.assertEqual(rows["Nurse A"]["Actioned"], 1)
         self.assertEqual(rows["Nurse A"]["Sent Actions"], 1)
         self.assertEqual(rows["Nurse B"]["Sent Reminders"], 0)
@@ -786,6 +787,54 @@ class StatisticsTests(unittest.TestCase):
         self.assertAlmostEqual(float(row["Revenue per Year"]), 85 * 1 * (365 / 91))
         self.assertAlmostEqual(float(row["Theoretical Max Revenue"]), 85 * 2 * (365 / 90))
         self.assertEqual(row["Matched Item"], "Bravecto Spot On Cats 0.89 ml 2.8 - 6.25 kg")
+
+    def test_revenue_opportunity_max_uses_faster_actual_or_desired_gap(self):
+        actions = [
+            {
+                "Reminder Date": "02 Dec 2025",
+                "Due Date": "01 Jan 2026",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies Vaccine",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-18T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2025-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 100,
+                },
+                {
+                    "ChargeDate": "2025-01-23",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 100,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            today=date(2026, 6, 1),
+            rules={"rabies": {"days": 365, "visible_text": "Rabies"}},
+        )
+
+        row = outcomes.iloc[0]
+        self.assertEqual(int(row["Avg Item Purchase Gap Days"]), 22)
+        self.assertAlmostEqual(float(row["Revenue per Year"]), 100 * 1 * (365 / 22))
+        self.assertAlmostEqual(float(row["Theoretical Max Revenue"]), 100 * 2 * (365 / 22))
+        self.assertLessEqual(float(row["Revenue per Year"]), float(row["Theoretical Max Revenue"]))
+        self.assertAlmostEqual(float(row["Captured Revenue %"]), 0.5)
 
     def test_reminder_outcomes_counts_success_inside_user_defined_window(self):
         actions = [
@@ -1694,9 +1743,9 @@ class StatisticsTests(unittest.TestCase):
                 "Overall Repeat Purchases": 3,
                 "Overall Purchases": 4,
                 "Repeat Purchase %": 0.75,
-                "Revenue": 120,
-                "Revenue per Year": 300,
-                "Theoretical Max Revenue": 600,
+                "Revenue": 120.4,
+                "Revenue per Year": 300.6,
+                "Theoretical Max Revenue": 600.2,
                 "Captured Revenue %": 0.5,
             }
         ])
@@ -1729,15 +1778,23 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(column_config["Gap Day % to Desired"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Repeat Purchase %"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Captured Revenue %"]["type_config"]["format"], "%.0f%%")
+        self.assertEqual(column_config["Revenue from Successes"]["type_config"]["format"], "localized")
+        self.assertEqual(column_config["Revenue per Year"]["type_config"]["format"], "localized")
+        self.assertEqual(column_config["Theoretical Max Revenue"]["type_config"]["format"], "localized")
+        self.assertEqual(column_config["Revenue from Successes"]["label"], "Revenue from\nSuccesses")
+        self.assertEqual(column_config["Overall Avg Purchase Gap Days"]["label"], "Overall Avg\nPurchase Gap\nDays")
         self.assertEqual(round(rendered_frame.iloc[0]["Gap Day % to Desired"]), 101)
         self.assertEqual(rendered_frame.iloc[0]["Repeat Purchase %"], 75)
         self.assertEqual(rendered_frame.iloc[0]["Captured Revenue %"], 50)
+        self.assertEqual(rendered_frame.iloc[0]["Revenue from Successes"], 120)
+        self.assertEqual(rendered_frame.iloc[0]["Revenue per Year"], 301)
+        self.assertEqual(rendered_frame.iloc[0]["Theoretical Max Revenue"], 600)
         self.assertIn("Average gap", column_config["Overall Avg Purchase Gap Days"]["help"])
         self.assertIn("Overall average purchase gap compared with the desired gap", column_config["Gap Day % to Desired"]["help"])
         self.assertIn("Percentage of matching purchases", column_config["Repeat Purchase %"]["help"])
         self.assertIn("Revenue from repeat purchases", column_config["Revenue from Successes"]["help"])
         self.assertIn("Estimated annual revenue", column_config["Revenue per Year"]["help"])
-        self.assertIn("desired gap", column_config["Theoretical Max Revenue"]["help"])
+        self.assertIn("faster of actual or desired cadence", column_config["Theoretical Max Revenue"]["help"])
         self.assertIn("Revenue per year divided", column_config["Captured Revenue %"]["help"])
         self.assertIn("Current result", column_config["Outcome"]["help"])
         self.assertNotIn("Avg Item Purchase Gap Days", rendered_frame.columns)
@@ -1762,9 +1819,9 @@ class StatisticsTests(unittest.TestCase):
                     "Overall Repeat Purchases": 3,
                     "Overall Purchases": 4,
                     "Repeat Purchase %": 0.75,
-                    "Revenue": 120,
-                    "Revenue per Year": 300,
-                    "Theoretical Max Revenue": 600,
+                    "Revenue": 120.4,
+                    "Revenue per Year": 300.6,
+                    "Theoretical Max Revenue": 600.2,
                     "Captured Revenue %": 0.5,
                     "Client Name": "Client A",
                 }
@@ -1790,6 +1847,9 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(round(display_frame.iloc[0]["Gap Day % to Desired"]), 101)
         self.assertEqual(display_frame.iloc[0]["Repeat Purchase %"], 75)
         self.assertEqual(display_frame.iloc[0]["Captured Revenue %"], 50)
+        self.assertEqual(display_frame.iloc[0]["Revenue from Successes"], 120)
+        self.assertEqual(display_frame.iloc[0]["Revenue per Year"], 301)
+        self.assertEqual(display_frame.iloc[0]["Theoretical Max Revenue"], 600)
         self.assertNotIn("Revenue", display_frame.columns)
         self.assertNotIn("Avg Item Purchase Gap Days", display_frame.columns)
         self.assertEqual(display_frame.iloc[0]["Due Date"], "")
