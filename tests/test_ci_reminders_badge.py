@@ -111,9 +111,10 @@ class RemindersBadgeTests(unittest.TestCase):
             {**actioned_today_row, "Action": self.app.REMINDER_ACTION_SENT},
         ]
         mock_bundle = mock.Mock(return_value=grouped)
+        rules = {"rabies": {"days": 365}}
 
         with (
-            mock.patch.object(self.app, "get_applied_reminder_rules", return_value={}),
+            mock.patch.object(self.app, "get_applied_reminder_rules", return_value=rules),
             mock.patch.object(self.app, "get_prepared_df", return_value=prepared),
             mock.patch.object(self.app, "bundle_client_reminders_by_window", mock_bundle),
         ):
@@ -124,7 +125,7 @@ class RemindersBadgeTests(unittest.TestCase):
         self.assertEqual(due_df["ReminderDateTs"].max(), pd.Timestamp("2026-05-16"))
         self.assertEqual(count, 2)
 
-    def test_badge_count_reuses_cache_until_action_state_changes(self):
+    def test_badge_count_reuses_grouped_window_after_action_state_changes(self):
         reminder_row = {
             "Reminder Date": "16 May 2026",
             "Due Date": "16 May 2026",
@@ -143,9 +144,10 @@ class RemindersBadgeTests(unittest.TestCase):
         state["reminder_lookback_days"] = 0
         state["client_group_days"] = 1
         mock_bundle = mock.Mock(return_value=grouped)
+        rules = {"rabies": {"days": 365}}
 
         with (
-            mock.patch.object(self.app, "get_applied_reminder_rules", return_value={}),
+            mock.patch.object(self.app, "get_applied_reminder_rules", return_value=rules),
             mock.patch.object(self.app, "get_prepared_df", return_value=prepared),
             mock.patch.object(self.app, "bundle_client_reminders_by_window", mock_bundle),
         ):
@@ -159,7 +161,91 @@ class RemindersBadgeTests(unittest.TestCase):
         self.assertEqual(first_count, 1)
         self.assertEqual(second_count, 1)
         self.assertEqual(third_count, 0)
-        self.assertEqual(mock_bundle.call_count, 2)
+        self.assertEqual(mock_bundle.call_count, 1)
+
+    def test_badge_count_without_rules_skips_prepared_dataframe_work(self):
+        state = self.app.st.session_state
+        state["working_df"] = pd.DataFrame({"row": [1]})
+
+        with (
+            mock.patch.object(self.app, "get_applied_reminder_rules", return_value={}),
+            mock.patch.object(self.app, "get_prepared_df", side_effect=AssertionError("no rules should not prepare reminders")),
+        ):
+            count = self.app.get_active_reminder_badge_count(today=date(2026, 5, 16))
+
+        self.assertEqual(count, 0)
+
+    def test_hidden_reminders_index_invalidates_after_in_place_key_change(self):
+        record = {
+            "Reminder Date": "16 May 2026",
+            "Due Date": "16 May 2026",
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies",
+        }
+        state = self.app.st.session_state
+        state["deleted_reminders"] = [record]
+
+        original_index = self.app.get_hidden_reminders_index()
+        self.assertIn(self.app.hidden_reminder_key(record), original_index)
+
+        original_key = self.app.hidden_reminder_key(record)
+        record["Client Name"] = "Client B"
+        updated_key = self.app.hidden_reminder_key(record)
+        updated_index = self.app.get_hidden_reminders_index()
+
+        self.assertNotIn(original_key, updated_index)
+        self.assertIn(updated_key, updated_index)
+
+    def test_active_reminder_window_reuses_filter_exclusion_and_grouping_work(self):
+        prepared = pd.DataFrame({
+            "ReminderDateTs": pd.to_datetime(["2026-05-15", "2026-05-16", "2026-05-20"]),
+            "NextDueDate": pd.to_datetime(["2026-05-15", "2026-05-16", "2026-05-20"]),
+            "Client Name": ["Client A", "Client B", "Client C"],
+            "Animal Name": ["Pet A", "Pet B", "Pet C"],
+            "Plan Item": ["Rabies", "Dental", "Nails"],
+        })
+        grouped = pd.DataFrame([
+            {
+                "Reminder Date": "15 May 2026",
+                "Due Date": "15 May 2026",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies",
+            },
+            {
+                "Reminder Date": "16 May 2026",
+                "Due Date": "16 May 2026",
+                "Client Name": "Client B",
+                "Animal Name": "Pet B",
+                "Plan Item": "Dental",
+            },
+        ])
+        mock_bundle = mock.Mock(return_value=grouped)
+
+        with mock.patch.object(self.app, "bundle_client_reminders_by_window", mock_bundle):
+            first_grouped, first_before_exclusions = self.app.build_active_reminder_window(
+                prepared,
+                {},
+                date(2026, 5, 15),
+                date(2026, 5, 16),
+                1,
+            )
+            second_grouped, second_before_exclusions = self.app.build_active_reminder_window(
+                prepared,
+                {},
+                date(2026, 5, 15),
+                date(2026, 5, 16),
+                1,
+            )
+
+        self.assertEqual(first_before_exclusions, 2)
+        self.assertEqual(second_before_exclusions, 2)
+        pd.testing.assert_frame_equal(first_grouped, grouped)
+        pd.testing.assert_frame_equal(second_grouped, grouped)
+        self.assertEqual(mock_bundle.call_count, 1)
+        due_df = mock_bundle.call_args.args[0]
+        self.assertEqual(list(due_df["Client Name"]), ["Client A", "Client B"])
 
     def test_caught_up_banner_copy_only_when_notification_count_is_zero(self):
         self.assertIsNone(self.app.reminders_caught_up_banner_copy(active_count=2, lookback_days=5))

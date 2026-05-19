@@ -48,7 +48,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 from google.oauth2.service_account import Credentials
 from googleapiclient.errors import HttpError
-from io import BytesIO
+from io import BytesIO, TextIOWrapper
 PREPARED_SCHEMA_VERSION = 5
 SESSION_BUNDLE_SCHEMA_VERSION = 1
 STATISTICS_GENERATED_SCHEMA_VERSION = 1
@@ -3708,7 +3708,7 @@ def dataset_date_bounds(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Times
     if df is None or getattr(df, "empty", True) or "ChargeDate" not in df.columns:
         return None, None
 
-    dates = parse_dates(df["ChargeDate"])
+    dates = normalized_charge_dates(df["ChargeDate"])
     dmin = dates.min()
     dmax = dates.max()
     if pd.isna(dmin) or pd.isna(dmax):
@@ -4001,26 +4001,40 @@ def merge_dataset_update(
     if existing_df is None or getattr(existing_df, "empty", True):
         return drop_duplicate_billed_item_rows(new_df)
 
-    existing = existing_df.copy()
-    new = new_df.copy()
+    existing = existing_df
+    new = new_df
 
     if replace_overlapping_dates:
         new_min, new_max = dataset_date_bounds(new)
         if new_min is not None and new_max is not None and "ChargeDate" in existing.columns:
-            existing_dates = parse_dates(existing["ChargeDate"])
+            existing_dates = normalized_charge_dates(existing["ChargeDate"])
             keep_existing = existing_dates.isna() | (existing_dates < new_min) | (existing_dates > new_max)
             existing = existing.loc[keep_existing].copy()
 
     merged = pd.concat([existing, new], ignore_index=True, sort=False)
     merged = drop_duplicate_billed_item_rows(merged, keep="last")
     if "ChargeDate" in merged.columns:
-        merged["_sort_charge_date"] = parse_dates(merged["ChargeDate"])
+        merged["_sort_charge_date"] = normalized_charge_dates(merged["ChargeDate"])
         merged = (
             merged.sort_values("_sort_charge_date", kind="mergesort")
             .drop(columns=["_sort_charge_date"])
             .reset_index(drop=True)
         )
     return merged
+
+
+def dataframe_to_csv_bytes(df: pd.DataFrame) -> bytes:
+    buffer = BytesIO()
+    text_buffer = TextIOWrapper(buffer, encoding="utf-8", newline="")
+    try:
+        df.to_csv(text_buffer, index=False)
+        text_buffer.flush()
+        return buffer.getvalue()
+    finally:
+        try:
+            text_buffer.detach()
+        except ValueError:
+            pass
 
 
 def publish_dataset_for_clinic(
@@ -4074,7 +4088,7 @@ def publish_dataset_for_clinic(
 
     # 4) Upload merged dataset to Drive
     out_name  = f"{clinic_id}_shared_dataset.csv"
-    out_bytes = merged_df.to_csv(index=False).encode("utf-8")
+    out_bytes = dataframe_to_csv_bytes(merged_df)
 
     operation_id = make_dataset_publish_operation_id()
     record_dataset_tracker_event(
@@ -5140,7 +5154,11 @@ def reminder_details_json(row) -> str:
 
 def get_hidden_reminders_index() -> dict[tuple[str, ...], dict]:
     deleted = st.session_state.get("deleted_reminders", [])
-    cache_key = (id(deleted), len(deleted))
+    cache_key = tuple(
+        hidden_reminder_key(entry)
+        for entry in deleted
+        if isinstance(entry, dict)
+    )
     cached = st.session_state.get("_hidden_reminders_index_cache")
     if isinstance(cached, dict) and cached.get("cache_key") == cache_key:
         return cached.get("index", {})
@@ -6226,6 +6244,18 @@ def parse_dates(series: pd.Series) -> pd.Series:
     return parsed_dates.dt.normalize()
 
 
+def normalized_charge_dates(series: pd.Series) -> pd.Series:
+    if series is None:
+        return pd.Series(dtype="datetime64[ns]")
+    series = pd.Series(series, copy=False)
+    if pd.api.types.is_datetime64_any_dtype(series):
+        try:
+            return pd.to_datetime(series, errors="coerce").dt.normalize()
+        except (AttributeError, TypeError, ValueError):
+            pass
+    return parse_dates(series)
+
+
 class UploadValidationError(ValueError):
     pass
 
@@ -6381,7 +6411,7 @@ def finalize_processed_upload_df(df: pd.DataFrame, filename: str) -> pd.DataFram
 # --------------------------------
 # File processing (decoupled from rules)
 # --------------------------------
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=8)
 def process_file(file_bytes, filename):
     """
     Load and normalize uploaded data files across supported PMS types.
@@ -8404,15 +8434,23 @@ def _to_blob(uploaded):
         )
     b = uploaded.getvalue()
     validate_upload_file_size(b, uploaded.name)
-    return {"name": uploaded.name, "bytes": b}
+    return {
+        "name": uploaded.name,
+        "bytes": b,
+        "sha256": hashlib.sha256(b).hexdigest(),
+        "size": len(b),
+    }
 
 def upload_fingerprint(file_blobs) -> str:
     validate_upload_file_collection(file_blobs)
     h = hashlib.sha256()
     for fb in file_blobs:
+        content_digest = str(fb.get("sha256") or "").strip()
+        if not content_digest:
+            content_digest = hashlib.sha256(fb["bytes"]).hexdigest()
         h.update(str(fb["name"]).encode("utf-8"))
         h.update(b"\0")
-        h.update(fb["bytes"])
+        h.update(content_digest.encode("ascii", errors="ignore"))
         h.update(b"\0")
     return h.hexdigest()
 
@@ -8422,6 +8460,16 @@ def upload_save_can_be_skipped(current_upload_key: str, last_saved_upload_key: s
     if not current_upload_key or current_upload_key != str(last_saved_upload_key or ""):
         return False
     return bool(normalize_dataset_upload_history(upload_history))
+
+
+def repair_saved_upload_history_if_missing(file_blobs, saved_upload_history) -> bool:
+    if normalize_dataset_upload_history(saved_upload_history):
+        return False
+    try:
+        _, summary_rows = summarize_uploads(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
+    except Exception:
+        summary_rows = []
+    return bool(summary_rows and repair_dataset_upload_history_from_rows(summary_rows))
 
 
 def finish_authenticated_session(
@@ -8460,7 +8508,6 @@ def finish_authenticated_session(
     )
 
 
-@st.cache_data(show_spinner=False)
 def summarize_uploads(file_blobs, cache_version: int = UPLOAD_SUMMARY_SCHEMA_VERSION):
     validate_upload_file_collection(file_blobs)
     datasets, summary_rows = [], []
@@ -8468,7 +8515,7 @@ def summarize_uploads(file_blobs, cache_version: int = UPLOAD_SUMMARY_SCHEMA_VER
         df, pms_name, amount_col = process_file(fb["bytes"], fb["name"])
         validate_upload_dataframe(df, fb["name"])
         pms_name = pms_name or "Canonical CSV"
-        charge_dates = parse_dates(df["ChargeDate"])
+        charge_dates = normalized_charge_dates(df["ChargeDate"])
         from_date = charge_dates.min()
         to_date = charge_dates.max()
         summary_rows.append({
@@ -8480,6 +8527,11 @@ def summarize_uploads(file_blobs, cache_version: int = UPLOAD_SUMMARY_SCHEMA_VER
         })
         datasets.append((pms_name, df))
     return datasets, summary_rows
+
+
+def clear_upload_parse_caches() -> None:
+    process_file.clear()
+
 
 @st.cache_data(show_spinner=False)
 def prepare_session_bundle(df: pd.DataFrame, cache_key: str):
@@ -9444,7 +9496,7 @@ def remove_dataset_upload_at_index(remove_idx: int):
         st.session_state.pop("_shared_dataset_loaded_for", None)
     else:
         out_name = existing_name or f"{clinic_id}_shared_dataset.csv"
-        out_bytes = remaining_df.drop(columns=["_ChargeDate_raw"], errors="ignore").to_csv(index=False).encode("utf-8")
+        out_bytes = dataframe_to_csv_bytes(remaining_df.drop(columns=["_ChargeDate_raw"], errors="ignore"))
         new_file_id = drive_upsert_csv_bytes(
             file_bytes=out_bytes,
             filename=out_name,
@@ -10169,6 +10221,85 @@ def filter_sales_as_of_date(working_df: pd.DataFrame, as_of_date: date | None) -
     return working_df.loc[keep_mask].copy()
 
 
+def empty_grouped_reminders_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "Reminder Date",
+            "Due Date",
+            "Charge Date",
+            "Client Name",
+            "Animal Name",
+            "Plan Item",
+            "Qty",
+            "Days",
+            "ReminderDetails",
+        ]
+    )
+
+
+def active_reminder_window_cache_key(
+    prepared: pd.DataFrame,
+    rules: dict,
+    start_date: date,
+    end_date: date,
+    group_days: int,
+) -> tuple:
+    return (
+        int(st.session_state.get("data_version", 0) or 0),
+        id(prepared),
+        len(prepared.index) if isinstance(prepared, pd.DataFrame) else 0,
+        tuple(prepared.columns) if isinstance(prepared, pd.DataFrame) else (),
+        _rules_fp(rules),
+        statistics_exclusion_fp(),
+        start_date.isoformat(),
+        end_date.isoformat(),
+        int(group_days or 0),
+        PREPARED_SCHEMA_VERSION,
+    )
+
+
+def build_active_reminder_window(
+    prepared: pd.DataFrame,
+    rules: dict,
+    start_date: date,
+    end_date: date,
+    group_days: int,
+) -> tuple[pd.DataFrame, int]:
+    if prepared is None or prepared.empty:
+        return empty_grouped_reminders_frame(), 0
+
+    cache_key = active_reminder_window_cache_key(prepared, rules, start_date, end_date, group_days)
+    cached = st.session_state.get("_active_reminder_window_cache")
+    if isinstance(cached, dict) and cached.get("key") == cache_key:
+        grouped = cached.get("grouped")
+        reminders_before_exclusions = int(cached.get("reminders_before_exclusions", 0) or 0)
+        if isinstance(grouped, pd.DataFrame):
+            return grouped.copy(), reminders_before_exclusions
+
+    reminder_ts = prepared.get("ReminderDateTs")
+    if reminder_ts is None:
+        reminder_ts = prepared.get("NextDueDateTs")
+    if reminder_ts is None:
+        reminder_ts = pd.to_datetime(prepared["NextDueDate"], errors="coerce")
+
+    start_ts = pd.Timestamp(start_date)
+    end_ts = pd.Timestamp(end_date)
+    due = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
+    reminders_before_exclusions = len(due)
+    due = apply_reminder_exclusion_filters(due, rules)
+    grouped = (
+        bundle_client_reminders_by_window(due, window_days=group_days, rules=rules)
+        if not due.empty
+        else empty_grouped_reminders_frame()
+    )
+    st.session_state["_active_reminder_window_cache"] = {
+        "key": cache_key,
+        "grouped": grouped.copy(),
+        "reminders_before_exclusions": reminders_before_exclusions,
+    }
+    return grouped, reminders_before_exclusions
+
+
 def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     key = (st.session_state.get("data_version", 0), _rules_fp(rules), PREPARED_SCHEMA_VERSION)
     if st.session_state.get("prepared_key") != key:
@@ -10378,26 +10509,20 @@ def get_active_reminder_badge_count(today: date | None = None) -> int:
     lookback_start_date = today - timedelta(days=normalized_reminder_lookback_days())
     try:
         rules = get_applied_reminder_rules()
+        if not rules:
+            return 0
         cache_key = active_reminder_badge_cache_key(today, rules)
         cached = st.session_state.get("_active_reminder_badge_cache")
         if isinstance(cached, dict) and cached.get("key") == cache_key:
             return int(cached.get("count", 0) or 0)
         prepared = get_prepared_df(working_df, rules)
-        reminder_ts = prepared.get("ReminderDateTs")
-        if reminder_ts is None:
-            reminder_ts = prepared.get("NextDueDateTs")
-        if reminder_ts is None:
-            reminder_ts = pd.to_datetime(prepared["NextDueDate"], errors="coerce")
-
-        start_ts = pd.Timestamp(lookback_start_date)
-        end_ts = pd.Timestamp(today)
-        due = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
-        due = apply_reminder_exclusion_filters(due, rules)
-        if due.empty:
-            st.session_state["_active_reminder_badge_cache"] = {"key": cache_key, "count": 0}
-            return 0
-
-        grouped = bundle_client_reminders_by_window(due, window_days=normalized_reminder_group_days(), rules=rules)
+        grouped, _ = build_active_reminder_window(
+            prepared,
+            rules,
+            lookback_start_date,
+            today,
+            normalized_reminder_group_days(),
+        )
         if grouped.empty:
             st.session_state["_active_reminder_badge_cache"] = {"key": cache_key, "count": 0}
             return 0
@@ -10910,16 +11035,10 @@ if active_main_section == "Upload Data":
             st.session_state.get("last_saved_upload_key", ""),
             saved_upload_history,
         ):
-            try:
-                _, summary_rows = summarize_uploads(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
-            except Exception:
-                summary_rows = []
-            existing_history_rows = normalize_dataset_upload_history(saved_upload_history)
-            if summary_rows and not existing_history_rows:
-                repair_dataset_upload_history_from_rows(summary_rows)
+            if repair_saved_upload_history_if_missing(file_blobs, saved_upload_history):
                 st.rerun()
         else:
-            # summarize_uploads is cached, so repeated reruns reuse parsed upload data.
+            # process_file is cached, so repeated reruns reuse parsed upload data.
             parse_started = time.perf_counter()
             try:
                 datasets, summary_rows = summarize_uploads(file_blobs, UPLOAD_SUMMARY_SCHEMA_VERSION)
@@ -11036,8 +11155,9 @@ if active_main_section == "Upload Data":
                     st.session_state.pop("working_df", None)
     
             if st.session_state.get("working_df") is not None and not st.session_state["working_df"].empty:
-                new_df = st.session_state["working_df"].copy()
-                new_df = new_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
+                new_df = st.session_state["working_df"]
+                if "_ChargeDate_raw" in new_df.columns:
+                    new_df = new_df.drop(columns=["_ChargeDate_raw"], errors="ignore")
                 new_df = ensure_min_canonical_schema(new_df)
                 upload_min, upload_max = dataset_date_bounds(new_df)
                 clinic_id = st.session_state.get("clinic_id")
@@ -11156,6 +11276,7 @@ if active_main_section == "Upload Data":
                     )
                     add_automatic_patient_exclusions_from_upload(new_df)
                     save_settings_quietly()
+                    clear_upload_parse_caches()
     
                     st.rerun()
     
@@ -11715,7 +11836,7 @@ def render_reminder_action_button_static_styles(key_prefix: str):
     st.markdown(reminder_action_button_static_css(key_prefix), unsafe_allow_html=True)
 
 
-def reminder_action_button_state_css(sent_key: str, decline_key: str, hidden_action: str) -> str:
+def reminder_action_button_state_css_rules(sent_key: str, decline_key: str, hidden_action: str) -> str:
     sent_is_selected = hidden_action == REMINDER_ACTION_SENT
     decline_is_selected = hidden_action == REMINDER_ACTION_DECLINED
     sent_opacity = "0.12" if decline_is_selected else "1"
@@ -11727,7 +11848,6 @@ def reminder_action_button_state_css(sent_key: str, decline_key: str, hidden_act
     sent_shadow = "0 0 0 3px rgba(21, 128, 61, 0.22)" if sent_is_selected else "none"
     decline_shadow = "0 0 0 3px rgba(185, 28, 28, 0.22)" if decline_is_selected else "none"
     return f"""
-        <style>
           .st-key-{sent_key} div[data-testid="stButton"] button,
           .st-key-{sent_key} button {{
             background: {sent_bg} !important;
@@ -11748,12 +11868,39 @@ def reminder_action_button_state_css(sent_key: str, decline_key: str, hidden_act
           .st-key-{decline_key} button p {{
             opacity: {decline_opacity};
           }}
+    """
+
+
+def reminder_action_button_state_css(sent_key: str, decline_key: str, hidden_action: str) -> str:
+    return f"""
+        <style>
+        {reminder_action_button_state_css_rules(sent_key, decline_key, hidden_action)}
+        </style>
+    """
+
+
+def reminder_action_button_state_css_batch(button_states: list[tuple[str, str, str]]) -> str:
+    rules = [
+        reminder_action_button_state_css_rules(sent_key, decline_key, hidden_action)
+        for sent_key, decline_key, hidden_action in button_states
+    ]
+    if not rules:
+        return ""
+    return f"""
+        <style>
+        {"".join(rules)}
         </style>
     """
 
 
 def render_reminder_action_button_styles(sent_key: str, decline_key: str, hidden_action: str):
     st.markdown(reminder_action_button_state_css(sent_key, decline_key, hidden_action), unsafe_allow_html=True)
+
+
+def render_reminder_action_button_batch_styles(button_states: list[tuple[str, str, str]]):
+    css = reminder_action_button_state_css_batch(button_states)
+    if css:
+        st.markdown(css, unsafe_allow_html=True)
 
 
 def get_actioned_reminder_datetime(row) -> datetime | None:
@@ -11988,7 +12135,17 @@ def render_actioned_reminders_tab(key_prefix: str):
 def render_table_with_buttons(df, key_prefix, msg_key):
     df = sort_reminder_table(df, key_prefix)
     df = paginate_dataframe(df, f"{key_prefix}_reminders", REMINDER_TABLE_PAGE_SIZE, "listed reminders")
-    listed_rows = [row.to_dict() for _, row in df.iterrows()]
+    rendered_rows = []
+    for idx, row in df.iterrows():
+        row_data = row.to_dict()
+        vals = {h: str(row.get(h, "")) for h in ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]}
+        hidden_record = get_hidden_reminder_record(row_data)
+        hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
+        wa_key = f"{key_prefix}_wa_{idx}"
+        sent_key = f"{key_prefix}_sent_{idx}"
+        decline_key = f"{key_prefix}_decline_{idx}"
+        rendered_rows.append((idx, row_data, vals, hidden_action, wa_key, sent_key, decline_key))
+    listed_rows = [row_data for _, row_data, *_ in rendered_rows]
     col_widths = [2.3, 2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
     headers = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WhatsApp", "Sent", "Decline"]
     safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
@@ -12023,6 +12180,10 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     if bulk_sent_success:
         st.success(bulk_sent_success)
     render_reminder_action_button_static_styles(key_prefix)
+    render_reminder_action_button_batch_styles([
+        (sent_key, decline_key, hidden_action)
+        for _, _, _, hidden_action, _, sent_key, decline_key in rendered_rows
+    ])
 
     # --- Header row ---
     sort_state = get_reminder_table_sort(key_prefix)
@@ -12048,17 +12209,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
             render_reminder_header_label(c, label, head, align=align)
 
     # --- Table rows ---
-    for idx, row in df.iterrows():
-        # Values for the non-action columns
-        row_data = row.to_dict()
-        vals = {h: str(row.get(h, "")) for h in headers[:-3]}
-        hidden_record = get_hidden_reminder_record(row_data)
-        hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
-        wa_key = f"{key_prefix}_wa_{idx}"
-        sent_key = f"{key_prefix}_sent_{idx}"
-        decline_key = f"{key_prefix}_decline_{idx}"
-        render_reminder_action_button_styles(sent_key, decline_key, hidden_action)
-
+    for idx, row_data, vals, _hidden_action, wa_key, sent_key, decline_key in rendered_rows:
         row_cols = st.columns(col_widths, gap="small")
 
         # Print ONLY data columns (not the action columns)
@@ -12738,8 +12889,20 @@ def statistics_primary_reminder_date(row: dict) -> date | None:
 
 
 def statistics_actioned_date(row: dict) -> date | None:
-    actioned_at = _parse_reminder_log_time(row.get("ActionedAt", "") or row.get("DeletedAt", ""))
+    actioned_at = statistics_actioned_datetime(row)
     return actioned_at.date() if actioned_at else None
+
+
+STATISTICS_ACTIONED_DATETIME_KEY = "_StatisticsActionedDateTime"
+
+
+def statistics_actioned_datetime(row: dict) -> datetime | None:
+    parsed_value = row.get(STATISTICS_ACTIONED_DATETIME_KEY) if isinstance(row, dict) else None
+    if isinstance(parsed_value, datetime):
+        return parsed_value
+    if isinstance(parsed_value, pd.Timestamp) and pd.notna(parsed_value):
+        return parsed_value.to_pydatetime()
+    return _parse_reminder_log_time(row.get("ActionedAt", "") or row.get("DeletedAt", ""))
 
 
 def statistics_date_in_period(value_date: date | None, period: str, today: date | None = None) -> bool:
@@ -12754,7 +12917,13 @@ def statistics_date_in_period(value_date: date | None, period: str, today: date 
 
 def statistics_row_in_reminder_period(row: dict, period: str, today: date | None = None) -> bool:
     dates = statistics_row_dates(row)
-    return any(statistics_date_in_period(value_date, period, today) for value_date in dates)
+    if not dates:
+        return False
+    today = today or user_today()
+    start = statistics_period_start(period, today)
+    if start is None:
+        return True
+    return any(start <= value_date <= today for value_date in dates)
 
 
 def statistics_row_key(row: dict) -> tuple[str, ...]:
@@ -12848,17 +13017,53 @@ def filter_generated_for_statistics_period(generated_df: pd.DataFrame, period: s
 
 
 def filter_actions_by_reminder_period(action_records: list[dict], period: str, today: date | None = None) -> list[dict]:
+    return statistics_records_in_reminder_period(action_records, period, today)
+
+
+def filter_actions_by_actioned_period(
+    action_records: list[dict],
+    period: str,
+    today: date | None = None,
+    include_parsed: bool = False,
+) -> list[dict]:
+    today = today or user_today()
+    start = statistics_period_start(period, today)
+    rows = []
+    for record in action_records or []:
+        if not isinstance(record, dict):
+            continue
+        actioned_dt = statistics_actioned_datetime(record)
+        if actioned_dt is None:
+            continue
+        actioned_date = actioned_dt.date()
+        if start is not None and not (start <= actioned_date <= today):
+            continue
+        row = dict(record)
+        if include_parsed:
+            row[STATISTICS_ACTIONED_DATETIME_KEY] = actioned_dt
+        rows.append(row)
+    return rows
+
+
+def statistics_records_in_reminder_period(
+    records: list[dict],
+    period: str,
+    today: date | None = None,
+) -> list[dict]:
     return [
-        dict(record) for record in action_records
-        if statistics_row_in_reminder_period(record, period, today)
+        dict(record) for record in records or []
+        if isinstance(record, dict) and statistics_row_in_reminder_period(record, period, today)
     ]
 
 
-def filter_actions_by_actioned_period(action_records: list[dict], period: str, today: date | None = None) -> list[dict]:
-    return [
-        dict(record) for record in action_records
-        if statistics_date_in_period(statistics_actioned_date(record), period, today)
-    ]
+def statistics_generated_records_in_period(
+    generated_df: pd.DataFrame,
+    period: str,
+    today: date | None = None,
+) -> list[dict]:
+    if generated_df is None or getattr(generated_df, "empty", True):
+        return []
+    return statistics_records_in_reminder_period(generated_df.to_dict("records"), period, today)
 
 
 def expand_rows_for_statistics_item_period(
@@ -12867,10 +13072,7 @@ def expand_rows_for_statistics_item_period(
     today: date | None = None,
 ) -> list[dict]:
     expanded_rows = expand_grouped_action_records(rows)
-    return [
-        dict(row) for row in expanded_rows
-        if statistics_row_in_reminder_period(row, period, today)
-    ]
+    return statistics_records_in_reminder_period(expanded_rows, period, today)
 
 
 def statistics_item_purchase_cycle_key(row: dict) -> tuple[str, ...]:
@@ -12909,10 +13111,10 @@ def statistics_summary_for_period(
     period: str,
     today: date | None = None,
 ) -> dict:
-    generated_period = filter_generated_for_statistics_period(generated_df, period, today)
+    generated_records = statistics_generated_records_in_period(generated_df, period, today)
     generated_keys = {
         statistics_row_key(row)
-        for row in generated_period.to_dict("records")
+        for row in generated_records
         if any(statistics_row_key(row))
     }
     actioned_by_key = {}
@@ -12924,7 +13126,7 @@ def statistics_summary_for_period(
 
     sent = sum(1 for record in actioned_by_key.values() if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT)
     declined = sum(1 for record in actioned_by_key.values() if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_DECLINED)
-    generated_count = len(generated_period.index)
+    generated_count = len(generated_records)
     actioned_count = sent + declined
     remaining = max(generated_count - actioned_count, 0)
     completion_rate = (actioned_count / generated_count) if generated_count else 0.0
@@ -12946,7 +13148,7 @@ def build_statistics_daily_frame(
 ) -> pd.DataFrame:
     today = today or user_today()
     generated_counts = {}
-    for row in filter_generated_for_statistics_period(generated_df, period, today).to_dict("records"):
+    for row in statistics_generated_records_in_period(generated_df, period, today):
         row_date = statistics_primary_reminder_date(row)
         if row_date is not None:
             generated_counts[row_date] = generated_counts.get(row_date, 0) + 1
@@ -12983,8 +13185,17 @@ def build_statistics_daily_frame(
     return pd.DataFrame(rows)
 
 
-def build_statistics_team_frame(action_records: list[dict], period: str, today: date | None = None) -> pd.DataFrame:
-    rows = filter_actions_by_actioned_period(action_records, period, today)
+def build_statistics_team_frame(
+    action_records: list[dict],
+    period: str,
+    today: date | None = None,
+    action_rows: list[dict] | None = None,
+) -> pd.DataFrame:
+    rows = (
+        action_rows
+        if action_rows is not None
+        else filter_actions_by_actioned_period(action_records, period, today, include_parsed=True)
+    )
     if not rows:
         return pd.DataFrame(columns=["User", "Actioned", "Sent", "Declined", "Last Actioned"])
     df_actions = pd.DataFrame(rows)
@@ -13000,10 +13211,16 @@ def build_statistics_team_frame(action_records: list[dict], period: str, today: 
     )
     df_actions["User"] = actioned_by.fillna("").astype(str).str.strip().replace("", "Unknown")
     df_actions["ActionNorm"] = action_values.fillna("").astype(str).str.lower()
-    df_actions["ActionedAtParsed"] = df_actions.apply(
-        lambda row: _parse_reminder_log_time(row.get("ActionedAt", "") or row.get("DeletedAt", "")),
-        axis=1,
-    )
+    if STATISTICS_ACTIONED_DATETIME_KEY in df_actions.columns:
+        df_actions["ActionedAtParsed"] = pd.to_datetime(
+            df_actions[STATISTICS_ACTIONED_DATETIME_KEY],
+            errors="coerce",
+        )
+    else:
+        df_actions["ActionedAtParsed"] = df_actions.apply(
+            lambda row: _parse_reminder_log_time(row.get("ActionedAt", "") or row.get("DeletedAt", "")),
+            axis=1,
+        )
     grouped = df_actions.groupby("User", dropna=False)
     out = grouped.size().rename("Actioned").to_frame()
     out["Sent"] = grouped["ActionNorm"].apply(lambda values: int((values == REMINDER_ACTION_SENT).sum()))
@@ -13017,13 +13234,16 @@ def build_statistics_item_frame(
     action_records: list[dict],
     period: str,
     today: date | None = None,
+    generated_rows: list[dict] | None = None,
+    action_rows: list[dict] | None = None,
 ) -> pd.DataFrame:
-    generated_source_rows = (
-        generated_df.to_dict("records")
-        if generated_df is not None and not getattr(generated_df, "empty", True)
-        else []
-    )
-    generated_rows = expand_rows_for_statistics_item_period(generated_source_rows, period, today)
+    if generated_rows is None:
+        generated_source_rows = (
+            generated_df.to_dict("records")
+            if generated_df is not None and not getattr(generated_df, "empty", True)
+            else []
+        )
+        generated_rows = expand_rows_for_statistics_item_period(generated_source_rows, period, today)
     generated_rows = dedupe_statistics_item_cycle_rows(generated_rows)
     generated_counts = {}
     for row in generated_rows:
@@ -13031,7 +13251,8 @@ def build_statistics_item_frame(
         generated_counts[item] = generated_counts.get(item, 0) + 1
 
     action_counts = {}
-    action_rows = expand_rows_for_statistics_item_period(action_records, period, today)
+    if action_rows is None:
+        action_rows = expand_rows_for_statistics_item_period(action_records, period, today)
     for record in dedupe_statistics_item_cycle_rows(action_rows, latest_action=True):
         item = normalize_display_case(str(record.get("Plan Item", "") or "Unknown").strip() or "Unknown")
         counts = action_counts.setdefault(item, {"Sent": 0, "Declined": 0})
@@ -13756,6 +13977,8 @@ def build_reminder_outcomes(
     today: date | None = None,
     attribution_days: int | None = None,
     rules: dict | None = None,
+    action_records_reduced: bool = False,
+    expanded_sent_records: list[dict] | None = None,
 ) -> pd.DataFrame:
     today = today or outcome_as_of_date(sales_df)
     if attribution_days is not None:
@@ -13769,20 +13992,27 @@ def build_reminder_outcomes(
     except (TypeError, ValueError):
         post_reminder_window_days = DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS
 
-    sales = prepare_sales_for_outcomes(sales_df)
-    reduced_records = reduce_action_tracker_records([
-        record for record in action_records or []
-        if isinstance(record, dict)
-    ])
-    expanded_sent_records = expand_grouped_action_records([
-        record for record in reduced_records
-        if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT
-    ])
+    if action_records_reduced:
+        reduced_records = [
+            record for record in action_records or []
+            if isinstance(record, dict)
+        ]
+    else:
+        reduced_records = reduce_action_tracker_records([
+            record for record in action_records or []
+            if isinstance(record, dict)
+        ])
+    if expanded_sent_records is None:
+        expanded_sent_records = expand_grouped_action_records([
+            record for record in reduced_records
+            if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT
+        ])
     sent_dates_by_purchase_cycle = outcome_sent_dates_by_purchase_cycle(expanded_sent_records)
     sent_records = dedupe_outcome_sent_records(expanded_sent_records)
     if not sent_records:
         return empty_outcome_frame()
 
+    sales = prepare_sales_for_outcomes(sales_df)
     rows = []
     gap_key_matches: dict[tuple[str, ...], list[str]] = {}
     all_match_keys: set[str] = set()
@@ -14326,6 +14556,7 @@ def build_outcome_group_frame(
     outcomes_df: pd.DataFrame,
     group_col: str,
     columns: list[str] | None = None,
+    numeric_precomputed: bool = False,
 ) -> pd.DataFrame:
     base_columns = [
         group_col,
@@ -14354,7 +14585,8 @@ def build_outcome_group_frame(
 
     rows = []
     source = outcomes_df.copy()
-    source = outcome_summary_precompute_numeric_columns(source)
+    if not numeric_precomputed:
+        source = outcome_summary_precompute_numeric_columns(source)
     source[group_col] = source[group_col].fillna("").astype(str).str.strip().replace("", "Unknown")
     for group_value, group_df in source.groupby(group_col, dropna=False):
         summary = summarize_outcomes(group_df)
@@ -14389,6 +14621,7 @@ def build_stats_team_frame(
     action_records: list[dict],
     period: str = "All time",
     today: date | None = None,
+    action_rows: list[dict] | None = None,
 ) -> pd.DataFrame:
     outcome_columns = [
         "Team Member",
@@ -14411,7 +14644,7 @@ def build_stats_team_frame(
         )
         outcome_frame = outcome_frame[[column for column in outcome_columns if column in outcome_frame.columns]]
 
-    action_frame = build_statistics_team_frame(action_records, period, today).rename(
+    action_frame = build_statistics_team_frame(action_records, period, today, action_rows=action_rows).rename(
         columns={
             "User": "Team Member",
             "Sent": "Sent Actions",
@@ -14860,6 +15093,10 @@ def stats_export_csv_bytes_for_render(
         return b""
     cache_key = stats_export_csv_cache_key(frame, view_name, columns, display_preparer)
     cached = st.session_state.get("_stats_export_csv_cache")
+    if isinstance(cached, dict) and "entries" in cached:
+        entries = cached.get("entries")
+        if isinstance(entries, dict) and cache_key in entries:
+            return entries.get(cache_key, b"") or b""
     if isinstance(cached, dict) and cached.get("key") == cache_key:
         return cached.get("bytes", b"") or b""
 
@@ -14870,7 +15107,17 @@ def stats_export_csv_bytes_for_render(
         export_frame = display_preparer(export_frame)
     export_frame = prepare_stats_csv_export_frame(export_frame)
     csv_bytes = stats_export_csv_bytes(export_frame)
-    st.session_state["_stats_export_csv_cache"] = {"key": cache_key, "bytes": csv_bytes}
+    entries = {}
+    if isinstance(cached, dict):
+        cached_entries = cached.get("entries")
+        if isinstance(cached_entries, dict):
+            entries.update(cached_entries)
+        elif cached.get("key") is not None:
+            entries[cached.get("key")] = cached.get("bytes", b"") or b""
+    entries[cache_key] = csv_bytes
+    if len(entries) > 8:
+        entries = dict(list(entries.items())[-8:])
+    st.session_state["_stats_export_csv_cache"] = {"entries": entries}
     return csv_bytes
 
 
@@ -15104,6 +15351,16 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     with busy_overlay("Calculating stats", "Matching sent reminders to later sales and summarising actioning."):
         action_records = statistics_current_action_records()
+        stats_action_item_rows = expand_rows_for_statistics_item_period(action_records, stats_period)
+        stats_actioned_rows = filter_actions_by_actioned_period(
+            action_records,
+            stats_period,
+            include_parsed=True,
+        )
+        stats_expanded_sent_records = expand_grouped_action_records([
+            record for record in action_records
+            if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT
+        ])
         outcome_rows = build_reminder_outcomes(
             action_records,
             sales_df,
@@ -15111,6 +15368,8 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             post_reminder_window_days=post_reminder_window_days,
             today=outcomes_as_of_date,
             rules=rules,
+            action_records_reduced=True,
+            expanded_sent_records=stats_expanded_sent_records,
         )
         generated_df = cached_statistics_generated_rows(
             prepared,
@@ -15123,9 +15382,14 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             exclusion_fp=statistics_exclusion_fp(),
             schema_version=STATISTICS_GENERATED_SCHEMA_VERSION,
         )
+        stats_generated_item_rows = expand_rows_for_statistics_item_period(
+            generated_df.to_dict("records") if not generated_df.empty else [],
+            stats_period,
+        )
         period_rows = outcome_rows
+        stats_outcome_rows = outcome_summary_precompute_numeric_columns(period_rows.copy())
 
-    summary = summarize_outcomes(period_rows)
+    summary = summarize_outcomes(stats_outcome_rows)
     metric_cols = st.columns(5)
     metrics = [
         ("Total Reminded Items", f"{summary['sent']:,}"),
@@ -15145,7 +15409,12 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     with item_tab:
         st.caption("All time; matched sent reminders grouped by item.")
-        item_frame = build_outcome_group_frame(period_rows, "Item", OUTCOME_ITEM_GROUP_COLUMNS)
+        item_frame = build_outcome_group_frame(
+            stats_outcome_rows,
+            "Item",
+            OUTCOME_ITEM_GROUP_COLUMNS,
+            numeric_precomputed=True,
+        )
         render_stats_csv_export(
             item_frame,
             "stats-items",
@@ -15160,7 +15429,13 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     with item_actioning_tab:
         st.caption("All time; generated reminders and saved actions by actual item.")
-        item_actioning_frame = build_statistics_item_frame(generated_df, action_records, stats_period)
+        item_actioning_frame = build_statistics_item_frame(
+            generated_df,
+            action_records,
+            stats_period,
+            generated_rows=stats_generated_item_rows,
+            action_rows=stats_action_item_rows,
+        )
         if item_actioning_frame.empty:
             st.info("No item actioning stats yet.")
         else:
@@ -15192,9 +15467,15 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     with team_tab:
         st.caption("All time; outcome results by sender plus reminder actions by actioned date.")
         team_frame = build_stats_team_frame(
-            build_outcome_group_frame(period_rows, "Sender", OUTCOME_SENDER_GROUP_COLUMNS),
+            build_outcome_group_frame(
+                stats_outcome_rows,
+                "Sender",
+                OUTCOME_SENDER_GROUP_COLUMNS,
+                numeric_precomputed=True,
+            ),
             action_records,
             stats_period,
+            action_rows=stats_actioned_rows,
         )
         if team_frame.empty:
             st.info("No team stats yet.")
@@ -15720,20 +16001,15 @@ if st.session_state.get("logged_in", False):
         lookback_start_date = start_date - timedelta(days=reminder_lookback_days)
         end_date = start_date + timedelta(days=reminder_window_days)
     
-        reminder_ts = prepared.get("ReminderDateTs")
-        if reminder_ts is None:
-            reminder_ts = prepared.get("NextDueDateTs")
-        if reminder_ts is None:
-            reminder_ts = pd.to_datetime(prepared["NextDueDate"], errors="coerce")
-        start_ts = pd.Timestamp(lookback_start_date)
-        end_ts = pd.Timestamp(end_date)
-        due2 = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
-        reminders_before_exclusions = len(due2)
-        due2 = apply_reminder_exclusion_filters(due2, applied_rules)
-    
-        if not due2.empty:
-            grouped = bundle_client_reminders_by_window(due2, window_days=group_days, rules=applied_rules)
-    
+        grouped, reminders_before_exclusions = build_active_reminder_window(
+            prepared,
+            applied_rules,
+            lookback_start_date,
+            end_date,
+            group_days,
+        )
+
+        if not grouped.empty:
             render_table(grouped, f"{lookback_start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
         else:
             if reminders_before_exclusions:

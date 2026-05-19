@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import importlib
 import io
 import unittest
@@ -163,6 +164,35 @@ class DatasetUpdateTests(unittest.TestCase):
                 [{"file_name": "sales.csv", "rows": 10}],
             )
         )
+
+    def test_saved_upload_history_repair_skips_summary_parse_when_history_exists(self):
+        file_blobs = ({"name": "sales.csv", "bytes": b"csv"},)
+        saved_history = [{"file_name": "sales.csv", "pms": "VetPORT", "rows": 10}]
+
+        with patch.object(self.app, "summarize_uploads", side_effect=AssertionError("should not parse")):
+            repaired = self.app.repair_saved_upload_history_if_missing(file_blobs, saved_history)
+
+        self.assertFalse(repaired)
+
+    def test_saved_upload_history_repair_preserves_missing_history_fallback(self):
+        file_blobs = ({"name": "sales.csv", "bytes": b"csv"},)
+        summary_rows = [{
+            "File name": "sales.csv",
+            "Rows": 10,
+            "PMS": "VetPORT",
+            "From": "01 Jan 2026",
+            "To": "31 Jan 2026",
+        }]
+
+        with (
+            patch.object(self.app, "summarize_uploads", return_value=([], summary_rows)) as summarize,
+            patch.object(self.app, "repair_dataset_upload_history_from_rows", return_value=True) as repair,
+        ):
+            repaired = self.app.repair_saved_upload_history_if_missing(file_blobs, [])
+
+        summarize.assert_called_once_with(file_blobs, self.app.UPLOAD_SUMMARY_SCHEMA_VERSION)
+        repair.assert_called_once_with(summary_rows)
+        self.assertTrue(repaired)
 
     def test_overlapping_upload_dedupes_by_billed_item_identity(self):
         existing = pd.DataFrame(
@@ -775,6 +805,82 @@ class DatasetUpdateTests(unittest.TestCase):
         parsed = self.app.parse_dates(values)
 
         self.assertEqual(list(parsed.dt.strftime("%Y-%m-%d")), ["2025-09-30", "2025-10-01", "2025-09-01"])
+
+    def test_dataframe_to_csv_bytes_matches_existing_serialization(self):
+        df = pd.DataFrame({
+            "ChargeDate": pd.to_datetime(["2025-10-01", "2025-10-02"]),
+            "Client Name": ["Client A", "Client, B"],
+            "Animal Name": ["Pet A", "Pet B"],
+            "Item Name": ["Rabies", "Dental\nExam"],
+            "Amount": [10.5, None],
+        })
+
+        expected = df.to_csv(index=False).encode("utf-8")
+
+        self.assertEqual(self.app.dataframe_to_csv_bytes(df), expected)
+
+    def test_clear_upload_parse_caches_clears_cached_parse_function(self):
+        with patch.object(self.app.process_file, "clear") as process_clear:
+            self.app.clear_upload_parse_caches()
+
+        process_clear.assert_called_once_with()
+        self.assertFalse(hasattr(self.app.summarize_uploads, "clear"))
+
+    def test_to_blob_stores_digest_and_size_with_file_bytes(self):
+        class UploadedFile:
+            name = "sales.csv"
+            size = 12
+
+            def getvalue(self):
+                return b"csv contents"
+
+        blob = self.app._to_blob(UploadedFile())
+
+        self.assertEqual(blob["name"], "sales.csv")
+        self.assertEqual(blob["bytes"], b"csv contents")
+        self.assertEqual(blob["size"], len(b"csv contents"))
+        self.assertEqual(blob["sha256"], hashlib.sha256(b"csv contents").hexdigest())
+
+    def test_upload_fingerprint_uses_blob_digest_when_available(self):
+        digest = hashlib.sha256(b"csv contents").hexdigest()
+        first = self.app.upload_fingerprint(({
+            "name": "sales.csv",
+            "bytes": b"csv contents",
+            "sha256": digest,
+        },))
+        same_digest_different_bytes = self.app.upload_fingerprint(({
+            "name": "sales.csv",
+            "bytes": b"different bytes",
+            "sha256": digest,
+        },))
+        different_digest = self.app.upload_fingerprint(({
+            "name": "sales.csv",
+            "bytes": b"csv contents",
+            "sha256": hashlib.sha256(b"changed contents").hexdigest(),
+        },))
+
+        self.assertEqual(first, same_digest_different_bytes)
+        self.assertNotEqual(first, different_digest)
+
+    def test_normalized_charge_dates_uses_datetime_fast_path(self):
+        values = pd.Series(pd.to_datetime(["2025-09-30 13:45:00", "2025-10-01 08:15:00"]))
+
+        with patch.object(self.app, "parse_dates", side_effect=AssertionError("datetime input should not reparse")):
+            parsed = self.app.normalized_charge_dates(values)
+
+        self.assertEqual(list(parsed.dt.strftime("%Y-%m-%d")), ["2025-09-30", "2025-10-01"])
+        self.assertTrue((parsed.dt.hour == 0).all())
+
+    def test_dataset_date_bounds_uses_datetime_fast_path(self):
+        df = pd.DataFrame({
+            "ChargeDate": pd.to_datetime(["2025-10-03 11:00:00", "2025-10-01 09:00:00"]),
+        })
+
+        with patch.object(self.app, "parse_dates", side_effect=AssertionError("datetime bounds should not reparse")):
+            dmin, dmax = self.app.dataset_date_bounds(df)
+
+        self.assertEqual(dmin, pd.Timestamp("2025-10-01"))
+        self.assertEqual(dmax, pd.Timestamp("2025-10-03"))
 
     def test_process_file_prefers_canonical_charge_date_over_pms_looking_columns(self):
         csv_bytes = (

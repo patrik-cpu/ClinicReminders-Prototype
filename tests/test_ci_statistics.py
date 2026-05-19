@@ -81,6 +81,144 @@ class StatisticsTests(unittest.TestCase):
             },
         ]
 
+    def legacy_statistics_row_in_reminder_period(self, row, period, today=None):
+        dates = self.app.statistics_row_dates(row)
+        return any(self.app.statistics_date_in_period(value_date, period, today) for value_date in dates)
+
+    def legacy_filter_actions_by_reminder_period(self, action_records, period, today=None):
+        return [
+            dict(record) for record in action_records
+            if self.legacy_statistics_row_in_reminder_period(record, period, today)
+        ]
+
+    def legacy_expand_rows_for_statistics_item_period(self, rows, period, today=None):
+        expanded_rows = self.app.expand_grouped_action_records(rows)
+        return [
+            dict(row) for row in expanded_rows
+            if self.legacy_statistics_row_in_reminder_period(row, period, today)
+        ]
+
+    def legacy_statistics_summary_for_period(self, generated_df, action_records, period, today=None):
+        mask = [
+            self.legacy_statistics_row_in_reminder_period(row, period, today)
+            for row in generated_df.to_dict("records")
+        ]
+        generated_period = generated_df.loc[mask].copy()
+        generated_keys = {
+            self.app.statistics_row_key(row)
+            for row in generated_period.to_dict("records")
+            if any(self.app.statistics_row_key(row))
+        }
+        actioned_by_key = {}
+        for record in self.legacy_filter_actions_by_reminder_period(action_records, period, today):
+            key = self.app.statistics_row_key(record)
+            if not any(key) or key not in generated_keys:
+                continue
+            actioned_by_key[key] = record
+
+        sent = sum(
+            1 for record in actioned_by_key.values()
+            if str(record.get("Action", "")).strip().lower() == self.app.REMINDER_ACTION_SENT
+        )
+        declined = sum(
+            1 for record in actioned_by_key.values()
+            if str(record.get("Action", "")).strip().lower() == self.app.REMINDER_ACTION_DECLINED
+        )
+        generated_count = len(generated_period.index)
+        actioned_count = sent + declined
+        return {
+            "generated": generated_count,
+            "actioned": actioned_count,
+            "sent": sent,
+            "declined": declined,
+            "remaining": max(generated_count - actioned_count, 0),
+            "completion_rate": (actioned_count / generated_count) if generated_count else 0.0,
+        }
+
+    def legacy_statistics_daily_frame(self, generated_df, action_records, period, today=None):
+        today = today or self.app.user_today()
+        generated_counts = {}
+        mask = [
+            self.legacy_statistics_row_in_reminder_period(row, period, today)
+            for row in generated_df.to_dict("records")
+        ]
+        for row in generated_df.loc[mask].copy().to_dict("records"):
+            row_date = self.app.statistics_primary_reminder_date(row)
+            if row_date is not None:
+                generated_counts[row_date] = generated_counts.get(row_date, 0) + 1
+
+        action_counts = {}
+        for record in self.legacy_filter_actions_by_reminder_period(action_records, period, today):
+            row_date = self.app.statistics_primary_reminder_date(record)
+            if row_date is None:
+                continue
+            action = str(record.get("Action", "")).strip().lower()
+            counts = action_counts.setdefault(row_date, {"Sent": 0, "Declined": 0})
+            if action == self.app.REMINDER_ACTION_SENT:
+                counts["Sent"] += 1
+            elif action == self.app.REMINDER_ACTION_DECLINED:
+                counts["Declined"] += 1
+
+        all_dates = sorted(set(generated_counts) | set(action_counts))
+        start = self.app.statistics_period_start(period, today)
+        if start is not None:
+            all_dates = [day for day in all_dates if start <= day <= today]
+        rows = []
+        for row_date in all_dates:
+            sent = action_counts.get(row_date, {}).get("Sent", 0)
+            declined = action_counts.get(row_date, {}).get("Declined", 0)
+            generated = generated_counts.get(row_date, 0)
+            rows.append({
+                "Date": pd.Timestamp(row_date),
+                "Generated": generated,
+                "Actioned": sent + declined,
+                "Sent": sent,
+                "Declined": declined,
+                "Remaining": max(generated - sent - declined, 0),
+            })
+        return pd.DataFrame(rows)
+
+    def legacy_statistics_item_frame(self, generated_df, action_records, period, today=None):
+        generated_source_rows = (
+            generated_df.to_dict("records")
+            if generated_df is not None and not getattr(generated_df, "empty", True)
+            else []
+        )
+        generated_rows = self.legacy_expand_rows_for_statistics_item_period(generated_source_rows, period, today)
+        generated_rows = self.app.dedupe_statistics_item_cycle_rows(generated_rows)
+        generated_counts = {}
+        for row in generated_rows:
+            item = self.app.normalize_display_case(str(row.get("Plan Item", "") or "Unknown").strip() or "Unknown")
+            generated_counts[item] = generated_counts.get(item, 0) + 1
+
+        action_counts = {}
+        action_rows = self.legacy_expand_rows_for_statistics_item_period(action_records, period, today)
+        for record in self.app.dedupe_statistics_item_cycle_rows(action_rows, latest_action=True):
+            item = self.app.normalize_display_case(str(record.get("Plan Item", "") or "Unknown").strip() or "Unknown")
+            counts = action_counts.setdefault(item, {"Sent": 0, "Declined": 0})
+            action = str(record.get("Action", "")).strip().lower()
+            if action == self.app.REMINDER_ACTION_SENT:
+                counts["Sent"] += 1
+            elif action == self.app.REMINDER_ACTION_DECLINED:
+                counts["Declined"] += 1
+
+        rows = []
+        for item in sorted(set(generated_counts) | set(action_counts)):
+            sent = action_counts.get(item, {}).get("Sent", 0)
+            declined = action_counts.get(item, {}).get("Declined", 0)
+            rows.append({
+                "Item": item,
+                "Generated": generated_counts.get(item, 0),
+                "Actioned": sent + declined,
+                "Sent": sent,
+                "Declined": declined,
+            })
+        return (
+            pd.DataFrame(rows).sort_values(["Generated", "Actioned"], ascending=False)
+            if rows
+            else pd.DataFrame(columns=["Item", "Generated", "Actioned", "Sent", "Declined"])
+        )
+
     def test_statistics_summary_counts_generated_actioned_and_completion(self):
         summary = self.app.statistics_summary_for_period(
             self.make_generated_rows(),
@@ -96,6 +234,68 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(summary["remaining"], 0)
         self.assertEqual(summary["completion_rate"], 1.0)
 
+    def test_statistics_period_refactor_matches_legacy_summary_daily_and_item_outputs(self):
+        generated = pd.concat(
+            [
+                self.make_generated_rows(),
+                pd.DataFrame([
+                    {
+                        "Reminder Date": "not a date",
+                        "Due Date": "not a date",
+                        "Charge Date": "16 May 2025",
+                        "Client Name": "Client Invalid",
+                        "Animal Name": "Pet Invalid",
+                        "Plan Item": "Invalid",
+                        "Qty": 1,
+                        "Days": 365,
+                    }
+                ]),
+            ],
+            ignore_index=True,
+        )
+        actions = [
+            *self.make_action_records(),
+            {
+                "Reminder Date": "not a date",
+                "Due Date": "not a date",
+                "Charge Date": "16 May 2025",
+                "Client Name": "Client Invalid",
+                "Animal Name": "Pet Invalid",
+                "Plan Item": "Invalid",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-16T11:00:00",
+                "Actioned By": "Nurse Invalid",
+            },
+        ]
+
+        for period in ("Today", "All time"):
+            with self.subTest(period=period):
+                today = date(2026, 5, 16)
+                self.assertEqual(
+                    self.app.statistics_summary_for_period(generated, actions, period, today=today),
+                    self.legacy_statistics_summary_for_period(generated, actions, period, today=today),
+                )
+                pd.testing.assert_frame_equal(
+                    self.app.build_statistics_daily_frame(generated, actions, period, today=today).reset_index(drop=True),
+                    self.legacy_statistics_daily_frame(generated, actions, period, today=today).reset_index(drop=True),
+                )
+                pd.testing.assert_frame_equal(
+                    self.app.build_statistics_item_frame(generated, actions, period, today=today).reset_index(drop=True),
+                    self.legacy_statistics_item_frame(generated, actions, period, today=today).reset_index(drop=True),
+                )
+
+    def test_all_time_reminder_period_filter_avoids_per_date_period_checks(self):
+        row = {"Reminder Date": "16 May 2026"}
+
+        with mock.patch.object(
+            self.app,
+            "statistics_date_in_period",
+            side_effect=AssertionError("all-time row filtering should not call per-date helper"),
+        ):
+            self.assertTrue(
+                self.app.statistics_row_in_reminder_period(row, "All time", today=date(2026, 5, 16))
+            )
+
     def test_statistics_team_and_item_frames(self):
         generated = self.make_generated_rows()
         actions = self.make_action_records()
@@ -109,6 +309,191 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(item_rows["Rabies"]["Generated"], 1)
         self.assertEqual(item_rows["Rabies"]["Sent"], 1)
         self.assertEqual(item_rows["Librela"]["Declined"], 1)
+
+    def test_statistics_team_frame_precomputed_action_rows_match_default_path(self):
+        actions = [
+            *self.make_action_records(),
+            {
+                "Reminder Date": "10 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "10 May 2025",
+                "Client Name": "Client C",
+                "Animal Name": "Pet C",
+                "Plan Item": "Rabies",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-10T11:00:00",
+                "Actioned By": "Nurse A",
+            },
+            {
+                "Reminder Date": "16 May 2026",
+                "Due Date": "16 May 2026",
+                "Charge Date": "16 May 2025",
+                "Client Name": "Client Invalid",
+                "Animal Name": "Pet Invalid",
+                "Plan Item": "Invalid",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "not a date",
+                "Actioned By": "Nurse Invalid",
+            },
+        ]
+        today = date(2026, 5, 16)
+        action_rows = self.app.filter_actions_by_actioned_period(
+            actions,
+            "Last 7 days",
+            today=today,
+            include_parsed=True,
+        )
+
+        default_frame = self.app.build_statistics_team_frame(
+            actions,
+            "Last 7 days",
+            today=today,
+        )
+        precomputed_frame = self.app.build_statistics_team_frame(
+            actions,
+            "Last 7 days",
+            today=today,
+            action_rows=action_rows,
+        )
+
+        pd.testing.assert_frame_equal(
+            precomputed_frame.reset_index(drop=True),
+            default_frame.reset_index(drop=True),
+        )
+
+    def test_statistics_item_frame_precomputed_rows_match_default_path(self):
+        generated = self.make_generated_rows()
+        actions = self.make_action_records()
+        generated_rows = self.app.expand_rows_for_statistics_item_period(
+            generated.to_dict("records"),
+            "Today",
+            today=date(2026, 5, 16),
+        )
+        action_rows = self.app.expand_rows_for_statistics_item_period(
+            actions,
+            "Today",
+            today=date(2026, 5, 16),
+        )
+
+        default_frame = self.app.build_statistics_item_frame(
+            generated,
+            actions,
+            "Today",
+            today=date(2026, 5, 16),
+        )
+        precomputed_frame = self.app.build_statistics_item_frame(
+            generated,
+            actions,
+            "Today",
+            today=date(2026, 5, 16),
+            generated_rows=generated_rows,
+            action_rows=action_rows,
+        )
+
+        pd.testing.assert_frame_equal(
+            precomputed_frame.reset_index(drop=True),
+            default_frame.reset_index(drop=True),
+        )
+
+    def test_reminder_outcomes_precomputed_reduced_actions_match_default_path(self):
+        actions = [
+            {
+                "Reminder Date": "01 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "01 May 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-01T09:00:00",
+                "Actioned By": "Nurse A",
+            },
+            {
+                "Reminder Date": "02 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "01 May 2025",
+                "Client Name": "Client B",
+                "Animal Name": "Pet B",
+                "Plan Item": "Librela",
+                "Action": self.app.REMINDER_ACTION_DECLINED,
+                "ActionedAt": "2026-05-02T09:00:00",
+                "Actioned By": "Nurse B",
+            },
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-12",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 100,
+                }
+            ]
+        )
+        reduced_actions = self.app.reduce_action_tracker_records(actions)
+        expanded_sent = self.app.expand_grouped_action_records([
+            record for record in reduced_actions
+            if str(record.get("Action", "")).strip().lower() == self.app.REMINDER_ACTION_SENT
+        ])
+
+        default_outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=30,
+            post_reminder_window_days=7,
+            today=date(2026, 6, 1),
+        )
+        precomputed_outcomes = self.app.build_reminder_outcomes(
+            reduced_actions,
+            sales,
+            due_date_window_days=30,
+            post_reminder_window_days=7,
+            today=date(2026, 6, 1),
+            action_records_reduced=True,
+            expanded_sent_records=expanded_sent,
+        )
+
+        pd.testing.assert_frame_equal(precomputed_outcomes, default_outcomes)
+
+    def test_reminder_outcomes_without_sent_actions_skip_sales_preparation(self):
+        actions = [
+            {
+                "Reminder Date": "02 May 2026",
+                "Due Date": "10 May 2026",
+                "Charge Date": "01 May 2025",
+                "Client Name": "Client B",
+                "Animal Name": "Pet B",
+                "Plan Item": "Librela",
+                "Action": self.app.REMINDER_ACTION_DECLINED,
+                "ActionedAt": "2026-05-02T09:00:00",
+                "Actioned By": "Nurse B",
+            },
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-05-12",
+                    "Client Name": "Client B",
+                    "Animal Name": "Pet B",
+                    "Item Name": "Librela",
+                    "Amount": 100,
+                }
+            ]
+        )
+
+        with mock.patch.object(
+            self.app,
+            "prepare_sales_for_outcomes",
+            side_effect=AssertionError("declined-only actions should not prepare sales"),
+        ):
+            outcomes = self.app.build_reminder_outcomes(
+                actions,
+                sales,
+                today=date(2026, 6, 1),
+            )
+
+        pd.testing.assert_frame_equal(outcomes, self.app.empty_outcome_frame())
 
     def test_statistics_item_frame_splits_grouped_reminder_details(self):
         reminder_details = [
@@ -333,6 +718,20 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn(self.app.WHATSAPP_ICON_MASK_DATA_URI, css)
         self.assertNotIn('[class*="st-key-daily_wa_"]', css)
 
+    def test_reminder_action_button_state_css_batch_uses_one_style_block(self):
+        css = self.app.reminder_action_button_state_css_batch([
+            ("daily_sent_7", "daily_decline_7", self.app.REMINDER_ACTION_SENT),
+            ("daily_sent_8", "daily_decline_8", self.app.REMINDER_ACTION_DECLINED),
+        ])
+
+        self.assertEqual(css.count("<style>"), 1)
+        self.assertEqual(css.count("</style>"), 1)
+        self.assertIn(".st-key-daily_sent_7 button", css)
+        self.assertIn(".st-key-daily_decline_8 button", css)
+        self.assertIn("background: #dcfce7", css)
+        self.assertIn("background: #fee2e2", css)
+        self.assertNotIn(self.app.WHATSAPP_ICON_MASK_DATA_URI, css)
+
     def test_render_outcome_dataframe_sorts_all_rows_before_pagination(self):
         class FakeColumn:
             def __enter__(self):
@@ -520,6 +919,46 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertEqual(first, second)
         self.assertEqual(csv_bytes.call_count, 1)
+
+    def test_stats_export_csv_cache_keeps_multiple_views(self):
+        first_frame = pd.DataFrame(
+            [
+                {"Item": "Rabies", "Sent": 1, "Success Rate": 0.25},
+                {"Item": "Tricat", "Sent": 2, "Success Rate": 0.5},
+            ]
+        )
+        second_frame = pd.DataFrame(
+            [
+                {"Team Member": "Nurse A", "Sent Reminders": 3, "Success Rate": 1 / 3},
+                {"Team Member": "Nurse B", "Sent Reminders": 1, "Success Rate": 0},
+            ]
+        )
+        real_csv_bytes = self.app.stats_export_csv_bytes
+
+        with mock.patch.object(self.app, "stats_export_csv_bytes", wraps=real_csv_bytes) as csv_bytes:
+            first = self.app.stats_export_csv_bytes_for_render(
+                first_frame,
+                "Stats Items",
+                columns=["Item", "Sent", "Success Rate"],
+                display_preparer=self.app.prepare_outcome_dataframe_for_display,
+            )
+            second = self.app.stats_export_csv_bytes_for_render(
+                second_frame,
+                "Stats Team",
+                columns=["Team Member", "Sent Reminders", "Success Rate"],
+                display_preparer=self.app.prepare_stats_team_display_frame,
+            )
+            first_again = self.app.stats_export_csv_bytes_for_render(
+                first_frame.copy(),
+                "Stats Items",
+                columns=["Item", "Sent", "Success Rate"],
+                display_preparer=self.app.prepare_outcome_dataframe_for_display,
+            )
+
+        self.assertEqual(first_again, first)
+        self.assertNotEqual(second, first)
+        self.assertEqual(csv_bytes.call_count, 2)
+        self.assertEqual(len(self.app.st.session_state["_stats_export_csv_cache"]["entries"]), 2)
 
     def test_statistics_exclusion_fingerprint_tracks_filter_changes(self):
         state = self.app.st.session_state
@@ -2226,6 +2665,29 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(rows["Nurse A"]["Successes"], 1)
         self.assertEqual(rows["Nurse A"]["Revenue"], 120)
         self.assertEqual(rows["Nurse B"]["Overall Repeat Purchases"], 2)
+
+    def test_outcome_group_frame_precomputed_numeric_path_matches_default(self):
+        outcomes = pd.DataFrame(
+            [
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Reminder Success", "Success Gap Days": "365", "Desired Gap Days": "365", "Avg Item Purchase Gap Days": "370", "Overall Repeat Purchases": "3", "Overall Purchases": "4", "Revenue per Item": "150", "Revenue": "120", "Revenue per Year": "300", "Theoretical Max Revenue": "600"},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Pending", "Success Gap Days": "", "Desired Gap Days": "365", "Avg Item Purchase Gap Days": "370", "Overall Repeat Purchases": "3", "Overall Purchases": "4", "Revenue per Item": "150", "Revenue": "0", "Revenue per Year": "300", "Theoretical Max Revenue": "600"},
+                {"Sender": "Nurse B", "Item": "Bravecto", "Outcome": "No Match", "Success Gap Days": "", "Desired Gap Days": "90", "Avg Item Purchase Gap Days": "120", "Overall Repeat Purchases": "2", "Overall Purchases": "5", "Revenue per Item": "100", "Revenue": "0", "Revenue per Year": "200", "Theoretical Max Revenue": "500"},
+            ]
+        )
+
+        default_group = self.app.build_outcome_group_frame(outcomes, "Sender", self.app.OUTCOME_SENDER_GROUP_COLUMNS)
+        prepared = self.app.outcome_summary_precompute_numeric_columns(outcomes.copy())
+        precomputed_group = self.app.build_outcome_group_frame(
+            prepared,
+            "Sender",
+            self.app.OUTCOME_SENDER_GROUP_COLUMNS,
+            numeric_precomputed=True,
+        )
+
+        pd.testing.assert_frame_equal(
+            precomputed_group.reset_index(drop=True),
+            default_group.reset_index(drop=True),
+        )
 
     def test_render_outcome_dataframe_uses_native_sortable_dataframe_for_summary_rows(self):
         frame = pd.DataFrame([
