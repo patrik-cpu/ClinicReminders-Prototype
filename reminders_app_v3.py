@@ -7880,6 +7880,40 @@ def main_section_tab_label(tab_name: str) -> str:
     return tab_name
 
 
+def main_section_tab_badge_count(tab_name: str) -> int:
+    try:
+        if tab_name == "Reminders":
+            return max(0, int(get_active_reminder_badge_count()))
+        if tab_name == "Get Started":
+            return max(0, int(get_started_incomplete_count()))
+        if tab_name == "Upload Data":
+            return max(0, int(upload_data_badge_count()))
+    except Exception:
+        return 0
+    return 0
+
+
+def render_main_section_nav(active_tab: str) -> None:
+    links = []
+    for tab_name in MAIN_SECTION_TABS:
+        slug = MAIN_SECTION_TAB_TO_SLUG.get(tab_name, "")
+        is_active = tab_name == active_tab
+        classes = "cr-main-section-tab is-active" if is_active else "cr-main-section-tab"
+        aria_current = ' aria-current="page"' if is_active else ""
+        count = main_section_tab_badge_count(tab_name)
+        badge_html = f'<span class="cr-main-section-badge">{count}</span>' if count > 0 else ""
+        links.append(
+            f'<a class="{classes}" href="?{MAIN_SECTION_TAB_QUERY_PARAM}={html_lib.escape(slug)}"{aria_current}>'
+            f'<span>{html_lib.escape(tab_name)}</span>{badge_html}</a>'
+        )
+    st.markdown(
+        '<nav class="cr-main-section-nav" aria-label="Main section">'
+        + "".join(links)
+        + "</nav>",
+        unsafe_allow_html=True,
+    )
+
+
 def clone_reminder_rules(rules: dict | None) -> dict:
     return json.loads(json.dumps(rules or {}))
 
@@ -9100,6 +9134,65 @@ st.markdown(
         font-weight: 600 !important;
         line-height: 1.2 !important;
       }
+      .cr-main-section-nav {
+        align-items: flex-end;
+        border-bottom: 1px solid var(--cr-border);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.2rem;
+        margin: 0.35rem 0 1rem;
+        overflow: visible;
+        padding-top: 0.15rem;
+      }
+      .cr-main-section-tab {
+        align-items: center;
+        background: var(--cr-primary-quiet);
+        border: 1px solid var(--cr-border);
+        border-bottom: 0;
+        border-radius: 8px 8px 0 0;
+        box-shadow: inset 0 -1px 0 var(--cr-border);
+        color: #23513a !important;
+        display: inline-flex;
+        font-size: 1.35rem;
+        font-weight: 800;
+        gap: 0.35rem;
+        justify-content: center;
+        line-height: 1.2;
+        margin: 0 0 -1px;
+        min-height: 3rem;
+        padding: 0.55rem 0.9rem;
+        text-decoration: none !important;
+        white-space: nowrap;
+      }
+      .cr-main-section-tab:hover {
+        background: var(--cr-primary-soft);
+        color: #062d19 !important;
+        text-decoration: none !important;
+      }
+      .cr-main-section-tab.is-active {
+        background: var(--cr-primary) !important;
+        border-color: var(--cr-primary-dark) !important;
+        box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;
+        color: #062d19 !important;
+        position: relative;
+        z-index: 1;
+      }
+      .cr-main-section-tab.is-active:hover {
+        background: var(--cr-primary) !important;
+      }
+      .cr-main-section-badge {
+        align-items: center;
+        background: #dc2626;
+        border-radius: 999px;
+        color: #ffffff;
+        display: inline-flex;
+        font-size: 0.78rem;
+        font-weight: 800;
+        justify-content: center;
+        line-height: 1;
+        min-width: 1.45rem;
+        padding: 0.2rem 0.38rem;
+      }
       .st-key-main_section_tab {
         border-bottom: 1px solid var(--cr-border);
         margin: 0.35rem 0 1rem;
@@ -9269,6 +9362,11 @@ st.markdown(
         padding: 0.35rem 0.8rem !important;
       }
       @media (max-width: 900px) {
+        .cr-main-section-tab {
+          font-size: 1.05rem;
+          min-height: 2.65rem;
+          padding: 0.45rem 0.65rem;
+        }
         .st-key-main_section_tab [role="radio"],
         .st-key-main_section_tab button,
         .st-key-main_section_tab label,
@@ -9301,6 +9399,9 @@ st.markdown(
         }
       }
       @media (max-width: 640px) {
+        .cr-main-section-tab {
+          font-size: 0.98rem;
+        }
         .st-key-main_section_tab [role="radio"],
         .st-key-main_section_tab button,
         .st-key-main_section_tab label,
@@ -9330,25 +9431,8 @@ default_main_section_tab = st.session_state.get("main_section_tab", "Reminders")
 if default_main_section_tab not in MAIN_SECTION_TABS:
     default_main_section_tab = "Reminders"
 st.session_state["main_section_tab"] = default_main_section_tab
-if hasattr(st, "segmented_control"):
-    active_main_section = st.segmented_control(
-        "Main section",
-        MAIN_SECTION_TABS,
-        selection_mode="single",
-        key="main_section_tab",
-        format_func=main_section_tab_label,
-        label_visibility="collapsed",
-    ) or default_main_section_tab
-else:
-    active_main_section = st.radio(
-        "Main section",
-        MAIN_SECTION_TABS,
-        index=MAIN_SECTION_TABS.index(default_main_section_tab),
-        horizontal=True,
-        key="main_section_tab",
-        format_func=main_section_tab_label,
-        label_visibility="collapsed",
-    )
+active_main_section = default_main_section_tab
+render_main_section_nav(active_main_section)
 if active_main_section not in MAIN_SECTION_TABS:
     active_main_section = "Reminders"
     set_main_section_tab(active_main_section)
