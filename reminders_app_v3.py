@@ -6145,7 +6145,7 @@ class UploadResourceLimitError(UploadValidationError):
 
 REQUIRED_UPLOAD_COLUMNS = ["ChargeDate", "Client Name", "Animal Name", "Item Name"]
 MAX_UPLOAD_FILES = 5
-MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024
 MAX_UPLOAD_ROWS = 250_000
 MAX_UPLOAD_COLUMNS = 200
 USER_FACING_COLUMN_LABELS = {

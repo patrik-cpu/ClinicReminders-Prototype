@@ -637,6 +637,8 @@ class AuditCharacterizationTests(unittest.TestCase):
             self.app.process_file(b"not relevant", "upload.txt")
 
     def test_oversized_upload_is_rejected_before_csv_parser_runs(self):
+        self.assertEqual(self.app.MAX_UPLOAD_FILE_BYTES, 50 * 1024 * 1024)
+        self.assertEqual(self.app.format_file_size(self.app.MAX_UPLOAD_FILE_BYTES), "50 MB")
         oversized = b"x" * (self.app.MAX_UPLOAD_FILE_BYTES + 1)
 
         with patch.object(self.app.pd, "read_csv") as read_csv:
