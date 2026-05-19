@@ -689,6 +689,9 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
         self.assertEqual(outcomes.iloc[0]["Matched Item"], "Bravecto 112.5mg 2-4.5kg Dog")
         self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 90.0)
+        self.assertEqual(int(outcomes.iloc[0]["Overall Purchases"]), 2)
+        self.assertEqual(int(outcomes.iloc[0]["Overall Repeat Purchases"]), 1)
+        self.assertEqual(int(outcomes.iloc[0]["Avg Item Purchase Gap Days"]), 91)
 
     def test_reminder_outcomes_counts_success_inside_user_defined_window(self):
         actions = [

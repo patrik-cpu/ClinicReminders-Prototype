@@ -12207,8 +12207,7 @@ def build_average_sales_purchase_gap_map(
         return {key: dict(empty_result) for key in gap_key_matches}
 
     gap_lookup = {idx: key for idx, key in enumerate(gap_key_matches)}
-    exact_rows = []
-    term_rows = []
+    match_rows = []
     for gap_id, gap_key in gap_lookup.items():
         match_keys = [
             normalize_outcome_item_text(key)
@@ -12217,16 +12216,11 @@ def build_average_sales_purchase_gap_map(
         ]
         if not match_keys:
             continue
-        if gap_key and gap_key[0] == "exact":
-            exact_rows.extend({"_GapID": gap_id, "OutcomeItemKey": key} for key in match_keys)
-        else:
-            term_rows.extend({"_GapID": gap_id, "_OutcomeMatchKey": key} for key in match_keys)
+        match_rows.extend({"_GapID": gap_id, "_OutcomeMatchKey": key} for key in match_keys)
 
     key_frames = []
-    if exact_rows:
-        key_frames.append(pd.DataFrame(exact_rows).drop_duplicates(["_GapID", "OutcomeItemKey"]))
-    if term_rows and item_match_map is not None and not item_match_map.empty:
-        term_key_frame = pd.DataFrame(term_rows).drop_duplicates(["_GapID", "_OutcomeMatchKey"]).merge(
+    if match_rows and item_match_map is not None and not item_match_map.empty:
+        term_key_frame = pd.DataFrame(match_rows).drop_duplicates(["_GapID", "_OutcomeMatchKey"]).merge(
             item_match_map,
             on="_OutcomeMatchKey",
             how="inner",
