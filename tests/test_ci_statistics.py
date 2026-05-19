@@ -177,6 +177,7 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertIn("Percentage of sent reminders", config["Success Rate"]["help"])
         self.assertIn("Overall average purchase gap compared with the desired gap", config["Gap Day % to Desired"]["help"])
+        self.assertIn("Repeat purchases (same client, animal, and item)", config["Overall Repeat Purchases"]["help"])
         self.assertIn("Percentage of matching purchases", config["Repeat Purchase %"]["help"])
         self.assertEqual(config["Sent"]["type_config"]["format"], "%d")
         self.assertEqual(config["No Match"]["type_config"]["format"], "%d")

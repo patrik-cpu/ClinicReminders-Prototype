@@ -11360,7 +11360,7 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Avg Success Gap Days": "Average successful repeat-purchase gap in this view.",
     "Overall Avg Purchase Gap Days": "Average gap between repeat purchases across all uploaded sales for this item.",
     "Gap Day % to Desired": "Overall average purchase gap compared with the desired gap. 100% means they match.",
-    "Overall Repeat Purchases": "Repeat purchases used to calculate the overall average gap.",
+    "Overall Repeat Purchases": "Repeat purchases (same client, animal, and item) used to calculate the overall average gap.",
     "Overall Purchases": "Total matching purchases found in uploaded sales data.",
     "Repeat Purchase %": "Percentage of matching purchases that are repeat purchases.",
     "Success Rate": "Percentage of sent reminders that became successful by either success window.",
