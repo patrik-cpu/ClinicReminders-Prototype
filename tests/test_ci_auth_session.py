@@ -186,6 +186,8 @@ class AuthSessionTests(unittest.TestCase):
         )
 
     def test_update_clinic_password_clears_legacy_plaintext_cell(self):
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic New"
         headers = [
             self.app.SHEET_COL_CLINIC_ID,
             self.app.SHEET_COL_PLAIN_PASSWORD,
@@ -221,6 +223,19 @@ class AuthSessionTests(unittest.TestCase):
         self.assertEqual(updates_by_range["B2:B2"], "")
         self.assertEqual(updates_by_range["C2:C2"], password_hash)
         self.assertNotEqual(updates_by_range["C2:C2"], "better-random-passphrase-2026")
+
+    def test_update_clinic_password_blocks_cross_tenant_write_before_fetching_row(self):
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+
+        with patch.object(self.app, "_get_settings_row_for_clinic") as get_row:
+            with self.assertRaises(self.app.TenantAuthorizationError):
+                self.app.update_clinic_password(
+                    "Clinic B",
+                    "better-random-passphrase-2026",
+                )
+
+        get_row.assert_not_called()
 
     def test_legacy_plain_password_migration_clears_nonblank_values(self):
         headers = [

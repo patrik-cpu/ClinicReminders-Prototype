@@ -341,6 +341,7 @@ top_account_slot = tut_col.empty()
 DEFAULT_DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive folder URL
 DATASETS_FOLDER_ID = config_value("DATASETS_FOLDER_ID", DEFAULT_DATASETS_FOLDER_ID)
 DRIVE_TRANSFER_TIMEOUT_SECONDS = 300
+SHEETS_OPERATION_TIMEOUT_SECONDS = 300
 
 # === Sheet columns you created ===
 WORKSHEET_NAME_SUFFIX = config_value("WORKSHEET_NAME_SUFFIX", default_worksheet_name_suffix())
@@ -1072,6 +1073,7 @@ class SettingsRepository:
         values_by_header: dict[str, object],
         required_columns: list[str] | None = None,
     ) -> tuple[object, list[str], int]:
+        clinic_id = require_authenticated_tenant_access(clinic_id)
         return _raw_update_settings_row_fields(clinic_id, values_by_header, required_columns)
 
     def update_authorized_fields(
@@ -1080,7 +1082,6 @@ class SettingsRepository:
         values_by_header: dict[str, object],
         required_columns: list[str] | None = None,
     ) -> tuple[object, list[str], int]:
-        clinic_id = require_authenticated_tenant_access(clinic_id)
         return self.update_fields(clinic_id, values_by_header, required_columns)
 
 
@@ -1150,6 +1151,10 @@ class SettingsFreshReadError(RuntimeError):
 
 
 class DriveTransferTimeoutError(TimeoutError):
+    pass
+
+
+class GoogleSheetsOperationTimeoutError(TimeoutError):
     pass
 
 
@@ -3637,29 +3642,56 @@ def gspread_api_error_status(error) -> int | None:
     except (TypeError, ValueError):
         return None
 
-def _gspread_retry(fn, *args, **kwargs):
+
+def raise_if_google_sheets_timed_out(started_at: float, timeout_seconds: float | int | None, operation: str) -> None:
+    if timeout_seconds is None:
+        return
+    elapsed = time.perf_counter() - started_at
+    if elapsed >= float(timeout_seconds):
+        raise GoogleSheetsOperationTimeoutError(
+            f"{operation} timed out after {elapsed:.1f}s. Please try again."
+        )
+
+
+def _gspread_retry(fn, *args, timeout_seconds: float | int | None = SHEETS_OPERATION_TIMEOUT_SECONDS, **kwargs):
     """
     Retries common transient Google Sheets errors (429/500/502/503/504).
     Keeps other errors as-is so you still see real permission/config issues.
     """
     max_tries = 3
+    started_at = time.perf_counter()
     for attempt in range(max_tries):
+        raise_if_google_sheets_timed_out(started_at, timeout_seconds, "Google Sheets operation")
         try:
-            return fn(*args, **kwargs)
+            result = fn(*args, **kwargs)
+            raise_if_google_sheets_timed_out(started_at, timeout_seconds, "Google Sheets operation")
+            return result
         except APIError as e:
+            raise_if_google_sheets_timed_out(started_at, timeout_seconds, "Google Sheets operation")
             status = gspread_api_error_status(e)
 
             # Retry only transient/quota-ish errors
             if status in (429, 500, 502, 503, 504):
                 sleep = min(4, (0.75 * (2 ** attempt)) + random.random())
+                if timeout_seconds is not None:
+                    remaining = float(timeout_seconds) - (time.perf_counter() - started_at)
+                    if remaining <= 0:
+                        raise GoogleSheetsOperationTimeoutError(
+                            "Google Sheets operation timed out before the next retry. Please try again."
+                        ) from e
+                    sleep = min(sleep, remaining)
                 time.sleep(sleep)
+                raise_if_google_sheets_timed_out(started_at, timeout_seconds, "Google Sheets operation")
                 continue
 
             # Not transient -> raise (likely 403 perms, 400 bad request, etc.)
             raise
 
     # If we exhausted retries, raise last error
-    return fn(*args, **kwargs)
+    raise_if_google_sheets_timed_out(started_at, timeout_seconds, "Google Sheets operation")
+    result = fn(*args, **kwargs)
+    raise_if_google_sheets_timed_out(started_at, timeout_seconds, "Google Sheets operation")
+    return result
 
 def get_existing_dataset_pointer(clinic_id: str) -> tuple[str, str]:
     """
@@ -4038,6 +4070,34 @@ def dataframe_to_csv_bytes(df: pd.DataFrame) -> bytes:
             pass
 
 
+def dataframe_memory_bytes(df: pd.DataFrame | None) -> int:
+    if df is None or not isinstance(df, pd.DataFrame):
+        return 0
+    try:
+        return int(df.memory_usage(deep=True).sum())
+    except Exception:
+        return 0
+
+
+def dataset_publish_metrics_message(
+    stage: str,
+    existing_df: pd.DataFrame | None,
+    new_df: pd.DataFrame | None,
+    merged_df: pd.DataFrame | None,
+    csv_bytes: bytes | bytearray | memoryview | None,
+) -> str:
+    return (
+        f"stage={stage}; "
+        f"existing_rows={len(existing_df) if isinstance(existing_df, pd.DataFrame) else 0}; "
+        f"new_rows={len(new_df) if isinstance(new_df, pd.DataFrame) else 0}; "
+        f"merged_rows={len(merged_df) if isinstance(merged_df, pd.DataFrame) else 0}; "
+        f"existing_df_bytes={dataframe_memory_bytes(existing_df)}; "
+        f"new_df_bytes={dataframe_memory_bytes(new_df)}; "
+        f"merged_df_bytes={dataframe_memory_bytes(merged_df)}; "
+        f"csv_bytes={len(csv_bytes) if csv_bytes is not None else 0}"
+    )
+
+
 def publish_dataset_for_clinic(
     clinic_id: str,
     new_df: pd.DataFrame,
@@ -4090,6 +4150,13 @@ def publish_dataset_for_clinic(
     # 4) Upload merged dataset to Drive
     out_name  = f"{clinic_id}_shared_dataset.csv"
     out_bytes = dataframe_to_csv_bytes(merged_df)
+    drive_upload_message = dataset_publish_metrics_message(
+        "drive_upload",
+        existing_df,
+        new_df,
+        merged_df,
+        out_bytes,
+    )
 
     operation_id = make_dataset_publish_operation_id()
     record_dataset_tracker_event(
@@ -4101,7 +4168,7 @@ def publish_dataset_for_clinic(
         replace_overlapping_dates=replace_overlapping_dates,
         drive_file_id=existing_file_id or "",
         drive_file_name=existing_name or "",
-        message="stage=drive_upload",
+        message=drive_upload_message,
         source="publish_dataset_for_clinic",
     )
 
@@ -4121,6 +4188,13 @@ def publish_dataset_for_clinic(
         stage = "settings_pointer_update"
         dataset_updated_at = update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
     except Exception as e:
+        cleanup_message = ""
+        if stage == "settings_pointer_update" and new_file_id and not existing_file_id:
+            try:
+                drive_trash_file(new_file_id, clinic_id=clinic_id, current_file_id=new_file_id)
+                cleanup_message = "; cleanup=trashed_orphan_drive_file"
+            except Exception as cleanup_error:
+                cleanup_message = f"; cleanup=trash_orphan_failed: {cleanup_error}"
         record_dataset_tracker_event(
             "dataset_publish",
             "error",
@@ -4130,7 +4204,10 @@ def publish_dataset_for_clinic(
             replace_overlapping_dates=replace_overlapping_dates,
             drive_file_id=new_file_id or existing_file_id or "",
             drive_file_name=out_name,
-            message=f"stage={stage}; {e}",
+            message=(
+                f"{dataset_publish_metrics_message(stage, existing_df, new_df, merged_df, out_bytes)}"
+                f"{cleanup_message}; {e}"
+            ),
             source="publish_dataset_for_clinic",
         )
         raise
@@ -4144,7 +4221,7 @@ def publish_dataset_for_clinic(
         replace_overlapping_dates=replace_overlapping_dates,
         drive_file_id=new_file_id,
         drive_file_name=out_name,
-        message="stage=complete",
+        message=dataset_publish_metrics_message("complete", existing_df, new_df, merged_df, out_bytes),
         source="publish_dataset_for_clinic",
     )
     st.session_state["shared_dataset_updated_at"] = dataset_updated_at
@@ -8399,6 +8476,7 @@ def render_delete_account_dialog():
 def update_clinic_password(clinic_id: str, new_password: str):
     """Update the password hash for the current clinic login."""
     validate_password_policy(new_password, clinic_id)
+    clinic_id = require_authenticated_tenant_access(clinic_id)
     sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
     password_hash = password_hash_for_storage(new_password)
     updated_at = utc_now_iso()
@@ -10077,7 +10155,6 @@ def expand_reminder_dates(df: pd.DataFrame) -> pd.DataFrame:
         return df.iloc[0:0].copy()
     return pd.DataFrame(out).reset_index(drop=True)
 
-@st.cache_data(show_spinner=False)
 def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=[
@@ -12652,6 +12729,7 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Sender": "Team member who sent the reminder.",
     "Outcome": "Current result: success, pending, no match, or not measurable.",
     "Sent": "Number of sent reminders in this row.",
+    "Sent Reminders": "Number of sent reminders in this row.",
     "Successes": "Sent reminders that led to a matching repeat purchase.",
     "Pending": "Sent reminders where at least one success window is still open.",
     "No Match": "Sent reminders with no matching repeat purchase after all success windows closed.",
@@ -12660,9 +12738,13 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Next Purchase Gap Days": "Days from the billed date to the next matching purchase.",
     "Avg Success Gap Days": "Average successful repeat-purchase gap in this view.",
     "Overall Avg Purchase Gap Days": "Average gap between repeat purchases across all uploaded sales for this item.",
+    "Actual Gap Days": "Average gap between repeat purchases across all uploaded sales for this item.",
     "Gap Day % to Desired": "Overall average purchase gap compared with the desired gap. 100% means they match.",
+    "Gap Day %": "Overall average purchase gap compared with the desired gap. 100% means they match.",
     "Overall Repeat Purchases": "Repeat purchases (same client, animal, and item) used to calculate the overall average gap.",
+    "Total Repeat Purchases": "Repeat purchases (same client, animal, and item) used to calculate the overall average gap.",
     "Overall Purchases": "Total matching purchases found in uploaded sales data.",
+    "Total Purchases": "Total matching purchases found in uploaded sales data.",
     "Repeat Purchase %": "Percentage of matching purchases that are repeat purchases.",
     "Success Rate": "Percentage of sent reminders that became successful by either success window.",
     "Revenue per Item": "Average revenue per matching purchase in the uploaded sales data.",
@@ -12689,9 +12771,13 @@ OUTCOME_DISPLAY_COLUMN_TITLES = {
     "Next Purchase Gap Days": "Next Purchase\nGap Days",
     "Avg Success Gap Days": "Avg Success\nGap Days",
     "Overall Avg Purchase Gap Days": "Overall Avg\nPurchase Gap\nDays",
+    "Actual Gap Days": "Actual Gap\nDays",
     "Gap Day % to Desired": "Gap Day %\nto Desired",
+    "Gap Day %": "Gap Day\n%",
     "Overall Repeat Purchases": "Overall Repeat\nPurchases",
+    "Total Repeat Purchases": "Total Repeat\nPurchases",
     "Overall Purchases": "Overall\nPurchases",
+    "Total Purchases": "Total\nPurchases",
     "Repeat Purchase %": "Repeat\nPurchase %",
     "Revenue per Item": "Revenue\nper Item",
     "Revenue from Successes": "Revenue from\nSuccesses",
@@ -12711,6 +12797,7 @@ OUTCOME_DISPLAY_COLUMN_WIDTHS = {
     "Next Purchase Date": "small",
     "Success Date": "small",
     "Sent": "small",
+    "Sent Reminders": "small",
     "Successes": "small",
     "Pending": "small",
     "No Match": "small",
@@ -12720,9 +12807,13 @@ OUTCOME_DISPLAY_COLUMN_WIDTHS = {
     "Next Purchase Gap Days": "small",
     "Avg Success Gap Days": "small",
     "Overall Avg Purchase Gap Days": "small",
+    "Actual Gap Days": "small",
     "Gap Day % to Desired": "small",
+    "Gap Day %": "small",
     "Overall Repeat Purchases": "small",
+    "Total Repeat Purchases": "small",
     "Overall Purchases": "small",
+    "Total Purchases": "small",
     "Repeat Purchase %": "small",
     "Revenue per Item": "small",
     "Revenue from Successes": "small",
@@ -12773,6 +12864,31 @@ OUTCOME_ITEM_GROUP_COLUMNS = [
     "Capturable Revenue per Year",
     "Captured Revenue %",
 ]
+STATS_ITEMS_DISPLAY_COLUMNS = [
+    "Item",
+    "Sent",
+    "Successes",
+    "Success Rate",
+    "Desired Gap Days",
+    "Avg Item Purchase Gap Days",
+    "Gap Day % to Desired",
+    "Overall Repeat Purchases",
+    "Overall Purchases",
+    "Repeat Purchase %",
+    "Revenue per Item",
+    "Revenue",
+    "Revenue per Year",
+    "Theoretical Max Revenue",
+    "Capturable Revenue per Year",
+    "Captured Revenue %",
+]
+STATS_ITEMS_DISPLAY_COLUMN_LABELS = {
+    "Sent": "Sent Reminders",
+    "Avg Item Purchase Gap Days": "Actual Gap Days",
+    "Gap Day % to Desired": "Gap Day %",
+    "Overall Repeat Purchases": "Total Repeat Purchases",
+    "Overall Purchases": "Total Purchases",
+}
 OUTCOME_SENDER_GROUP_COLUMNS = [
     "Sender",
     "Sent",
@@ -14810,7 +14926,10 @@ def format_outcome_display_date(value) -> str:
         return str(value)
 
 
-def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
+def prepare_outcome_dataframe_for_display(
+    frame: pd.DataFrame,
+    column_labels: dict[str, str] | None = None,
+) -> pd.DataFrame:
     display_frame = frame.copy()
     for column in OUTCOME_DISPLAY_DATE_COLUMNS:
         if column in display_frame.columns:
@@ -14838,16 +14957,26 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
                 .round()
                 .astype("Int64")
             )
-    display_frame = display_frame.rename(columns=OUTCOME_DISPLAY_COLUMN_LABELS)
+    display_column_labels = dict(OUTCOME_DISPLAY_COLUMN_LABELS)
+    if column_labels:
+        display_column_labels.update(column_labels)
+    display_frame = display_frame.rename(columns=display_column_labels)
     return display_frame
 
 
-def stats_sort_column_label(column: str) -> str:
-    return OUTCOME_DISPLAY_COLUMN_LABELS.get(column, column)
+def prepare_stats_items_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame is None:
+        frame = pd.DataFrame()
+    elif not frame.empty:
+        frame = frame[[column for column in STATS_ITEMS_DISPLAY_COLUMNS if column in frame.columns]]
+    return prepare_outcome_dataframe_for_display(
+        frame,
+        column_labels=STATS_ITEMS_DISPLAY_COLUMN_LABELS,
+    )
 
 
-def stats_sort_dataframe(frame: pd.DataFrame, column: str, ascending: bool) -> pd.DataFrame:
-    if frame is None or frame.empty or column not in frame.columns:
+def sort_stats_frame_for_pagination(frame: pd.DataFrame, column: str, ascending: bool) -> pd.DataFrame:
+    if frame is None or frame.empty or not column or column not in frame.columns:
         return frame
 
     sorted_frame = frame.copy()
@@ -14875,58 +15004,6 @@ def stats_sort_dataframe(frame: pd.DataFrame, column: str, ascending: bool) -> p
 
 def reset_stats_table_page(table_key: str) -> None:
     st.session_state[f"{table_key}_page"] = 0
-
-
-def apply_stats_global_sort_controls(
-    frame: pd.DataFrame,
-    table_key: str,
-    page_size: int,
-    sort_columns: list[str] | None = None,
-) -> pd.DataFrame:
-    if frame is None or frame.empty or len(frame.index) <= page_size:
-        return frame
-
-    available_columns = [
-        column for column in (sort_columns or list(frame.columns))
-        if column in frame.columns
-    ]
-    if not available_columns:
-        return frame
-
-    sort_key = f"{table_key}_global_sort_column"
-    direction_key = f"{table_key}_global_sort_direction"
-    current_sort = st.session_state.get(sort_key, "")
-    if current_sort not in available_columns:
-        current_sort = ""
-    current_direction = st.session_state.get(direction_key, "Descending")
-    if current_direction not in {"Ascending", "Descending"}:
-        current_direction = "Descending"
-
-    sort_col, direction_col, _ = st.columns([1.5, 1.1, 4.4])
-    with sort_col:
-        selected_sort = st.selectbox(
-            "Sort all rows by",
-            ["", *available_columns],
-            index=(["", *available_columns]).index(current_sort),
-            format_func=lambda value: "Current order" if value == "" else stats_sort_column_label(value),
-            key=sort_key,
-            on_change=reset_stats_table_page,
-            args=(table_key,),
-        )
-    with direction_col:
-        selected_direction = st.radio(
-            "Direction",
-            ["Descending", "Ascending"],
-            index=["Descending", "Ascending"].index(current_direction),
-            horizontal=True,
-            key=direction_key,
-            on_change=reset_stats_table_page,
-            args=(table_key,),
-        )
-
-    if selected_sort:
-        return stats_sort_dataframe(frame, selected_sort, ascending=selected_direction == "Ascending")
-    return frame
 
 
 def outcome_display_column_title(column: str) -> str:
@@ -14971,6 +15048,7 @@ def outcome_display_column_config() -> dict:
     }
     column_config.update({
         "Sent": outcome_display_number_column("Sent", "%d"),
+        "Sent Reminders": outcome_display_number_column("Sent Reminders", "%d"),
         "Successes": outcome_display_number_column("Successes", "%d"),
         "Pending": outcome_display_number_column("Pending", "%d"),
         "No Match": outcome_display_number_column("No Match", "%d"),
@@ -14979,9 +15057,13 @@ def outcome_display_column_config() -> dict:
         "Next Purchase Gap Days": outcome_display_number_column("Next Purchase Gap Days", "%.0f"),
         "Avg Success Gap Days": outcome_display_number_column("Avg Success Gap Days", "%.1f"),
         "Overall Avg Purchase Gap Days": outcome_display_number_column("Overall Avg Purchase Gap Days", "%.0f"),
+        "Actual Gap Days": outcome_display_number_column("Actual Gap Days", "%.0f"),
         "Gap Day % to Desired": outcome_display_number_column("Gap Day % to Desired", "%.0f%%"),
+        "Gap Day %": outcome_display_number_column("Gap Day %", "%.0f%%"),
         "Overall Repeat Purchases": outcome_display_number_column("Overall Repeat Purchases", "%d"),
+        "Total Repeat Purchases": outcome_display_number_column("Total Repeat Purchases", "%d"),
         "Overall Purchases": outcome_display_number_column("Overall Purchases", "%d"),
+        "Total Purchases": outcome_display_number_column("Total Purchases", "%d"),
         "Repeat Purchase %": outcome_display_number_column("Repeat Purchase %", "%.0f%%"),
         "Revenue per Item": outcome_display_number_column("Revenue per Item", "localized"),
         "Revenue from Successes": outcome_display_number_column("Revenue from Successes", "localized"),
@@ -15225,15 +15307,16 @@ def render_outcome_dataframe(
     default_sort_ascending: bool = False,
     page_size: int = STATS_TABLE_PAGE_SIZE,
     item_label: str = "outcome rows",
+    display_column_labels: dict[str, str] | None = None,
 ):
     if columns is not None and frame is not None and not frame.empty:
         frame = frame[[column for column in columns if column in frame.columns]]
     if frame.empty:
         st.info("No outcome rows for this view yet.")
         return
-    frame = apply_stats_global_sort_controls(frame, table_key, page_size)
+    frame = sort_stats_frame_for_pagination(frame, default_sort_column, default_sort_ascending)
     frame = paginate_dataframe(frame, table_key, page_size, item_label)
-    display_frame = prepare_outcome_dataframe_for_display(frame)
+    display_frame = prepare_outcome_dataframe_for_display(frame, column_labels=display_column_labels)
     st.dataframe(
         display_frame,
         hide_index=True,
@@ -15485,12 +15568,15 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             item_frame,
             "stats-items",
             "stats_items",
-            display_preparer=prepare_outcome_dataframe_for_display,
+            display_preparer=prepare_stats_items_outcome_dataframe_for_display,
         )
         render_outcome_dataframe(
             item_frame,
+            columns=STATS_ITEMS_DISPLAY_COLUMNS,
             table_key="stats_items",
+            default_sort_column="Capturable Revenue per Year",
             item_label="item rows",
+            display_column_labels=STATS_ITEMS_DISPLAY_COLUMN_LABELS,
         )
 
     with item_actioning_tab:
@@ -15510,11 +15596,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 "stats-item-actioning",
                 "stats_item_actioning",
                 display_preparer=prepare_statistics_display_frame,
-            )
-            item_actioning_frame = apply_stats_global_sort_controls(
-                item_actioning_frame,
-                "stats_item_actioning",
-                STATS_TABLE_PAGE_SIZE,
             )
             paged_item_actioning_frame = paginate_dataframe(
                 item_actioning_frame,
@@ -15546,11 +15627,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 "stats-team",
                 "stats_team",
                 display_preparer=prepare_stats_team_display_frame,
-            )
-            team_frame = apply_stats_global_sort_controls(
-                team_frame,
-                "stats_team",
-                STATS_TABLE_PAGE_SIZE,
             )
             paged_team_frame = paginate_dataframe(
                 team_frame,

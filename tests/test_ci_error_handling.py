@@ -403,6 +403,54 @@ class ErrorHandlingObservabilityTests(unittest.TestCase):
         self.assertEqual(kwargs["stage"], "drive_upsert_csv_bytes")
         self.assertEqual(kwargs["source"], "drive_upsert_csv_bytes")
 
+    def test_gspread_retry_returns_fast_success_with_elapsed_budget(self):
+        with patch.object(self.app.time, "perf_counter", side_effect=[0.0, 0.1, 0.2]):
+            result = self.app._gspread_retry(lambda: "ok", timeout_seconds=1)
+
+        self.assertEqual(result, "ok")
+
+    def test_gspread_retry_times_out_after_slow_successful_call(self):
+        calls = []
+
+        def slow_call():
+            calls.append("called")
+            return "late"
+
+        with patch.object(self.app.time, "perf_counter", side_effect=[0.0, 0.5, 2.0]):
+            with self.assertRaises(self.app.GoogleSheetsOperationTimeoutError):
+                self.app._gspread_retry(slow_call, timeout_seconds=1)
+
+        self.assertEqual(calls, ["called"])
+
+    def test_gspread_retry_times_out_before_transient_retry_sleep(self):
+        class FakeResponse:
+            text = "quota"
+
+            def json(self):
+                return {
+                    "error": {
+                        "code": 503,
+                        "message": "backend unavailable",
+                        "status": "UNAVAILABLE",
+                    }
+                }
+
+        calls = []
+
+        def transient_failure():
+            calls.append("called")
+            raise self.app.APIError(FakeResponse())
+
+        with (
+            patch.object(self.app.time, "perf_counter", side_effect=[0.0, 0.1, 0.2, 1.2]),
+            patch.object(self.app.time, "sleep") as sleep,
+        ):
+            with self.assertRaises(self.app.GoogleSheetsOperationTimeoutError):
+                self.app._gspread_retry(transient_failure, timeout_seconds=1)
+
+        self.assertEqual(calls, ["called"])
+        sleep.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

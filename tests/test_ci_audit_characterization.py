@@ -781,6 +781,20 @@ class AuditCharacterizationTests(unittest.TestCase):
 
         raw_update.assert_not_called()
 
+    def test_default_settings_row_update_blocks_cross_tenant_raw_write(self):
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+
+        with patch.object(self.app, "_raw_update_settings_row_fields") as raw_update:
+            with self.assertRaises(self.app.TenantAuthorizationError):
+                self.app.update_settings_row_fields(
+                    "Clinic B",
+                    {self.app.SHEET_COL_ACCOUNT_STATUS: "active"},
+                    self.app.SETTINGS_REQUIRED_COLUMNS,
+                )
+
+        raw_update.assert_not_called()
+
     def test_authorized_settings_repository_update_allows_signed_in_clinic(self):
         self.app.st.session_state["logged_in"] = True
         self.app.st.session_state["clinic_id"] = "Clinic A"

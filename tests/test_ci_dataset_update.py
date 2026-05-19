@@ -291,8 +291,14 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertEqual(call_order, ["tracker:started", "drive", "pointer", "tracker:success"])
         self.assertEqual([event["status"] for event in tracker_events], ["started", "success"])
         self.assertEqual({event["operation_id"] for event in tracker_events}, {"op-123"})
-        self.assertEqual(tracker_events[0]["message"], "stage=drive_upload")
-        self.assertEqual(tracker_events[1]["message"], "stage=complete")
+        self.assertIn("stage=drive_upload", tracker_events[0]["message"])
+        self.assertIn("new_rows=1", tracker_events[0]["message"])
+        self.assertIn("merged_rows=1", tracker_events[0]["message"])
+        self.assertIn("new_df_bytes=", tracker_events[0]["message"])
+        self.assertIn("merged_df_bytes=", tracker_events[0]["message"])
+        self.assertIn("csv_bytes=", tracker_events[0]["message"])
+        self.assertIn("stage=complete", tracker_events[1]["message"])
+        self.assertIn("csv_bytes=", tracker_events[1]["message"])
         self.assertEqual(tracker_events[1]["drive_file_id"], "new-drive-file")
 
     def test_update_clinic_dataset_pointer_uses_cached_row_without_fresh_readback(self):
@@ -379,6 +385,7 @@ class DatasetUpdateTests(unittest.TestCase):
             patch.object(self.app, "record_dataset_tracker_event", side_effect=capture_tracker),
             patch.object(self.app, "drive_upsert_csv_bytes", return_value="orphan-drive-file"),
             patch.object(self.app, "update_clinic_dataset_pointer", side_effect=RuntimeError("sheet unavailable")),
+            patch.object(self.app, "drive_trash_file") as trash_file,
         ):
             with self.assertRaisesRegex(RuntimeError, "sheet unavailable"):
                 self.app.publish_dataset_for_clinic(
@@ -394,6 +401,44 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertEqual({event["operation_id"] for event in tracker_events}, {"op-456"})
         self.assertEqual(tracker_events[1]["drive_file_id"], "orphan-drive-file")
         self.assertIn("stage=settings_pointer_update", tracker_events[1]["message"])
+        self.assertIn("cleanup=trashed_orphan_drive_file", tracker_events[1]["message"])
+        trash_file.assert_called_once_with(
+            "orphan-drive-file",
+            clinic_id="Clinic A",
+            current_file_id="orphan-drive-file",
+        )
+
+    def test_publish_dataset_does_not_trash_existing_file_when_pointer_update_fails(self):
+        state = self.app.st.session_state
+        state["clinic_id"] = "Clinic A"
+        state["logged_in"] = True
+        new_df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01"]),
+                "Client Name": ["Client A"],
+                "Animal Name": ["Pet A"],
+                "Item Name": ["Rabies"],
+            }
+        )
+
+        with (
+            patch.object(self.app, "require_clinic_dataset_file_access"),
+            patch.object(self.app, "load_existing_shared_df", return_value=pd.DataFrame()),
+            patch.object(self.app, "record_dataset_tracker_event"),
+            patch.object(self.app, "drive_upsert_csv_bytes", return_value="existing-drive-file"),
+            patch.object(self.app, "update_clinic_dataset_pointer", side_effect=RuntimeError("sheet unavailable")),
+            patch.object(self.app, "drive_trash_file") as trash_file,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "sheet unavailable"):
+                self.app.publish_dataset_for_clinic(
+                    "Clinic A",
+                    new_df,
+                    "datasets-folder",
+                    existing_file_id="existing-drive-file",
+                    existing_name="clinic-a.csv",
+                )
+
+        trash_file.assert_not_called()
 
     def test_publish_dataset_fails_closed_when_existing_dataset_load_fails(self):
         state = self.app.st.session_state

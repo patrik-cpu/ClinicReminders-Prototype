@@ -732,14 +732,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("background: #fee2e2", css)
         self.assertNotIn(self.app.WHATSAPP_ICON_MASK_DATA_URI, css)
 
-    def test_render_outcome_dataframe_sorts_all_rows_before_pagination(self):
-        class FakeColumn:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb):
-                return False
-
+    def test_render_outcome_dataframe_sorts_all_rows_before_pagination_without_global_controls(self):
         frame = pd.DataFrame(
             [
                 {
@@ -750,24 +743,81 @@ class StatisticsTests(unittest.TestCase):
                 for idx in range(66)
             ]
         )
-        self.app.st.session_state["stats_items_global_sort_column"] = "Capturable Revenue per Year"
-        self.app.st.session_state["stats_items_global_sort_direction"] = "Descending"
         self.app.st.session_state["stats_items_page"] = 1
 
         with (
-            mock.patch.object(self.app.st, "columns", return_value=[FakeColumn(), FakeColumn(), FakeColumn()]),
-            mock.patch.object(self.app.st, "selectbox", return_value="Capturable Revenue per Year"),
-            mock.patch.object(self.app.st, "radio", return_value="Descending"),
+            mock.patch.object(self.app.st, "selectbox") as selectbox,
+            mock.patch.object(self.app.st, "radio") as radio,
             mock.patch.object(self.app.st, "caption"),
             mock.patch.object(self.app.st, "button", return_value=False),
             mock.patch.object(self.app.st, "dataframe") as dataframe,
         ):
-            self.app.render_outcome_dataframe(frame, table_key="stats_items", item_label="item rows")
+            self.app.render_outcome_dataframe(
+                frame,
+                table_key="stats_items",
+                default_sort_column="Capturable Revenue per Year",
+                item_label="item rows",
+            )
 
         rendered_frame = dataframe.call_args.args[0]
         self.assertEqual(len(rendered_frame), 16)
         self.assertEqual(rendered_frame.iloc[0]["Capturable Revenue per Year"], 15)
         self.assertEqual(rendered_frame.iloc[-1]["Capturable Revenue per Year"], 0)
+        selectbox.assert_not_called()
+        radio.assert_not_called()
+
+    def test_stats_items_outcome_display_columns_match_requested_labels(self):
+        frame = pd.DataFrame([
+            {
+                "Item": "Rabies",
+                "Sent": 4,
+                "Successes": 1,
+                "Pending": 1,
+                "No Match": 2,
+                "Success Rate": 0.25,
+                "Desired Gap Days": 365,
+                "Avg Item Purchase Gap Days": 370,
+                "Gap Day % to Desired": 370 / 365,
+                "Overall Repeat Purchases": 3,
+                "Overall Purchases": 4,
+                "Repeat Purchase %": 0.75,
+                "Revenue per Item": 120.4,
+                "Revenue": 120.4,
+                "Revenue per Year": 300.6,
+                "Theoretical Max Revenue": 600.2,
+                "Capturable Revenue per Year": 299.6,
+                "Captured Revenue %": 0.5,
+            }
+        ])
+
+        with (
+            mock.patch.object(self.app.st, "caption"),
+            mock.patch.object(self.app.st, "button", return_value=False),
+            mock.patch.object(self.app.st, "dataframe") as dataframe,
+        ):
+            self.app.render_outcome_dataframe(
+                frame,
+                columns=self.app.STATS_ITEMS_DISPLAY_COLUMNS,
+                table_key="stats_items",
+                default_sort_column="Capturable Revenue per Year",
+                item_label="item rows",
+                display_column_labels=self.app.STATS_ITEMS_DISPLAY_COLUMN_LABELS,
+            )
+
+        rendered_frame = dataframe.call_args.args[0]
+        self.assertIn("Sent Reminders", rendered_frame.columns)
+        self.assertIn("Actual Gap Days", rendered_frame.columns)
+        self.assertIn("Gap Day %", rendered_frame.columns)
+        self.assertIn("Total Repeat Purchases", rendered_frame.columns)
+        self.assertIn("Total Purchases", rendered_frame.columns)
+        self.assertNotIn("Sent", rendered_frame.columns)
+        self.assertNotIn("Pending", rendered_frame.columns)
+        self.assertNotIn("No Match", rendered_frame.columns)
+        self.assertNotIn("Overall Avg Purchase Gap Days", rendered_frame.columns)
+        self.assertNotIn("Gap Day % to Desired", rendered_frame.columns)
+        self.assertNotIn("Overall Repeat Purchases", rendered_frame.columns)
+        self.assertNotIn("Overall Purchases", rendered_frame.columns)
+        self.assertAlmostEqual(rendered_frame.iloc[0]["Gap Day %"], (370 / 365) * 100)
 
     def test_prepare_stats_team_display_frame_formats_success_rate_as_whole_percent(self):
         frame = pd.DataFrame([{"Team Member": "Nurse A", "Success Rate": 1 / 3, "Revenue": 120}])
@@ -2217,6 +2267,130 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(rows["Dermosc..."]["Outcome"], "Reminder Success")
         self.assertEqual(rows["Revolution"]["Outcome"], "Reminder Success")
         self.assertEqual(float(outcomes["Revenue"].sum()), 100.0)
+
+    def test_grouped_reminder_outcomes_count_later_sent_step_post_reminder_successes(self):
+        actions = [
+            {
+                "Reminder Date": "01 Apr 2025 | 01 Apr 2025",
+                "Due Date": "01 May 2025 | 01 May 2025",
+                "Charge Date": "01 May 2024",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies and Tricat",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2025-04-01T09:00:00",
+                "Actioned By": "Nurse A",
+                "ReminderDetails": [
+                    {
+                        "Reminder Date": "01 Apr 2025",
+                        "Due Date": "01 May 2025",
+                        "Charge Date": "01 May 2024",
+                        "Animal Name": "Pet A",
+                        "Plan Item": "Rabies Vaccine",
+                        "Qty": "1",
+                        "Days": "365",
+                    },
+                    {
+                        "Reminder Date": "01 Apr 2025",
+                        "Due Date": "01 May 2025",
+                        "Charge Date": "01 May 2024",
+                        "Animal Name": "Pet A",
+                        "Plan Item": "Tricat Vaccine",
+                        "Qty": "1",
+                        "Days": "365",
+                    },
+                ],
+            },
+            {
+                "Reminder Date": "20 May 2025 | 20 May 2025",
+                "Due Date": "01 May 2025 | 01 May 2025",
+                "Charge Date": "01 May 2024",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies and Tricat",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2025-05-20T09:00:00",
+                "Actioned By": "Nurse B",
+                "ReminderDetails": [
+                    {
+                        "Reminder Date": "20 May 2025",
+                        "Due Date": "01 May 2025",
+                        "Charge Date": "01 May 2024",
+                        "Animal Name": "Pet A",
+                        "Plan Item": "Rabies Vaccine",
+                        "Qty": "1",
+                        "Days": "365",
+                    },
+                    {
+                        "Reminder Date": "20 May 2025",
+                        "Due Date": "01 May 2025",
+                        "Charge Date": "01 May 2024",
+                        "Animal Name": "Pet A",
+                        "Plan Item": "Tricat Vaccine",
+                        "Qty": "1",
+                        "Days": "365",
+                    },
+                ],
+            },
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2024-05-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2024-05-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Tricat Vaccine",
+                    "Amount": 70,
+                },
+                {
+                    "ChargeDate": "2025-05-24",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Rabies Vaccine",
+                    "Amount": 95,
+                },
+                {
+                    "ChargeDate": "2025-05-25",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Tricat Vaccine",
+                    "Amount": 85,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            post_reminder_window_days=7,
+            today=date(2025, 6, 10),
+            rules={
+                "rabies": {"days": 365, "visible_text": "Rabies"},
+                "tricat": {"days": 365, "visible_text": "Tricat"},
+            },
+        )
+        summary = self.app.summarize_outcomes(outcomes)
+
+        self.assertEqual(len(outcomes), 2)
+        rows = {row["Item"]: row for row in outcomes.to_dict("records")}
+        self.assertEqual(set(rows), {"Rabies Vaccine", "Tricat Vaccine"})
+        self.assertEqual(summary["sent"], 2)
+        self.assertEqual(summary["successes"], 2)
+        self.assertEqual(summary["success_rate"], 1.0)
+        self.assertEqual(rows["Rabies Vaccine"]["Outcome"], "Reminder Success")
+        self.assertEqual(rows["Rabies Vaccine"]["Success Basis"], "After sent date")
+        self.assertEqual(str(rows["Rabies Vaccine"]["Success Date"].date()), "2025-05-24")
+        self.assertEqual(rows["Tricat Vaccine"]["Outcome"], "Reminder Success")
+        self.assertEqual(rows["Tricat Vaccine"]["Success Basis"], "After sent date")
+        self.assertEqual(str(rows["Tricat Vaccine"]["Success Date"].date()), "2025-05-25")
 
     def test_outcomes_count_multiple_sent_steps_for_same_purchase_once(self):
         actions = [
