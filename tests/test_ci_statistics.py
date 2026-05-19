@@ -180,6 +180,33 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(config["Sent"]["type_config"]["format"], "%d")
         self.assertEqual(config["No Match"]["type_config"]["format"], "%d")
 
+    def test_stats_summary_cards_have_user_friendly_tooltips(self):
+        expected_labels = [
+            "Total Reminded Items",
+            "Reminder Successes",
+            "Success Rate",
+            "Pending",
+            "Revenue",
+        ]
+
+        for label in expected_labels:
+            with self.subTest(label=label):
+                self.assertIn(label, self.app.STATS_SUMMARY_CARD_HELP)
+                self.assertTrue(self.app.STATS_SUMMARY_CARD_HELP[label])
+
+        with mock.patch.object(self.app.st, "markdown") as markdown:
+            self.app.render_statistics_metric_card(
+                "Total Reminded Items",
+                "879",
+                self.app.STATS_SUMMARY_CARD_HELP["Total Reminded Items"],
+            )
+
+        html = markdown.call_args.args[0]
+        self.assertIn("Total Reminded Items", html)
+        self.assertIn("column-help", html)
+        self.assertIn("Unique reminded item purchase cycles", html)
+        self.assertNotIn(">Sent<", html)
+
     def test_statistics_display_frame_renames_generated_for_users(self):
         frame = pd.DataFrame([{"Generated": 2, "Actioned": 1}])
 

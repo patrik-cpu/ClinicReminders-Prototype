@@ -11309,6 +11309,13 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Matched Item": "Purchased item that counted as the success.",
     "Next Matched Item": "Next matching purchased item after the billed date.",
 }
+STATS_SUMMARY_CARD_HELP = {
+    "Total Reminded Items": "Unique reminded item purchase cycles included in outcome matching. Multiple reminder steps for the same item cycle count once.",
+    "Reminder Successes": "Reminded items with a matching repeat purchase in either success window.",
+    "Success Rate": "Reminder successes divided by total reminded items.",
+    "Pending": "Reminded items where at least one success window is still open.",
+    "Revenue": "Revenue from matching repeat purchases that counted as reminder successes.",
+}
 OUTCOME_SENT_DISPLAY_COLUMNS = [
     "Charge Date",
     "Reminder Date",
@@ -11753,13 +11760,19 @@ def build_statistics_item_frame(
     return pd.DataFrame(rows).sort_values(["Generated", "Actioned"], ascending=False) if rows else pd.DataFrame(columns=["Item", "Generated", "Actioned", "Sent", "Declined"])
 
 
-def render_statistics_metric_card(label: str, value: str):
+def render_statistics_metric_card(label: str, value: str, help_text: str = ""):
     safe_label = html_lib.escape(str(label or ""))
     safe_value = html_lib.escape(str(value or "0"))
+    safe_help = html_lib.escape(str(help_text or ""))
+    help_html = (
+        f" <span class='column-help' data-tooltip='{safe_help}'>?</span>"
+        if safe_help
+        else ""
+    )
     st.markdown(
         f"""
         <div class="stats-summary-card">
-          <div class="stats-summary-label">{safe_label}</div>
+          <div class="stats-summary-label">{safe_label}{help_html}</div>
           <div class="stats-summary-value">{safe_value}</div>
         </div>
         """,
@@ -13293,7 +13306,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     summary = summarize_outcomes(period_rows)
     metric_cols = st.columns(5)
     metrics = [
-        ("Sent", f"{summary['sent']:,}"),
+        ("Total Reminded Items", f"{summary['sent']:,}"),
         ("Reminder Successes", f"{summary['successes']:,}"),
         ("Success Rate", f"{summary['success_rate']:.0%}"),
         ("Pending", f"{summary['pending']:,}"),
@@ -13301,7 +13314,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     ]
     for col, (label, value) in zip(metric_cols, metrics):
         with col:
-            render_statistics_metric_card(label, value)
+            render_statistics_metric_card(label, value, STATS_SUMMARY_CARD_HELP[label])
     st.markdown("<div class='stats-summary-tab-gap' aria-hidden='true'></div>", unsafe_allow_html=True)
 
     item_tab, item_actioning_tab, team_tab, sent_tab, success_tab = st.tabs(
