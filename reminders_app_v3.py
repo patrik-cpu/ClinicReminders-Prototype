@@ -2536,12 +2536,36 @@ st.markdown(
         position: absolute;
         text-align: left;
         bottom: calc(100% + 0.45rem);
+        transition-delay: 75ms;
         transform: translateX(-50%);
         white-space: normal;
         z-index: 9999;
     }
     .column-help:hover::after {
         display: block;
+    }
+    div[data-baseweb="tooltip"],
+    div[data-baseweb="popover"][role="tooltip"],
+    div[role="tooltip"] {
+        background: #ffffff !important;
+        border: 1px solid rgba(15, 23, 42, 0.14) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16) !important;
+        color: #101828 !important;
+        transition-delay: 75ms !important;
+        animation-delay: 75ms !important;
+    }
+    div[data-baseweb="tooltip"] *,
+    div[data-baseweb="popover"][role="tooltip"] *,
+    div[role="tooltip"] * {
+        background: #ffffff !important;
+        color: #101828 !important;
+    }
+    div[data-baseweb="tooltip"] svg,
+    div[data-baseweb="popover"][role="tooltip"] svg,
+    div[role="tooltip"] svg {
+        fill: #ffffff !important;
+        color: #ffffff !important;
     }
     .field-label {
         font-size: 0.9rem;
@@ -11167,32 +11191,36 @@ OUTCOME_DISPLAY_COLUMN_LABELS = {
     "Avg Item Purchase Gap Days": "Overall Avg Purchase Gap Days",
 }
 OUTCOME_DISPLAY_COLUMN_HELP = {
-    "Billed Date": "The original sale date from the uploaded data.",
-    "Reminder Date": "The date the reminder was scheduled to appear in the Reminders workflow.",
-    "Sent Date": "The date the reminder was marked as sent.",
-    "Actioned Date": "The date the reminder was last marked sent or declined.",
-    "Due Date": "The date the client was expected to buy this item again.",
-    "Window Starts": "The first purchase date that can count as a success for this reminder.",
-    "Window Ends": "The last purchase date that can count as a success for this reminder.",
-    "Next Purchase Date": "The next matching purchase found after the billed date.",
-    "Success Date": "The matching purchase date that made this reminder successful.",
-    "Client Name": "The client linked to the reminder.",
-    "Animal Name": "The patient linked to the reminder.",
-    "Item": "The reminded item or service.",
-    "Sender": "The team member who marked the reminder as sent.",
-    "Outcome": "Whether the reminder is successful, pending, or has no matching purchase.",
-    "Desired Gap Days": "The expected number of days between purchases for this item.",
-    "Success Gap Days": "The days between the original billed date and the successful repeat purchase.",
-    "Next Purchase Gap Days": "The days between the original billed date and the next matching purchase.",
-    "Avg Success Gap Days": "The average successful repeat-purchase gap for the rows in this table.",
-    "Overall Avg Purchase Gap Days": "The average repeat-purchase gap across all uploaded purchases for this item.",
-    "Overall Repeat Purchases": "The number of repeat purchases used to calculate the overall average gap.",
-    "Overall Purchases": "The total number of matching purchases found in the uploaded data.",
-    "Repeat Purchase %": "The share of matching purchases that are repeat purchases.",
-    "Success Rate": "Successful reminders divided by sent reminders.",
-    "Revenue": "Revenue from successful repeat purchases.",
-    "Matched Item": "The purchased item that counted as the successful match.",
-    "Next Matched Item": "The next matching purchased item found after the billed date.",
+    "Billed Date": "Original purchase date from the uploaded sales data.",
+    "Reminder Date": "Date the reminder was scheduled to appear.",
+    "Sent Date": "Date the reminder was marked as sent.",
+    "Actioned Date": "Most recent date the reminder was sent or declined.",
+    "Due Date": "Expected next purchase date for this item.",
+    "Window Starts": "Earliest purchase date that can count as a success.",
+    "Window Ends": "Latest purchase date that can count as a success.",
+    "Next Purchase Date": "Next matching purchase after the billed date.",
+    "Success Date": "Purchase date that made the reminder successful.",
+    "Client Name": "Client linked to the reminder.",
+    "Animal Name": "Patient linked to the reminder.",
+    "Item": "Item or service the reminder is about.",
+    "Sender": "Team member who sent the reminder.",
+    "Outcome": "Current result: success, pending, no match, or not measurable.",
+    "Sent": "Number of sent reminders in this row.",
+    "Successes": "Sent reminders that led to a matching repeat purchase.",
+    "Pending": "Sent reminders still inside the success window.",
+    "No Match": "Sent reminders with no matching repeat purchase after the window closed.",
+    "Desired Gap Days": "Expected days between purchases for this item.",
+    "Success Gap Days": "Days from the billed date to the successful repeat purchase.",
+    "Next Purchase Gap Days": "Days from the billed date to the next matching purchase.",
+    "Avg Success Gap Days": "Average successful repeat-purchase gap in this view.",
+    "Overall Avg Purchase Gap Days": "Average gap between repeat purchases across all uploaded sales for this item.",
+    "Overall Repeat Purchases": "Repeat purchases used to calculate the overall average gap.",
+    "Overall Purchases": "Total matching purchases found in uploaded sales data.",
+    "Repeat Purchase %": "Percentage of matching purchases that are repeat purchases.",
+    "Success Rate": "Percentage of sent reminders that became successes.",
+    "Revenue": "Revenue linked to successful repeat purchases.",
+    "Matched Item": "Purchased item that counted as the success.",
+    "Next Matched Item": "Next matching purchased item after the billed date.",
 }
 OUTCOME_SENT_DISPLAY_COLUMNS = [
     "Charge Date",
@@ -11245,24 +11273,24 @@ STATS_TEAM_COLUMNS = [
     "Last Actioned",
 ]
 STATS_ITEM_ACTIONING_COLUMN_HELP = {
-    "Item": "The generated reminder item.",
-    STATISTICS_SCHEDULED_REMINDERS_LABEL: "How many reminders were scheduled for this item.",
-    "Actioned": "How many scheduled reminders were marked sent or declined.",
-    "Sent": "How many scheduled reminders were marked sent.",
-    "Declined": "How many scheduled reminders were declined.",
+    "Item": "Item or service from generated reminders.",
+    STATISTICS_SCHEDULED_REMINDERS_LABEL: "Reminders scheduled for this item.",
+    "Actioned": "Scheduled reminders marked sent or declined.",
+    "Sent": "Scheduled reminders marked sent.",
+    "Declined": "Scheduled reminders declined.",
 }
 STATS_TEAM_COLUMN_HELP = {
-    "Team Member": "The team member who actioned or sent reminders.",
+    "Team Member": "Team member who sent or actioned reminders.",
     "Sent Reminders": "Sent reminders included in outcome matching for this team member.",
-    "Successes": "Sent reminders from this team member that led to matching repeat purchases.",
+    "Successes": "Sent reminders that led to matching repeat purchases.",
     "Pending": "Sent reminders still inside the success window.",
-    "No Match": "Sent reminders with no matching repeat purchase found after the success window.",
-    "Success Rate": "Successful reminders divided by sent reminders for this team member.",
-    "Revenue": "Revenue from successful repeat purchases linked to this team member.",
-    "Actioned": "All reminders this team member marked sent or declined.",
-    "Sent Actions": "Reminders this team member marked sent.",
-    "Declined Actions": "Reminders this team member declined.",
-    "Last Actioned": "The latest date this team member marked a reminder sent or declined.",
+    "No Match": "Sent reminders with no matching repeat purchase after the window closed.",
+    "Success Rate": "Percentage of sent reminders that became successes.",
+    "Revenue": "Revenue linked to this team member's successful reminders.",
+    "Actioned": "Reminders this team member sent or declined.",
+    "Sent Actions": "Reminder actions marked as sent.",
+    "Declined Actions": "Reminder actions marked as declined.",
+    "Last Actioned": "Most recent sent or declined action date.",
 }
 OUTCOME_SUCCESS_METER_COLUMNS = {"Sent", "Successes", "Pending", "No Match", "Success Rate"}
 
@@ -12785,6 +12813,26 @@ def outcome_display_column_config() -> dict:
         for column, help_text in OUTCOME_DISPLAY_COLUMN_HELP.items()
     }
     column_config.update({
+        "Sent": st.column_config.NumberColumn(
+            "Sent",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Sent"],
+            format="%d",
+        ),
+        "Successes": st.column_config.NumberColumn(
+            "Successes",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Successes"],
+            format="%d",
+        ),
+        "Pending": st.column_config.NumberColumn(
+            "Pending",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Pending"],
+            format="%d",
+        ),
+        "No Match": st.column_config.NumberColumn(
+            "No Match",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["No Match"],
+            format="%d",
+        ),
         "Desired Gap Days": st.column_config.NumberColumn(
             "Desired Gap Days",
             help=OUTCOME_DISPLAY_COLUMN_HELP["Desired Gap Days"],

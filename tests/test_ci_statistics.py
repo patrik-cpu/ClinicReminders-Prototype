@@ -144,10 +144,40 @@ class StatisticsTests(unittest.TestCase):
         item_config = self.app.stats_item_actioning_column_config()
         team_config = self.app.stats_team_column_config()
 
-        self.assertIn("scheduled for this item", item_config["Scheduled reminders"]["help"])
-        self.assertIn("marked sent or declined", item_config["Actioned"]["help"])
+        for column in ["Item", "Scheduled reminders", "Actioned", "Sent", "Declined"]:
+            with self.subTest(column=column):
+                self.assertIn(column, item_config)
+                self.assertTrue(item_config[column]["help"])
+
+        for column in self.app.STATS_TEAM_COLUMNS:
+            with self.subTest(column=column):
+                self.assertIn(column, team_config)
+                self.assertTrue(team_config[column]["help"])
+
+        self.assertIn("Reminders scheduled", item_config["Scheduled reminders"]["help"])
+        self.assertIn("sent or declined", item_config["Actioned"]["help"])
         self.assertIn("outcome matching", team_config["Sent Reminders"]["help"])
-        self.assertIn("All reminders this team member", team_config["Actioned"]["help"])
+        self.assertIn("sent or declined", team_config["Actioned"]["help"])
+
+    def test_outcome_column_config_explains_every_stats_table_header(self):
+        config = self.app.outcome_display_column_config()
+        stats_column_sets = [
+            self.app.OUTCOME_ITEM_GROUP_COLUMNS,
+            self.app.OUTCOME_SENT_DISPLAY_COLUMNS,
+            self.app.OUTCOME_SENDER_GROUP_COLUMNS,
+        ]
+
+        for columns in stats_column_sets:
+            for column in columns:
+                display_column = self.app.OUTCOME_DISPLAY_COLUMN_LABELS.get(column, column)
+                with self.subTest(column=display_column):
+                    self.assertIn(display_column, config)
+                    self.assertTrue(config[display_column]["help"])
+
+        self.assertIn("Percentage of sent reminders", config["Success Rate"]["help"])
+        self.assertIn("Percentage of matching purchases", config["Repeat Purchase %"]["help"])
+        self.assertEqual(config["Sent"]["type_config"]["format"], "%d")
+        self.assertEqual(config["No Match"]["type_config"]["format"], "%d")
 
     def test_statistics_display_frame_renames_generated_for_users(self):
         frame = pd.DataFrame([{"Generated": 2, "Actioned": 1}])
@@ -1434,9 +1464,9 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(column_config["Overall Avg Purchase Gap Days"]["type_config"]["format"], "%.0f")
         self.assertEqual(column_config["Repeat Purchase %"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(rendered_frame.iloc[0]["Repeat Purchase %"], 75)
-        self.assertIn("average repeat-purchase gap", column_config["Overall Avg Purchase Gap Days"]["help"])
-        self.assertIn("share of matching purchases", column_config["Repeat Purchase %"]["help"])
-        self.assertIn("Whether the reminder is successful", column_config["Outcome"]["help"])
+        self.assertIn("Average gap", column_config["Overall Avg Purchase Gap Days"]["help"])
+        self.assertIn("Percentage of matching purchases", column_config["Repeat Purchase %"]["help"])
+        self.assertIn("Current result", column_config["Outcome"]["help"])
         self.assertNotIn("Avg Item Purchase Gap Days", rendered_frame.columns)
 
     def test_prepare_outcome_dataframe_for_display_formats_dates_without_time(self):
