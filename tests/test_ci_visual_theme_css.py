@@ -110,6 +110,8 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Stats"]', source)
         self.assertIn('"outcomes": "Stats"', source)
         self.assertIn('"statistics": "Stats"', source)
+        self.assertIn('st.markdown("## 📊 Stats")', source)
+        self.assertIn("See which reminders were sent, which ones led to repeat purchases", source)
         self.assertIn('["Items", "Item Actioning", "Team", "Sent Reminders", "Successes"]', source)
         self.assertIn("build_stats_team_frame", source)
         self.assertIn("All time; generated reminders and saved actions grouped by item.", source)

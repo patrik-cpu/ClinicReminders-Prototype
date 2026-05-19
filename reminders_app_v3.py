@@ -12684,7 +12684,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     st.markdown("<div id='stats' class='anchor-offset'></div><div id='outcomes' class='anchor-offset'></div>", unsafe_allow_html=True)
     title_col, refresh_col = st.columns([4, 1], gap="large")
     with title_col:
-        st.markdown("## Stats")
+        st.markdown("## 📊 Stats")
     with refresh_col:
         st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
         st.button(
@@ -12695,7 +12695,9 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             help="Re-sync sent reminders and saved clinic data, then recalculate stats.",
             on_click=refresh_outcome_results_action,
         )
-    st.caption("Outcome matching is the primary view here. Actioning tables are all-time summaries from generated reminders and saved actions.")
+    st.caption(
+        "See which reminders were sent, which ones led to repeat purchases, and how items and team members are performing over time."
+    )
     refresh_success = st.session_state.pop("_outcomes_refresh_success", "")
     if refresh_success:
         st.success(refresh_success)
