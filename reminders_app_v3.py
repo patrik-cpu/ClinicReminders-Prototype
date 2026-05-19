@@ -14199,6 +14199,44 @@ def prepare_stats_team_display_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return display_frame
 
 
+def stats_export_slug(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    return slug or "stats"
+
+
+def stats_export_csv_bytes(frame: pd.DataFrame) -> bytes:
+    if frame is None or getattr(frame, "empty", True):
+        return b""
+    return frame.to_csv(index=False).encode("utf-8")
+
+
+def render_stats_csv_export(
+    frame: pd.DataFrame,
+    view_name: str,
+    key: str,
+    columns: list[str] | None = None,
+    display_preparer=None,
+) -> None:
+    if frame is None or getattr(frame, "empty", True):
+        return
+    export_frame = frame.copy()
+    if columns is not None:
+        export_frame = export_frame[[column for column in columns if column in export_frame.columns]]
+    if display_preparer is not None:
+        export_frame = display_preparer(export_frame)
+    csv_bytes = stats_export_csv_bytes(export_frame)
+    if not csv_bytes:
+        return
+    st.download_button(
+        "Export as CSV",
+        data=csv_bytes,
+        file_name=f"{stats_export_slug(view_name)}-{user_today().isoformat()}.csv",
+        mime="text/csv",
+        key=f"{key}_export_csv",
+        help="Download every row in this view, including rows not visible on the current page.",
+    )
+
+
 def stats_item_actioning_column_config() -> dict:
     return {
         "Item": st.column_config.TextColumn("Item", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Item"]),
@@ -14444,8 +14482,15 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     with item_tab:
         st.caption("All time; matched sent reminders grouped by item.")
+        item_frame = build_outcome_group_frame(period_rows, "Item", OUTCOME_ITEM_GROUP_COLUMNS)
+        render_stats_csv_export(
+            item_frame,
+            "stats-items",
+            "stats_items",
+            display_preparer=prepare_outcome_dataframe_for_display,
+        )
         render_outcome_dataframe(
-            build_outcome_group_frame(period_rows, "Item", OUTCOME_ITEM_GROUP_COLUMNS),
+            item_frame,
             table_key="stats_items",
         )
 
@@ -14455,6 +14500,12 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         if item_actioning_frame.empty:
             st.info("No item actioning stats yet.")
         else:
+            render_stats_csv_export(
+                item_actioning_frame,
+                "stats-item-actioning",
+                "stats_item_actioning",
+                display_preparer=prepare_statistics_display_frame,
+            )
             st.dataframe(
                 prepare_statistics_display_frame(item_actioning_frame),
                 hide_index=True,
@@ -14473,6 +14524,12 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         if team_frame.empty:
             st.info("No team stats yet.")
         else:
+            render_stats_csv_export(
+                team_frame,
+                "stats-team",
+                "stats_team",
+                display_preparer=prepare_stats_team_display_frame,
+            )
             st.dataframe(
                 prepare_stats_team_display_frame(team_frame),
                 hide_index=True,
@@ -14486,14 +14543,28 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         sent_period_rows = filter_stats_sent_tab_rows(period_rows, selected_sent_period)
         st.caption(f"{selected_sent_period}; filtered by Sent Date.")
         sent_rows = sent_period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
-        sent_rows = paginate_dataframe(sent_rows, "outcomes_sent", OUTCOME_SENT_PAGE_SIZE, "sent outcome rows")
-        render_outcome_dataframe(sent_rows, OUTCOME_SENT_DISPLAY_COLUMNS, table_key="outcomes_sent")
+        render_stats_csv_export(
+            sent_rows,
+            f"stats-sent-reminders-{selected_sent_period}",
+            "outcomes_sent",
+            columns=OUTCOME_SENT_DISPLAY_COLUMNS,
+            display_preparer=prepare_outcome_dataframe_for_display,
+        )
+        paged_sent_rows = paginate_dataframe(sent_rows, "outcomes_sent", OUTCOME_SENT_PAGE_SIZE, "sent outcome rows")
+        render_outcome_dataframe(paged_sent_rows, OUTCOME_SENT_DISPLAY_COLUMNS, table_key="outcomes_sent")
 
     with success_tab:
         st.caption("All time; sent reminders matched to a later sale inside the success window.")
         success_rows = period_rows.loc[period_rows["Outcome"].eq("Reminder Success")].sort_values(
             ["Success Date", "Client Name"],
             ascending=[False, True],
+        )
+        render_stats_csv_export(
+            success_rows,
+            "stats-successes",
+            "outcomes_successes",
+            columns=OUTCOME_SENT_DISPLAY_COLUMNS,
+            display_preparer=prepare_outcome_dataframe_for_display,
         )
         render_outcome_dataframe(success_rows, OUTCOME_SENT_DISPLAY_COLUMNS, table_key="outcomes_successes")
 

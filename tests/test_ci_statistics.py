@@ -326,6 +326,54 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(display_frame.iloc[0]["Actioned %"], 50)
         self.assertEqual(display_frame.iloc[0]["Sent %"], 50)
 
+    def test_stats_export_csv_uses_display_frame_and_requested_columns(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "Item": "Rabies",
+                    "Sent": 1,
+                    "Success Rate": 0.5,
+                    "Revenue": 120.4,
+                    "Ignored": "not exported",
+                },
+                {
+                    "Item": "Tricat",
+                    "Sent": 2,
+                    "Success Rate": 0.25,
+                    "Revenue": 80.2,
+                    "Ignored": "not exported",
+                },
+            ]
+        )
+
+        with mock.patch.object(self.app.st, "download_button") as download_button:
+            self.app.render_stats_csv_export(
+                frame,
+                "Stats Items",
+                "stats_items",
+                columns=["Item", "Sent", "Success Rate", "Revenue"],
+                display_preparer=self.app.prepare_outcome_dataframe_for_display,
+            )
+
+        download_button.assert_called_once()
+        kwargs = download_button.call_args.kwargs
+        exported = pd.read_csv(io.BytesIO(kwargs["data"]))
+
+        self.assertEqual(download_button.call_args.args[0], "Export as CSV")
+        self.assertEqual(kwargs["mime"], "text/csv")
+        self.assertTrue(kwargs["file_name"].startswith("stats-items-"))
+        self.assertEqual(exported.columns.tolist(), ["Item", "Sent", "Success Rate", "Revenue from Successes"])
+        self.assertEqual(len(exported), 2)
+        self.assertEqual(exported.iloc[0]["Success Rate"], 50)
+        self.assertEqual(exported.iloc[0]["Revenue from Successes"], 120)
+        self.assertNotIn("Ignored", exported.columns)
+
+    def test_stats_export_csv_skips_empty_frames(self):
+        with mock.patch.object(self.app.st, "download_button") as download_button:
+            self.app.render_stats_csv_export(pd.DataFrame(), "Stats Items", "stats_items")
+
+        download_button.assert_not_called()
+
     def test_statistics_exclusion_fingerprint_tracks_filter_changes(self):
         state = self.app.st.session_state
         state["exclusions"] = ["Rabies"]
