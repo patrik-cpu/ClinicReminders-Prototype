@@ -110,6 +110,57 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(item_rows["Rabies"]["Sent"], 1)
         self.assertEqual(item_rows["Librela"]["Declined"], 1)
 
+    def test_statistics_item_frame_splits_grouped_reminder_details(self):
+        reminder_details = [
+            {
+                "Reminder Date": "16 May 2026",
+                "Due Date": "16 May 2026",
+                "Charge Date": "16 May 2025",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies Vaccine",
+                "Qty": "1",
+                "Days": "365",
+            },
+            {
+                "Reminder Date": "16 May 2026",
+                "Due Date": "16 May 2026",
+                "Charge Date": "16 May 2025",
+                "Animal Name": "Pet A",
+                "Plan Item": "Tricat Vaccine",
+                "Qty": "1",
+                "Days": "365",
+            },
+        ]
+        grouped_row = {
+            "Reminder Date": "16 May 2026",
+            "Due Date": "16 May 2026",
+            "Charge Date": "16 May 2025",
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies and Tricat Vaccines",
+            "Qty": "NA",
+            "Days": "NA",
+            "ReminderDetails": reminder_details,
+        }
+        generated = pd.DataFrame([grouped_row])
+        actions = [
+            {
+                **grouped_row,
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-16T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+
+        items = self.app.build_statistics_item_frame(generated, actions, "Today", today=date(2026, 5, 16))
+        item_rows = {row["Item"]: row for row in items.to_dict("records")}
+
+        self.assertNotIn("Rabies and Tricat Vaccines", item_rows)
+        self.assertEqual(item_rows["Rabies Vaccine"]["Generated"], 1)
+        self.assertEqual(item_rows["Rabies Vaccine"]["Sent"], 1)
+        self.assertEqual(item_rows["Tricat Vaccine"]["Generated"], 1)
+        self.assertEqual(item_rows["Tricat Vaccine"]["Sent"], 1)
+
     def test_stats_team_frame_combines_outcomes_and_actioning(self):
         outcome_sender = pd.DataFrame(
             [

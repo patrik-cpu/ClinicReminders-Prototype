@@ -11494,8 +11494,8 @@ STATS_TEAM_COLUMNS = [
     "Last Actioned",
 ]
 STATS_ITEM_ACTIONING_COLUMN_HELP = {
-    "Item": "Item or service from generated reminders.",
-    STATISTICS_SCHEDULED_REMINDERS_LABEL: "Reminders scheduled for this item.",
+    "Item": "Actual item or service from generated reminders.",
+    STATISTICS_SCHEDULED_REMINDERS_LABEL: "Reminders scheduled for this actual item.",
     "Actioned": "Scheduled reminders marked sent or declined.",
     "Actioned %": "Actioned reminders divided by scheduled reminders.",
     "Sent": "Scheduled reminders marked sent.",
@@ -11742,6 +11742,18 @@ def filter_actions_by_actioned_period(action_records: list[dict], period: str, t
     ]
 
 
+def expand_rows_for_statistics_item_period(
+    rows: list[dict],
+    period: str,
+    today: date | None = None,
+) -> list[dict]:
+    expanded_rows = expand_grouped_action_records(rows)
+    return [
+        dict(row) for row in expanded_rows
+        if statistics_row_in_reminder_period(row, period, today)
+    ]
+
+
 def statistics_summary_for_period(
     generated_df: pd.DataFrame,
     action_records: list[dict],
@@ -11857,14 +11869,19 @@ def build_statistics_item_frame(
     period: str,
     today: date | None = None,
 ) -> pd.DataFrame:
-    generated_rows = filter_generated_for_statistics_period(generated_df, period, today).to_dict("records")
+    generated_source_rows = (
+        generated_df.to_dict("records")
+        if generated_df is not None and not getattr(generated_df, "empty", True)
+        else []
+    )
+    generated_rows = expand_rows_for_statistics_item_period(generated_source_rows, period, today)
     generated_counts = {}
     for row in generated_rows:
         item = normalize_display_case(str(row.get("Plan Item", "") or "Unknown").strip() or "Unknown")
         generated_counts[item] = generated_counts.get(item, 0) + 1
 
     action_counts = {}
-    for record in filter_actions_by_reminder_period(action_records, period, today):
+    for record in expand_rows_for_statistics_item_period(action_records, period, today):
         item = normalize_display_case(str(record.get("Plan Item", "") or "Unknown").strip() or "Unknown")
         counts = action_counts.setdefault(item, {"Sent": 0, "Declined": 0})
         action = str(record.get("Action", "")).strip().lower()
@@ -13637,7 +13654,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         )
 
     with item_actioning_tab:
-        st.caption("All time; generated reminders and saved actions grouped by item.")
+        st.caption("All time; generated reminders and saved actions by actual item.")
         item_actioning_frame = build_statistics_item_frame(generated_df, action_records, stats_period)
         if item_actioning_frame.empty:
             st.info("No item actioning stats yet.")
