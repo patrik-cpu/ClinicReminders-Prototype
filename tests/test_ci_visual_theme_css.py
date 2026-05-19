@@ -97,7 +97,8 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertNotIn('href="?{MAIN_SECTION_TAB_QUERY_PARAM}', source)
         self.assertIn("font-size: 1.18rem", source)
         self.assertIn("min-height: 2.85rem", source)
-        self.assertIn("box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;", source)
+        self.assertIn("box-shadow: 0 0 0 1px var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;", source)
+        self.assertNotIn("box-shadow: inset 0 4px 0 var(--cr-primary-dark)", source)
         self.assertIn("background: var(--cr-primary) !important;", source)
         self.assertIn("flex: 0 0 auto !important;", source)
 

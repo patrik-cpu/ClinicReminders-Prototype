@@ -8125,7 +8125,7 @@ def render_main_section_nav(active_tab: str) -> None:
           .st-key-{active_button_key} button {{
             background: var(--cr-primary) !important;
             border-color: var(--cr-primary-dark) !important;
-            box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;
+            box-shadow: 0 0 0 1px var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;
             color: #062d19 !important;
             position: relative !important;
             z-index: 1 !important;
@@ -9509,7 +9509,7 @@ st.markdown(
       .st-key-main_section_tab label:has(input:checked) {
         background: var(--cr-surface) !important;
         border-color: var(--cr-primary-dark) !important;
-        box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-surface) !important;
+        box-shadow: 0 0 0 1px var(--cr-primary-dark), 0 1px 0 var(--cr-surface) !important;
         color: #062d19 !important;
         position: relative !important;
         z-index: 1 !important;
