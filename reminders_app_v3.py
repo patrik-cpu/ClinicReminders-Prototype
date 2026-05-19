@@ -11257,6 +11257,9 @@ OUTCOME_TABLE_COLUMNS = [
     "Overall Purchases",
     "Repeat Purchase %",
     "Revenue",
+    "Revenue per Year",
+    "Theoretical Max Revenue",
+    "Captured Revenue %",
     "Matched Item",
     "Next Matched Item",
 ]
@@ -11274,6 +11277,7 @@ OUTCOME_DISPLAY_DATE_COLUMNS = [
 OUTCOME_DISPLAY_COLUMN_LABELS = {
     "Charge Date": "Billed Date",
     "Avg Item Purchase Gap Days": "Overall Avg Purchase Gap Days",
+    "Revenue": "Revenue from Successes",
 }
 OUTCOME_DISPLAY_COLUMN_HELP = {
     "Billed Date": "Original purchase date from the uploaded sales data.",
@@ -11305,7 +11309,10 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Overall Purchases": "Total matching purchases found in uploaded sales data.",
     "Repeat Purchase %": "Percentage of matching purchases that are repeat purchases.",
     "Success Rate": "Percentage of sent reminders that became successful by either success window.",
-    "Revenue": "Revenue linked to successful repeat purchases.",
+    "Revenue from Successes": "Revenue from repeat purchases that counted as reminder successes.",
+    "Revenue per Year": "Estimated annual revenue from actual repeat purchases, using the overall average purchase gap.",
+    "Theoretical Max Revenue": "Estimated annual revenue if all matching purchases repeated at the desired gap.",
+    "Captured Revenue %": "Revenue per year divided by theoretical max revenue.",
     "Matched Item": "Purchased item that counted as the success.",
     "Next Matched Item": "Next matching purchased item after the billed date.",
 }
@@ -11345,6 +11352,9 @@ OUTCOME_ITEM_GROUP_COLUMNS = [
     "Overall Purchases",
     "Repeat Purchase %",
     "Revenue",
+    "Revenue per Year",
+    "Theoretical Max Revenue",
+    "Captured Revenue %",
 ]
 OUTCOME_SENDER_GROUP_COLUMNS = [
     "Sender",
@@ -12320,7 +12330,7 @@ def build_average_sales_purchase_gap_map(
     gap_key_matches: dict[tuple[str, ...], list[str]],
     item_match_map: pd.DataFrame,
 ) -> dict[tuple[str, ...], dict[str, float | int | None]]:
-    empty_result = {"average": None, "count": 0, "total": 0, "repeat_rate": 0.0}
+    empty_result = {"average": None, "count": 0, "total": 0, "repeat_rate": 0.0, "average_revenue": 0.0}
     if sales is None or sales.empty or not gap_key_matches:
         return {key: dict(empty_result) for key in gap_key_matches}
 
@@ -12350,7 +12360,7 @@ def build_average_sales_purchase_gap_map(
 
     gap_item_keys = pd.concat(key_frames, ignore_index=True).drop_duplicates(["_GapID", "OutcomeItemKey"])
     matched = gap_item_keys.merge(
-        sales[["OutcomeItemKey", "OutcomeClientKey", "OutcomePatientKey", "OutcomeChargeDate"]],
+        sales[["OutcomeItemKey", "OutcomeClientKey", "OutcomePatientKey", "OutcomeChargeDate", "OutcomeAmount"]],
         on="OutcomeItemKey",
         how="inner",
     )
@@ -12367,8 +12377,10 @@ def build_average_sales_purchase_gap_map(
 
     matched["OutcomeChargeDate"] = pd.to_datetime(matched["OutcomeChargeDate"], errors="coerce")
     matched = matched.drop_duplicates(["_GapID", "OutcomeClientKey", "OutcomePatientKey", "OutcomeChargeDate"])
+    matched["OutcomeAmount"] = pd.to_numeric(matched["OutcomeAmount"], errors="coerce").fillna(0.0)
     matched = matched.sort_values(["_GapID", "OutcomeClientKey", "OutcomePatientKey", "OutcomeChargeDate"])
     total_counts = matched.groupby("_GapID")["OutcomeChargeDate"].count()
+    average_revenue = matched.groupby("_GapID")["OutcomeAmount"].mean()
     matched["_GapDays"] = (
         matched
         .groupby(["_GapID", "OutcomeClientKey", "OutcomePatientKey"], dropna=False)["OutcomeChargeDate"]
@@ -12383,6 +12395,7 @@ def build_average_sales_purchase_gap_map(
             "average": float(gap_means.loc[gap_id]) if gap_id in gap_means.index else None,
             "count": int(gap_counts.loc[gap_id]) if gap_id in gap_counts.index else 0,
             "total": int(total_counts.loc[gap_id]) if gap_id in total_counts.index else 0,
+            "average_revenue": float(average_revenue.loc[gap_id]) if gap_id in average_revenue.index else 0.0,
             "repeat_rate": (
                 float(gap_counts.loc[gap_id]) / float(total_counts.loc[gap_id])
                 if gap_id in gap_counts.index and gap_id in total_counts.index and int(total_counts.loc[gap_id]) > 0
@@ -12513,6 +12526,9 @@ def build_reminder_outcomes(
             "Overall Purchases": 0,
             "Repeat Purchase %": 0.0,
             "Revenue": 0.0,
+            "Revenue per Year": None,
+            "Theoretical Max Revenue": None,
+            "Captured Revenue %": None,
             "Matched Item": "",
             "Next Matched Item": "",
         })
@@ -12536,11 +12552,36 @@ def build_reminder_outcomes(
         outcomes["Repeat Purchase %"] = outcomes["_OutcomeGapCacheKey"].map(
             lambda key: (gap_map.get(key) or {}).get("repeat_rate", 0.0)
         )
+        outcomes["_OutcomeAvgItemRevenue"] = outcomes["_OutcomeGapCacheKey"].map(
+            lambda key: (gap_map.get(key) or {}).get("average_revenue", 0.0)
+        )
+    else:
+        outcomes["_OutcomeAvgItemRevenue"] = 0.0
     desired_gap_values = pd.to_numeric(outcomes["Desired Gap Days"], errors="coerce")
     overall_gap_values = pd.to_numeric(outcomes["Avg Item Purchase Gap Days"], errors="coerce")
+    average_item_revenue_values = pd.to_numeric(outcomes["_OutcomeAvgItemRevenue"], errors="coerce").fillna(0.0)
+    overall_repeat_purchase_values = pd.to_numeric(outcomes["Overall Repeat Purchases"], errors="coerce").fillna(0.0)
+    overall_purchase_values = pd.to_numeric(outcomes["Overall Purchases"], errors="coerce").fillna(0.0)
     outcomes["Gap Day % to Desired"] = np.where(
         desired_gap_values.gt(0) & overall_gap_values.notna(),
         overall_gap_values / desired_gap_values,
+        None,
+    )
+    outcomes["Revenue per Year"] = np.where(
+        overall_gap_values.gt(0),
+        average_item_revenue_values * overall_repeat_purchase_values * (365 / overall_gap_values),
+        None,
+    )
+    outcomes["Theoretical Max Revenue"] = np.where(
+        desired_gap_values.gt(0),
+        average_item_revenue_values * overall_purchase_values * (365 / desired_gap_values),
+        None,
+    )
+    revenue_per_year_values = pd.to_numeric(outcomes["Revenue per Year"], errors="coerce")
+    theoretical_max_revenue_values = pd.to_numeric(outcomes["Theoretical Max Revenue"], errors="coerce")
+    outcomes["Captured Revenue %"] = np.where(
+        theoretical_max_revenue_values.gt(0) & revenue_per_year_values.notna(),
+        revenue_per_year_values / theoretical_max_revenue_values,
         None,
     )
 
@@ -12743,6 +12784,9 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             "overall_purchases": 0,
             "repeat_purchase_rate": 0.0,
             "revenue": 0.0,
+            "revenue_per_year": 0.0,
+            "theoretical_max_revenue": 0.0,
+            "captured_revenue_rate": 0.0,
         }
     sent = len(outcomes_df.index)
     success_mask = outcomes_df["Outcome"].eq("Reminder Success")
@@ -12768,6 +12812,10 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             gap_columns.append("Overall Repeat Purchases")
         if "Overall Purchases" in outcomes_df.columns:
             gap_columns.append("Overall Purchases")
+        if "Revenue per Year" in outcomes_df.columns:
+            gap_columns.append("Revenue per Year")
+        if "Theoretical Max Revenue" in outcomes_df.columns:
+            gap_columns.append("Theoretical Max Revenue")
         item_purchase_gap_frame = (
             outcomes_df[gap_columns]
             .dropna(subset=["Avg Item Purchase Gap Days"])
@@ -12789,12 +12837,32 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             item_purchase_gap_frame["Overall Purchases"],
             errors="coerce",
         ).fillna(0)
+        if "Revenue per Year" not in item_purchase_gap_frame.columns:
+            item_purchase_gap_frame["Revenue per Year"] = 0
+        revenue_per_year_values = pd.to_numeric(
+            item_purchase_gap_frame["Revenue per Year"],
+            errors="coerce",
+        ).fillna(0)
+        if "Theoretical Max Revenue" not in item_purchase_gap_frame.columns:
+            item_purchase_gap_frame["Theoretical Max Revenue"] = 0
+        theoretical_max_revenue_values = pd.to_numeric(
+            item_purchase_gap_frame["Theoretical Max Revenue"],
+            errors="coerce",
+        ).fillna(0)
     else:
         item_purchase_gap_values = pd.Series(dtype=float)
         item_purchase_gap_counts = pd.Series(dtype=float)
         item_purchase_total_counts = pd.Series(dtype=float)
+        revenue_per_year_values = pd.Series(dtype=float)
+        theoretical_max_revenue_values = pd.Series(dtype=float)
     overall_repeat_purchases = int(item_purchase_gap_counts.sum()) if not item_purchase_gap_counts.empty else 0
     overall_purchases = int(item_purchase_total_counts.sum()) if not item_purchase_total_counts.empty else 0
+    revenue_per_year = float(revenue_per_year_values.sum()) if not revenue_per_year_values.empty else 0.0
+    theoretical_max_revenue = (
+        float(theoretical_max_revenue_values.sum())
+        if not theoretical_max_revenue_values.empty
+        else 0.0
+    )
     avg_item_purchase_gap_days = item_purchase_gap_values.mean()
     avg_desired_gap_days = desired_gap_values.mean()
     if pd.notna(avg_item_purchase_gap_days) and pd.notna(avg_desired_gap_days) and float(avg_desired_gap_days) > 0:
@@ -12815,6 +12883,13 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         "overall_purchases": overall_purchases,
         "repeat_purchase_rate": (overall_repeat_purchases / overall_purchases) if overall_purchases else 0.0,
         "revenue": float(pd.to_numeric(success_df["Revenue"], errors="coerce").fillna(0).sum()) if successes else 0.0,
+        "revenue_per_year": revenue_per_year,
+        "theoretical_max_revenue": theoretical_max_revenue,
+        "captured_revenue_rate": (
+            revenue_per_year / theoretical_max_revenue
+            if theoretical_max_revenue > 0
+            else 0.0
+        ),
     }
 
 
@@ -12838,6 +12913,9 @@ def build_outcome_group_frame(
         "Overall Purchases",
         "Repeat Purchase %",
         "Revenue",
+        "Revenue per Year",
+        "Theoretical Max Revenue",
+        "Captured Revenue %",
     ]
     columns = columns or base_columns
     if outcomes_df is None or outcomes_df.empty or group_col not in outcomes_df.columns:
@@ -12863,6 +12941,9 @@ def build_outcome_group_frame(
             "Overall Purchases": summary["overall_purchases"],
             "Repeat Purchase %": summary["repeat_purchase_rate"],
             "Revenue": summary["revenue"],
+            "Revenue per Year": summary["revenue_per_year"],
+            "Theoretical Max Revenue": summary["theoretical_max_revenue"],
+            "Captured Revenue %": summary["captured_revenue_rate"],
         })
     frame = pd.DataFrame(rows, columns=base_columns)
     frame = frame[[column for column in columns if column in frame.columns]]
@@ -12958,6 +13039,9 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
         "Overall Purchases",
         "Repeat Purchase %",
         "Revenue",
+        "Revenue per Year",
+        "Theoretical Max Revenue",
+        "Captured Revenue %",
     ]
     if outcomes_df is None or outcomes_df.empty:
         return pd.DataFrame(columns=columns)
@@ -12982,6 +13066,9 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
             "Overall Purchases": summary["overall_purchases"],
             "Repeat Purchase %": summary["repeat_purchase_rate"],
             "Revenue": summary["revenue"],
+            "Revenue per Year": summary["revenue_per_year"],
+            "Theoretical Max Revenue": summary["theoretical_max_revenue"],
+            "Captured Revenue %": summary["captured_revenue_rate"],
         })
     return pd.DataFrame(rows, columns=columns).sort_values("Sent Date")
 
@@ -13021,6 +13108,10 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     if "Gap Day % to Desired" in display_frame.columns:
         display_frame["Gap Day % to Desired"] = (
             pd.to_numeric(display_frame["Gap Day % to Desired"], errors="coerce") * 100
+        )
+    if "Captured Revenue %" in display_frame.columns:
+        display_frame["Captured Revenue %"] = (
+            pd.to_numeric(display_frame["Captured Revenue %"], errors="coerce") * 100
         )
     display_frame = display_frame.rename(columns=OUTCOME_DISPLAY_COLUMN_LABELS)
     return display_frame
@@ -13097,10 +13188,25 @@ def outcome_display_column_config() -> dict:
             help=OUTCOME_DISPLAY_COLUMN_HELP["Repeat Purchase %"],
             format="%.0f%%",
         ),
-        "Revenue": st.column_config.NumberColumn(
-            "Revenue",
-            help=OUTCOME_DISPLAY_COLUMN_HELP["Revenue"],
+        "Revenue from Successes": st.column_config.NumberColumn(
+            "Revenue from Successes",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Revenue from Successes"],
             format="localized",
+        ),
+        "Revenue per Year": st.column_config.NumberColumn(
+            "Revenue per Year",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Revenue per Year"],
+            format="localized",
+        ),
+        "Theoretical Max Revenue": st.column_config.NumberColumn(
+            "Theoretical Max Revenue",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Theoretical Max Revenue"],
+            format="localized",
+        ),
+        "Captured Revenue %": st.column_config.NumberColumn(
+            "Captured Revenue %",
+            help=OUTCOME_DISPLAY_COLUMN_HELP["Captured Revenue %"],
+            format="%.0f%%",
         ),
         "Success Rate": st.column_config.ProgressColumn(
             "Success Rate",
