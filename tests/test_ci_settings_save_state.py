@@ -275,6 +275,16 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         self.assertEqual(saved["outcome_post_reminder_window_days"], 10)
 
+    def test_post_reminder_window_save_callback_marks_user_set_value(self):
+        self.app.st.session_state["outcome_post_reminder_window_days"] = 0
+
+        with patch.object(self.app, "save_settings_quietly", return_value=True):
+            self.app.save_outcome_post_reminder_window_days()
+
+        self.assertTrue(
+            self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY]
+        )
+
     def test_save_settings_falls_back_when_outcome_window_default_is_missing(self):
         self.app.cache_remote_settings("Clinic Save State", {})
         default_value = self.app.DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
@@ -310,6 +320,36 @@ class SettingsSaveStateTests(unittest.TestCase):
             self.app.load_settings()
 
         self.assertEqual(self.app.st.session_state["outcome_post_reminder_window_days"], 10)
+
+    def test_load_settings_upgrades_legacy_zero_post_reminder_window_to_default(self):
+        headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        sheet = FakeSettingsSheet({"outcome_post_reminder_window_days": 0})
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "load_action_tracker_records_for_clinic", return_value=[]),
+        ):
+            self.app.load_settings()
+
+        self.assertEqual(
+            self.app.st.session_state["outcome_post_reminder_window_days"],
+            self.app.DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
+        )
+
+    def test_load_settings_preserves_user_set_zero_post_reminder_window(self):
+        headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        sheet = FakeSettingsSheet({
+            "outcome_post_reminder_window_days": 0,
+            "outcome_post_reminder_window_days_user_set": True,
+        })
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "load_action_tracker_records_for_clinic", return_value=[]),
+        ):
+            self.app.load_settings()
+
+        self.assertEqual(self.app.st.session_state["outcome_post_reminder_window_days"], 0)
 
     def test_outcome_due_date_window_load_helper_is_defined_before_load_settings(self):
         source = Path("reminders_app_v3.py").read_text(encoding="utf-8")

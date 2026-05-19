@@ -89,6 +89,7 @@ OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY = "_outcome_due_date_window_days_dirty"
 OUTCOME_DUE_DATE_WINDOW_LOADED_KEY = "_outcome_due_date_window_days_loaded"
 OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY = "_outcome_post_reminder_window_days_dirty"
 OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY = "_outcome_post_reminder_window_days_loaded"
+OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY = "outcome_post_reminder_window_days_user_set"
 REMINDER_LOOKBACK_DAYS_DIRTY_KEY = "_reminder_lookback_days_dirty"
 REMINDER_LOOKBACK_DAYS_LOADED_KEY = "_reminder_lookback_days_loaded"
 REMINDER_WINDOW_DAYS_DIRTY_KEY = "_reminder_window_days_dirty"
@@ -4057,6 +4058,7 @@ def load_outcome_due_date_window_days(settings: dict) -> None:
 def load_outcome_post_reminder_window_days(settings: dict) -> None:
     default_value = globals().get("DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS", 7)
     raw_value = settings.get("outcome_post_reminder_window_days", _SETTING_MISSING)
+    user_set_value = bool(settings.get(OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY, False))
     has_current_value = "outcome_post_reminder_window_days" in st.session_state
     current_value = (
         normalized_outcome_post_reminder_window_days()
@@ -4075,6 +4077,8 @@ def load_outcome_post_reminder_window_days(settings: dict) -> None:
         return
 
     saved_value = normalized_outcome_post_reminder_window_days(raw_value)
+    if not has_current_value and saved_value == 0 and not user_set_value:
+        saved_value = default_value
     if has_current_value and st.session_state.get(OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY):
         if current_value == saved_value:
             st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = False
@@ -4568,6 +4572,9 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         ),
         "outcome_post_reminder_window_days": normalized_outcome_post_reminder_window_days(
             int_setting_for_save("outcome_post_reminder_window_days", outcome_post_reminder_window_default)
+        ),
+        OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY: bool(
+            setting_for_save(OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY, False)
         ),
         "search_terms_reviewed": bool(setting_for_save("search_terms_reviewed", False)),
         "search_term_added": bool(setting_for_save("search_term_added", False)),
@@ -9522,6 +9529,7 @@ def save_outcome_due_date_window_days() -> None:
 def save_outcome_post_reminder_window_days() -> None:
     value = normalized_outcome_post_reminder_window_days()
     st.session_state["outcome_post_reminder_window_days"] = value
+    st.session_state[OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY] = True
     st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = True
     if save_settings_quietly():
         st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = False
