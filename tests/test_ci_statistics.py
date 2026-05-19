@@ -652,6 +652,53 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(int(outcomes.iloc[0]["Success Gap Days"]), 90)
         self.assertEqual(float(outcomes.iloc[0]["Revenue"]), 90.0)
 
+    def test_reminder_outcomes_prefers_sent_days_over_base_rule_days_for_quantity_rules(self):
+        actions = [
+            {
+                "Reminder Date": "16 Jun 2025",
+                "Due Date": "30 Jun 2025",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto",
+                "Days": "180",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2025-06-16T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2025-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2025-06-30",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto",
+                    "Amount": 90,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            today=date(2025, 7, 20),
+            rules={"bravecto": {"days": 90, "use_qty": True, "visible_text": "Bravecto"}},
+        )
+
+        row = outcomes.iloc[0]
+        self.assertEqual(row["Outcome"], "Reminder Success")
+        self.assertEqual(int(row["Desired Gap Days"]), 180)
+        self.assertEqual(int(row["Success Gap Days"]), 180)
+
     def test_reminder_outcomes_counts_first_future_purchase_gap_as_success(self):
         actions = [
             {
