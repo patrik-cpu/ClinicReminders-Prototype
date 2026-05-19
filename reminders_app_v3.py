@@ -4298,6 +4298,24 @@ def _parse_reminder_log_time(value):
     except Exception:
         return None
 
+
+def _user_local_time_from_utc_log(value) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    return user_now(parsed)
+
+
+def action_tracker_user_local_time(row: dict) -> str:
+    local_actioned_at = _user_local_time_from_utc_log(row.get("ActionedAtUTC", ""))
+    if local_actioned_at:
+        return local_actioned_at.isoformat()
+    return str(row.get("DateTimeGST", "") or "").strip()
+
 def _days_ago_text(then: datetime, now: datetime) -> str:
     days = max(0, (now.date() - then.date()).days)
     if days == 0:
@@ -4513,6 +4531,7 @@ def action_tracker_values_to_record(headers: list[str], values: list[str]) -> di
     action = str(row.get("Action", "")).strip().lower()
     if action not in {REMINDER_ACTION_SENT, REMINDER_ACTION_DECLINED, "active", "undo"}:
         return None
+    actioned_at_local = action_tracker_user_local_time(row)
     rec = {
         "Reminder Date": row.get("ReminderDate", ""),
         "Due Date": row.get("DueDate", ""),
@@ -4523,8 +4542,9 @@ def action_tracker_values_to_record(headers: list[str], values: list[str]) -> di
         "Qty": row.get("Qty", ""),
         "Days": row.get("Days", ""),
         "Action": action,
-        "DeletedAt": row.get("ActionedAtUTC", ""),
-        "ActionedAt": row.get("ActionedAtUTC", ""),
+        "DeletedAt": actioned_at_local,
+        "ActionedAt": actioned_at_local,
+        "ActionedAtUTC": row.get("ActionedAtUTC", ""),
         "Actioned By": row.get("YourNameClinic", ""),
         "MessageCreated": row.get("MessageCreated", ""),
         "Source": row.get("Source", ""),
@@ -4578,8 +4598,9 @@ def load_action_tracker_records_for_clinic(clinic_id: str) -> list[dict]:
     if not clinic_id:
         return []
     clinic_key = clinic_id.lower()
+    timezone_key = user_timezone_name()
     cache = st.session_state.get("_action_tracker_records_cache")
-    if isinstance(cache, dict) and cache.get("clinic_key") == clinic_key:
+    if isinstance(cache, dict) and cache.get("clinic_key") == clinic_key and cache.get("timezone_key") == timezone_key:
         return [dict(record) for record in cache.get("records", []) if isinstance(record, dict)]
     try:
         sheet = get_or_create_tracker_sheet(ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS)
@@ -4600,6 +4621,7 @@ def load_action_tracker_records_for_clinic(clinic_id: str) -> list[dict]:
     reduced = reduce_action_tracker_records(records)
     st.session_state["_action_tracker_records_cache"] = {
         "clinic_key": clinic_key,
+        "timezone_key": timezone_key,
         "records": [dict(record) for record in reduced],
     }
     return reduced

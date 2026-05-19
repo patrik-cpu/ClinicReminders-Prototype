@@ -51,14 +51,16 @@ class ReminderWorkflowTests(unittest.TestCase):
             self.app.decline_reminder_action(row, "daily")
             self.app.remove_actioned_reminder_action(row, "daily")
 
-        records = tracker.action_records()
+        with patch.object(self.app, "user_timezone_name", return_value="Pacific/Auckland"):
+            records = tracker.action_records()
         actions = [record["Action"] for record in records]
         self.assertEqual(actions, [
             self.app.REMINDER_ACTION_SENT,
             self.app.REMINDER_ACTION_DECLINED,
             "active",
         ])
-        self.assertEqual(records[0]["ActionedAt"], "2026-05-16T12:00:00")
+        self.assertEqual(records[0]["ActionedAt"], "2026-05-17T00:00:00")
+        self.assertEqual(records[0]["ActionedAtUTC"], "2026-05-16T12:00:00")
         self.assertEqual(records[0]["Actioned By"], "Nurse")
         self.assertIn("Nurse", self.app.st.session_state["wa_message"])
 

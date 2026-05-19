@@ -31,6 +31,34 @@ class AuthSessionTests(unittest.TestCase):
         with patch.object(self.app, "user_timezone_name", return_value="Not/AZone"):
             self.assertEqual(self.app.user_now(utc_midday), utc_midday)
 
+    def test_action_tracker_read_converts_utc_timestamp_to_browser_timezone(self):
+        row = dict(zip(self.app.ACTION_TRACKER_HEADERS, [
+            "2026-05-17 00:30:00",
+            "2026-05-17T00:30:00",
+            "Clinic A",
+            "Nurse A",
+            self.app.REMINDER_ACTION_SENT,
+            "Client A",
+            "Pet A",
+            "Rabies",
+            "17 May 2026",
+            "17 May 2026",
+            "17 May 2025",
+            "1",
+            "365",
+            "",
+            "test",
+            "[]",
+            "",
+        ]))
+
+        with patch.object(self.app, "user_timezone_name", return_value="America/Los_Angeles"):
+            record = self.app.action_tracker_values_to_record(self.app.ACTION_TRACKER_HEADERS, list(row.values()))
+
+        self.assertEqual(record["ActionedAt"], "2026-05-16T17:30:00")
+        self.assertEqual(record["ActionedAtUTC"], "2026-05-17T00:30:00")
+        self.assertEqual(self.app.statistics_actioned_date(record), date(2026, 5, 16))
+
     def test_statistics_default_today_uses_user_timezone_helper(self):
         with patch.object(self.app, "user_today", return_value=date(2026, 5, 17)):
             self.assertEqual(self.app.statistics_period_start("Today"), date(2026, 5, 17))
