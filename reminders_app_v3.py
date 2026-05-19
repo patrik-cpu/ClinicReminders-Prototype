@@ -8091,7 +8091,7 @@ def render_main_section_nav(active_tab: str) -> None:
     widths = []
     for tab_name in MAIN_SECTION_TABS:
         count = main_section_tab_badge_count(tab_name)
-        widths.append(max(1.2, min(2.6, len(tab_name) / 8 + (0.35 if count > 0 else 0))))
+        widths.append(max(1.35, min(2.9, len(tab_name) / 7 + (0.38 if count > 0 else 0))))
     nav_spacer_width = 7.8
     columns = st.columns([*widths, nav_spacer_width], gap="small")[:len(MAIN_SECTION_TABS)]
     for column, tab_name in zip(columns, MAIN_SECTION_TABS):
@@ -9414,14 +9414,14 @@ st.markdown(
         box-shadow: inset 0 -1px 0 var(--cr-border);
         color: #23513a !important;
         display: inline-flex;
-        font-size: 1.08rem;
+        font-size: 1.18rem;
         font-weight: 800;
         gap: 0.35rem;
         justify-content: center;
         line-height: 1.2;
         margin: 0 0 -1px;
-        min-height: 2.55rem;
-        padding: 0.45rem 0.75rem;
+        min-height: 2.85rem;
+        padding: 0.52rem 0.9rem;
         text-decoration: none !important;
         white-space: nowrap;
       }
@@ -9434,7 +9434,7 @@ st.markdown(
       [class*="st-key-main_section_nav_"] button p,
       [class*="st-key-main_section_nav_"] button span {
         color: #23513a !important;
-        font-size: 1.08rem !important;
+        font-size: 1.18rem !important;
         font-weight: 800 !important;
         line-height: 1.2 !important;
       }
