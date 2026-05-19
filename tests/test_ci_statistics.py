@@ -284,6 +284,26 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(len(filtered), 1)
         self.assertEqual(str(filtered.iloc[0]["Sent Date"].date()), "2025-09-30")
 
+    def test_sent_reminders_period_filter_uses_sent_date_labels(self):
+        outcomes = pd.DataFrame(
+            [
+                {"Sent Date": pd.Timestamp("2025-09-30"), "Outcome": "No Match", "Client Name": "Today"},
+                {"Sent Date": pd.Timestamp("2025-09-24"), "Outcome": "No Match", "Client Name": "Seven Days"},
+                {"Sent Date": pd.Timestamp("2025-09-01"), "Outcome": "No Match", "Client Name": "Thirty Days"},
+                {"Sent Date": pd.Timestamp("2025-08-31"), "Outcome": "No Match", "Client Name": "All Time"},
+            ]
+        )
+
+        today_rows = self.app.filter_sent_outcomes_for_period(outcomes, "Today", today=date(2025, 9, 30))
+        seven_day_rows = self.app.filter_sent_outcomes_for_period(outcomes, "Previous 7 days", today=date(2025, 9, 30))
+        thirty_day_rows = self.app.filter_sent_outcomes_for_period(outcomes, "Previous 30 days", today=date(2025, 9, 30))
+        all_time_rows = self.app.filter_sent_outcomes_for_period(outcomes, "All-time", today=date(2025, 9, 30))
+
+        self.assertEqual(today_rows["Client Name"].tolist(), ["Today"])
+        self.assertEqual(seven_day_rows["Client Name"].tolist(), ["Today", "Seven Days"])
+        self.assertEqual(thirty_day_rows["Client Name"].tolist(), ["Today", "Seven Days", "Thirty Days"])
+        self.assertEqual(len(all_time_rows), 4)
+
     def test_reminder_outcomes_use_actioned_date_as_sent_date_for_historical_backtests(self):
         actions = [
             {

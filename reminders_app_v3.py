@@ -11093,6 +11093,13 @@ STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
 STATISTICS_GENERATED_COLUMNS = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
 STATISTICS_SCHEDULED_REMINDERS_LABEL = "Scheduled reminders"
 OUTCOME_PERIODS = ["Today", "7 days", "30 days", "All time"]
+STATS_SENT_REMINDER_PERIODS = ["Today", "Previous 7 days", "Previous 30 days", "All-time"]
+STATS_SENT_REMINDER_PERIOD_MAP = {
+    "Today": "Today",
+    "Previous 7 days": "7 days",
+    "Previous 30 days": "30 days",
+    "All-time": "All time",
+}
 DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14
 REMINDER_TABLE_PAGE_SIZE = 50
 OUTCOME_SENT_PAGE_SIZE = 100
@@ -12443,6 +12450,22 @@ def filter_outcomes_for_period(outcomes_df: pd.DataFrame, period: str, today: da
     return outcomes_df.loc[(sent_dates >= start) & (sent_dates <= today)].copy()
 
 
+def sent_reminder_outcome_period(period_label: str) -> str:
+    return STATS_SENT_REMINDER_PERIOD_MAP.get(str(period_label or "").strip(), "All time")
+
+
+def filter_sent_outcomes_for_period(
+    outcomes_df: pd.DataFrame,
+    period_label: str,
+    today: date | None = None,
+) -> pd.DataFrame:
+    return filter_outcomes_for_period(
+        outcomes_df,
+        sent_reminder_outcome_period(period_label),
+        today=today,
+    )
+
+
 def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
     if outcomes_df is None or outcomes_df.empty:
         return {
@@ -12833,6 +12856,39 @@ def render_outcome_dataframe(
     )
 
 
+def reset_stats_sent_reminders_page() -> None:
+    st.session_state["outcomes_sent_page"] = 0
+
+
+def render_stats_sent_reminders_period_selector() -> str:
+    filter_key = "stats_sent_reminders_period"
+    current = st.session_state.get(filter_key, "All-time")
+    if current not in STATS_SENT_REMINDER_PERIODS:
+        current = "All-time"
+
+    if hasattr(st, "segmented_control"):
+        selected_period = st.segmented_control(
+            "Sent reminders period",
+            STATS_SENT_REMINDER_PERIODS,
+            selection_mode="single",
+            default=current,
+            key=filter_key,
+            label_visibility="collapsed",
+            on_change=reset_stats_sent_reminders_page,
+        )
+    else:
+        selected_period = st.radio(
+            "Sent reminders period",
+            STATS_SENT_REMINDER_PERIODS,
+            index=STATS_SENT_REMINDER_PERIODS.index(current),
+            horizontal=True,
+            key=filter_key,
+            label_visibility="collapsed",
+            on_change=reset_stats_sent_reminders_page,
+        )
+    return selected_period or current
+
+
 def refresh_outcome_results_state() -> None:
     try:
         build_reminder_outcomes.clear()
@@ -12990,8 +13046,10 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             )
 
     with sent_tab:
-        st.caption("All time; individual sent reminders used by outcome matching.")
-        sent_rows = period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
+        selected_sent_period = render_stats_sent_reminders_period_selector()
+        sent_period_rows = filter_sent_outcomes_for_period(period_rows, selected_sent_period, outcomes_as_of_date)
+        st.caption(f"{selected_sent_period}; filtered by Sent Date.")
+        sent_rows = sent_period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
         sent_rows = paginate_dataframe(sent_rows, "outcomes_sent", OUTCOME_SENT_PAGE_SIZE, "sent outcome rows")
         render_outcome_dataframe(sent_rows, OUTCOME_SENT_DISPLAY_COLUMNS, table_key="outcomes_sent")
 
