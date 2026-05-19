@@ -11305,6 +11305,7 @@ OUTCOME_TABLE_COLUMNS = [
     "Overall Repeat Purchases",
     "Overall Purchases",
     "Repeat Purchase %",
+    "Revenue per Item",
     "Revenue",
     "Revenue per Year",
     "Theoretical Max Revenue",
@@ -11358,6 +11359,7 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Overall Purchases": "Total matching purchases found in uploaded sales data.",
     "Repeat Purchase %": "Percentage of matching purchases that are repeat purchases.",
     "Success Rate": "Percentage of sent reminders that became successful by either success window.",
+    "Revenue per Item": "Average revenue per matching purchase in the uploaded sales data.",
     "Revenue from Successes": "Revenue from repeat purchases that counted as reminder successes.",
     "Revenue per Year": "Estimated annual revenue from actual repeat purchases, using the overall average purchase gap.",
     "Theoretical Max Revenue": "Estimated annual ceiling using all matching purchases and the faster of actual or desired cadence.",
@@ -11366,6 +11368,7 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Next Matched Item": "Next matching purchased item after the billed date.",
 }
 OUTCOME_DISPLAY_CURRENCY_COLUMNS = [
+    "Revenue per Item",
     "Revenue",
     "Revenue per Year",
     "Theoretical Max Revenue",
@@ -11382,6 +11385,7 @@ OUTCOME_DISPLAY_COLUMN_TITLES = {
     "Overall Repeat Purchases": "Overall Repeat\nPurchases",
     "Overall Purchases": "Overall\nPurchases",
     "Repeat Purchase %": "Repeat\nPurchase %",
+    "Revenue per Item": "Revenue\nper Item",
     "Revenue from Successes": "Revenue from\nSuccesses",
     "Revenue per Year": "Revenue\nper Year",
     "Theoretical Max Revenue": "Theoretical\nMax Revenue",
@@ -11411,6 +11415,7 @@ OUTCOME_DISPLAY_COLUMN_WIDTHS = {
     "Overall Repeat Purchases": "small",
     "Overall Purchases": "small",
     "Repeat Purchase %": "small",
+    "Revenue per Item": "small",
     "Revenue from Successes": "small",
     "Revenue per Year": "small",
     "Theoretical Max Revenue": "small",
@@ -11451,6 +11456,7 @@ OUTCOME_ITEM_GROUP_COLUMNS = [
     "Overall Repeat Purchases",
     "Overall Purchases",
     "Repeat Purchase %",
+    "Revenue per Item",
     "Revenue",
     "Revenue per Year",
     "Theoretical Max Revenue",
@@ -12625,6 +12631,7 @@ def build_reminder_outcomes(
             "Overall Repeat Purchases": 0,
             "Overall Purchases": 0,
             "Repeat Purchase %": 0.0,
+            "Revenue per Item": 0.0,
             "Revenue": 0.0,
             "Revenue per Year": None,
             "Theoretical Max Revenue": None,
@@ -12670,6 +12677,7 @@ def build_reminder_outcomes(
         overall_gap_values / desired_gap_values,
         None,
     )
+    outcomes["Revenue per Item"] = average_item_revenue_values
     outcomes["Revenue per Year"] = np.where(
         overall_gap_values.gt(0),
         average_item_revenue_values * overall_repeat_purchase_values * (365 / overall_gap_values),
@@ -12886,6 +12894,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             "overall_repeat_purchases": 0,
             "overall_purchases": 0,
             "repeat_purchase_rate": 0.0,
+            "revenue_per_item": 0.0,
             "revenue": 0.0,
             "revenue_per_year": 0.0,
             "theoretical_max_revenue": 0.0,
@@ -12915,6 +12924,8 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             gap_columns.append("Overall Repeat Purchases")
         if "Overall Purchases" in outcomes_df.columns:
             gap_columns.append("Overall Purchases")
+        if "Revenue per Item" in outcomes_df.columns:
+            gap_columns.append("Revenue per Item")
         if "Revenue per Year" in outcomes_df.columns:
             gap_columns.append("Revenue per Year")
         if "Theoretical Max Revenue" in outcomes_df.columns:
@@ -12940,6 +12951,12 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             item_purchase_gap_frame["Overall Purchases"],
             errors="coerce",
         ).fillna(0)
+        if "Revenue per Item" not in item_purchase_gap_frame.columns:
+            item_purchase_gap_frame["Revenue per Item"] = 0
+        revenue_per_item_values = pd.to_numeric(
+            item_purchase_gap_frame["Revenue per Item"],
+            errors="coerce",
+        ).fillna(0)
         if "Revenue per Year" not in item_purchase_gap_frame.columns:
             item_purchase_gap_frame["Revenue per Year"] = 0
         revenue_per_year_values = pd.to_numeric(
@@ -12956,6 +12973,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         item_purchase_gap_values = pd.Series(dtype=float)
         item_purchase_gap_counts = pd.Series(dtype=float)
         item_purchase_total_counts = pd.Series(dtype=float)
+        revenue_per_item_values = pd.Series(dtype=float)
         revenue_per_year_values = pd.Series(dtype=float)
         theoretical_max_revenue_values = pd.Series(dtype=float)
     overall_repeat_purchases = int(item_purchase_gap_counts.sum()) if not item_purchase_gap_counts.empty else 0
@@ -12966,6 +12984,12 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         if not theoretical_max_revenue_values.empty
         else 0.0
     )
+    if not revenue_per_item_values.empty and not item_purchase_total_counts.empty and item_purchase_total_counts.sum() > 0:
+        revenue_per_item = float(
+            (revenue_per_item_values * item_purchase_total_counts).sum() / item_purchase_total_counts.sum()
+        )
+    else:
+        revenue_per_item = float(revenue_per_item_values.mean()) if not revenue_per_item_values.empty else 0.0
     avg_item_purchase_gap_days = item_purchase_gap_values.mean()
     avg_desired_gap_days = desired_gap_values.mean()
     if pd.notna(avg_item_purchase_gap_days) and pd.notna(avg_desired_gap_days) and float(avg_desired_gap_days) > 0:
@@ -12985,6 +13009,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         "overall_repeat_purchases": overall_repeat_purchases,
         "overall_purchases": overall_purchases,
         "repeat_purchase_rate": (overall_repeat_purchases / overall_purchases) if overall_purchases else 0.0,
+        "revenue_per_item": revenue_per_item,
         "revenue": float(pd.to_numeric(success_df["Revenue"], errors="coerce").fillna(0).sum()) if successes else 0.0,
         "revenue_per_year": revenue_per_year,
         "theoretical_max_revenue": theoretical_max_revenue,
@@ -13015,6 +13040,7 @@ def build_outcome_group_frame(
         "Overall Repeat Purchases",
         "Overall Purchases",
         "Repeat Purchase %",
+        "Revenue per Item",
         "Revenue",
         "Revenue per Year",
         "Theoretical Max Revenue",
@@ -13043,6 +13069,7 @@ def build_outcome_group_frame(
             "Overall Repeat Purchases": summary["overall_repeat_purchases"],
             "Overall Purchases": summary["overall_purchases"],
             "Repeat Purchase %": summary["repeat_purchase_rate"],
+            "Revenue per Item": summary["revenue_per_item"],
             "Revenue": summary["revenue"],
             "Revenue per Year": summary["revenue_per_year"],
             "Theoretical Max Revenue": summary["theoretical_max_revenue"],
@@ -13142,6 +13169,7 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
         "Overall Repeat Purchases",
         "Overall Purchases",
         "Repeat Purchase %",
+        "Revenue per Item",
         "Revenue",
         "Revenue per Year",
         "Theoretical Max Revenue",
@@ -13169,6 +13197,7 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
             "Overall Repeat Purchases": summary["overall_repeat_purchases"],
             "Overall Purchases": summary["overall_purchases"],
             "Repeat Purchase %": summary["repeat_purchase_rate"],
+            "Revenue per Item": summary["revenue_per_item"],
             "Revenue": summary["revenue"],
             "Revenue per Year": summary["revenue_per_year"],
             "Theoretical Max Revenue": summary["theoretical_max_revenue"],
@@ -13282,6 +13311,7 @@ def outcome_display_column_config() -> dict:
         "Overall Repeat Purchases": outcome_display_number_column("Overall Repeat Purchases", "%d"),
         "Overall Purchases": outcome_display_number_column("Overall Purchases", "%d"),
         "Repeat Purchase %": outcome_display_number_column("Repeat Purchase %", "%.0f%%"),
+        "Revenue per Item": outcome_display_number_column("Revenue per Item", "localized"),
         "Revenue from Successes": outcome_display_number_column("Revenue from Successes", "localized"),
         "Revenue per Year": outcome_display_number_column("Revenue per Year", "localized"),
         "Theoretical Max Revenue": outcome_display_number_column("Theoretical Max Revenue", "localized"),

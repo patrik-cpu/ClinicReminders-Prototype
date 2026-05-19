@@ -721,6 +721,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(int(outcomes.iloc[0]["Overall Purchases"]), 2)
         self.assertEqual(int(outcomes.iloc[0]["Overall Repeat Purchases"]), 1)
         self.assertEqual(int(outcomes.iloc[0]["Avg Item Purchase Gap Days"]), 91)
+        self.assertEqual(float(outcomes.iloc[0]["Revenue per Item"]), 85.0)
         self.assertAlmostEqual(float(outcomes.iloc[0]["Revenue per Year"]), 85 * 1 * (365 / 91))
         self.assertAlmostEqual(float(outcomes.iloc[0]["Theoretical Max Revenue"]), 85 * 2 * (365 / 90))
         self.assertAlmostEqual(
@@ -784,6 +785,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(int(row["Overall Purchases"]), 2)
         self.assertEqual(int(row["Overall Repeat Purchases"]), 1)
         self.assertEqual(int(row["Avg Item Purchase Gap Days"]), 91)
+        self.assertEqual(float(row["Revenue per Item"]), 85.0)
         self.assertAlmostEqual(float(row["Revenue per Year"]), 85 * 1 * (365 / 91))
         self.assertAlmostEqual(float(row["Theoretical Max Revenue"]), 85 * 2 * (365 / 90))
         self.assertEqual(row["Matched Item"], "Bravecto Spot On Cats 0.89 ml 2.8 - 6.25 kg")
@@ -1666,11 +1668,11 @@ class StatisticsTests(unittest.TestCase):
     def test_outcome_group_frame_summarizes_success_rates(self):
         outcomes = pd.DataFrame(
             [
-                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Reminder Success", "Success Gap Days": 365, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Overall Purchases": 4, "Revenue": 120, "Revenue per Year": 300, "Theoretical Max Revenue": 600},
-                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "No Match", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Overall Purchases": 4, "Revenue": 0, "Revenue per Year": 300, "Theoretical Max Revenue": 600},
-                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Pending", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Overall Purchases": 4, "Revenue": 0, "Revenue per Year": 300, "Theoretical Max Revenue": 600},
-                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Not Measurable", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Overall Purchases": 4, "Revenue": 0, "Revenue per Year": 300, "Theoretical Max Revenue": 600},
-                {"Sender": "Nurse B", "Item": "Bravecto", "Outcome": "Reminder Success", "Success Gap Days": 95, "Desired Gap Days": 90, "Avg Item Purchase Gap Days": 120, "Overall Repeat Purchases": 2, "Overall Purchases": 5, "Revenue": 80, "Revenue per Year": 200, "Theoretical Max Revenue": 500},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Reminder Success", "Success Gap Days": 365, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Overall Purchases": 4, "Revenue per Item": 150, "Revenue": 120, "Revenue per Year": 300, "Theoretical Max Revenue": 600},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "No Match", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Overall Purchases": 4, "Revenue per Item": 150, "Revenue": 0, "Revenue per Year": 300, "Theoretical Max Revenue": 600},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Pending", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Overall Purchases": 4, "Revenue per Item": 150, "Revenue": 0, "Revenue per Year": 300, "Theoretical Max Revenue": 600},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Not Measurable", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Overall Repeat Purchases": 3, "Overall Purchases": 4, "Revenue per Item": 150, "Revenue": 0, "Revenue per Year": 300, "Theoretical Max Revenue": 600},
+                {"Sender": "Nurse B", "Item": "Bravecto", "Outcome": "Reminder Success", "Success Gap Days": 95, "Desired Gap Days": 90, "Avg Item Purchase Gap Days": 120, "Overall Repeat Purchases": 2, "Overall Purchases": 5, "Revenue per Item": 100, "Revenue": 80, "Revenue per Year": 200, "Theoretical Max Revenue": 500},
             ]
         )
 
@@ -1687,6 +1689,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(rows["Nurse A"]["Overall Repeat Purchases"], 3)
         self.assertEqual(rows["Nurse A"]["Overall Purchases"], 4)
         self.assertEqual(rows["Nurse A"]["Repeat Purchase %"], 0.75)
+        self.assertEqual(rows["Nurse A"]["Revenue per Item"], 150)
         self.assertEqual(rows["Nurse A"]["Revenue per Year"], 300)
         self.assertEqual(rows["Nurse A"]["Theoretical Max Revenue"], 600)
         self.assertEqual(rows["Nurse A"]["Captured Revenue %"], 0.5)
@@ -1713,6 +1716,10 @@ class StatisticsTests(unittest.TestCase):
         )
         self.assertLess(
             self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Repeat Purchase %"),
+            self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Revenue per Item"),
+        )
+        self.assertLess(
+            self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Revenue per Item"),
             self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Revenue"),
         )
         self.assertLess(
@@ -1743,6 +1750,7 @@ class StatisticsTests(unittest.TestCase):
                 "Overall Repeat Purchases": 3,
                 "Overall Purchases": 4,
                 "Repeat Purchase %": 0.75,
+                "Revenue per Item": 120.4,
                 "Revenue": 120.4,
                 "Revenue per Year": 300.6,
                 "Theoretical Max Revenue": 600.2,
@@ -1767,6 +1775,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Overall Repeat Purchases", rendered_frame.columns)
         self.assertIn("Overall Purchases", rendered_frame.columns)
         self.assertIn("Repeat Purchase %", rendered_frame.columns)
+        self.assertIn("Revenue per Item", rendered_frame.columns)
         self.assertIn("Revenue from Successes", rendered_frame.columns)
         self.assertIn("Revenue per Year", rendered_frame.columns)
         self.assertIn("Theoretical Max Revenue", rendered_frame.columns)
@@ -1778,20 +1787,24 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(column_config["Gap Day % to Desired"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Repeat Purchase %"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Captured Revenue %"]["type_config"]["format"], "%.0f%%")
+        self.assertEqual(column_config["Revenue per Item"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Revenue from Successes"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Revenue per Year"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Theoretical Max Revenue"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Revenue from Successes"]["label"], "Revenue from\nSuccesses")
+        self.assertEqual(column_config["Revenue per Item"]["label"], "Revenue\nper Item")
         self.assertEqual(column_config["Overall Avg Purchase Gap Days"]["label"], "Overall Avg\nPurchase Gap\nDays")
         self.assertEqual(round(rendered_frame.iloc[0]["Gap Day % to Desired"]), 101)
         self.assertEqual(rendered_frame.iloc[0]["Repeat Purchase %"], 75)
         self.assertEqual(rendered_frame.iloc[0]["Captured Revenue %"], 50)
+        self.assertEqual(rendered_frame.iloc[0]["Revenue per Item"], 120)
         self.assertEqual(rendered_frame.iloc[0]["Revenue from Successes"], 120)
         self.assertEqual(rendered_frame.iloc[0]["Revenue per Year"], 301)
         self.assertEqual(rendered_frame.iloc[0]["Theoretical Max Revenue"], 600)
         self.assertIn("Average gap", column_config["Overall Avg Purchase Gap Days"]["help"])
         self.assertIn("Overall average purchase gap compared with the desired gap", column_config["Gap Day % to Desired"]["help"])
         self.assertIn("Percentage of matching purchases", column_config["Repeat Purchase %"]["help"])
+        self.assertIn("Average revenue per matching purchase", column_config["Revenue per Item"]["help"])
         self.assertIn("Revenue from repeat purchases", column_config["Revenue from Successes"]["help"])
         self.assertIn("Estimated annual revenue", column_config["Revenue per Year"]["help"])
         self.assertIn("faster of actual or desired cadence", column_config["Theoretical Max Revenue"]["help"])
@@ -1819,6 +1832,7 @@ class StatisticsTests(unittest.TestCase):
                     "Overall Repeat Purchases": 3,
                     "Overall Purchases": 4,
                     "Repeat Purchase %": 0.75,
+                    "Revenue per Item": 120.4,
                     "Revenue": 120.4,
                     "Revenue per Year": 300.6,
                     "Theoretical Max Revenue": 600.2,
@@ -1840,6 +1854,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Overall Repeat Purchases", display_frame.columns)
         self.assertIn("Overall Purchases", display_frame.columns)
         self.assertIn("Repeat Purchase %", display_frame.columns)
+        self.assertIn("Revenue per Item", display_frame.columns)
         self.assertIn("Revenue from Successes", display_frame.columns)
         self.assertIn("Revenue per Year", display_frame.columns)
         self.assertIn("Theoretical Max Revenue", display_frame.columns)
@@ -1847,6 +1862,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(round(display_frame.iloc[0]["Gap Day % to Desired"]), 101)
         self.assertEqual(display_frame.iloc[0]["Repeat Purchase %"], 75)
         self.assertEqual(display_frame.iloc[0]["Captured Revenue %"], 50)
+        self.assertEqual(display_frame.iloc[0]["Revenue per Item"], 120)
         self.assertEqual(display_frame.iloc[0]["Revenue from Successes"], 120)
         self.assertEqual(display_frame.iloc[0]["Revenue per Year"], 301)
         self.assertEqual(display_frame.iloc[0]["Theoretical Max Revenue"], 600)
