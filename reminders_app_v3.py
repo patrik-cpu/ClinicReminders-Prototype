@@ -12771,6 +12771,10 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     for column in OUTCOME_DISPLAY_DATE_COLUMNS:
         if column in display_frame.columns:
             display_frame[column] = display_frame[column].map(format_outcome_display_date)
+    if "Repeat Purchase %" in display_frame.columns:
+        display_frame["Repeat Purchase %"] = (
+            pd.to_numeric(display_frame["Repeat Purchase %"], errors="coerce") * 100
+        )
     display_frame = display_frame.rename(columns=OUTCOME_DISPLAY_COLUMN_LABELS)
     return display_frame
 
@@ -12819,7 +12823,7 @@ def outcome_display_column_config() -> dict:
         "Repeat Purchase %": st.column_config.NumberColumn(
             "Repeat Purchase %",
             help=OUTCOME_DISPLAY_COLUMN_HELP["Repeat Purchase %"],
-            format="percent",
+            format="%.0f%%",
         ),
         "Revenue": st.column_config.NumberColumn(
             "Revenue",
