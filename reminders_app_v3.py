@@ -13490,7 +13490,7 @@ if st.session_state.get("logged_in", False):
             render_field_label(
                 st,
                 "Group same-client reminders",
-                "Controls how many days can be combined for the same client. 0 means no grouping; 1 groups same-day reminders.",
+                "Controls how many days can be combined for the same client. 0 means no grouping; 1 groups same-day reminders; 2 groups reminders within 2 days, and so on.",
                 class_name="reminder-control-label",
             )
             group_days = st.number_input(

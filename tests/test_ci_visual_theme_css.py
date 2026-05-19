@@ -110,6 +110,7 @@ class VisualThemeCssTests(unittest.TestCase):
 
         self.assertIn("0 shows the selected day only. 1 includes the selected day plus the previous day, and so on.", source)
         self.assertIn("0 shows the selected day only. 1 includes the selected day plus the next day, and so on.", source)
+        self.assertIn("1 groups same-day reminders; 2 groups reminders within 2 days, and so on.", source)
 
     def test_stats_page_folds_outcomes_and_actioning_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
