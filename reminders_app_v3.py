@@ -12636,10 +12636,10 @@ def render_outcome_dataframe(
         "Success Gap Days": st.column_config.NumberColumn("Success Gap Days", format="%.0f"),
         "Next Purchase Gap Days": st.column_config.NumberColumn("Next Purchase Gap Days", format="%.0f"),
         "Avg Success Gap Days": st.column_config.NumberColumn("Avg Success Gap Days", format="%.1f"),
-        "Overall Avg Purchase Gap Days": st.column_config.NumberColumn("Overall Avg Purchase Gap Days", format="%.1f"),
+        "Overall Avg Purchase Gap Days": st.column_config.NumberColumn("Overall Avg Purchase Gap Days", format="%.0f"),
         "Overall Repeat Purchases": st.column_config.NumberColumn("Overall Repeat Purchases", format="%d"),
         "Overall Purchases": st.column_config.NumberColumn("Overall Purchases", format="%d"),
-        "Repeat Purchase %": st.column_config.NumberColumn("Repeat Purchase %", format="percent"),
+        "Repeat Purchase %": st.column_config.NumberColumn("Repeat Purchase %", format="%.0f%%"),
         "Revenue": st.column_config.NumberColumn("Revenue", format="localized"),
     }
     column_config["Success Rate"] = st.column_config.ProgressColumn("Success Rate", format="percent", min_value=0, max_value=1)

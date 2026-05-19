@@ -1402,6 +1402,8 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Repeat Purchase %", rendered_frame.columns)
         self.assertIn("Success Rate", column_config)
         self.assertIn("Repeat Purchase %", column_config)
+        self.assertEqual(column_config["Overall Avg Purchase Gap Days"]["type_config"]["format"], "%.0f")
+        self.assertEqual(column_config["Repeat Purchase %"]["type_config"]["format"], "%.0f%%")
         self.assertNotIn("Avg Item Purchase Gap Days", rendered_frame.columns)
 
     def test_prepare_outcome_dataframe_for_display_formats_dates_without_time(self):
