@@ -12624,11 +12624,11 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
     with controls[1]:
         render_field_label(
             st,
-            "Days to define success",
-            "A reminder is successful when the matching sale is this many days before or after the due date.",
+            "Success window around due date",
+            "A reminder is successful when the matching sale is within this many days before or after the due date.",
         )
         due_date_window_days = st.number_input(
-            "Days to define success",
+            "Success window around due date",
             min_value=0,
             max_value=1095,
             value=int(st.session_state.get("outcome_due_date_window_days", DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS)),

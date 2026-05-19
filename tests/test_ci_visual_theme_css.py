@@ -82,6 +82,13 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;", source)
         self.assertIn("background: var(--cr-primary) !important;", source)
 
+    def test_outcome_success_window_label_matches_due_date_logic(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn("Success window around due date", source)
+        self.assertIn("within this many days before or after the due date", source)
+        self.assertNotIn("Days to define success", source)
+
 
 if __name__ == "__main__":
     unittest.main()
