@@ -11318,6 +11318,7 @@ OUTCOME_TABLE_COLUMNS = [
     "Revenue",
     "Revenue per Year",
     "Theoretical Max Revenue",
+    "Capturable Revenue per Year",
     "Captured Revenue %",
     "Matched Item",
     "Next Matched Item",
@@ -11372,6 +11373,7 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Revenue from Successes": "Revenue from repeat purchases that counted as reminder successes.",
     "Revenue per Year": "Estimated annual revenue from actual repeat purchases, using the overall average purchase gap.",
     "Theoretical Max Revenue": "Estimated annual ceiling using all matching purchases and the faster of actual or desired cadence.",
+    "Capturable Revenue per Year": "Estimated annual revenue still available: theoretical max revenue minus revenue per year.",
     "Captured Revenue %": "Revenue per year divided by theoretical max revenue.",
     "Matched Item": "Purchased item that counted as the success.",
     "Next Matched Item": "Next matching purchased item after the billed date.",
@@ -11381,6 +11383,7 @@ OUTCOME_DISPLAY_CURRENCY_COLUMNS = [
     "Revenue",
     "Revenue per Year",
     "Theoretical Max Revenue",
+    "Capturable Revenue per Year",
 ]
 OUTCOME_DISPLAY_COLUMN_TITLES = {
     "No Match": "No\nMatch",
@@ -11398,6 +11401,7 @@ OUTCOME_DISPLAY_COLUMN_TITLES = {
     "Revenue from Successes": "Revenue from\nSuccesses",
     "Revenue per Year": "Revenue\nper Year",
     "Theoretical Max Revenue": "Theoretical\nMax Revenue",
+    "Capturable Revenue per Year": "Capturable Revenue\nper Year",
     "Captured Revenue %": "Captured\nRevenue %",
 }
 OUTCOME_DISPLAY_COLUMN_WIDTHS = {
@@ -11428,6 +11432,7 @@ OUTCOME_DISPLAY_COLUMN_WIDTHS = {
     "Revenue from Successes": "small",
     "Revenue per Year": "small",
     "Theoretical Max Revenue": "small",
+    "Capturable Revenue per Year": "small",
     "Captured Revenue %": "small",
 }
 STATS_SUMMARY_CARD_HELP = {
@@ -11469,6 +11474,7 @@ OUTCOME_ITEM_GROUP_COLUMNS = [
     "Revenue",
     "Revenue per Year",
     "Theoretical Max Revenue",
+    "Capturable Revenue per Year",
     "Captured Revenue %",
 ]
 OUTCOME_SENDER_GROUP_COLUMNS = [
@@ -12693,6 +12699,7 @@ def build_reminder_outcomes(
             "Revenue": 0.0,
             "Revenue per Year": None,
             "Theoretical Max Revenue": None,
+            "Capturable Revenue per Year": None,
             "Captured Revenue %": None,
             "Matched Item": "",
             "Next Matched Item": "",
@@ -12748,6 +12755,11 @@ def build_reminder_outcomes(
     )
     revenue_per_year_values = pd.to_numeric(outcomes["Revenue per Year"], errors="coerce")
     theoretical_max_revenue_values = pd.to_numeric(outcomes["Theoretical Max Revenue"], errors="coerce")
+    outcomes["Capturable Revenue per Year"] = np.where(
+        theoretical_max_revenue_values.notna() & revenue_per_year_values.notna(),
+        theoretical_max_revenue_values - revenue_per_year_values,
+        None,
+    )
     outcomes["Captured Revenue %"] = np.where(
         theoretical_max_revenue_values.gt(0) & revenue_per_year_values.notna(),
         revenue_per_year_values / theoretical_max_revenue_values,
@@ -12992,6 +13004,8 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             gap_columns.append("Revenue per Year")
         if "Theoretical Max Revenue" in outcomes_df.columns:
             gap_columns.append("Theoretical Max Revenue")
+        if "Capturable Revenue per Year" in outcomes_df.columns:
+            gap_columns.append("Capturable Revenue per Year")
         item_purchase_gap_frame = (
             outcomes_df[gap_columns]
             .dropna(subset=["Avg Item Purchase Gap Days"])
@@ -13031,6 +13045,14 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             item_purchase_gap_frame["Theoretical Max Revenue"],
             errors="coerce",
         ).fillna(0)
+        if "Capturable Revenue per Year" not in item_purchase_gap_frame.columns:
+            item_purchase_gap_frame["Capturable Revenue per Year"] = (
+                theoretical_max_revenue_values - revenue_per_year_values
+            )
+        capturable_revenue_per_year_values = pd.to_numeric(
+            item_purchase_gap_frame["Capturable Revenue per Year"],
+            errors="coerce",
+        ).fillna(0)
     else:
         item_purchase_gap_values = pd.Series(dtype=float)
         item_purchase_gap_counts = pd.Series(dtype=float)
@@ -13038,12 +13060,18 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         revenue_per_item_values = pd.Series(dtype=float)
         revenue_per_year_values = pd.Series(dtype=float)
         theoretical_max_revenue_values = pd.Series(dtype=float)
+        capturable_revenue_per_year_values = pd.Series(dtype=float)
     overall_repeat_purchases = int(item_purchase_gap_counts.sum()) if not item_purchase_gap_counts.empty else 0
     overall_purchases = int(item_purchase_total_counts.sum()) if not item_purchase_total_counts.empty else 0
     revenue_per_year = float(revenue_per_year_values.sum()) if not revenue_per_year_values.empty else 0.0
     theoretical_max_revenue = (
         float(theoretical_max_revenue_values.sum())
         if not theoretical_max_revenue_values.empty
+        else 0.0
+    )
+    capturable_revenue_per_year = (
+        float(capturable_revenue_per_year_values.sum())
+        if not capturable_revenue_per_year_values.empty
         else 0.0
     )
     if not revenue_per_item_values.empty and not item_purchase_total_counts.empty and item_purchase_total_counts.sum() > 0:
@@ -13075,6 +13103,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         "revenue": float(pd.to_numeric(success_df["Revenue"], errors="coerce").fillna(0).sum()) if successes else 0.0,
         "revenue_per_year": revenue_per_year,
         "theoretical_max_revenue": theoretical_max_revenue,
+        "capturable_revenue_per_year": capturable_revenue_per_year,
         "captured_revenue_rate": (
             revenue_per_year / theoretical_max_revenue
             if theoretical_max_revenue > 0
@@ -13106,6 +13135,7 @@ def build_outcome_group_frame(
         "Revenue",
         "Revenue per Year",
         "Theoretical Max Revenue",
+        "Capturable Revenue per Year",
         "Captured Revenue %",
     ]
     columns = columns or base_columns
@@ -13135,6 +13165,7 @@ def build_outcome_group_frame(
             "Revenue": summary["revenue"],
             "Revenue per Year": summary["revenue_per_year"],
             "Theoretical Max Revenue": summary["theoretical_max_revenue"],
+            "Capturable Revenue per Year": summary["capturable_revenue_per_year"],
             "Captured Revenue %": summary["captured_revenue_rate"],
         })
     frame = pd.DataFrame(rows, columns=base_columns)
@@ -13235,6 +13266,7 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
         "Revenue",
         "Revenue per Year",
         "Theoretical Max Revenue",
+        "Capturable Revenue per Year",
         "Captured Revenue %",
     ]
     if outcomes_df is None or outcomes_df.empty:
@@ -13263,6 +13295,7 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
             "Revenue": summary["revenue"],
             "Revenue per Year": summary["revenue_per_year"],
             "Theoretical Max Revenue": summary["theoretical_max_revenue"],
+            "Capturable Revenue per Year": summary["capturable_revenue_per_year"],
             "Captured Revenue %": summary["captured_revenue_rate"],
         })
     return pd.DataFrame(rows, columns=columns).sort_values("Sent Date")
@@ -13381,6 +13414,7 @@ def outcome_display_column_config() -> dict:
         "Revenue from Successes": outcome_display_number_column("Revenue from Successes", "localized"),
         "Revenue per Year": outcome_display_number_column("Revenue per Year", "localized"),
         "Theoretical Max Revenue": outcome_display_number_column("Theoretical Max Revenue", "localized"),
+        "Capturable Revenue per Year": outcome_display_number_column("Capturable Revenue per Year", "localized"),
         "Captured Revenue %": outcome_display_number_column("Captured Revenue %", "%.0f%%"),
         "Success Rate": st.column_config.ProgressColumn(
             outcome_display_column_title("Success Rate"),
