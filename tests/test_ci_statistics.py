@@ -1150,6 +1150,7 @@ class StatisticsTests(unittest.TestCase):
                 {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Reminder Success", "Success Gap Days": 365, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Revenue": 120},
                 {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "No Match", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Revenue": 0},
                 {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Pending", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Revenue": 0},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Not Measurable", "Success Gap Days": None, "Desired Gap Days": 365, "Avg Item Purchase Gap Days": 370, "Revenue": 0},
                 {"Sender": "Nurse B", "Item": "Bravecto", "Outcome": "Reminder Success", "Success Gap Days": 95, "Desired Gap Days": 90, "Avg Item Purchase Gap Days": 120, "Revenue": 80},
             ]
         )
@@ -1157,11 +1158,31 @@ class StatisticsTests(unittest.TestCase):
         grouped = self.app.build_outcome_group_frame(outcomes, "Sender")
         rows = {row["Sender"]: row for row in grouped.to_dict("records")}
 
-        self.assertEqual(rows["Nurse A"]["Sent"], 3)
+        self.assertEqual(rows["Nurse A"]["Sent"], 4)
         self.assertEqual(rows["Nurse A"]["Successes"], 1)
-        self.assertEqual(rows["Nurse A"]["Success Rate"], 1 / 3)
+        self.assertEqual(rows["Nurse A"]["Pending"], 1)
+        self.assertEqual(rows["Nurse A"]["No Match"], 2)
+        self.assertEqual(rows["Nurse A"]["Success Rate"], 1 / 4)
         self.assertEqual(rows["Nurse A"]["Avg Success Gap Days"], 365)
         self.assertEqual(rows["Nurse B"]["Desired Gap Days"], 90)
+
+    def test_outcome_success_meter_style_shows_success_pending_and_no_match_segments(self):
+        row = pd.Series({
+            "Sent": 4,
+            "Successes": 1,
+            "Pending": 1,
+            "No Match": 2,
+            "Success Rate": 0.25,
+        })
+
+        style = self.app.outcome_success_meter_cell_style(row)
+
+        self.assertIn("#22c55e", style)
+        self.assertIn("#ffffff", style)
+        self.assertIn("#ef4444", style)
+        self.assertIn("25.0000%", style)
+        self.assertIn("50.0000%", style)
+        self.assertIn("100.0000%", style)
 
     def test_prepare_outcome_dataframe_for_display_formats_dates_without_time(self):
         frame = pd.DataFrame(

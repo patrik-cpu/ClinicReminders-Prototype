@@ -60,6 +60,20 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('base = "light"', config)
         self.assertIn('backgroundColor = "#f6faf7"', config)
 
+    def test_main_section_selected_tab_has_visible_state(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        for selector in [
+            '.st-key-main_section_tab [data-baseweb="button-group"] [aria-checked="true"]',
+            '.st-key-main_section_tab [data-baseweb="button"][aria-checked="true"]',
+            '.st-key-main_section_tab [aria-checked="true"]:hover',
+        ]:
+            with self.subTest(selector=selector):
+                self.assertIn(selector, source)
+
+        self.assertIn("box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-surface) !important;", source)
+        self.assertIn("background: var(--cr-surface) !important;", source)
+
 
 if __name__ == "__main__":
     unittest.main()

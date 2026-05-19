@@ -74,6 +74,7 @@ MAIN_SECTION_TAB_SLUGS = {
     "statistics": "Statistics",
 }
 MAIN_SECTION_TAB_TO_SLUG = {tab: slug for slug, tab in MAIN_SECTION_TAB_SLUGS.items()}
+REMINDERS_START_DATE_INPUT_KEY = "reminders_start_date_input"
 
 
 def set_main_section_tab(tab_name: str):
@@ -547,6 +548,10 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "user_name",
     "user_template",
     "wa_template",
+    "reminders_start_date",
+    REMINDERS_START_DATE_INPUT_KEY,
+    "_reminders_start_date_today_requested",
+    "_reminders_start_date_key_seed",
     "client_group_days",
     "reminder_window_days",
     "reminder_lookback_days",
@@ -8930,6 +8935,54 @@ def normalized_reminder_group_days(value=None) -> int:
         return 1
 
 
+def normalized_reminder_warning_days(value=None) -> int:
+    value = st.session_state.get("reminder_warning_days", 0) if value is None else value
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def normalized_reminders_start_date(value=None, default_date: date | None = None) -> date:
+    default_date = default_date or user_today()
+    value = default_date if value is None else value
+    try:
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        parsed = pd.to_datetime(value, errors="coerce")
+        if pd.isna(parsed):
+            return default_date
+        return parsed.date()
+    except Exception:
+        return default_date
+
+
+def initialize_reminder_filter_controls(default_start: date | None = None) -> date:
+    default_start = default_start or user_today()
+    if st.session_state.pop("_reminders_start_date_today_requested", False):
+        st.session_state["reminders_start_date"] = default_start
+        st.session_state[REMINDERS_START_DATE_INPUT_KEY] = default_start
+    else:
+        remembered_start = normalized_reminders_start_date(
+            st.session_state.get("reminders_start_date", st.session_state.get(REMINDERS_START_DATE_INPUT_KEY)),
+            default_start,
+        )
+        widget_start = normalized_reminders_start_date(
+            st.session_state.get(REMINDERS_START_DATE_INPUT_KEY, remembered_start),
+            default_start,
+        )
+        st.session_state["reminders_start_date"] = widget_start
+        st.session_state[REMINDERS_START_DATE_INPUT_KEY] = widget_start
+
+    st.session_state["reminder_window_days"] = normalized_reminder_window_days()
+    st.session_state["reminder_lookback_days"] = normalized_reminder_lookback_days()
+    st.session_state["client_group_days"] = normalized_reminder_group_days()
+    st.session_state["reminder_warning_days"] = normalized_reminder_warning_days()
+    return st.session_state[REMINDERS_START_DATE_INPUT_KEY]
+
+
 def reminder_row_in_date_range(row: dict, start_date: date, end_date: date) -> bool:
     return any(start_date <= reminder_date <= end_date for reminder_date in reminder_row_dates(row))
 
@@ -9097,18 +9150,23 @@ st.markdown(
       }
       .st-key-main_section_tab [role="radio"][aria-checked="true"],
       .st-key-main_section_tab [role="radio"][aria-selected="true"],
+      .st-key-main_section_tab [data-baseweb="button-group"] [aria-checked="true"],
+      .st-key-main_section_tab [data-baseweb="button"][aria-checked="true"],
+      .st-key-main_section_tab [aria-checked="true"],
       .st-key-main_section_tab button[aria-pressed="true"],
       .st-key-main_section_tab button[aria-selected="true"],
       .st-key-main_section_tab label:has(input:checked) {
-        background: var(--cr-primary) !important;
-        border-color: var(--cr-primary) !important;
-        box-shadow: 0 1px 0 var(--cr-primary) !important;
+        background: var(--cr-surface) !important;
+        border-color: var(--cr-primary-dark) !important;
+        box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-surface) !important;
         color: #062d19 !important;
         position: relative !important;
         z-index: 1 !important;
       }
       .st-key-main_section_tab [aria-checked="true"] p,
       .st-key-main_section_tab [aria-checked="true"] span,
+      .st-key-main_section_tab [data-baseweb="button-group"] [aria-checked="true"] p,
+      .st-key-main_section_tab [data-baseweb="button-group"] [aria-checked="true"] span,
       .st-key-main_section_tab [aria-selected="true"] p,
       .st-key-main_section_tab [aria-selected="true"] span,
       .st-key-main_section_tab button[aria-pressed="true"] p,
@@ -9116,6 +9174,12 @@ st.markdown(
       .st-key-main_section_tab label:has(input:checked) p,
       .st-key-main_section_tab label:has(input:checked) span {
         color: #062d19 !important;
+      }
+      .st-key-main_section_tab [aria-checked="true"]:hover,
+      .st-key-main_section_tab [data-baseweb="button-group"] [aria-checked="true"]:hover,
+      .st-key-main_section_tab [data-baseweb="button"][aria-checked="true"]:hover {
+        background: var(--cr-surface) !important;
+        border-color: var(--cr-primary-dark) !important;
       }
       div[data-testid="stTabs"] div[role="tablist"] {
         align-items: flex-end !important;
@@ -10802,6 +10866,7 @@ OUTCOME_SENDER_GROUP_COLUMNS = [
     "Success Rate",
     "Revenue",
 ]
+OUTCOME_SUCCESS_METER_COLUMNS = {"Sent", "Successes", "Pending", "No Match", "Success Rate"}
 
 
 def statistics_exclusion_fp() -> str:
@@ -11962,6 +12027,8 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
     sent = len(outcomes_df.index)
     success_mask = outcomes_df["Outcome"].eq("Reminder Success")
     successes = int(success_mask.sum())
+    pending = int(outcomes_df["Outcome"].eq("Pending").sum())
+    no_match = max(0, sent - successes - pending)
     success_df = outcomes_df.loc[success_mask]
     desired_gap_values = (
         pd.to_numeric(outcomes_df["Desired Gap Days"], errors="coerce")
@@ -11985,8 +12052,8 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
     return {
         "sent": sent,
         "successes": successes,
-        "pending": int(outcomes_df["Outcome"].eq("Pending").sum()),
-        "no_match": int(outcomes_df["Outcome"].eq("No Match").sum()),
+        "pending": pending,
+        "no_match": no_match,
         "success_rate": (successes / sent) if sent else 0.0,
         "avg_success_gap_days": success_gap_values.mean() if successes else None,
         "avg_desired_gap_days": desired_gap_values.mean(),
@@ -12106,25 +12173,74 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     return display_frame
 
 
+def outcome_success_meter_cell_style(row: pd.Series) -> str:
+    try:
+        sent = max(0.0, float(row.get("Sent", 0) or 0))
+    except (TypeError, ValueError):
+        sent = 0.0
+    if sent <= 0:
+        return ""
+
+    def segment_count(column: str) -> float:
+        try:
+            return max(0.0, float(row.get(column, 0) or 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    successes = min(segment_count("Successes"), sent)
+    pending = min(segment_count("Pending"), max(0.0, sent - successes))
+    no_match = max(0.0, sent - successes - pending)
+    success_end = successes / sent * 100
+    pending_end = (successes + pending) / sent * 100
+    no_match_end = (successes + pending + no_match) / sent * 100
+    return (
+        "background-image: "
+        f"linear-gradient(to right, #22c55e 0%, #22c55e {success_end:.4f}%, "
+        f"#ffffff {success_end:.4f}%, #ffffff {pending_end:.4f}%, "
+        f"#ef4444 {pending_end:.4f}%, #ef4444 {no_match_end:.4f}%), "
+        "linear-gradient(to right, #dbe9e1, #dbe9e1); "
+        "background-position: center, center; "
+        "background-repeat: no-repeat, no-repeat; "
+        "background-size: calc(100% - 1rem) 0.45rem, calc(100% - 1rem) 0.45rem; "
+        "font-weight: 650;"
+    )
+
+
+def apply_outcome_success_meter_style(display_frame: pd.DataFrame):
+    if not OUTCOME_SUCCESS_METER_COLUMNS.issubset(display_frame.columns):
+        return display_frame
+    return display_frame.style.apply(
+        lambda row: [
+            outcome_success_meter_cell_style(row) if column == "Success Rate" else ""
+            for column in display_frame.columns
+        ],
+        axis=1,
+    ).format({"Success Rate": "{:.0%}"})
+
+
 def render_outcome_dataframe(frame: pd.DataFrame, columns: list[str] | None = None):
     if columns is not None and frame is not None and not frame.empty:
         frame = frame[[column for column in columns if column in frame.columns]]
     if frame.empty:
         st.info("No outcome rows for this view yet.")
         return
+    display_frame = prepare_outcome_dataframe_for_display(frame)
+    display_data = apply_outcome_success_meter_style(display_frame)
+    column_config = {
+        "Desired Gap Days": st.column_config.NumberColumn("Desired Gap Days", format="%.0f"),
+        "Success Gap Days": st.column_config.NumberColumn("Success Gap Days", format="%.0f"),
+        "Next Purchase Gap Days": st.column_config.NumberColumn("Next Purchase Gap Days", format="%.0f"),
+        "Avg Success Gap Days": st.column_config.NumberColumn("Avg Success Gap Days", format="%.1f"),
+        "Avg Item Purchase Gap Days": st.column_config.NumberColumn("Avg Item Purchase Gap Days", format="%.1f"),
+        "Revenue": st.column_config.NumberColumn("Revenue", format="localized"),
+    }
+    if not OUTCOME_SUCCESS_METER_COLUMNS.issubset(display_frame.columns):
+        column_config["Success Rate"] = st.column_config.ProgressColumn("Success Rate", format="percent", min_value=0, max_value=1)
     st.dataframe(
-        prepare_outcome_dataframe_for_display(frame),
+        display_data,
         hide_index=True,
         use_container_width=True,
-        column_config={
-            "Success Rate": st.column_config.ProgressColumn("Success Rate", format="percent", min_value=0, max_value=1),
-            "Desired Gap Days": st.column_config.NumberColumn("Desired Gap Days", format="%.0f"),
-            "Success Gap Days": st.column_config.NumberColumn("Success Gap Days", format="%.0f"),
-            "Next Purchase Gap Days": st.column_config.NumberColumn("Next Purchase Gap Days", format="%.0f"),
-            "Avg Success Gap Days": st.column_config.NumberColumn("Avg Success Gap Days", format="%.1f"),
-            "Avg Item Purchase Gap Days": st.column_config.NumberColumn("Avg Item Purchase Gap Days", format="%.1f"),
-            "Revenue": st.column_config.NumberColumn("Revenue", format="localized"),
-        },
+        column_config=column_config,
     )
 
 
@@ -12675,7 +12791,10 @@ def render_search_terms_editor():
 
 
 def set_reminders_start_date_to_today():
+    today = user_today()
     st.session_state["_reminders_start_date_today_requested"] = True
+    st.session_state["reminders_start_date"] = today
+    st.session_state[REMINDERS_START_DATE_INPUT_KEY] = today
 
 
 # --------------------------------
@@ -12704,20 +12823,7 @@ if st.session_state.get("logged_in", False):
         with sender_col:
             render_sender_name_input("reminders_top")
 
-        default_start = user_today()
-        if st.session_state.pop("_reminders_start_date_today_requested", False):
-            st.session_state["_reminders_start_date_key_seed"] = (
-                st.session_state.get("_reminders_start_date_key_seed", 0) + 1
-            )
-            st.session_state["reminders_start_date"] = default_start
-        date_input_key = f"reminders_start_date_input_{st.session_state.get('_reminders_start_date_key_seed', 0)}"
-        date_input_value = st.session_state.get("reminders_start_date", default_start)
-        current_window_days = normalized_reminder_window_days()
-        if st.session_state.get("reminder_window_days") != current_window_days:
-            st.session_state["reminder_window_days"] = current_window_days
-        current_lookback_days = normalized_reminder_lookback_days()
-        if st.session_state.get("reminder_lookback_days") != current_lookback_days:
-            st.session_state["reminder_lookback_days"] = current_lookback_days
+        initialize_reminder_filter_controls(user_today())
 
         start_col, today_button_col, lookback_col, window_col, group_col, warning_col = st.columns([2, 0.72, 2, 2, 2, 2])
         with start_col:
@@ -12729,8 +12835,7 @@ if st.session_state.get("logged_in", False):
             )
             start_date = st.date_input(
                 "Date",
-                value=date_input_value,
-                key=date_input_key,
+                key=REMINDERS_START_DATE_INPUT_KEY,
                 label_visibility="collapsed",
             )
             st.session_state["reminders_start_date"] = start_date
@@ -12753,7 +12858,6 @@ if st.session_state.get("logged_in", False):
                 "Days to look back",
                 min_value=0,
                 max_value=30,
-                value=current_lookback_days,
                 step=1,
                 key="reminder_lookback_days",
                 on_change=save_settings_quietly,
@@ -12770,7 +12874,6 @@ if st.session_state.get("logged_in", False):
                 "Days to look ahead",
                 min_value=0,
                 max_value=30,
-                value=current_window_days,
                 step=1,
                 key="reminder_window_days",
                 on_change=save_settings_quietly,
@@ -12786,7 +12889,6 @@ if st.session_state.get("logged_in", False):
             group_days = st.number_input(
                 "Group same-client reminders",
                 min_value=0,
-                value=st.session_state.get("client_group_days", 1),
                 step=1,
                 key="client_group_days",
                 on_change=save_settings_quietly,
@@ -12802,7 +12904,6 @@ if st.session_state.get("logged_in", False):
             st.number_input(
                 "Repeat warning days",
                 min_value=0,
-                value=st.session_state.get("reminder_warning_days", 0),
                 step=1,
                 key="reminder_warning_days",
                 on_change=save_settings_quietly,

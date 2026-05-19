@@ -33,6 +33,35 @@ class RemindersBadgeTests(unittest.TestCase):
         self.assertEqual(self.app.normalized_reminder_lookback_days(), 2)
         self.assertEqual(self.app.normalized_reminder_lookback_days("bad"), 2)
 
+    def test_reminder_filter_controls_preserve_session_values(self):
+        state = self.app.st.session_state
+        state["reminders_start_date"] = date(2026, 5, 10)
+        state[self.app.REMINDERS_START_DATE_INPUT_KEY] = date(2026, 5, 11)
+        state["reminder_lookback_days"] = 9
+        state["reminder_window_days"] = 8
+        state["client_group_days"] = 3
+        state["reminder_warning_days"] = 4
+
+        selected = self.app.initialize_reminder_filter_controls(date(2026, 5, 18))
+
+        self.assertEqual(selected, date(2026, 5, 11))
+        self.assertEqual(state["reminders_start_date"], date(2026, 5, 11))
+        self.assertEqual(state["reminder_lookback_days"], 9)
+        self.assertEqual(state["reminder_window_days"], 8)
+        self.assertEqual(state["client_group_days"], 3)
+        self.assertEqual(state["reminder_warning_days"], 4)
+
+    def test_today_button_updates_stable_reminder_date_keys(self):
+        with mock.patch.object(self.app, "user_today", return_value=date(2026, 5, 18)):
+            self.app.set_reminders_start_date_to_today()
+
+        self.assertTrue(self.app.st.session_state["_reminders_start_date_today_requested"])
+        self.assertEqual(self.app.st.session_state["reminders_start_date"], date(2026, 5, 18))
+        self.assertEqual(
+            self.app.st.session_state[self.app.REMINDERS_START_DATE_INPUT_KEY],
+            date(2026, 5, 18),
+        )
+
     def test_badge_count_includes_lookback_days_and_excludes_actioned_rows(self):
         today_row = {
             "Reminder Date": "16 May 2026",
