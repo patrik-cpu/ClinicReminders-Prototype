@@ -1257,43 +1257,7 @@ class StatisticsTests(unittest.TestCase):
             self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Revenue"),
         )
 
-    def test_outcome_success_meter_style_shows_success_pending_and_no_match_segments(self):
-        row = pd.Series({
-            "Sent": 4,
-            "Successes": 1,
-            "Pending": 1,
-            "No Match": 2,
-            "Success Rate": 0.25,
-        })
-
-        style = self.app.outcome_success_meter_cell_style(row)
-
-        self.assertIn("#22c55e", style)
-        self.assertIn("#ffffff", style)
-        self.assertIn("#ef4444", style)
-        self.assertIn("25.0000%", style)
-        self.assertIn("50.0000%", style)
-        self.assertIn("100.0000%", style)
-
-    def test_outcome_success_meter_html_shows_three_colour_line(self):
-        row = pd.Series({
-            "Sent": 4,
-            "Successes": 1,
-            "Pending": 1,
-            "No Match": 2,
-            "Success Rate": 0.25,
-        })
-
-        html = self.app.outcome_success_meter_html(row)
-
-        self.assertIn("cr-outcome-meter-segment is-success", html)
-        self.assertIn("cr-outcome-meter-segment is-pending", html)
-        self.assertIn("cr-outcome-meter-segment is-no-match", html)
-        self.assertIn('style="width: 25.0000%"', html)
-        self.assertIn('style="width: 50.0000%"', html)
-        self.assertIn(">25%</span>", html)
-
-    def test_render_outcome_dataframe_uses_html_meter_table_for_summary_rows(self):
+    def test_render_outcome_dataframe_uses_native_sortable_dataframe_for_summary_rows(self):
         frame = pd.DataFrame([
             {
                 "Item": "Rabies",
@@ -1316,34 +1280,15 @@ class StatisticsTests(unittest.TestCase):
         ):
             self.app.render_outcome_dataframe(frame, table_key="outcomes_by_item")
 
-        dataframe.assert_not_called()
-        rendered_html = markdown.call_args.args[0]
-        sort_button_labels = [call.args[0] for call in button.call_args_list]
-        self.assertIn("Item", sort_button_labels)
-        self.assertIn("Successes ↓", sort_button_labels)
-        self.assertIn("Overall Avg Purchase Gap Days", sort_button_labels)
-        self.assertIn("Overall Repeat Purchases", sort_button_labels)
-        self.assertIn("cr-outcome-meter-table", rendered_html)
-        self.assertIn("cr-outcome-meter-segment is-success", rendered_html)
-        self.assertIn("cr-outcome-meter-segment is-pending", rendered_html)
-        self.assertIn("cr-outcome-meter-segment is-no-match", rendered_html)
-        self.assertNotIn("Avg Item Purchase Gap Days</th>", rendered_html)
-
-    def test_sort_outcome_table_frame_uses_click_state_for_meter_rows(self):
-        frame = pd.DataFrame(
-            [
-                {"Item": "Zed", "Sent": 2, "Successes": 1, "Pending": 0, "No Match": 1, "Success Rate": 0.5},
-                {"Item": "Alpha", "Sent": 10, "Successes": 2, "Pending": 3, "No Match": 5, "Success Rate": 0.2},
-            ]
-        )
-
-        self.app.set_outcome_table_sort("outcomes_by_item", "Item", default_ascending=True)
-        sorted_by_item = self.app.sort_outcome_table_frame(frame, "outcomes_by_item")
-        self.assertEqual(list(sorted_by_item["Item"]), ["Alpha", "Zed"])
-
-        self.app.set_outcome_table_sort("outcomes_by_item", "Sent", default_ascending=False)
-        sorted_by_sent = self.app.sort_outcome_table_frame(frame, "outcomes_by_item")
-        self.assertEqual(list(sorted_by_sent["Sent"]), [10, 2])
+        dataframe.assert_called_once()
+        markdown.assert_not_called()
+        button.assert_not_called()
+        rendered_frame = dataframe.call_args.args[0]
+        column_config = dataframe.call_args.kwargs["column_config"]
+        self.assertIn("Overall Avg Purchase Gap Days", rendered_frame.columns)
+        self.assertIn("Overall Repeat Purchases", rendered_frame.columns)
+        self.assertIn("Success Rate", column_config)
+        self.assertNotIn("Avg Item Purchase Gap Days", rendered_frame.columns)
 
     def test_prepare_outcome_dataframe_for_display_formats_dates_without_time(self):
         frame = pd.DataFrame(
