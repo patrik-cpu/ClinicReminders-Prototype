@@ -170,6 +170,13 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(len(outcomes), 1)
         row = outcomes.iloc[0]
         self.assertEqual(row["Outcome"], "Reminder Success")
+        self.assertEqual(str(row["Charge Date"].date()), "2025-05-01")
+        self.assertEqual(str(row["Reminder Date"].date()), "2026-05-01")
+        self.assertEqual(str(row["Sent Date"].date()), "2026-05-01")
+        self.assertEqual(str(row["Due Date"].date()), "2026-05-10")
+        self.assertEqual(str(row["Window Starts"].date()), "2026-04-10")
+        self.assertEqual(str(row["Window Ends"].date()), "2026-06-09")
+        self.assertEqual(str(row["Next Purchase Date"].date()), "2026-05-12")
         self.assertEqual(int(row["Success Gap Days"]), 376)
         self.assertEqual(float(row["Revenue"]), 100.0)
         self.assertEqual(row["Matched Item"], "Rabies Vaccine")
@@ -276,9 +283,24 @@ class StatisticsTests(unittest.TestCase):
 
         row = outcomes.iloc[0]
         self.assertEqual(row["Outcome"], "Reminder Success")
+        self.assertEqual(str(row["Reminder Date"].date()), "2025-05-01")
         self.assertEqual(str(row["Sent Date"].date()), "2026-05-18")
         self.assertEqual(str(row["Actioned Date"].date()), "2026-05-18")
         self.assertEqual(int(row["Success Gap Days"]), 376)
+
+    def test_outcome_sent_display_columns_start_with_audit_trail_dates(self):
+        self.assertEqual(
+            self.app.OUTCOME_SENT_DISPLAY_COLUMNS[:7],
+            [
+                "Charge Date",
+                "Reminder Date",
+                "Sent Date",
+                "Due Date",
+                "Window Starts",
+                "Window Ends",
+                "Next Purchase Date",
+            ],
+        )
 
     def test_reminder_outcomes_search_around_due_date_even_before_reminder_date(self):
         actions = [
@@ -1237,6 +1259,7 @@ class StatisticsTests(unittest.TestCase):
         frame = pd.DataFrame(
             [
                 {
+                    "Reminder Date": pd.Timestamp("2024-01-10"),
                     "Sent Date": pd.Timestamp("2024-01-13 00:00:00"),
                     "Actioned Date": "2024-02-14 09:30:00",
                     "Charge Date": pd.Timestamp("2024-01-01"),
@@ -1244,6 +1267,7 @@ class StatisticsTests(unittest.TestCase):
                     "Window Starts": pd.Timestamp("2024-01-01"),
                     "Success Date": pd.Timestamp("2024-03-05"),
                     "Window Ends": pd.Timestamp("2024-04-30"),
+                    "Next Purchase Date": pd.Timestamp("2024-03-06"),
                     "Avg Item Purchase Gap Days": 370,
                     "Client Name": "Client A",
                 }
@@ -1255,10 +1279,12 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(display_frame.iloc[0]["Sent Date"], "Jan-13-2024")
         self.assertEqual(display_frame.iloc[0]["Actioned Date"], "Feb-14-2024")
         self.assertEqual(display_frame.iloc[0]["Billed Date"], "Jan-01-2024")
+        self.assertEqual(display_frame.iloc[0]["Reminder Date"], "Jan-10-2024")
         self.assertNotIn("Charge Date", display_frame.columns)
         self.assertIn("Overall Avg Purchase Gap Days", display_frame.columns)
         self.assertNotIn("Avg Item Purchase Gap Days", display_frame.columns)
         self.assertEqual(display_frame.iloc[0]["Due Date"], "")
+        self.assertEqual(display_frame.iloc[0]["Next Purchase Date"], "Mar-06-2024")
         self.assertEqual(display_frame.iloc[0]["Window Ends"], "Apr-30-2024")
         self.assertEqual(str(frame.iloc[0]["Sent Date"]), "2024-01-13 00:00:00")
 
