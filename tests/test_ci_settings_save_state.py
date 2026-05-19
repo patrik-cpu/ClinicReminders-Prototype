@@ -244,6 +244,23 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         self.assertEqual(saved["reminder_lookback_days"], 7)
 
+    def test_save_settings_persists_outcome_due_date_window_days(self):
+        self.app.cache_remote_settings("Clinic Save State", {})
+        self.app.st.session_state["outcome_due_date_window_days"] = 30
+
+        saved = self.run_save_with_remote({})
+
+        self.assertEqual(saved["outcome_due_date_window_days"], 30)
+
+    def test_load_settings_restores_outcome_due_date_window_days(self):
+        headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        sheet = FakeSettingsSheet({"outcome_due_date_window_days": 30})
+
+        with patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)):
+            self.app.load_settings()
+
+        self.assertEqual(self.app.st.session_state["outcome_due_date_window_days"], 30)
+
     def test_quiet_settings_save_handles_sheets_api_error(self):
         response = Response()
         response.status_code = 429

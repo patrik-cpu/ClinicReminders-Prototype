@@ -556,6 +556,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "reminder_window_days",
     "reminder_lookback_days",
     "reminder_warning_days",
+    "outcome_due_date_window_days",
     "wa_reminder_log",
     "deleted_reminders",
     "dataset_upload_history",
@@ -3851,6 +3852,13 @@ def load_settings():
         except (TypeError, ValueError):
             st.session_state["reminder_lookback_days"] = DEFAULT_REMINDER_LOOKBACK_DAYS
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
+        raw_outcome_due_date_window_days = settings.get(
+            "outcome_due_date_window_days",
+            DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
+        )
+        st.session_state["outcome_due_date_window_days"] = normalized_outcome_due_date_window_days(
+            raw_outcome_due_date_window_days
+        )
         migrated_legacy_actions = False
         legacy_wa_log = settings.get("wa_reminder_log", [])
         legacy_deleted_reminders = settings.get("deleted_reminders", [])
@@ -3890,6 +3898,7 @@ def load_settings():
         st.session_state["reminder_window_days"] = 1
         st.session_state["reminder_lookback_days"] = DEFAULT_REMINDER_LOOKBACK_DAYS
         st.session_state["reminder_warning_days"] = 0
+        st.session_state["outcome_due_date_window_days"] = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
         st.session_state["wa_reminder_log"] = []
         st.session_state["deleted_reminders"] = []
         st.session_state["search_terms_reviewed"] = False
@@ -4172,6 +4181,9 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "reminder_window_days": max(0, int_setting_for_save("reminder_window_days", 1)),
         "reminder_lookback_days": max(0, int_setting_for_save("reminder_lookback_days", DEFAULT_REMINDER_LOOKBACK_DAYS)),
         "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", 0)),
+        "outcome_due_date_window_days": normalized_outcome_due_date_window_days(
+            int_setting_for_save("outcome_due_date_window_days", DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS)
+        ),
         "search_terms_reviewed": bool(setting_for_save("search_terms_reviewed", False)),
         "search_term_added": bool(setting_for_save("search_term_added", False)),
         "wa_template_reviewed": bool(setting_for_save("wa_template_reviewed", False)),
@@ -6538,6 +6550,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "reminder_window_days": 1,
         "reminder_lookback_days": DEFAULT_REMINDER_LOOKBACK_DAYS,
         "reminder_warning_days": 0,
+        "outcome_due_date_window_days": DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
         "action_tracker_migrated_at": "",
         "search_terms_reviewed": False,
         "search_term_added": False,
@@ -9029,6 +9042,18 @@ def normalized_reminder_warning_days(value=None) -> int:
         return max(0, int(value))
     except (TypeError, ValueError):
         return 0
+
+
+def normalized_outcome_due_date_window_days(value=None) -> int:
+    value = (
+        st.session_state.get("outcome_due_date_window_days", DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS)
+        if value is None
+        else value
+    )
+    try:
+        return min(1095, max(0, int(value)))
+    except (TypeError, ValueError):
+        return DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
 
 
 def normalized_reminders_start_date(value=None, default_date: date | None = None) -> date:
@@ -12444,15 +12469,17 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
             "Success window around due date",
             "A reminder is successful when the matching sale is within this many days before or after the due date.",
         )
+        st.session_state["outcome_due_date_window_days"] = normalized_outcome_due_date_window_days()
         due_date_window_days = st.number_input(
             "Success window around due date",
             min_value=0,
             max_value=1095,
-            value=int(st.session_state.get("outcome_due_date_window_days", DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS)),
             step=1,
             key="outcome_due_date_window_days",
+            on_change=save_settings_quietly,
             label_visibility="collapsed",
         )
+        due_date_window_days = normalized_outcome_due_date_window_days(due_date_window_days)
     outcomes_as_of_date = outcome_as_of_date(sales_df)
     with busy_overlay("Calculating outcome results", "Matching sent reminders to later sales."):
         outcome_rows = build_reminder_outcomes(
