@@ -12704,6 +12704,10 @@ def statistics_completion_metric_labels(period: str) -> list[str]:
 def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
     st.markdown("<div id='statistics' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("## Statistics")
+    st.caption(
+        "Overview, Items, Completion, and the daily chart use Reminder Date. "
+        "Team uses Actioned Date, meaning when a reminder was marked sent or declined."
+    )
 
     if not STATISTICS_PERIODS:
         selected_period = "Today"
@@ -12753,6 +12757,7 @@ def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
     overview_tab, team_tab, items_tab, completion_tab = st.tabs(["Overview", "Team", "Items", "Completion"])
 
     with overview_tab:
+        st.caption("Filtered by Reminder Date: reminders scheduled in the selected period.")
         metric_cols = st.columns(5)
         metrics = [
             ("Generated", f"{summary['generated']:,}"),
@@ -12789,6 +12794,7 @@ def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
             st.altair_chart(chart, use_container_width=True)
 
     with team_tab:
+        st.caption("Filtered by Actioned Date: reminders marked sent or declined in the selected period.")
         team_frame = build_statistics_team_frame(action_records, selected_period)
         if team_frame.empty:
             st.info("No team activity for this period yet.")
@@ -12796,6 +12802,7 @@ def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
             st.dataframe(team_frame, hide_index=True, use_container_width=True)
 
     with items_tab:
+        st.caption("Filtered by Reminder Date: item counts for reminders scheduled in the selected period.")
         item_frame = build_statistics_item_frame(generated_df, action_records, selected_period)
         if item_frame.empty:
             st.info("No item statistics for this period yet.")
@@ -12803,6 +12810,7 @@ def render_statistics_tab(prepared: pd.DataFrame, rules: dict):
             st.dataframe(item_frame.head(25), hide_index=True, use_container_width=True)
 
     with completion_tab:
+        st.caption("Filtered by Reminder Date: completion for reminders scheduled in the selected period.")
         completion_summary = summary
         completion_pct = completion_summary["completion_rate"]
         comp_cols = st.columns(4)

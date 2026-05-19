@@ -89,6 +89,14 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("within this many days before or after the due date", source)
         self.assertNotIn("Days to define success", source)
 
+    def test_statistics_explains_mixed_date_filters(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn("Overview, Items, Completion, and the daily chart use Reminder Date", source)
+        self.assertIn("Team uses Actioned Date", source)
+        self.assertIn("Filtered by Reminder Date: reminders scheduled in the selected period.", source)
+        self.assertIn("Filtered by Actioned Date: reminders marked sent or declined in the selected period.", source)
+
 
 if __name__ == "__main__":
     unittest.main()
