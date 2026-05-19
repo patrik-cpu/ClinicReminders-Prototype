@@ -366,7 +366,6 @@ SHEET_COL_LAST_LOGIN_PROVIDER = "LastLoginProvider"
 SHEET_COL_ACCOUNT_STATUS = "AccountStatus"
 GOOGLE_AUTH_PROVIDER = "google"
 CLINIC_ACCESS_AUTH_PROVIDER = "clinic_access"
-CLINIC_ACCESS_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 SETTINGS_BASE_COLUMNS = [
     SHEET_COL_CLINIC_ID,
     SHEET_COL_PASSWORD_HASH,
@@ -6915,13 +6914,11 @@ def normalize_clinic_access_code(value: str) -> str:
 
 
 def format_clinic_access_code(value: str) -> str:
-    normalized = normalize_clinic_access_code(value)
-    return "-".join(normalized[idx:idx + 4] for idx in range(0, len(normalized), 4))
+    return normalize_clinic_access_code(value)
 
 
-def generate_clinic_access_code(length: int = 12) -> str:
-    raw = "".join(secrets.choice(CLINIC_ACCESS_CODE_ALPHABET) for _ in range(length))
-    return format_clinic_access_code(raw)
+def generate_clinic_access_code(length: int = 6) -> str:
+    return "".join(secrets.choice("0123456789") for _ in range(length))
 
 
 def clinic_access_code_hash_for_storage(access_code: str) -> str:
@@ -7851,7 +7848,7 @@ def render_clinic_access_dialog():
                     "Staff access details",
                     value=share_text,
                     height=170,
-                    key="clinic_access_share_text",
+                    key=f"clinic_access_share_text_{normalize_clinic_access_code(generated_code)}",
                     label_visibility="collapsed",
                     disabled=True,
                 )
@@ -8521,7 +8518,12 @@ if not st.session_state["logged_in"]:
             with st.form("staff_access_login_form"):
                 staff_clinic = st.text_input("Clinic name", key="staff_access_clinic_input").strip()
                 staff_name = st.text_input("Your name", key="staff_access_name_input").strip()
-                staff_code = st.text_input("Clinic access code", type="password", key="staff_access_code_input")
+                staff_code = st.text_input(
+                    "Clinic access code",
+                    key="staff_access_code_input",
+                    placeholder="123456",
+                    help="Enter the 6-digit staff access code.",
+                )
                 staff_submitted = st.form_submit_button("Access clinic", type="primary", use_container_width=True)
 
             if staff_submitted:

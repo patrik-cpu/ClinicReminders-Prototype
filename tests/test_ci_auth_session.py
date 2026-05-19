@@ -282,32 +282,37 @@ class AuthSessionTests(unittest.TestCase):
         self.assertNotIn("AB12CD34EF56", stored_hash)
         self.assertTrue(self.app.verify_clinic_access_code("AB12 CD34-EF56", stored_hash))
         self.assertFalse(self.app.verify_clinic_access_code("AB12 CD34 WRONG", stored_hash))
-        self.assertEqual(self.app.format_clinic_access_code("ab12cd34ef56"), "AB12-CD34-EF56")
+        self.assertEqual(self.app.format_clinic_access_code("ab12cd34ef56"), "AB12CD34EF56")
+
+    def test_generated_clinic_access_code_is_six_digit_number(self):
+        access_code = self.app.generate_clinic_access_code()
+
+        self.assertRegex(access_code, r"^\d{6}$")
 
     def test_clinic_access_share_text_contains_required_login_details(self):
         share_text = self.app.clinic_access_share_text(
             "Clinic A",
             "https://clinic-reminders.streamlit.app/",
-            "AB12-CD34-EF56",
+            "123456",
         )
 
         self.assertIn("Clinic name: Clinic A", share_text)
         self.assertIn("Login URL: https://clinic-reminders.streamlit.app", share_text)
-        self.assertIn("Access code: AB12-CD34-EF56", share_text)
+        self.assertIn("Access code: 123456", share_text)
         self.assertIn("choose Staff Access", share_text)
 
     def test_clinic_access_app_url_is_public_login_url(self):
         self.assertEqual(self.app.clinic_access_app_url(), "https://clinic-reminders.streamlit.app")
 
     def test_authenticate_clinic_access_uses_settings_hash(self):
-        stored_hash = self.app.clinic_access_code_hash_for_storage("AB12-CD34-EF56")
+        stored_hash = self.app.clinic_access_code_hash_for_storage("123456")
         row = {
             "ClinicID": "Clinic A",
             self.app.SHEET_COL_SETTINGS_JSON: json.dumps({"clinic_access_code_hash": stored_hash}),
         }
 
         with patch.object(self.app, "get_clinic_row", return_value=row):
-            authenticated = self.app.authenticate_clinic_access("clinic a", "ab12 cd34 ef56")
+            authenticated = self.app.authenticate_clinic_access("clinic a", "123 456")
             rejected = self.app.authenticate_clinic_access("clinic a", "wrong-code")
 
         self.assertEqual(authenticated, row)
