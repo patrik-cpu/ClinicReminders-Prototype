@@ -1617,7 +1617,7 @@ st.markdown(
     }
     .block-container h1, .block-container h2, .block-container h3 { margin-top: 0.2rem; }
     div[data-testid="stButton"] { min-height: 0px !important; height: auto !important; }
-    .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; padding-bottom: max(7rem, 42vh) !important; }
+    .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; padding-bottom: max(10rem, 74vh) !important; }
     h2[id] { scroll-margin-top: 80px; }
     .anchor-offset { position: relative; top: -100px; height: 0; }
     .stats-summary-card {
@@ -11289,6 +11289,7 @@ STATS_SENT_REMINDER_PERIOD_MAP = {
 }
 REMINDER_TABLE_PAGE_SIZE = 50
 OUTCOME_SENT_PAGE_SIZE = 100
+STATS_TABLE_HEIGHT = 700
 OUTCOME_TABLE_COLUMNS = [
     "Charge Date",
     "Reminder Date",
@@ -13434,6 +13435,7 @@ def render_outcome_dataframe(
         display_frame,
         hide_index=True,
         use_container_width=True,
+        height=STATS_TABLE_HEIGHT,
         column_config=outcome_display_column_config(),
     )
 
@@ -13644,6 +13646,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 prepare_statistics_display_frame(item_actioning_frame),
                 hide_index=True,
                 use_container_width=True,
+                height=STATS_TABLE_HEIGHT,
                 column_config=stats_item_actioning_column_config(),
             )
 
@@ -13661,6 +13664,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 prepare_stats_team_display_frame(team_frame),
                 hide_index=True,
                 use_container_width=True,
+                height=STATS_TABLE_HEIGHT,
                 column_config=stats_team_column_config(),
             )
 

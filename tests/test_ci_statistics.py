@@ -1808,6 +1808,7 @@ class StatisticsTests(unittest.TestCase):
         button.assert_not_called()
         rendered_frame = dataframe.call_args.args[0]
         column_config = dataframe.call_args.kwargs["column_config"]
+        self.assertEqual(dataframe.call_args.kwargs["height"], self.app.STATS_TABLE_HEIGHT)
         self.assertIn("Overall Avg Purchase Gap Days", rendered_frame.columns)
         self.assertIn("Gap Day % to Desired", rendered_frame.columns)
         self.assertIn("Overall Repeat Purchases", rendered_frame.columns)
