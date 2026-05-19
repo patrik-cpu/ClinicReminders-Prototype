@@ -83,6 +83,8 @@ MAIN_SECTION_TAB_TO_SLUG = {
     "Stats": "stats",
 }
 REMINDERS_START_DATE_INPUT_KEY = "reminders_start_date_input"
+OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY = "_outcome_due_date_window_days_dirty"
+OUTCOME_DUE_DATE_WINDOW_LOADED_KEY = "_outcome_due_date_window_days_loaded"
 
 
 def canonical_main_section_tab(tab_name: str) -> str:
@@ -3918,13 +3920,7 @@ def load_settings():
         except (TypeError, ValueError):
             st.session_state["reminder_lookback_days"] = DEFAULT_REMINDER_LOOKBACK_DAYS
         st.session_state["reminder_warning_days"] = int(settings.get("reminder_warning_days", 0) or 0)
-        raw_outcome_due_date_window_days = settings.get(
-            "outcome_due_date_window_days",
-            DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
-        )
-        st.session_state["outcome_due_date_window_days"] = normalized_outcome_due_date_window_days(
-            raw_outcome_due_date_window_days
-        )
+        load_outcome_due_date_window_days(settings)
         migrated_legacy_actions = False
         legacy_wa_log = settings.get("wa_reminder_log", [])
         legacy_deleted_reminders = settings.get("deleted_reminders", [])
@@ -3964,7 +3960,7 @@ def load_settings():
         st.session_state["reminder_window_days"] = 1
         st.session_state["reminder_lookback_days"] = DEFAULT_REMINDER_LOOKBACK_DAYS
         st.session_state["reminder_warning_days"] = 0
-        st.session_state["outcome_due_date_window_days"] = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+        load_outcome_due_date_window_days(settings)
         st.session_state["wa_reminder_log"] = []
         st.session_state["deleted_reminders"] = []
         st.session_state["search_terms_reviewed"] = False
@@ -4313,6 +4309,15 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         },
     )
     cache_remote_settings(clinic_id, settings_data)
+    saved_outcome_due_date_window_days = normalized_outcome_due_date_window_days(
+        settings_data.get("outcome_due_date_window_days")
+    )
+    if (
+        "outcome_due_date_window_days" in st.session_state
+        and normalized_outcome_due_date_window_days() == saved_outcome_due_date_window_days
+    ):
+        st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
+        st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = saved_outcome_due_date_window_days
     if track_user:
         upsert_user_tracker(clinic_id, country=st.session_state.get("user_country", ""), event="settings_saved")
 
@@ -9134,6 +9139,55 @@ def normalized_outcome_due_date_window_days(value=None) -> int:
         return DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
 
 
+def load_outcome_due_date_window_days(settings: dict) -> None:
+    raw_value = settings.get("outcome_due_date_window_days", _SETTING_MISSING)
+    has_current_value = "outcome_due_date_window_days" in st.session_state
+    current_value = (
+        normalized_outcome_due_date_window_days()
+        if has_current_value
+        else DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+    )
+    loaded_value = st.session_state.get(OUTCOME_DUE_DATE_WINDOW_LOADED_KEY, _SETTING_MISSING)
+
+    if raw_value is _SETTING_MISSING or raw_value in (None, ""):
+        if has_current_value:
+            st.session_state["outcome_due_date_window_days"] = current_value
+            return
+        st.session_state["outcome_due_date_window_days"] = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+        st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+        st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
+        return
+
+    saved_value = normalized_outcome_due_date_window_days(raw_value)
+    if has_current_value and st.session_state.get(OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY):
+        if current_value == saved_value:
+            st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
+            st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = saved_value
+        else:
+            st.session_state["outcome_due_date_window_days"] = current_value
+        return
+
+    if has_current_value and loaded_value is not _SETTING_MISSING:
+        loaded_value = normalized_outcome_due_date_window_days(loaded_value)
+        if current_value != loaded_value and current_value != saved_value:
+            st.session_state["outcome_due_date_window_days"] = current_value
+            st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = True
+            return
+
+    st.session_state["outcome_due_date_window_days"] = saved_value
+    st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = saved_value
+    st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
+
+
+def save_outcome_due_date_window_days() -> None:
+    value = normalized_outcome_due_date_window_days()
+    st.session_state["outcome_due_date_window_days"] = value
+    st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = True
+    if save_settings_quietly():
+        st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
+        st.session_state[OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = value
+
+
 def normalized_reminders_start_date(value=None, default_date: date | None = None) -> date:
     default_date = default_date or user_today()
     value = default_date if value is None else value
@@ -12844,7 +12898,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             max_value=1095,
             step=1,
             key="outcome_due_date_window_days",
-            on_change=save_settings_quietly,
+            on_change=save_outcome_due_date_window_days,
             label_visibility="collapsed",
         )
         due_date_window_days = normalized_outcome_due_date_window_days(due_date_window_days)

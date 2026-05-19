@@ -102,6 +102,7 @@ class VisualThemeCssTests(unittest.TestCase):
 
         self.assertIn("Success window around due date", source)
         self.assertIn("within this many days before or after the due date", source)
+        self.assertIn("on_change=save_outcome_due_date_window_days", source)
         self.assertNotIn("Days to define success", source)
 
     def test_reminder_range_tooltips_explain_stepper_pattern(self):
