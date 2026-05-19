@@ -642,8 +642,13 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "delete_account_confirm_text",
     "_scroll_to_whatsapp_composer",
     "_settings_row_cache",
+    "_profile_row_cache",
     "_remote_settings_cache",
     "_tracker_sheet_cache",
+    "_action_tracker_pending_load_for",
+    "_user_tracker_row_cache",
+    "_active_reminder_badge_cache",
+    "_stats_export_csv_cache",
     "_hidden_reminders_index_cache",
     "pending_google_signup",
     "google_onboarding_mode",
@@ -938,13 +943,20 @@ def _update_dataset_pointer_cells(sheet, headers, row_idx, file_id, filename, up
     )
 
 
-def _update_settings_cells(sheet, headers, row_idx, settings_json, updated_at):
+def _update_settings_cells(sheet, headers, row_idx, settings_json, updated_at, values_by_header: dict[str, object] | None = None):
     first_idx = _settings_col_index(headers, "SettingsJSON")
     last_idx = _settings_col_index(headers, "UpdatedAt")
     payload = [{
         "range": _row_range_a1(row_idx, first_idx, last_idx),
         "values": [[settings_json, updated_at]],
     }]
+    for header, value in (values_by_header or {}).items():
+        if header in headers:
+            col_idx = _settings_col_index(headers, header)
+            payload.append({
+                "range": _row_range_a1(row_idx, col_idx, col_idx),
+                "values": [[value]],
+            })
     _gspread_retry(sheet.batch_update, payload)
 
 
@@ -3576,28 +3588,36 @@ def merge_dedupe(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFram
 def update_clinic_dataset_pointer(clinic_id: str, file_id: str, filename: str):
     clinic_id = require_authenticated_tenant_access(clinic_id)
     updated_at = utc_now_iso()
-    update_authorized_settings_row_fields(
-        clinic_id,
-        {
-            SHEET_COL_DATASET_FILE_ID: file_id,
-            SHEET_COL_DATASET_FILE_NAME: filename,
-            SHEET_COL_DATASET_UPDATED_AT: updated_at,
-        },
-        SETTINGS_REQUIRED_COLUMNS,
+    sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
+    current_row = get_cached_settings_row_values(clinic_id) or []
+    headers = ensure_settings_sheet_columns(sheet, headers, SETTINGS_REQUIRED_COLUMNS)
+    _update_dataset_pointer_cells(
+        sheet,
+        headers,
+        row_idx,
+        file_id,
+        filename,
+        updated_at,
     )
-    _, fresh_headers, _, fresh_row = get_authorized_fresh_settings_row_values(clinic_id)
-    file_id_idx = fresh_headers.index(SHEET_COL_DATASET_FILE_ID)
-    saved_file_id = str(fresh_row[file_id_idx]).strip() if len(fresh_row) > file_id_idx else ""
+    if len(current_row) < len(headers):
+        current_row = list(current_row) + [""] * (len(headers) - len(current_row))
+    for header, value in {
+        SHEET_COL_DATASET_FILE_ID: file_id,
+        SHEET_COL_DATASET_FILE_NAME: filename,
+        SHEET_COL_DATASET_UPDATED_AT: updated_at,
+    }.items():
+        if header in headers:
+            current_row[headers.index(header)] = value
+    st.session_state["_settings_row_cache"] = {
+        "clinic_key": normalize_clinic_id_key(clinic_id),
+        "headers": list(headers),
+        "row_idx": row_idx,
+        "row_values": list(current_row),
+    }
+    file_id_idx = headers.index(SHEET_COL_DATASET_FILE_ID)
+    saved_file_id = str(current_row[file_id_idx]).strip() if len(current_row) > file_id_idx else ""
     if saved_file_id != str(file_id).strip():
         raise RuntimeError("Saved dataset could not be linked to this clinic. Please try the upload again.")
-    update_cached_settings_row_fields(
-        clinic_id,
-        {
-            SHEET_COL_DATASET_FILE_ID: file_id,
-            SHEET_COL_DATASET_FILE_NAME: filename,
-            SHEET_COL_DATASET_UPDATED_AT: updated_at,
-        },
-    )
     return updated_at
 
 # ============================================================
@@ -4343,7 +4363,7 @@ def load_reminder_filter_settings(settings: dict) -> None:
     )
 
 
-def load_settings():
+def load_settings(load_action_history: bool = True):
     """Load settings for the current clinic from the Google Sheet."""
     clinic_id = st.session_state.get("clinic_id")
     if not clinic_id:
@@ -4400,9 +4420,15 @@ def load_settings():
             if migrate_legacy_actions_to_tracker(clinic_id, legacy_deleted_reminders):
                 settings["action_tracker_migrated_at"] = utc_now_iso()
                 migrated_legacy_actions = True
-        tracked_actions = load_action_tracker_records_for_clinic(clinic_id)
-        st.session_state["deleted_reminders"] = merge_deleted_reminders(legacy_deleted_reminders, tracked_actions)
-        st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(legacy_wa_log, action_records_to_wa_log(st.session_state["deleted_reminders"]))
+        if load_action_history:
+            tracked_actions = load_action_tracker_records_for_clinic(clinic_id)
+            st.session_state["deleted_reminders"] = merge_deleted_reminders(legacy_deleted_reminders, tracked_actions)
+            st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(legacy_wa_log, action_records_to_wa_log(st.session_state["deleted_reminders"]))
+            st.session_state.pop("_action_tracker_pending_load_for", None)
+        else:
+            st.session_state["deleted_reminders"] = merge_deleted_reminders(legacy_deleted_reminders)
+            st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(legacy_wa_log)
+            st.session_state["_action_tracker_pending_load_for"] = normalize_clinic_id_key(clinic_id)
         st.session_state["search_terms_reviewed"] = bool(settings.get("search_terms_reviewed", False))
         st.session_state["search_term_added"] = bool(settings.get("search_term_added", False))
         st.session_state["wa_template_reviewed"] = bool(settings.get("wa_template_reviewed", False))
@@ -4449,6 +4475,27 @@ def load_settings():
         st.session_state["dataset_upload_history"] = []
         st.session_state["user_country"] = ""
         st.session_state["action_tracker_migrated_at"] = ""
+        st.session_state.pop("_action_tracker_pending_load_for", None)
+
+
+def ensure_action_tracker_loaded_for_current_clinic() -> None:
+    clinic_id = str(st.session_state.get("clinic_id", "") or "").strip()
+    if not clinic_id:
+        return
+    pending_key = st.session_state.get("_action_tracker_pending_load_for")
+    if pending_key != normalize_clinic_id_key(clinic_id):
+        return
+
+    tracked_actions = load_action_tracker_records_for_clinic(clinic_id)
+    st.session_state["deleted_reminders"] = merge_deleted_reminders(
+        st.session_state.get("deleted_reminders", []),
+        tracked_actions,
+    )
+    st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(
+        st.session_state.get("wa_reminder_log", []),
+        action_records_to_wa_log(st.session_state["deleted_reminders"]),
+    )
+    st.session_state.pop("_action_tracker_pending_load_for", None)
 
 def _settings_copy(value):
     try:
@@ -4776,8 +4823,17 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
 
     # Update existing row or append a new one
     if row:
+        metadata_updates = {}
+        if settings_data.get("country"):
+            metadata_updates = {
+                SHEET_COL_COUNTRY: settings_data.get("country", ""),
+                SHEET_COL_ACCOUNT_STATUS: "active",
+            }
         if callable(globals().get("_update_settings_cells", None)):
-            _update_settings_cells(sheet, headers, row, settings_json, updated_at)
+            if metadata_updates:
+                _update_settings_cells(sheet, headers, row, settings_json, updated_at, metadata_updates)
+            else:
+                _update_settings_cells(sheet, headers, row, settings_json, updated_at)
         else:
             first_idx = _settings_col_index(headers, "SettingsJSON")
             last_idx = _settings_col_index(headers, "UpdatedAt")
@@ -4785,16 +4841,14 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
                 "range": _row_range_a1(row, first_idx, last_idx),
                 "values": [[settings_json, updated_at]],
             }]
+            for header, value in metadata_updates.items():
+                if header in headers:
+                    col_idx = _settings_col_index(headers, header)
+                    payload.append({
+                        "range": _row_range_a1(row, col_idx, col_idx),
+                        "values": [[value]],
+                    })
             _gspread_retry(sheet.batch_update, payload)
-        if settings_data.get("country"):
-            update_settings_row_fields(
-                clinic_id,
-                {
-                    SHEET_COL_COUNTRY: settings_data.get("country", ""),
-                    SHEET_COL_ACCOUNT_STATUS: "active",
-                },
-                SETTINGS_REQUIRED_COLUMNS,
-            )
     else:
         headers = ensure_settings_sheet_columns(sheet, headers, SETTINGS_REQUIRED_COLUMNS)
         _gspread_retry(
@@ -6591,7 +6645,7 @@ def sanitize_diagnostic_message(value, limit: int = TRACKER_CELL_TEXT_LIMIT) -> 
     return tracker_cell_value(message, limit=limit)
 
 
-def record_dataset_tracker_event(
+def dataset_tracker_row_values(
     event: str,
     status: str,
     file_name: str = "",
@@ -6606,11 +6660,11 @@ def record_dataset_tracker_event(
     source: str = "",
     operation_id: str = "",
     now: datetime | None = None,
-) -> bool:
+) -> list[str]:
     now = now or utc_now()
     safe_drive_file_id = sanitize_diagnostic_message(drive_file_id)
     safe_message = sanitize_diagnostic_message(message)
-    return append_tracker_row(DATASET_TRACKER_WORKSHEET, DATASET_TRACKER_HEADERS, [
+    return [
         gst_now_iso(now),
         tracker_cell_value(event),
         tracker_cell_value(status),
@@ -6627,7 +6681,54 @@ def record_dataset_tracker_event(
         tracker_cell_value(safe_message),
         tracker_cell_value(source),
         tracker_cell_value(operation_id),
-    ])
+    ]
+
+
+def record_dataset_tracker_event(
+    event: str,
+    status: str,
+    file_name: str = "",
+    pms: str = "",
+    rows: int | str = "",
+    from_date: str = "",
+    to_date: str = "",
+    replace_overlapping_dates: bool | str = "",
+    drive_file_id: str = "",
+    drive_file_name: str = "",
+    message: str = "",
+    source: str = "",
+    operation_id: str = "",
+    now: datetime | None = None,
+) -> bool:
+    return append_tracker_row(
+        DATASET_TRACKER_WORKSHEET,
+        DATASET_TRACKER_HEADERS,
+        dataset_tracker_row_values(
+            event,
+            status,
+            file_name=file_name,
+            pms=pms,
+            rows=rows,
+            from_date=from_date,
+            to_date=to_date,
+            replace_overlapping_dates=replace_overlapping_dates,
+            drive_file_id=drive_file_id,
+            drive_file_name=drive_file_name,
+            message=message,
+            source=source,
+            operation_id=operation_id,
+            now=now,
+        ),
+    )
+
+
+def record_dataset_tracker_events(events: list[dict]) -> bool:
+    tracker_rows = []
+    for event_kwargs in events or []:
+        if not isinstance(event_kwargs, dict):
+            continue
+        tracker_rows.append(dataset_tracker_row_values(**event_kwargs))
+    return append_tracker_rows(DATASET_TRACKER_WORKSHEET, DATASET_TRACKER_HEADERS, tracker_rows)
 
 
 def record_settings_audit_event(
@@ -6877,6 +6978,7 @@ def repair_account_lifecycle_sheet(spreadsheet, worksheet) -> int:
 def ensure_tracking_sheets_once():
     spreadsheet = get_settings_spreadsheet()
     existing = {worksheet.title: worksheet for worksheet in spreadsheet.worksheets()}
+    tracker_cache = {}
     for title, headers in TRACKER_SHEET_DEFINITIONS:
         worksheet = existing.get(title)
         if worksheet is None:
@@ -6890,14 +6992,17 @@ def ensure_tracking_sheets_once():
                 repair_account_lifecycle_sheet(spreadsheet, worksheet)
             except Exception:
                 pass
-    return True
+        tracker_cache[(str(title), tuple(headers))] = worksheet
+    return tracker_cache
 
 
 def ensure_tracking_sheets():
     if not st.session_state.get("clinic_id"):
         return
     try:
-        ensure_tracking_sheets_once()
+        tracker_cache = ensure_tracking_sheets_once()
+        if isinstance(tracker_cache, dict):
+            st.session_state.setdefault("_tracker_sheet_cache", {}).update(tracker_cache)
     except Exception:
         return
 
@@ -7069,21 +7174,62 @@ def settings_json_from_row(row: dict | None) -> dict:
 def authenticate_user(username, password):
     """Check username/password pair against the sheet."""
     sheet = get_settings_sheet()
-    records = sheet.get_all_records()
+    values = _gspread_retry(sheet.get_all_values) or []
+    if not values:
+        return None
+    headers = list(values[0])
+    if SHEET_COL_CLINIC_ID not in headers or SHEET_COL_PASSWORD_HASH not in headers:
+        return None
+    clinic_ix = headers.index(SHEET_COL_CLINIC_ID)
+    password_ix = headers.index(SHEET_COL_PASSWORD_HASH)
     username_key = normalize_clinic_id_key(username)
-    for r in records:
-        if normalize_clinic_id_key(r.get("ClinicID", "")) == username_key:
-            if verify_password(password, r.get("PasswordHash", "")):
-                return r
+    for row_idx, values_row in enumerate(values[1:], start=2):
+        clinic_id = values_row[clinic_ix] if len(values_row) > clinic_ix else ""
+        if normalize_clinic_id_key(clinic_id) == username_key:
+            password_hash = values_row[password_ix] if len(values_row) > password_ix else ""
+            if verify_password(password, password_hash):
+                row = {
+                    header: values_row[idx] if idx < len(values_row) else ""
+                    for idx, header in enumerate(headers)
+                }
+                st.session_state["_settings_row_cache"] = {
+                    "clinic_key": username_key,
+                    "headers": list(headers),
+                    "row_idx": row_idx,
+                    "row_values": list(values_row),
+                }
+                return row
     return None
 
 
 def authenticate_clinic_access(clinic_id: str, access_code: str) -> dict | None:
-    row = get_clinic_row(clinic_id)
-    settings = settings_json_from_row(row)
-    stored_hash = str(settings.get("clinic_access_code_hash", "") or "").strip()
-    if verify_clinic_access_code(access_code, stored_hash):
-        return row
+    sheet = get_settings_sheet()
+    values = _gspread_retry(sheet.get_all_values) or []
+    if not values:
+        return None
+    headers = list(values[0])
+    if SHEET_COL_CLINIC_ID not in headers:
+        return None
+    clinic_ix = headers.index(SHEET_COL_CLINIC_ID)
+    clinic_key = normalize_clinic_id_key(clinic_id)
+    for row_idx, values_row in enumerate(values[1:], start=2):
+        current_clinic_id = values_row[clinic_ix] if len(values_row) > clinic_ix else ""
+        if normalize_clinic_id_key(current_clinic_id) != clinic_key:
+            continue
+        row = {
+            header: values_row[idx] if idx < len(values_row) else ""
+            for idx, header in enumerate(headers)
+        }
+        settings = settings_json_from_row(row)
+        stored_hash = str(settings.get("clinic_access_code_hash", "") or "").strip()
+        if verify_clinic_access_code(access_code, stored_hash):
+            st.session_state["_settings_row_cache"] = {
+                "clinic_key": clinic_key,
+                "headers": list(headers),
+                "row_idx": row_idx,
+                "row_values": list(values_row),
+            }
+            return row
     return None
 
 def get_clinic_row(username):
@@ -7101,9 +7247,24 @@ def get_clinic_row_by_google_identity(google_user: dict):
     if not google_user.get("is_logged_in"):
         return None
     sheet = get_settings_sheet()
-    records = sheet.get_all_records()
-    for row in records:
+    values = _gspread_retry(sheet.get_all_values) or []
+    if not values:
+        return None
+    headers = list(values[0])
+    for row_idx, values_row in enumerate(values[1:], start=2):
+        row = {
+            header: values_row[idx] if idx < len(values_row) else ""
+            for idx, header in enumerate(headers)
+        }
         if google_identity_matches_row(row, google_user):
+            clinic_key = normalize_clinic_id_key(row.get(SHEET_COL_CLINIC_ID, ""))
+            if clinic_key:
+                st.session_state["_settings_row_cache"] = {
+                    "clinic_key": clinic_key,
+                    "headers": list(headers),
+                    "row_idx": row_idx,
+                    "row_values": list(values_row),
+                }
             return row
     return None
 
@@ -7250,21 +7411,30 @@ def upsert_user_tracker(clinic_id: str, country: str = "", event: str = "updated
 
     timestamp = gst_now_iso(now)
     country = str(country or "").strip()
+    clinic_key = normalize_clinic_id_key(clinic_id)
     try:
         sheet = get_or_create_tracker_sheet(USER_TRACKER_WORKSHEET, USER_TRACKER_HEADERS)
-        rows = _gspread_retry(sheet.get_all_values) or []
-        headers = rows[0] if rows else USER_TRACKER_HEADERS
-        clinic_ix = headers.index("ClinicID")
-        row_idx = None
-        for i, row in enumerate(rows[1:], start=2):
-            if len(row) > clinic_ix and str(row[clinic_ix]).strip().lower() == clinic_id.lower():
-                row_idx = i
-                break
+        cached = st.session_state.get("_user_tracker_row_cache")
+        if isinstance(cached, dict) and cached.get("clinic_key") == clinic_key:
+            headers = list(cached.get("headers") or USER_TRACKER_HEADERS)
+            row_idx = int(cached.get("row_idx") or 0) or None
+            row_values = list(cached.get("row_values") or [])
+        else:
+            rows = _gspread_retry(sheet.get_all_values) or []
+            headers = rows[0] if rows else USER_TRACKER_HEADERS
+            clinic_ix = headers.index("ClinicID")
+            row_idx = None
+            row_values = []
+            for i, row in enumerate(rows[1:], start=2):
+                if len(row) > clinic_ix and normalize_clinic_id_key(row[clinic_ix]) == clinic_key:
+                    row_idx = i
+                    row_values = list(row)
+                    break
 
         existing = {}
-        if row_idx and len(rows) >= row_idx:
+        if row_idx:
             existing = {
-                header: rows[row_idx - 1][idx] if idx < len(rows[row_idx - 1]) else ""
+                header: row_values[idx] if idx < len(row_values) else ""
                 for idx, header in enumerate(headers)
             }
 
@@ -7284,6 +7454,12 @@ def upsert_user_tracker(clinic_id: str, country: str = "", event: str = "updated
         if row_idx:
             end_col = _column_number_to_letter(len(USER_TRACKER_HEADERS))
             _gspread_retry(sheet.update, values=[row_values], range_name=f"A{row_idx}:{end_col}{row_idx}")
+            st.session_state["_user_tracker_row_cache"] = {
+                "clinic_key": clinic_key,
+                "headers": list(USER_TRACKER_HEADERS),
+                "row_idx": row_idx,
+                "row_values": list(row_values),
+            }
         else:
             _gspread_retry(sheet.append_row, row_values, value_input_option="USER_ENTERED")
     except Exception:
@@ -7324,12 +7500,17 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
     if not clinic_id:
         raise ValueError("Enter a clinic name.")
     validate_password_policy(password, clinic_id)
-    if get_clinic_row(clinic_id):
-        raise ValueError("That clinic name is already registered.")
 
     sheet = get_settings_sheet()
     all_vals = _gspread_retry(sheet.get_all_values)
     headers = all_vals[0] if all_vals else list(SETTINGS_REQUIRED_COLUMNS)
+    if SHEET_COL_CLINIC_ID in headers:
+        clinic_ix = headers.index(SHEET_COL_CLINIC_ID)
+        clinic_key = normalize_clinic_id_key(clinic_id)
+        for row in all_vals[1:]:
+            current = row[clinic_ix] if len(row) > clinic_ix else ""
+            if normalize_clinic_id_key(current) == clinic_key:
+                raise ValueError("That clinic name is already registered.")
     headers = ensure_settings_sheet_columns(sheet, headers, SETTINGS_REQUIRED_COLUMNS)
     settings_json = json.dumps(default_settings_for_country(country))
     password_hash = password_hash_for_storage(password)
@@ -7367,20 +7548,29 @@ def create_google_clinic_account(clinic_id: str, country: str, google_user: dict
         raise ValueError("Enter a clinic name.")
     if not email:
         raise ValueError("Google did not return an email address. Please try again.")
-    if get_clinic_row(clinic_id):
-        raise ValueError("That clinic name is already registered.")
 
-    existing_google_row = get_clinic_row_by_google_identity({
+    google_identity = {
         **google_user,
         "is_logged_in": True,
         "email": email,
-    })
-    if existing_google_row:
-        raise ValueError("That Google account is already linked to a clinic.")
+    }
 
     sheet = get_settings_sheet()
     all_vals = _gspread_retry(sheet.get_all_values)
     headers = all_vals[0] if all_vals else list(SETTINGS_REQUIRED_COLUMNS)
+    clinic_key = normalize_clinic_id_key(clinic_id)
+    clinic_ix = headers.index(SHEET_COL_CLINIC_ID) if SHEET_COL_CLINIC_ID in headers else -1
+    for values in all_vals[1:]:
+        row = {
+            header: values[idx] if idx < len(values) else ""
+            for idx, header in enumerate(headers)
+        }
+        if clinic_ix >= 0:
+            current_clinic_id = values[clinic_ix] if len(values) > clinic_ix else ""
+            if normalize_clinic_id_key(current_clinic_id) == clinic_key:
+                raise ValueError("That clinic name is already registered.")
+        if google_identity_matches_row(row, google_identity):
+            raise ValueError("That Google account is already linked to a clinic.")
     headers = ensure_settings_sheet_columns(sheet, headers, SETTINGS_REQUIRED_COLUMNS)
     settings_json = json.dumps(default_settings_for_country(country))
     created_at_gst = gst_now_iso()
@@ -7530,12 +7720,34 @@ def render_google_onboarding_dialog(google_user: dict):
 
 
 def get_clinic_profile(clinic_id: str) -> dict:
-    row = get_clinic_row(clinic_id) or {}
+    row = get_cached_clinic_profile_row(clinic_id)
+    if row is None:
+        row = get_clinic_row(clinic_id) or {}
+        cache_clinic_profile_row(clinic_id, row)
     return {
         "clinic_id": str(row.get("ClinicID") or clinic_id or "").strip(),
         "email": normalize_email(row.get(SHEET_COL_GOOGLE_EMAIL, "")),
         "auth_provider": str(row.get(SHEET_COL_AUTH_PROVIDER, "")).strip(),
     }
+
+
+def cache_clinic_profile_row(clinic_id: str, row: dict | None) -> None:
+    clinic_key = normalize_clinic_id_key(clinic_id)
+    if not clinic_key:
+        return
+    st.session_state["_profile_row_cache"] = {
+        "clinic_key": clinic_key,
+        "row": dict(row or {}),
+    }
+
+
+def get_cached_clinic_profile_row(clinic_id: str) -> dict | None:
+    clinic_key = normalize_clinic_id_key(clinic_id)
+    cached = st.session_state.get("_profile_row_cache")
+    if not isinstance(cached, dict) or cached.get("clinic_key") != clinic_key:
+        return None
+    row = cached.get("row")
+    return dict(row) if isinstance(row, dict) else None
 
 
 def update_rows_with_clinic_id(old_clinic_id: str, new_clinic_id: str) -> int:
@@ -7576,12 +7788,16 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
     if email and ("@" not in email or "." not in email.split("@")[-1]):
         raise ValueError("Enter a valid email address.")
 
-    existing = get_clinic_row(new_clinic_id)
-    if existing and new_clinic_id.lower() != old_clinic_id.lower():
-        raise ValueError("That clinic name is already registered.")
+    clinic_name_changed = new_clinic_id.lower() != old_clinic_id.lower()
+    if clinic_name_changed:
+        existing = get_clinic_row(new_clinic_id)
+        if existing:
+            raise ValueError("That clinic name is already registered.")
 
     old_clinic_id = require_authenticated_tenant_access(old_clinic_id)
-    old_row = get_clinic_row(old_clinic_id) or {}
+    old_row = get_cached_clinic_profile_row(old_clinic_id)
+    if old_row is None:
+        old_row = get_clinic_row(old_clinic_id) or {}
     stored_auth_provider = str(old_row.get(SHEET_COL_AUTH_PROVIDER, "")).strip()
     stored_google_subject = str(old_row.get(SHEET_COL_GOOGLE_SUBJECT, "")).strip()
     stored_google_email = normalize_email(old_row.get(SHEET_COL_GOOGLE_EMAIL, ""))
@@ -7598,7 +7814,7 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
     if not google_identity_locked:
         values_by_header[SHEET_COL_GOOGLE_EMAIL] = email
     file_id = str(old_row.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
-    if file_id and new_clinic_id.lower() != old_clinic_id.lower():
+    if file_id and clinic_name_changed:
         new_filename = f"{new_clinic_id}_shared_dataset.csv"
         try:
             require_clinic_dataset_file_access(old_clinic_id, file_id)
@@ -7617,7 +7833,8 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
             ) from e
 
     update_settings_row_fields(old_clinic_id, values_by_header, GOOGLE_ACCOUNT_COLUMNS)
-    if new_clinic_id.lower() != old_clinic_id.lower():
+    st.session_state.pop("_profile_row_cache", None)
+    if clinic_name_changed:
         update_rows_with_clinic_id(old_clinic_id, new_clinic_id)
     return {"clinic_id": new_clinic_id, "email": email}
 
@@ -8225,7 +8442,7 @@ def finish_authenticated_session(
         st.session_state["google_subject"] = google_user.get("subject", "")
 
     reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
-    load_settings()
+    load_settings(load_action_history=False)
     session_user_name = str(session_user_name or "").strip()
     if session_user_name:
         st.session_state["user_name"] = session_user_name
@@ -8430,7 +8647,7 @@ if (
         st.session_state["logged_in"] = True
         st.session_state["show_top_change_password"] = False
         reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
-        load_settings()
+        load_settings(load_action_history=False)
         load_shared_dataset_for_clinic()
         record_settings_account_event(
             default_username,
@@ -8530,7 +8747,7 @@ if not st.session_state["logged_in"]:
                     clear_remember_login_token()
 
                     reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
-                    load_settings()
+                    load_settings(load_action_history=False)
                     # ✅ Auto-load shared dataset from Drive into working_df
                     load_shared_dataset_for_clinic()
                     record_settings_account_event(
@@ -8629,7 +8846,7 @@ if not st.session_state["logged_in"]:
                                 clear_cache=False,
                                 reset_uploader=True,
                             )
-                            load_settings()
+                            load_settings(load_action_history=False)
                             st.session_state["user_country"] = country
                             mark_new_account_welcome_pending()
                             st.success(
@@ -9989,9 +10206,23 @@ def reminder_row_has_date(row: dict, target_date: date) -> bool:
     return target_date in reminder_row_dates(row)
 
 
+def numeric_setting_is_clean_and_unchanged(key: str, loaded_key: str, dirty_key: str, value: int, normalizer) -> bool:
+    if st.session_state.get(dirty_key):
+        return False
+    if loaded_key not in st.session_state:
+        return False
+    try:
+        loaded_value = normalizer(st.session_state.get(loaded_key))
+    except TypeError:
+        loaded_value = normalizer()
+    return value == loaded_value
+
+
 def save_reminder_int_setting(key: str, dirty_key: str, loaded_key: str, normalizer) -> None:
     value = normalizer()
     st.session_state[key] = value
+    if numeric_setting_is_clean_and_unchanged(key, loaded_key, dirty_key, value, normalizer):
+        return
     st.session_state[dirty_key] = True
     if save_settings_quietly():
         st.session_state[dirty_key] = False
@@ -10037,6 +10268,14 @@ def save_reminder_warning_days() -> None:
 def save_outcome_due_date_window_days() -> None:
     value = normalized_outcome_due_date_window_days()
     st.session_state["outcome_due_date_window_days"] = value
+    if numeric_setting_is_clean_and_unchanged(
+        "outcome_due_date_window_days",
+        OUTCOME_DUE_DATE_WINDOW_LOADED_KEY,
+        OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY,
+        value,
+        normalized_outcome_due_date_window_days,
+    ):
+        return
     st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = True
     if save_settings_quietly():
         st.session_state[OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
@@ -10047,6 +10286,14 @@ def save_outcome_post_reminder_window_days() -> None:
     value = normalized_outcome_post_reminder_window_days()
     st.session_state["outcome_post_reminder_window_days"] = value
     st.session_state[OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY] = True
+    if numeric_setting_is_clean_and_unchanged(
+        "outcome_post_reminder_window_days",
+        OUTCOME_POST_REMINDER_WINDOW_LOADED_KEY,
+        OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY,
+        value,
+        normalized_outcome_post_reminder_window_days,
+    ):
+        return
     st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = True
     if save_settings_quietly():
         st.session_state[OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY] = False
@@ -10097,6 +10344,32 @@ def reminder_row_in_date_range(row: dict, start_date: date, end_date: date) -> b
     return any(start_date <= reminder_date <= end_date for reminder_date in reminder_row_dates(row))
 
 
+def active_reminder_action_fingerprint() -> tuple:
+    values = []
+    for entry in st.session_state.get("deleted_reminders", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        values.append((
+            hidden_reminder_key(entry),
+            str(entry.get("Action", "") or "").strip().lower(),
+            str(entry.get("ActionedAt", "") or entry.get("DeletedAt", "") or ""),
+        ))
+    return tuple(sorted(values))
+
+
+def active_reminder_badge_cache_key(today: date, rules: dict) -> tuple:
+    return (
+        int(st.session_state.get("data_version", 0) or 0),
+        _rules_fp(rules),
+        statistics_exclusion_fp(),
+        today.isoformat(),
+        normalized_reminder_lookback_days(),
+        normalized_reminder_group_days(),
+        active_reminder_action_fingerprint(),
+        PREPARED_SCHEMA_VERSION,
+    )
+
+
 def get_active_reminder_badge_count(today: date | None = None) -> int:
     working_df = st.session_state.get("working_df")
     if working_df is None or getattr(working_df, "empty", True):
@@ -10105,6 +10378,10 @@ def get_active_reminder_badge_count(today: date | None = None) -> int:
     lookback_start_date = today - timedelta(days=normalized_reminder_lookback_days())
     try:
         rules = get_applied_reminder_rules()
+        cache_key = active_reminder_badge_cache_key(today, rules)
+        cached = st.session_state.get("_active_reminder_badge_cache")
+        if isinstance(cached, dict) and cached.get("key") == cache_key:
+            return int(cached.get("count", 0) or 0)
         prepared = get_prepared_df(working_df, rules)
         reminder_ts = prepared.get("ReminderDateTs")
         if reminder_ts is None:
@@ -10117,16 +10394,20 @@ def get_active_reminder_badge_count(today: date | None = None) -> int:
         due = prepared[(reminder_ts >= start_ts) & (reminder_ts <= end_ts)].copy()
         due = apply_reminder_exclusion_filters(due, rules)
         if due.empty:
+            st.session_state["_active_reminder_badge_cache"] = {"key": cache_key, "count": 0}
             return 0
 
         grouped = bundle_client_reminders_by_window(due, window_days=normalized_reminder_group_days(), rules=rules)
         if grouped.empty:
+            st.session_state["_active_reminder_badge_cache"] = {"key": cache_key, "count": 0}
             return 0
         grouped_badge_range = grouped[
             [reminder_row_in_date_range(row, lookback_start_date, today) for row in grouped.to_dict("records")]
         ].copy()
         active_badge_range = filter_hidden_reminders(grouped_badge_range)
-        return len(active_badge_range.index)
+        count = len(active_badge_range.index)
+        st.session_state["_active_reminder_badge_cache"] = {"key": cache_key, "count": count}
+        return count
     except Exception:
         return 0
 
@@ -10510,6 +10791,8 @@ if default_main_section_tab not in MAIN_SECTION_TABS:
     default_main_section_tab = "Reminders"
 st.session_state["main_section_tab"] = default_main_section_tab
 active_main_section = default_main_section_tab
+if active_main_section in {"Reminders", "Stats"}:
+    ensure_action_tracker_loaded_for_current_clinic()
 render_main_section_nav(active_main_section)
 if active_main_section not in MAIN_SECTION_TABS:
     active_main_section = "Reminders"
@@ -10837,20 +11120,22 @@ if active_main_section == "Upload Data":
                         upload_max=upload_max,
                     )
                     saved_history_rows = upload_summary_rows_to_history(summary_rows, status="Saved")
-                    for summary_row in saved_history_rows:
-                        record_dataset_tracker_event(
-                            "upload_saved",
-                            "success",
-                            file_name=summary_row.get("file_name", ""),
-                            pms=summary_row.get("pms", ""),
-                            rows=summary_row.get("rows", ""),
-                            from_date=summary_row.get("from", ""),
-                            to_date=summary_row.get("to", ""),
-                            replace_overlapping_dates=replace_overlapping_dates,
-                            drive_file_id=new_file_id,
-                            drive_file_name=out_name,
-                            source="file_uploader",
-                        )
+                    record_dataset_tracker_events([
+                        {
+                            "event": "upload_saved",
+                            "status": "success",
+                            "file_name": summary_row.get("file_name", ""),
+                            "pms": summary_row.get("pms", ""),
+                            "rows": summary_row.get("rows", ""),
+                            "from_date": summary_row.get("from", ""),
+                            "to_date": summary_row.get("to", ""),
+                            "replace_overlapping_dates": replace_overlapping_dates,
+                            "drive_file_id": new_file_id,
+                            "drive_file_name": out_name,
+                            "source": "file_uploader",
+                        }
+                        for summary_row in saved_history_rows
+                    ])
                     record_performance_tracker_event(
                         "dataset_publish",
                         (time.perf_counter() - publish_started) * 1000,
@@ -11310,17 +11595,14 @@ def paginate_dataframe(frame: pd.DataFrame, key: str, page_size: int, item_label
     if frame is None or frame.empty or page_size <= 0 or len(frame.index) <= page_size:
         return frame
     total_rows = len(frame.index)
-    total_pages = max(1, int(np.ceil(total_rows / page_size)))
     page_key = f"{key}_page"
     try:
         current_page = int(st.session_state.get(page_key, 0) or 0)
     except (TypeError, ValueError):
         current_page = 0
-    current_page = min(max(current_page, 0), total_pages - 1)
+    current_page, start, end, total_pages = pagination_bounds(total_rows, page_size, current_page)
     st.session_state[page_key] = current_page
 
-    start = current_page * page_size
-    end = min(start + page_size, total_rows)
     st.caption(f"Showing {start + 1:,}-{end:,} of {total_rows:,} {item_label} ({page_size:,} per page).")
     prev_col, next_col, _ = st.columns([1, 1, 6])
     with prev_col:
@@ -11334,29 +11616,58 @@ def paginate_dataframe(frame: pd.DataFrame, key: str, page_size: int, item_label
     return frame.iloc[start:end].copy()
 
 
-def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key: str, hidden_action: str):
-    sent_is_selected = hidden_action == REMINDER_ACTION_SENT
-    decline_is_selected = hidden_action == REMINDER_ACTION_DECLINED
-    sent_opacity = "0.12" if decline_is_selected else "1"
-    decline_opacity = "0.12" if sent_is_selected else "1"
-    sent_bg = "#dcfce7" if sent_is_selected else "#ffffff"
-    decline_bg = "#fee2e2" if decline_is_selected else "#ffffff"
-    sent_border = "#15803d" if sent_is_selected else "#d1d5db"
-    decline_border = "#b91c1c" if decline_is_selected else "#d1d5db"
-    sent_shadow = "0 0 0 3px rgba(21, 128, 61, 0.22)" if sent_is_selected else "none"
-    decline_shadow = "0 0 0 3px rgba(185, 28, 28, 0.22)" if decline_is_selected else "none"
-    st.markdown(
-        f"""
+def pagination_bounds(total_rows: int, page_size: int, current_page: int) -> tuple[int, int, int, int]:
+    total_rows = max(0, int(total_rows or 0))
+    page_size = max(0, int(page_size or 0))
+    if total_rows <= 0 or page_size <= 0:
+        return 0, 0, 0, 1
+    total_pages = max(1, int(np.ceil(total_rows / page_size)))
+    current_page = min(max(int(current_page or 0), 0), total_pages - 1)
+    start = current_page * page_size
+    end = min(start + page_size, total_rows)
+    return current_page, start, end, total_pages
+
+
+def paginate_sequence(rows: list, key: str, page_size: int, item_label: str) -> list[tuple[int, object]]:
+    rows = list(rows or [])
+    if not rows or page_size <= 0 or len(rows) <= page_size:
+        return list(enumerate(rows))
+
+    total_rows = len(rows)
+    page_key = f"{key}_page"
+    try:
+        current_page = int(st.session_state.get(page_key, 0) or 0)
+    except (TypeError, ValueError):
+        current_page = 0
+    current_page, start, end, total_pages = pagination_bounds(total_rows, page_size, current_page)
+    st.session_state[page_key] = current_page
+
+    st.caption(f"Showing {start + 1:,}-{end:,} of {total_rows:,} {item_label} ({page_size:,} per page).")
+    prev_col, next_col, _ = st.columns([1, 1, 6])
+    with prev_col:
+        if st.button("Previous", key=f"{page_key}_prev", disabled=current_page <= 0):
+            st.session_state[page_key] = max(0, current_page - 1)
+            st.rerun()
+    with next_col:
+        if st.button("Next", key=f"{page_key}_next", disabled=current_page >= total_pages - 1):
+            st.session_state[page_key] = min(total_pages - 1, current_page + 1)
+            st.rerun()
+    return list(enumerate(rows[start:end], start=start))
+
+
+def reminder_action_button_static_css(key_prefix: str) -> str:
+    safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
+    return f"""
         <style>
-          .st-key-{wa_key} button {{
+          [class*="st-key-{safe_key_prefix}_wa_"] button {{
             min-height: 2.45rem !important;
             position: relative !important;
           }}
-          .st-key-{wa_key} button p {{
+          [class*="st-key-{safe_key_prefix}_wa_"] button p {{
             font-size: 0 !important;
             line-height: 1 !important;
           }}
-          .st-key-{wa_key} button::before {{
+          [class*="st-key-{safe_key_prefix}_wa_"] button::before {{
             background: #128c7e;
             content: "";
             display: block;
@@ -11370,46 +11681,79 @@ def render_reminder_action_button_styles(wa_key: str, sent_key: str, decline_key
             mask: url("{WHATSAPP_ICON_MASK_DATA_URI}") center / contain no-repeat;
             width: 1.55rem;
           }}
+          [class*="st-key-{safe_key_prefix}_sent_"] div[data-testid="stButton"] button,
+          [class*="st-key-{safe_key_prefix}_sent_"] button {{
+            color: #15803d !important;
+            line-height: 1 !important;
+            min-height: 2.45rem !important;
+          }}
+          [class*="st-key-{safe_key_prefix}_sent_"] button p {{
+            color: #15803d !important;
+            font-size: 1.7rem !important;
+            font-weight: 900 !important;
+            line-height: 1 !important;
+            text-shadow: 0.035em 0 currentColor, -0.035em 0 currentColor;
+          }}
+          [class*="st-key-{safe_key_prefix}_decline_"] div[data-testid="stButton"] button,
+          [class*="st-key-{safe_key_prefix}_decline_"] button {{
+            color: #b91c1c !important;
+            line-height: 1 !important;
+            min-height: 2.45rem !important;
+          }}
+          [class*="st-key-{safe_key_prefix}_decline_"] button p {{
+            color: #b91c1c !important;
+            font-size: 1.7rem !important;
+            font-weight: 900 !important;
+            line-height: 1 !important;
+            text-shadow: 0.035em 0 currentColor, -0.035em 0 currentColor;
+          }}
+        </style>
+    """
+
+
+def render_reminder_action_button_static_styles(key_prefix: str):
+    st.markdown(reminder_action_button_static_css(key_prefix), unsafe_allow_html=True)
+
+
+def reminder_action_button_state_css(sent_key: str, decline_key: str, hidden_action: str) -> str:
+    sent_is_selected = hidden_action == REMINDER_ACTION_SENT
+    decline_is_selected = hidden_action == REMINDER_ACTION_DECLINED
+    sent_opacity = "0.12" if decline_is_selected else "1"
+    decline_opacity = "0.12" if sent_is_selected else "1"
+    sent_bg = "#dcfce7" if sent_is_selected else "#ffffff"
+    decline_bg = "#fee2e2" if decline_is_selected else "#ffffff"
+    sent_border = "#15803d" if sent_is_selected else "#d1d5db"
+    decline_border = "#b91c1c" if decline_is_selected else "#d1d5db"
+    sent_shadow = "0 0 0 3px rgba(21, 128, 61, 0.22)" if sent_is_selected else "none"
+    decline_shadow = "0 0 0 3px rgba(185, 28, 28, 0.22)" if decline_is_selected else "none"
+    return f"""
+        <style>
           .st-key-{sent_key} div[data-testid="stButton"] button,
           .st-key-{sent_key} button {{
             background: {sent_bg} !important;
             border-color: {sent_border} !important;
             box-shadow: {sent_shadow} !important;
-            color: #15803d !important;
-            line-height: 1 !important;
-            min-height: 2.45rem !important;
             opacity: {sent_opacity};
           }}
           .st-key-{sent_key} button p {{
-            color: #15803d !important;
-            font-size: 1.7rem !important;
-            font-weight: 900 !important;
-            line-height: 1 !important;
             opacity: {sent_opacity};
-            text-shadow: 0.035em 0 currentColor, -0.035em 0 currentColor;
           }}
           .st-key-{decline_key} div[data-testid="stButton"] button,
           .st-key-{decline_key} button {{
             background: {decline_bg} !important;
             border-color: {decline_border} !important;
             box-shadow: {decline_shadow} !important;
-            color: #b91c1c !important;
-            line-height: 1 !important;
-            min-height: 2.45rem !important;
             opacity: {decline_opacity};
           }}
           .st-key-{decline_key} button p {{
-            color: #b91c1c !important;
-            font-size: 1.7rem !important;
-            font-weight: 900 !important;
-            line-height: 1 !important;
             opacity: {decline_opacity};
-            text-shadow: 0.035em 0 currentColor, -0.035em 0 currentColor;
           }}
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    """
+
+
+def render_reminder_action_button_styles(sent_key: str, decline_key: str, hidden_action: str):
+    st.markdown(reminder_action_button_state_css(sent_key, decline_key, hidden_action), unsafe_allow_html=True)
 
 
 def get_actioned_reminder_datetime(row) -> datetime | None:
@@ -11477,6 +11821,7 @@ def set_actioned_reminder_sort(key_prefix: str, column: str):
     if isinstance(current, dict) and current.get("column") == column:
         ascending = not bool(current.get("ascending", True))
     st.session_state[state_key] = {"column": column, "ascending": ascending}
+    st.session_state[f"{key_prefix}_actioned_reminders_page"] = 0
 
 
 def get_actioned_reminder_sort(key_prefix: str) -> dict:
@@ -11542,6 +11887,12 @@ def render_actioned_reminders_tab(key_prefix: str):
         st.info(f"No actioned reminders for {selected_period.lower()}.")
         return
     rows = sort_actioned_reminders(rows, key_prefix)
+    paged_rows = paginate_sequence(
+        rows,
+        f"{key_prefix}_actioned_reminders",
+        REMINDER_TABLE_PAGE_SIZE,
+        "actioned reminders",
+    )
 
     headers = [
         "Actioned Date",
@@ -11608,7 +11959,7 @@ def render_actioned_reminders_tab(key_prefix: str):
         else:
             render_reminder_header_label(col, label, head, align=align)
 
-    for idx, row_data in enumerate(rows):
+    for idx, row_data in paged_rows:
         row_cols = st.columns(col_widths, gap="small")
         for col_idx, head in enumerate(headers[:-1]):
             if head == "Actioned Date":
@@ -11671,6 +12022,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
     bulk_sent_success = st.session_state.pop("_bulk_sent_success", "")
     if bulk_sent_success:
         st.success(bulk_sent_success)
+    render_reminder_action_button_static_styles(key_prefix)
 
     # --- Header row ---
     sort_state = get_reminder_table_sort(key_prefix)
@@ -11705,7 +12057,7 @@ def render_table_with_buttons(df, key_prefix, msg_key):
         wa_key = f"{key_prefix}_wa_{idx}"
         sent_key = f"{key_prefix}_sent_{idx}"
         decline_key = f"{key_prefix}_decline_{idx}"
-        render_reminder_action_button_styles(wa_key, sent_key, decline_key, hidden_action)
+        render_reminder_action_button_styles(sent_key, decline_key, hidden_action)
 
         row_cols = st.columns(col_widths, gap="small")
 
@@ -13787,6 +14139,45 @@ def filter_stats_sent_tab_rows(outcomes_df: pd.DataFrame, period_label: str) -> 
     return filter_sent_outcomes_for_period(outcomes_df, period_label, today=user_today())
 
 
+OUTCOME_SUMMARY_NUMERIC_COLUMNS = (
+    "Desired Gap Days",
+    "Success Gap Days",
+    "Avg Item Purchase Gap Days",
+    "Overall Repeat Purchases",
+    "Overall Purchases",
+    "Revenue per Item",
+    "Revenue",
+    "Revenue per Year",
+    "Theoretical Max Revenue",
+    "Capturable Revenue per Year",
+)
+
+
+def outcome_summary_numeric_column_name(column: str) -> str:
+    return f"__outcome_summary_numeric_{column}"
+
+
+def outcome_summary_precompute_numeric_columns(outcomes_df: pd.DataFrame) -> pd.DataFrame:
+    if outcomes_df is None or outcomes_df.empty:
+        return outcomes_df
+    for column in OUTCOME_SUMMARY_NUMERIC_COLUMNS:
+        if column in outcomes_df.columns:
+            outcomes_df[outcome_summary_numeric_column_name(column)] = pd.to_numeric(
+                outcomes_df[column],
+                errors="coerce",
+            )
+    return outcomes_df
+
+
+def outcome_summary_numeric_series(outcomes_df: pd.DataFrame, column: str) -> pd.Series:
+    helper_column = outcome_summary_numeric_column_name(column)
+    if helper_column in outcomes_df.columns:
+        return outcomes_df[helper_column]
+    if column in outcomes_df.columns:
+        return pd.to_numeric(outcomes_df[column], errors="coerce")
+    return pd.Series(dtype=float)
+
+
 def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
     if outcomes_df is None or outcomes_df.empty:
         return {
@@ -13814,16 +14205,8 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
     pending = int(outcomes_df["Outcome"].eq("Pending").sum())
     no_match = max(0, sent - successes - pending)
     success_df = outcomes_df.loc[success_mask]
-    desired_gap_values = (
-        pd.to_numeric(outcomes_df["Desired Gap Days"], errors="coerce")
-        if "Desired Gap Days" in outcomes_df.columns
-        else pd.Series(dtype=float)
-    )
-    success_gap_values = (
-        pd.to_numeric(success_df["Success Gap Days"], errors="coerce")
-        if "Success Gap Days" in success_df.columns
-        else pd.Series(dtype=float)
-    )
+    desired_gap_values = outcome_summary_numeric_series(outcomes_df, "Desired Gap Days")
+    success_gap_values = outcome_summary_numeric_series(success_df, "Success Gap Days")
     if "Item" in outcomes_df.columns and "Avg Item Purchase Gap Days" in outcomes_df.columns:
         gap_columns = ["Item", "Avg Item Purchase Gap Days"]
         if "Desired Gap Days" in outcomes_df.columns:
@@ -13840,6 +14223,11 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             gap_columns.append("Theoretical Max Revenue")
         if "Capturable Revenue per Year" in outcomes_df.columns:
             gap_columns.append("Capturable Revenue per Year")
+        gap_columns.extend(
+            outcome_summary_numeric_column_name(column)
+            for column in gap_columns.copy()
+            if outcome_summary_numeric_column_name(column) in outcomes_df.columns
+        )
         item_purchase_gap_frame = (
             outcomes_df[gap_columns]
             .dropna(subset=["Avg Item Purchase Gap Days"])
@@ -13847,45 +14235,33 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         )
         if "Overall Repeat Purchases" not in item_purchase_gap_frame.columns:
             item_purchase_gap_frame["Overall Repeat Purchases"] = 0
-        item_purchase_gap_values = pd.to_numeric(
-            item_purchase_gap_frame["Avg Item Purchase Gap Days"],
-            errors="coerce",
-        )
-        item_purchase_gap_counts = pd.to_numeric(
-            item_purchase_gap_frame["Overall Repeat Purchases"],
-            errors="coerce",
+        item_purchase_gap_values = outcome_summary_numeric_series(item_purchase_gap_frame, "Avg Item Purchase Gap Days")
+        item_purchase_gap_counts = outcome_summary_numeric_series(
+            item_purchase_gap_frame,
+            "Overall Repeat Purchases",
         ).fillna(0)
         if "Overall Purchases" not in item_purchase_gap_frame.columns:
             item_purchase_gap_frame["Overall Purchases"] = 0
-        item_purchase_total_counts = pd.to_numeric(
-            item_purchase_gap_frame["Overall Purchases"],
-            errors="coerce",
-        ).fillna(0)
+        item_purchase_total_counts = outcome_summary_numeric_series(item_purchase_gap_frame, "Overall Purchases").fillna(0)
         if "Revenue per Item" not in item_purchase_gap_frame.columns:
             item_purchase_gap_frame["Revenue per Item"] = 0
-        revenue_per_item_values = pd.to_numeric(
-            item_purchase_gap_frame["Revenue per Item"],
-            errors="coerce",
-        ).fillna(0)
+        revenue_per_item_values = outcome_summary_numeric_series(item_purchase_gap_frame, "Revenue per Item").fillna(0)
         if "Revenue per Year" not in item_purchase_gap_frame.columns:
             item_purchase_gap_frame["Revenue per Year"] = 0
-        revenue_per_year_values = pd.to_numeric(
-            item_purchase_gap_frame["Revenue per Year"],
-            errors="coerce",
-        ).fillna(0)
+        revenue_per_year_values = outcome_summary_numeric_series(item_purchase_gap_frame, "Revenue per Year").fillna(0)
         if "Theoretical Max Revenue" not in item_purchase_gap_frame.columns:
             item_purchase_gap_frame["Theoretical Max Revenue"] = 0
-        theoretical_max_revenue_values = pd.to_numeric(
-            item_purchase_gap_frame["Theoretical Max Revenue"],
-            errors="coerce",
+        theoretical_max_revenue_values = outcome_summary_numeric_series(
+            item_purchase_gap_frame,
+            "Theoretical Max Revenue",
         ).fillna(0)
         if "Capturable Revenue per Year" not in item_purchase_gap_frame.columns:
             item_purchase_gap_frame["Capturable Revenue per Year"] = (
                 theoretical_max_revenue_values - revenue_per_year_values
             )
-        capturable_revenue_per_year_values = pd.to_numeric(
-            item_purchase_gap_frame["Capturable Revenue per Year"],
-            errors="coerce",
+        capturable_revenue_per_year_values = outcome_summary_numeric_series(
+            item_purchase_gap_frame,
+            "Capturable Revenue per Year",
         ).fillna(0)
     else:
         item_purchase_gap_values = pd.Series(dtype=float)
@@ -13934,7 +14310,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         "overall_purchases": overall_purchases,
         "repeat_purchase_rate": (overall_repeat_purchases / overall_purchases) if overall_purchases else 0.0,
         "revenue_per_item": revenue_per_item,
-        "revenue": float(pd.to_numeric(success_df["Revenue"], errors="coerce").fillna(0).sum()) if successes else 0.0,
+        "revenue": float(outcome_summary_numeric_series(success_df, "Revenue").fillna(0).sum()) if successes else 0.0,
         "revenue_per_year": revenue_per_year,
         "theoretical_max_revenue": theoretical_max_revenue,
         "capturable_revenue_per_year": capturable_revenue_per_year,
@@ -13978,6 +14354,7 @@ def build_outcome_group_frame(
 
     rows = []
     source = outcomes_df.copy()
+    source = outcome_summary_precompute_numeric_columns(source)
     source[group_col] = source[group_col].fillna("").astype(str).str.strip().replace("", "Unknown")
     for group_value, group_df in source.groupby(group_col, dropna=False):
         summary = summarize_outcomes(group_df)
@@ -14190,6 +14567,93 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     return display_frame
 
 
+def stats_sort_column_label(column: str) -> str:
+    return OUTCOME_DISPLAY_COLUMN_LABELS.get(column, column)
+
+
+def stats_sort_dataframe(frame: pd.DataFrame, column: str, ascending: bool) -> pd.DataFrame:
+    if frame is None or frame.empty or column not in frame.columns:
+        return frame
+
+    sorted_frame = frame.copy()
+    helper_col = "__stats_sort_value"
+    values = sorted_frame[column]
+    if column in OUTCOME_DISPLAY_DATE_COLUMNS or column == "Last Actioned":
+        sorted_frame[helper_col] = pd.to_datetime(values, errors="coerce")
+    elif pd.api.types.is_numeric_dtype(values):
+        sorted_frame[helper_col] = pd.to_numeric(values, errors="coerce")
+    else:
+        numeric_values = pd.to_numeric(values, errors="coerce")
+        non_empty_values = values.fillna("").astype(str).str.strip().ne("")
+        if non_empty_values.any() and numeric_values.notna().sum() == non_empty_values.sum():
+            sorted_frame[helper_col] = numeric_values
+        else:
+            sorted_frame[helper_col] = values.fillna("").astype(str).map(lambda value: value.casefold())
+
+    return (
+        sorted_frame
+        .sort_values(helper_col, ascending=ascending, kind="mergesort", na_position="last")
+        .drop(columns=[helper_col])
+        .reset_index(drop=True)
+    )
+
+
+def reset_stats_table_page(table_key: str) -> None:
+    st.session_state[f"{table_key}_page"] = 0
+
+
+def apply_stats_global_sort_controls(
+    frame: pd.DataFrame,
+    table_key: str,
+    page_size: int,
+    sort_columns: list[str] | None = None,
+) -> pd.DataFrame:
+    if frame is None or frame.empty or len(frame.index) <= page_size:
+        return frame
+
+    available_columns = [
+        column for column in (sort_columns or list(frame.columns))
+        if column in frame.columns
+    ]
+    if not available_columns:
+        return frame
+
+    sort_key = f"{table_key}_global_sort_column"
+    direction_key = f"{table_key}_global_sort_direction"
+    current_sort = st.session_state.get(sort_key, "")
+    if current_sort not in available_columns:
+        current_sort = ""
+    current_direction = st.session_state.get(direction_key, "Descending")
+    if current_direction not in {"Ascending", "Descending"}:
+        current_direction = "Descending"
+
+    sort_col, direction_col, _ = st.columns([1.5, 1.1, 4.4])
+    with sort_col:
+        selected_sort = st.selectbox(
+            "Sort all rows by",
+            ["", *available_columns],
+            index=(["", *available_columns]).index(current_sort),
+            format_func=lambda value: "Current order" if value == "" else stats_sort_column_label(value),
+            key=sort_key,
+            on_change=reset_stats_table_page,
+            args=(table_key,),
+        )
+    with direction_col:
+        selected_direction = st.radio(
+            "Direction",
+            ["Descending", "Ascending"],
+            index=["Descending", "Ascending"].index(current_direction),
+            horizontal=True,
+            key=direction_key,
+            on_change=reset_stats_table_page,
+            args=(table_key,),
+        )
+
+    if selected_sort:
+        return stats_sort_dataframe(frame, selected_sort, ascending=selected_direction == "Ascending")
+    return frame
+
+
 def outcome_display_column_title(column: str) -> str:
     return OUTCOME_DISPLAY_COLUMN_TITLES.get(column, column)
 
@@ -14351,6 +14815,65 @@ def prepare_stats_csv_export_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return export_frame
 
 
+def stats_export_display_preparer_key(display_preparer) -> str:
+    if display_preparer is None:
+        return ""
+    return getattr(display_preparer, "__name__", repr(display_preparer))
+
+
+def stats_export_frame_fingerprint(frame: pd.DataFrame) -> tuple:
+    if frame is None:
+        return (0, (), "")
+    try:
+        hashed = pd.util.hash_pandas_object(frame, index=True).to_numpy(dtype="uint64", copy=False)
+        digest = hashlib.md5(hashed.tobytes()).hexdigest()
+    except Exception:
+        digest = hashlib.md5(frame.to_csv(index=True).encode("utf-8")).hexdigest()
+    return (len(frame.index), tuple(map(str, frame.columns)), digest)
+
+
+def stats_export_csv_cache_key(
+    frame: pd.DataFrame,
+    view_name: str,
+    columns: list[str] | None = None,
+    display_preparer=None,
+) -> tuple:
+    selected_columns = tuple(column for column in (columns or []) if frame is not None and column in frame.columns)
+    fingerprint_frame = frame
+    if selected_columns and frame is not None:
+        fingerprint_frame = frame.loc[:, list(selected_columns)]
+    return (
+        stats_export_slug(view_name),
+        selected_columns,
+        stats_export_display_preparer_key(display_preparer),
+        stats_export_frame_fingerprint(fingerprint_frame),
+    )
+
+
+def stats_export_csv_bytes_for_render(
+    frame: pd.DataFrame,
+    view_name: str,
+    columns: list[str] | None = None,
+    display_preparer=None,
+) -> bytes:
+    if frame is None or getattr(frame, "empty", True):
+        return b""
+    cache_key = stats_export_csv_cache_key(frame, view_name, columns, display_preparer)
+    cached = st.session_state.get("_stats_export_csv_cache")
+    if isinstance(cached, dict) and cached.get("key") == cache_key:
+        return cached.get("bytes", b"") or b""
+
+    export_frame = frame.copy()
+    if columns is not None:
+        export_frame = export_frame[[column for column in columns if column in export_frame.columns]]
+    if display_preparer is not None:
+        export_frame = display_preparer(export_frame)
+    export_frame = prepare_stats_csv_export_frame(export_frame)
+    csv_bytes = stats_export_csv_bytes(export_frame)
+    st.session_state["_stats_export_csv_cache"] = {"key": cache_key, "bytes": csv_bytes}
+    return csv_bytes
+
+
 def render_stats_csv_export(
     frame: pd.DataFrame,
     view_name: str,
@@ -14360,13 +14883,7 @@ def render_stats_csv_export(
 ) -> None:
     if frame is None or getattr(frame, "empty", True):
         return
-    export_frame = frame.copy()
-    if columns is not None:
-        export_frame = export_frame[[column for column in columns if column in export_frame.columns]]
-    if display_preparer is not None:
-        export_frame = display_preparer(export_frame)
-    export_frame = prepare_stats_csv_export_frame(export_frame)
-    csv_bytes = stats_export_csv_bytes(export_frame)
+    csv_bytes = stats_export_csv_bytes_for_render(frame, view_name, columns, display_preparer)
     if not csv_bytes:
         return
     st.download_button(
@@ -14425,6 +14942,7 @@ def render_outcome_dataframe(
     if frame.empty:
         st.info("No outcome rows for this view yet.")
         return
+    frame = apply_stats_global_sort_controls(frame, table_key, page_size)
     frame = paginate_dataframe(frame, table_key, page_size, item_label)
     display_frame = prepare_outcome_dataframe_for_display(frame)
     st.dataframe(
@@ -14652,6 +15170,11 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 "stats_item_actioning",
                 display_preparer=prepare_statistics_display_frame,
             )
+            item_actioning_frame = apply_stats_global_sort_controls(
+                item_actioning_frame,
+                "stats_item_actioning",
+                STATS_TABLE_PAGE_SIZE,
+            )
             paged_item_actioning_frame = paginate_dataframe(
                 item_actioning_frame,
                 "stats_item_actioning",
@@ -14681,6 +15204,11 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 "stats-team",
                 "stats_team",
                 display_preparer=prepare_stats_team_display_frame,
+            )
+            team_frame = apply_stats_global_sort_controls(
+                team_frame,
+                "stats_team",
+                STATS_TABLE_PAGE_SIZE,
             )
             paged_team_frame = paginate_dataframe(
                 team_frame,
@@ -14955,7 +15483,15 @@ def render_search_terms_editor():
         st.error(autosave_error)
 
 
-    for rule, settings in sorted(st.session_state["rules"].items(), key=lambda x: x[0]):
+    sorted_rule_items = sorted(st.session_state["rules"].items(), key=lambda x: x[0])
+    paged_rule_items = paginate_sequence(
+        sorted_rule_items,
+        "search_terms_current_rules",
+        TABLE_PAGE_SIZE,
+        "search terms",
+    )
+
+    for _, (rule, settings) in paged_rule_items:
         ver = st.session_state["form_version"]
         safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
         with st.container():
@@ -15601,7 +16137,13 @@ if st.session_state.get("logged_in", False):
                     str(item.get("patient", "")).casefold() if isinstance(item, dict) else "",
                 ),
             )
-            for exclusion_idx, exclusion in enumerate(sorted_auto_exclusions):
+            paged_auto_exclusions = paginate_sequence(
+                sorted_auto_exclusions,
+                "automatic_patient_exclusions",
+                TABLE_PAGE_SIZE,
+                "automatic patient exclusions",
+            )
+            for exclusion_idx, exclusion in paged_auto_exclusions:
                 client_name = _SPACE_RX.sub(" ", str(exclusion.get("client", "") or "").strip())
                 patient_name = _SPACE_RX.sub(" ", str(exclusion.get("patient", "") or "").strip())
                 if not client_name or not patient_name:

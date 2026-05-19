@@ -2,6 +2,7 @@ import contextlib
 import importlib
 import io
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 
 
@@ -113,6 +114,138 @@ class ErrorHandlingObservabilityTests(unittest.TestCase):
             self.assertNotIn("owner@example.com", row["Message"])
             self.assertNotIn("1AbCdEfGhIjKlMnOpQrStUv", row["Message"])
             self.assertNotIn("secret-token", row["Message"])
+
+    def test_dataset_tracker_batch_uses_one_append_rows_call(self):
+        class FakeTrackerSheet:
+            def __init__(self):
+                self.append_rows_calls = 0
+                self.append_row_calls = 0
+                self.rows = []
+
+            def append_rows(self, rows, value_input_option=None):
+                self.append_rows_calls += 1
+                self.rows.extend(rows)
+
+            def append_row(self, row, value_input_option=None):
+                self.append_row_calls += 1
+                self.rows.append(row)
+
+        sheet = FakeTrackerSheet()
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+        self.app.st.session_state["user_name"] = "Tester"
+
+        with (
+            patch.object(self.app, "get_or_create_tracker_sheet", return_value=sheet),
+            patch.object(self.app, "utc_now", return_value=datetime(2026, 5, 19, 12, 0, 0)),
+        ):
+            saved = self.app.record_dataset_tracker_events([
+                {
+                    "event": "upload_saved",
+                    "status": "success",
+                    "file_name": "jan.csv",
+                    "pms": "Vetport",
+                    "rows": 10,
+                    "from_date": "2026-01-01",
+                    "to_date": "2026-01-31",
+                    "replace_overlapping_dates": False,
+                    "drive_file_id": "file-1",
+                    "drive_file_name": "Clinic A_shared_dataset.csv",
+                    "source": "file_uploader",
+                },
+                {
+                    "event": "upload_saved",
+                    "status": "success",
+                    "file_name": "feb.csv",
+                    "pms": "Vetport",
+                    "rows": 20,
+                    "from_date": "2026-02-01",
+                    "to_date": "2026-02-28",
+                    "replace_overlapping_dates": False,
+                    "drive_file_id": "file-1",
+                    "drive_file_name": "Clinic A_shared_dataset.csv",
+                    "source": "file_uploader",
+                },
+            ])
+
+        self.assertTrue(saved)
+        self.assertEqual(sheet.append_rows_calls, 1)
+        self.assertEqual(sheet.append_row_calls, 0)
+        self.assertEqual(len(sheet.rows), 2)
+
+        records = [
+            dict(zip(self.app.DATASET_TRACKER_HEADERS, row))
+            for row in sheet.rows
+        ]
+        self.assertEqual([row["Event"] for row in records], ["upload_saved", "upload_saved"])
+        self.assertEqual([row["FileName"] for row in records], ["jan.csv", "feb.csv"])
+        self.assertEqual([row["Rows"] for row in records], ["10", "20"])
+        self.assertEqual({row["Source"] for row in records}, {"file_uploader"})
+
+    def test_tracking_sheet_ensure_reuses_verified_header_for_next_append(self):
+        class FakeWorksheet:
+            def __init__(self, title, headers):
+                self.title = title
+                self.headers = list(headers)
+                self.row_values_calls = 0
+                self.update_calls = 0
+                self.append_row_calls = 0
+
+            def row_values(self, row_idx):
+                self.row_values_calls += 1
+                return list(self.headers)
+
+            def get_all_values(self):
+                return [list(self.headers)]
+
+            def update(self, values=None, range_name=None):
+                self.update_calls += 1
+
+            def append_row(self, row, value_input_option=None):
+                self.append_row_calls += 1
+
+        class FakeSpreadsheet:
+            def __init__(self, worksheets_by_title):
+                self.worksheets_by_title = worksheets_by_title
+                self.worksheet_calls = 0
+
+            def worksheets(self):
+                return list(self.worksheets_by_title.values())
+
+            def worksheet(self, title):
+                self.worksheet_calls += 1
+                return self.worksheets_by_title[title]
+
+            def add_worksheet(self, title, rows, cols):
+                worksheet = FakeWorksheet(title, [])
+                self.worksheets_by_title[title] = worksheet
+                return worksheet
+
+        worksheets = {
+            title: FakeWorksheet(title, headers)
+            for title, headers in self.app.TRACKER_SHEET_DEFINITIONS
+        }
+        spreadsheet = FakeSpreadsheet(worksheets)
+        dataset_sheet = worksheets[self.app.DATASET_TRACKER_WORKSHEET]
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+
+        clear_cache = getattr(self.app.ensure_tracking_sheets_once, "clear", None)
+        if callable(clear_cache):
+            clear_cache()
+
+        try:
+            with patch.object(self.app, "get_settings_spreadsheet", return_value=spreadsheet):
+                self.app.ensure_tracking_sheets()
+                header_reads_after_ensure = dataset_sheet.row_values_calls
+                saved = self.app.record_dataset_tracker_event("upload_saved", "success")
+        finally:
+            if callable(clear_cache):
+                clear_cache()
+
+        self.assertTrue(saved)
+        self.assertEqual(header_reads_after_ensure, 1)
+        self.assertEqual(dataset_sheet.row_values_calls, header_reads_after_ensure)
+        self.assertEqual(spreadsheet.worksheet_calls, 0)
+        self.assertEqual(dataset_sheet.append_row_calls, 1)
 
     def test_dataset_status_does_not_render_raw_load_exception_text(self):
         raw_error = "Drive failed for owner@example.com file 1AbCdEfGhIjKlMnOpQrStUv"

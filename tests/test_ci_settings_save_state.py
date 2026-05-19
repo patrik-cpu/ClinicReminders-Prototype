@@ -12,6 +12,7 @@ from requests import Response
 class FakeSettingsSheet:
     def __init__(self, remote_settings):
         self.remote_settings = remote_settings
+        self.batch_updates = []
 
     def row_values(self, row_idx):
         return [
@@ -21,6 +22,9 @@ class FakeSettingsSheet:
             json.dumps(self.remote_settings),
             "2026-05-15T00:00:00",
         ]
+
+    def batch_update(self, updates):
+        self.batch_updates.append(updates)
 
 
 class FailingSettingsSheet(FakeSettingsSheet):
@@ -271,6 +275,37 @@ class SettingsSaveStateTests(unittest.TestCase):
         update_settings_cells.assert_not_called()
         self.assertIn("could not be checked", self.app.st.session_state["_pending_settings_sync_warning"])
 
+    def test_save_settings_batches_country_metadata_with_existing_settings_row(self):
+        headers = [
+            self.app.SHEET_COL_CLINIC_ID,
+            self.app.SHEET_COL_PASSWORD_HASH,
+            self.app.SHEET_COL_SETTINGS_JSON,
+            self.app.SHEET_COL_UPDATED_AT,
+            self.app.SHEET_COL_COUNTRY,
+            self.app.SHEET_COL_ACCOUNT_STATUS,
+        ]
+        sheet = FakeSettingsSheet({"rules": {}})
+        self.app.st.session_state["user_country"] = "United Arab Emirates"
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "_gspread_retry", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+            patch.object(self.app, "update_settings_row_fields") as update_fields,
+        ):
+            saved = self.app.save_settings(track_user=False)
+
+        self.assertTrue(saved)
+        update_fields.assert_not_called()
+        self.assertEqual(len(sheet.batch_updates), 1)
+        self.assertEqual(len(sheet.batch_updates[0]), 3)
+        updates_by_range = {
+            update["range"]: update["values"][0][0]
+            for update in sheet.batch_updates[0]
+        }
+        self.assertIn("C2:D2", {update["range"] for update in sheet.batch_updates[0]})
+        self.assertEqual(updates_by_range["E2:E2"], "United Arab Emirates")
+        self.assertEqual(updates_by_range["F2:F2"], "active")
+
     def test_save_settings_does_not_persist_action_logs(self):
         hidden_a = {
             "Client Name": "Client A",
@@ -396,6 +431,54 @@ class SettingsSaveStateTests(unittest.TestCase):
             self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY]
         )
 
+    def test_reminder_filter_callback_skips_save_when_value_is_unchanged(self):
+        self.app.st.session_state["reminder_lookback_days"] = 7
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY] = 7
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY] = False
+
+        with patch.object(self.app, "save_settings_quietly") as save_settings:
+            self.app.save_reminder_lookback_days()
+
+        save_settings.assert_not_called()
+        self.assertFalse(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY])
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY], 7)
+
+    def test_reminder_filter_callback_saves_when_value_changed(self):
+        self.app.st.session_state["reminder_lookback_days"] = 9
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY] = 7
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY] = False
+
+        with patch.object(self.app, "save_settings_quietly", return_value=True) as save_settings:
+            self.app.save_reminder_lookback_days()
+
+        save_settings.assert_called_once()
+        self.assertFalse(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY])
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY], 9)
+
+    def test_outcome_window_callback_skips_save_when_value_is_unchanged(self):
+        self.app.st.session_state["outcome_due_date_window_days"] = 14
+        self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = 14
+        self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
+
+        with patch.object(self.app, "save_settings_quietly") as save_settings:
+            self.app.save_outcome_due_date_window_days()
+
+        save_settings.assert_not_called()
+        self.assertFalse(self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY])
+        self.assertEqual(self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_LOADED_KEY], 14)
+
+    def test_outcome_window_callback_saves_when_value_changed(self):
+        self.app.st.session_state["outcome_due_date_window_days"] = 30
+        self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = 14
+        self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY] = False
+
+        with patch.object(self.app, "save_settings_quietly", return_value=True) as save_settings:
+            self.app.save_outcome_due_date_window_days()
+
+        save_settings.assert_called_once()
+        self.assertFalse(self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_DIRTY_KEY])
+        self.assertEqual(self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_LOADED_KEY], 30)
+
     def test_save_settings_falls_back_when_outcome_window_default_is_missing(self):
         self.app.cache_remote_settings("Clinic Save State", {})
         default_value = self.app.DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
@@ -431,6 +514,57 @@ class SettingsSaveStateTests(unittest.TestCase):
             self.app.load_settings()
 
         self.assertEqual(self.app.st.session_state["outcome_post_reminder_window_days"], 10)
+
+    def test_load_settings_can_defer_action_tracker_read_until_needed(self):
+        headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        legacy_action = {
+            "Client Name": "Legacy Client",
+            "Animal Name": "Legacy Pet",
+            "Plan Item": "Rabies Vaccine",
+            "Due Date": "2026-05-01",
+            "Reminder Date": "2026-05-01",
+            "Action": self.app.REMINDER_ACTION_SENT,
+            "ActionedAt": "2026-05-02T09:00:00",
+        }
+        tracked_action = {
+            "Client Name": "Tracked Client",
+            "Animal Name": "Tracked Pet",
+            "Plan Item": "Tricat Vaccine",
+            "Due Date": "2026-06-01",
+            "Reminder Date": "2026-06-01",
+            "Action": self.app.REMINDER_ACTION_SENT,
+            "ActionedAt": "2026-06-02T09:00:00",
+        }
+        sheet = FakeSettingsSheet({
+            "deleted_reminders": [legacy_action],
+            "wa_reminder_log": [{"Client Name": "Legacy Client", "RemindedAt": "2026-05-02T09:00:00"}],
+        })
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "load_action_tracker_records_for_clinic", return_value=[tracked_action]) as load_actions,
+        ):
+            self.app.load_settings(load_action_history=False)
+
+        load_actions.assert_not_called()
+        self.assertEqual(
+            self.app.st.session_state["_action_tracker_pending_load_for"],
+            self.app.normalize_clinic_id_key("Clinic Save State"),
+        )
+        self.assertEqual(
+            [row["Client Name"] for row in self.app.st.session_state["deleted_reminders"]],
+            ["Legacy Client"],
+        )
+
+        with patch.object(self.app, "load_action_tracker_records_for_clinic", return_value=[tracked_action]) as load_actions:
+            self.app.ensure_action_tracker_loaded_for_current_clinic()
+
+        load_actions.assert_called_once_with("Clinic Save State")
+        self.assertNotIn("_action_tracker_pending_load_for", self.app.st.session_state)
+        self.assertEqual(
+            {row["Client Name"] for row in self.app.st.session_state["deleted_reminders"]},
+            {"Legacy Client", "Tracked Client"},
+        )
 
     def test_load_settings_upgrades_legacy_zero_post_reminder_window_to_default(self):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
@@ -837,6 +971,59 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         self.assertEqual(tracker_titles | {"Saved settings"}, expected_titles)
         self.assertEqual(len(expected_titles), 8)
+
+    def test_upsert_user_tracker_reuses_cached_row_after_first_scan(self):
+        class FakeUserTrackerSheet:
+            def __init__(self, headers):
+                self.headers = headers
+                self.rows = [
+                    headers,
+                    [
+                        "Clinic Save State",
+                        "United Arab Emirates",
+                        "2026-05-01 09:00:00",
+                        "2026-05-01 09:00:00",
+                        "2026-05-01 09:00:00",
+                        "active",
+                        "login",
+                    ],
+                ]
+                self.get_all_values_calls = 0
+                self.updates = []
+
+            def get_all_values(self):
+                self.get_all_values_calls += 1
+                return [list(row) for row in self.rows]
+
+            def update(self, values=None, range_name=None, **_kwargs):
+                self.updates.append({"range_name": range_name, "values": values})
+
+        sheet = FakeUserTrackerSheet(self.app.USER_TRACKER_HEADERS)
+
+        with (
+            patch.object(self.app, "get_or_create_tracker_sheet", return_value=sheet),
+            patch.object(self.app, "_gspread_retry", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+        ):
+            self.app.upsert_user_tracker(
+                "Clinic Save State",
+                country="United Arab Emirates",
+                event="login",
+                now=self.app.datetime(2026, 5, 19, 8, 0, 0),
+            )
+            self.app.upsert_user_tracker(
+                "Clinic Save State",
+                country="United Arab Emirates",
+                event="settings_saved",
+                now=self.app.datetime(2026, 5, 19, 9, 0, 0),
+            )
+
+        self.assertEqual(sheet.get_all_values_calls, 1)
+        self.assertEqual(len(sheet.updates), 2)
+        first_update = sheet.updates[0]["values"][0]
+        second_update = sheet.updates[1]["values"][0]
+        self.assertEqual(first_update[self.app.USER_TRACKER_HEADERS.index("CreatedAtGST")], "2026-05-01 09:00:00")
+        self.assertEqual(second_update[self.app.USER_TRACKER_HEADERS.index("CreatedAtGST")], "2026-05-01 09:00:00")
+        self.assertEqual(second_update[self.app.USER_TRACKER_HEADERS.index("LastEvent")], "settings_saved")
 
     def test_tracker_events_write_compact_rows(self):
         captured = {}

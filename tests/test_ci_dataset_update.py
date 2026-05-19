@@ -265,6 +265,67 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertEqual(tracker_events[1]["message"], "stage=complete")
         self.assertEqual(tracker_events[1]["drive_file_id"], "new-drive-file")
 
+    def test_update_clinic_dataset_pointer_uses_cached_row_without_fresh_readback(self):
+        headers = list(self.app.SETTINGS_REQUIRED_COLUMNS)
+        dataset_file_id_col = self.app.SHEET_COL_DATASET_FILE_ID
+        dataset_file_name_col = self.app.SHEET_COL_DATASET_FILE_NAME
+        dataset_updated_at_col = self.app.SHEET_COL_DATASET_UPDATED_AT
+
+        class FakeSettingsSheet:
+            def __init__(self):
+                self.get_all_values_calls = 0
+                self.row_values_calls = 0
+                self.batch_updates = []
+
+            def get_all_values(self):
+                self.get_all_values_calls += 1
+                row_values = [""] * len(headers)
+                row_values[headers.index("ClinicID")] = "Clinic A"
+                row_values[headers.index("SettingsJSON")] = "{}"
+                row_values[headers.index(dataset_file_id_col)] = "old-file"
+                row_values[headers.index(dataset_file_name_col)] = "old.csv"
+                row_values[headers.index(dataset_updated_at_col)] = "2026-05-01T00:00:00"
+                return [
+                    headers,
+                    row_values,
+                ]
+
+            def row_values(self, row_idx):
+                self.row_values_calls += 1
+                raise AssertionError("pointer update should not re-read the row after a successful batch update")
+
+            def batch_update(self, updates, **kwargs):
+                self.batch_updates.append({"updates": updates, "kwargs": kwargs})
+
+        sheet = FakeSettingsSheet()
+        state = self.app.st.session_state
+        state["clinic_id"] = "Clinic A"
+        state["logged_in"] = True
+
+        with (
+            patch.object(self.app, "get_settings_sheet", return_value=sheet),
+            patch.object(self.app, "_gspread_retry", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+            patch.object(self.app, "utc_now_iso", return_value="2026-05-19T12:00:00"),
+        ):
+            updated_at = self.app.update_clinic_dataset_pointer(
+                "Clinic A",
+                "new-file",
+                "Clinic A_shared_dataset.csv",
+            )
+
+        self.assertEqual(updated_at, "2026-05-19T12:00:00")
+        self.assertEqual(sheet.get_all_values_calls, 1)
+        self.assertEqual(sheet.row_values_calls, 0)
+        self.assertEqual(len(sheet.batch_updates), 1)
+        self.assertEqual(
+            state["_settings_row_cache"]["row_values"][headers.index(self.app.SHEET_COL_DATASET_FILE_ID)],
+            "new-file",
+        )
+        self.assertEqual(
+            state["_settings_row_cache"]["row_values"][headers.index(self.app.SHEET_COL_DATASET_FILE_NAME)],
+            "Clinic A_shared_dataset.csv",
+        )
+
     def test_publish_dataset_records_pointer_update_failure_with_uploaded_file_id(self):
         state = self.app.st.session_state
         state["clinic_id"] = "Clinic A"

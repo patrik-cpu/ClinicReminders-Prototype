@@ -46,6 +46,37 @@ class SettingsHelperTests(unittest.TestCase):
         self.assertEqual(len(sheet.batch_payloads), 1)
         self.assertEqual(sheet.batch_payloads[0], [{"range": "C3:D3", "values": [['{"a":1}', "2026-05-08T00:00:00"]]}])
 
+    def test_update_settings_cells_batches_metadata_fields_in_same_call(self):
+        sheet = FakeSheet()
+        headers = ["ClinicID", "SettingsJSON", "UpdatedAt", "Country", "AccountStatus"]
+
+        old_retry = app._gspread_retry
+        app._gspread_retry = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+        try:
+            app._update_settings_cells(
+                sheet,
+                headers,
+                4,
+                '{"a":1}',
+                "2026-05-08T00:00:00",
+                {
+                    "Country": "United Arab Emirates",
+                    "AccountStatus": "active",
+                },
+            )
+        finally:
+            app._gspread_retry = old_retry
+
+        self.assertEqual(len(sheet.batch_payloads), 1)
+        self.assertEqual(
+            sheet.batch_payloads[0],
+            [
+                {"range": "B4:C4", "values": [['{"a":1}', "2026-05-08T00:00:00"]]},
+                {"range": "D4:D4", "values": [["United Arab Emirates"]]},
+                {"range": "E4:E4", "values": [["active"]]},
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

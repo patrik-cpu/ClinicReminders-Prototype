@@ -124,6 +124,43 @@ class RemindersBadgeTests(unittest.TestCase):
         self.assertEqual(due_df["ReminderDateTs"].max(), pd.Timestamp("2026-05-16"))
         self.assertEqual(count, 2)
 
+    def test_badge_count_reuses_cache_until_action_state_changes(self):
+        reminder_row = {
+            "Reminder Date": "16 May 2026",
+            "Due Date": "16 May 2026",
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies",
+        }
+        prepared = pd.DataFrame({
+            "ReminderDateTs": pd.to_datetime(["2026-05-16"]),
+            "NextDueDate": pd.to_datetime(["2026-05-16"]),
+        })
+        grouped = pd.DataFrame([reminder_row])
+
+        state = self.app.st.session_state
+        state["working_df"] = pd.DataFrame({"row": [1]})
+        state["reminder_lookback_days"] = 0
+        state["client_group_days"] = 1
+        mock_bundle = mock.Mock(return_value=grouped)
+
+        with (
+            mock.patch.object(self.app, "get_applied_reminder_rules", return_value={}),
+            mock.patch.object(self.app, "get_prepared_df", return_value=prepared),
+            mock.patch.object(self.app, "bundle_client_reminders_by_window", mock_bundle),
+        ):
+            first_count = self.app.get_active_reminder_badge_count(today=date(2026, 5, 16))
+            second_count = self.app.get_active_reminder_badge_count(today=date(2026, 5, 16))
+            state["deleted_reminders"] = [
+                {**reminder_row, "Action": self.app.REMINDER_ACTION_SENT, "ActionedAt": "2026-05-16T10:00:00"},
+            ]
+            third_count = self.app.get_active_reminder_badge_count(today=date(2026, 5, 16))
+
+        self.assertEqual(first_count, 1)
+        self.assertEqual(second_count, 1)
+        self.assertEqual(third_count, 0)
+        self.assertEqual(mock_bundle.call_count, 2)
+
     def test_caught_up_banner_copy_only_when_notification_count_is_zero(self):
         self.assertIsNone(self.app.reminders_caught_up_banner_copy(active_count=2, lookback_days=5))
 

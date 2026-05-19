@@ -47,14 +47,20 @@ class AuditCharacterizationTests(unittest.TestCase):
 
     def test_authenticate_user_returns_none_for_wrong_password_or_missing_clinic(self):
         stored_hash = self.app.password_hash_for_storage("secret-password")
+        headers = [self.app.SHEET_COL_CLINIC_ID, self.app.SHEET_COL_PASSWORD_HASH]
 
         class FakeSheet:
+            def get_all_values(self):
+                return [headers, ["Clinic A", stored_hash]]
+
             def get_all_records(self):
-                return [{"ClinicID": "Clinic A", "PasswordHash": stored_hash}]
+                raise AssertionError("authenticate_user should use one row-values snapshot")
 
         with patch.object(self.app, "get_settings_sheet", return_value=FakeSheet()):
             self.assertIsNone(self.app.authenticate_user("Clinic A", "wrong-password"))
             self.assertIsNone(self.app.authenticate_user("Missing Clinic", "secret-password"))
+
+        self.assertNotIn("_settings_row_cache", self.app.st.session_state)
 
     def test_google_clinic_lookup_requires_logged_in_identity_before_reading_sheet(self):
         with patch.object(self.app, "get_settings_sheet") as get_sheet:
@@ -68,9 +74,16 @@ class AuditCharacterizationTests(unittest.TestCase):
         class FakeSheet:
             def __init__(self):
                 self.appended = None
+                self.get_all_values_calls = 0
+                self.get_all_records_calls = 0
 
             def get_all_values(self):
+                self.get_all_values_calls += 1
                 return [headers]
+
+            def get_all_records(self):
+                self.get_all_records_calls += 1
+                return []
 
             def append_row(self, values, value_input_option=None):
                 self.appended = {
@@ -80,7 +93,6 @@ class AuditCharacterizationTests(unittest.TestCase):
 
         sheet = FakeSheet()
         with (
-            patch.object(self.app, "get_clinic_row", return_value=None),
             patch.object(self.app, "get_settings_sheet", return_value=sheet),
             patch.object(self.app, "ensure_settings_sheet_columns", return_value=headers),
             patch.object(self.app, "_gspread_retry", side_effect=self.retry_immediately),
@@ -98,6 +110,8 @@ class AuditCharacterizationTests(unittest.TestCase):
         self.assertTrue(self.app.verify_password("secret-password", password_hash))
         self.assertEqual(json.loads(by_header[self.app.SHEET_COL_SETTINGS_JSON])["country"], "United Arab Emirates")
         self.assertEqual(by_header[self.app.SHEET_COL_ACCOUNT_STATUS], "active")
+        self.assertEqual(sheet.get_all_values_calls, 1)
+        self.assertEqual(sheet.get_all_records_calls, 0)
         upsert_tracker.assert_called_once_with("Clinic New", country="United Arab Emirates", event="created")
         lifecycle_event.assert_called_once_with(
             "Clinic New",
@@ -109,14 +123,40 @@ class AuditCharacterizationTests(unittest.TestCase):
         )
 
     def test_create_clinic_account_rejects_duplicate_before_writing(self):
+        headers = list(self.app.SETTINGS_REQUIRED_COLUMNS)
+
+        class FakeSheet:
+            def __init__(self):
+                self.appended = False
+                self.get_all_values_calls = 0
+                self.get_all_records_calls = 0
+
+            def get_all_values(self):
+                self.get_all_values_calls += 1
+                return [headers, ["Clinic Existing"]]
+
+            def get_all_records(self):
+                self.get_all_records_calls += 1
+                return [{"ClinicID": "Clinic Existing"}]
+
+            def append_row(self, values, value_input_option=None):
+                self.appended = True
+
+        sheet = FakeSheet()
         with (
-            patch.object(self.app, "get_clinic_row", return_value={"ClinicID": "Clinic Existing"}),
-            patch.object(self.app, "get_settings_sheet") as get_sheet,
+            patch.object(self.app, "get_settings_sheet", return_value=sheet),
+            patch.object(self.app, "_gspread_retry", side_effect=self.retry_immediately),
+            patch.object(self.app, "upsert_user_tracker") as upsert_tracker,
+            patch.object(self.app, "record_account_lifecycle_event") as lifecycle_event,
         ):
             with self.assertRaisesRegex(ValueError, "already registered"):
                 self.app.create_clinic_account("Clinic Existing", "United States", "secret-password")
 
-        get_sheet.assert_not_called()
+        self.assertEqual(sheet.get_all_values_calls, 1)
+        self.assertEqual(sheet.get_all_records_calls, 0)
+        self.assertFalse(sheet.appended)
+        upsert_tracker.assert_not_called()
+        lifecycle_event.assert_not_called()
 
     def test_create_google_clinic_account_rejects_missing_email_before_writing(self):
         with patch.object(self.app, "get_settings_sheet") as get_sheet:
@@ -124,6 +164,156 @@ class AuditCharacterizationTests(unittest.TestCase):
                 self.app.create_google_clinic_account("Clinic Google", "United States", {"subject": "sub"})
 
         get_sheet.assert_not_called()
+
+    def test_create_google_clinic_account_uses_one_sheet_snapshot_for_success(self):
+        headers = list(self.app.SETTINGS_REQUIRED_COLUMNS)
+
+        class FakeSheet:
+            def __init__(self):
+                self.appended = None
+                self.get_all_values_calls = 0
+                self.get_all_records_calls = 0
+
+            def get_all_values(self):
+                self.get_all_values_calls += 1
+                return [headers]
+
+            def get_all_records(self):
+                self.get_all_records_calls += 1
+                return []
+
+            def append_row(self, values, value_input_option=None):
+                self.appended = {
+                    "values": values,
+                    "value_input_option": value_input_option,
+                }
+
+        sheet = FakeSheet()
+        google_user = {
+            "email": "Owner@Example.com",
+            "subject": "google-subject",
+            "name": "Owner Name",
+        }
+        with (
+            patch.object(self.app, "get_settings_sheet", return_value=sheet),
+            patch.object(self.app, "ensure_settings_sheet_columns", return_value=headers),
+            patch.object(self.app, "_gspread_retry", side_effect=self.retry_immediately),
+            patch.object(self.app, "upsert_user_tracker") as upsert_tracker,
+            patch.object(self.app, "record_account_lifecycle_event") as lifecycle_event,
+        ):
+            values_by_header = self.app.create_google_clinic_account(
+                "Clinic Google",
+                "United States",
+                google_user,
+            )
+
+        appended = dict(zip(headers, sheet.appended["values"]))
+        self.assertEqual(sheet.get_all_values_calls, 1)
+        self.assertEqual(sheet.get_all_records_calls, 0)
+        self.assertEqual(sheet.appended["value_input_option"], "USER_ENTERED")
+        self.assertEqual(values_by_header[self.app.SHEET_COL_CLINIC_ID], "Clinic Google")
+        self.assertEqual(appended[self.app.SHEET_COL_GOOGLE_EMAIL], "owner@example.com")
+        self.assertEqual(appended[self.app.SHEET_COL_GOOGLE_SUBJECT], "google-subject")
+        self.assertEqual(appended[self.app.SHEET_COL_AUTH_PROVIDER], self.app.GOOGLE_AUTH_PROVIDER)
+        upsert_tracker.assert_called_once_with("Clinic Google", country="United States", event="google_created")
+        lifecycle_event.assert_called_once_with(
+            "Clinic Google",
+            "created",
+            clinic_name="Clinic Google",
+            auth_provider=self.app.GOOGLE_AUTH_PROVIDER,
+            country="United States",
+            source="google_signup",
+        )
+
+    def test_create_google_clinic_account_rejects_duplicate_clinic_from_one_snapshot(self):
+        headers = list(self.app.SETTINGS_REQUIRED_COLUMNS)
+        app = self.app
+
+        class FakeSheet:
+            def __init__(self):
+                self.appended = False
+                self.get_all_values_calls = 0
+                self.get_all_records_calls = 0
+
+            def get_all_values(self):
+                self.get_all_values_calls += 1
+                row = app.settings_row_values(headers, {app.SHEET_COL_CLINIC_ID: "Clinic Google"})
+                return [headers, row]
+
+            def get_all_records(self):
+                self.get_all_records_calls += 1
+                return [{app.SHEET_COL_CLINIC_ID: "Clinic Google"}]
+
+            def append_row(self, values, value_input_option=None):
+                self.appended = True
+
+        sheet = FakeSheet()
+        with (
+            patch.object(self.app, "get_settings_sheet", return_value=sheet),
+            patch.object(self.app, "_gspread_retry", side_effect=self.retry_immediately),
+            patch.object(self.app, "upsert_user_tracker") as upsert_tracker,
+            patch.object(self.app, "record_account_lifecycle_event") as lifecycle_event,
+        ):
+            with self.assertRaisesRegex(ValueError, "already registered"):
+                self.app.create_google_clinic_account(
+                    "clinic google",
+                    "United States",
+                    {"email": "owner@example.com", "subject": "new-subject"},
+                )
+
+        self.assertEqual(sheet.get_all_values_calls, 1)
+        self.assertEqual(sheet.get_all_records_calls, 0)
+        self.assertFalse(sheet.appended)
+        upsert_tracker.assert_not_called()
+        lifecycle_event.assert_not_called()
+
+    def test_create_google_clinic_account_rejects_duplicate_google_from_one_snapshot(self):
+        headers = list(self.app.SETTINGS_REQUIRED_COLUMNS)
+        app = self.app
+
+        class FakeSheet:
+            def __init__(self):
+                self.appended = False
+                self.get_all_values_calls = 0
+                self.get_all_records_calls = 0
+
+            def get_all_values(self):
+                self.get_all_values_calls += 1
+                row = app.settings_row_values(
+                    headers,
+                    {
+                        app.SHEET_COL_CLINIC_ID: "Other Clinic",
+                        app.SHEET_COL_GOOGLE_EMAIL: "owner@example.com",
+                    },
+                )
+                return [headers, row]
+
+            def get_all_records(self):
+                self.get_all_records_calls += 1
+                return [{app.SHEET_COL_GOOGLE_EMAIL: "owner@example.com"}]
+
+            def append_row(self, values, value_input_option=None):
+                self.appended = True
+
+        sheet = FakeSheet()
+        with (
+            patch.object(self.app, "get_settings_sheet", return_value=sheet),
+            patch.object(self.app, "_gspread_retry", side_effect=self.retry_immediately),
+            patch.object(self.app, "upsert_user_tracker") as upsert_tracker,
+            patch.object(self.app, "record_account_lifecycle_event") as lifecycle_event,
+        ):
+            with self.assertRaisesRegex(ValueError, "Google account is already linked"):
+                self.app.create_google_clinic_account(
+                    "Clinic New",
+                    "United States",
+                    {"email": "Owner@Example.com", "subject": "google-subject"},
+                )
+
+        self.assertEqual(sheet.get_all_values_calls, 1)
+        self.assertEqual(sheet.get_all_records_calls, 0)
+        self.assertFalse(sheet.appended)
+        upsert_tracker.assert_not_called()
+        lifecycle_event.assert_not_called()
 
     def test_update_rows_with_clinic_id_updates_only_matching_tenant_rows(self):
         class FakeWorksheet:
@@ -233,6 +423,44 @@ class AuditCharacterizationTests(unittest.TestCase):
             "Clinic Renamed_shared_dataset.csv",
         )
         update_rows.assert_called_once_with("Clinic A", "Clinic Renamed")
+
+    def test_profile_save_reuses_displayed_profile_row_without_extra_account_reads(self):
+        headers = list(self.app.SETTINGS_REQUIRED_COLUMNS)
+        row = {
+            "ClinicID": "Clinic A",
+            self.app.SHEET_COL_GOOGLE_EMAIL: "old@example.com",
+            self.app.SHEET_COL_AUTH_PROVIDER: "",
+        }
+
+        class FakeSettingsSheet:
+            def __init__(self):
+                self.get_all_records_calls = 0
+
+            def get_all_records(self):
+                self.get_all_records_calls += 1
+                return [row]
+
+        sheet = FakeSettingsSheet()
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+
+        with (
+            patch.object(self.app, "get_settings_sheet", return_value=sheet),
+            patch.object(self.app, "update_settings_row_fields", return_value=(sheet, headers, 2)) as update_fields,
+            patch.object(self.app, "utc_now_iso", return_value="2026-05-19T12:00:00"),
+        ):
+            profile = self.app.get_clinic_profile("Clinic A")
+            updated = self.app.update_clinic_profile("Clinic A", "Clinic A", "owner@example.com")
+
+        self.assertEqual(profile["clinic_id"], "Clinic A")
+        self.assertEqual(updated, {"clinic_id": "Clinic A", "email": "owner@example.com"})
+        self.assertEqual(sheet.get_all_records_calls, 1)
+        update_fields.assert_called_once()
+        self.assertEqual(update_fields.call_args.args[0], "Clinic A")
+        self.assertEqual(
+            update_fields.call_args.args[1][self.app.SHEET_COL_GOOGLE_EMAIL],
+            "owner@example.com",
+        )
 
     def test_update_clinic_profile_rejects_google_sign_in_email_change(self):
         old_row = {
@@ -711,7 +939,7 @@ class AuditCharacterizationTests(unittest.TestCase):
         self.assertEqual(state["google_subject"], "google-subject")
         close_dialogs.assert_called_once()
         reset_uploaded.assert_called_once_with(clear_cache=False, reset_uploader=True)
-        load_settings.assert_called_once()
+        load_settings.assert_called_once_with(load_action_history=False)
         load_dataset.assert_called_once()
         record_account.assert_called_once()
         upsert_tracker.assert_called_once()

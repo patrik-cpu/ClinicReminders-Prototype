@@ -281,6 +281,95 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(len(paged), 50)
         caption.assert_called_once_with("Showing 1-50 of 55 test rows (50 per page).")
 
+    def test_paginate_sequence_caps_rows_and_keeps_absolute_indexes(self):
+        class FakeColumn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        rows = [{"row": idx} for idx in range(120)]
+        self.app.st.session_state["actioned_test_page"] = 2
+
+        with (
+            mock.patch.object(self.app.st, "caption") as caption,
+            mock.patch.object(self.app.st, "columns", return_value=[FakeColumn(), FakeColumn(), FakeColumn()]),
+            mock.patch.object(self.app.st, "button", return_value=False),
+        ):
+            paged = self.app.paginate_sequence(rows, "actioned_test", 50, "actioned reminders")
+
+        self.assertEqual(len(paged), 20)
+        self.assertEqual(paged[0], (100, {"row": 100}))
+        self.assertEqual(paged[-1], (119, {"row": 119}))
+        caption.assert_called_once_with("Showing 101-120 of 120 actioned reminders (50 per page).")
+
+    def test_actioned_reminder_sort_resets_actioned_page(self):
+        self.app.st.session_state["reminders_actioned_reminders_page"] = 3
+
+        self.app.set_actioned_reminder_sort("reminders", "Client Name")
+
+        self.assertEqual(self.app.st.session_state["reminders_actioned_reminders_page"], 0)
+
+    def test_reminder_action_button_static_css_is_table_scoped(self):
+        css = self.app.reminder_action_button_static_css("daily")
+
+        self.assertIn('[class*="st-key-daily_wa_"] button::before', css)
+        self.assertIn(self.app.WHATSAPP_ICON_MASK_DATA_URI, css)
+        self.assertIn('[class*="st-key-daily_sent_"] button p', css)
+        self.assertIn('[class*="st-key-daily_decline_"] button p', css)
+
+    def test_reminder_action_button_state_css_is_row_scoped_only(self):
+        css = self.app.reminder_action_button_state_css(
+            "daily_sent_7",
+            "daily_decline_7",
+            self.app.REMINDER_ACTION_SENT,
+        )
+
+        self.assertIn(".st-key-daily_sent_7 button", css)
+        self.assertIn(".st-key-daily_decline_7 button", css)
+        self.assertIn("background: #dcfce7", css)
+        self.assertIn("opacity: 0.12", css)
+        self.assertNotIn(self.app.WHATSAPP_ICON_MASK_DATA_URI, css)
+        self.assertNotIn('[class*="st-key-daily_wa_"]', css)
+
+    def test_render_outcome_dataframe_sorts_all_rows_before_pagination(self):
+        class FakeColumn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        frame = pd.DataFrame(
+            [
+                {
+                    "Item": f"Item {idx:02d}",
+                    "Sent": 1,
+                    "Capturable Revenue per Year": idx,
+                }
+                for idx in range(66)
+            ]
+        )
+        self.app.st.session_state["stats_items_global_sort_column"] = "Capturable Revenue per Year"
+        self.app.st.session_state["stats_items_global_sort_direction"] = "Descending"
+        self.app.st.session_state["stats_items_page"] = 1
+
+        with (
+            mock.patch.object(self.app.st, "columns", return_value=[FakeColumn(), FakeColumn(), FakeColumn()]),
+            mock.patch.object(self.app.st, "selectbox", return_value="Capturable Revenue per Year"),
+            mock.patch.object(self.app.st, "radio", return_value="Descending"),
+            mock.patch.object(self.app.st, "caption"),
+            mock.patch.object(self.app.st, "button", return_value=False),
+            mock.patch.object(self.app.st, "dataframe") as dataframe,
+        ):
+            self.app.render_outcome_dataframe(frame, table_key="stats_items", item_label="item rows")
+
+        rendered_frame = dataframe.call_args.args[0]
+        self.assertEqual(len(rendered_frame), 16)
+        self.assertEqual(rendered_frame.iloc[0]["Capturable Revenue per Year"], 15)
+        self.assertEqual(rendered_frame.iloc[-1]["Capturable Revenue per Year"], 0)
+
     def test_prepare_stats_team_display_frame_formats_success_rate_as_whole_percent(self):
         frame = pd.DataFrame([{"Team Member": "Nurse A", "Success Rate": 1 / 3, "Revenue": 120}])
 
@@ -405,6 +494,32 @@ class StatisticsTests(unittest.TestCase):
             self.app.render_stats_csv_export(pd.DataFrame(), "Stats Items", "stats_items")
 
         download_button.assert_not_called()
+
+    def test_stats_export_csv_reuses_cached_bytes_for_same_frame(self):
+        frame = pd.DataFrame(
+            [
+                {"Item": "Rabies", "Sent": 1, "Success Rate": 0.25},
+                {"Item": "Tricat", "Sent": 2, "Success Rate": 0.5},
+            ]
+        )
+        real_csv_bytes = self.app.stats_export_csv_bytes
+
+        with mock.patch.object(self.app, "stats_export_csv_bytes", wraps=real_csv_bytes) as csv_bytes:
+            first = self.app.stats_export_csv_bytes_for_render(
+                frame,
+                "Stats Items",
+                columns=["Item", "Sent", "Success Rate"],
+                display_preparer=self.app.prepare_outcome_dataframe_for_display,
+            )
+            second = self.app.stats_export_csv_bytes_for_render(
+                frame.copy(),
+                "Stats Items",
+                columns=["Item", "Sent", "Success Rate"],
+                display_preparer=self.app.prepare_outcome_dataframe_for_display,
+            )
+
+        self.assertEqual(first, second)
+        self.assertEqual(csv_bytes.call_count, 1)
 
     def test_statistics_exclusion_fingerprint_tracks_filter_changes(self):
         state = self.app.st.session_state
@@ -2076,6 +2191,41 @@ class StatisticsTests(unittest.TestCase):
             self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Capturable Revenue per Year"),
             self.app.OUTCOME_ITEM_GROUP_COLUMNS.index("Captured Revenue %"),
         )
+
+    def test_outcome_summary_precomputed_numeric_columns_preserve_group_metrics(self):
+        outcomes = pd.DataFrame(
+            [
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Reminder Success", "Success Gap Days": "365", "Desired Gap Days": "365", "Avg Item Purchase Gap Days": "370", "Overall Repeat Purchases": "3", "Overall Purchases": "4", "Revenue per Item": "150", "Revenue": "120", "Revenue per Year": "300", "Theoretical Max Revenue": "600"},
+                {"Sender": "Nurse A", "Item": "Rabies", "Outcome": "Pending", "Success Gap Days": "", "Desired Gap Days": "365", "Avg Item Purchase Gap Days": "370", "Overall Repeat Purchases": "3", "Overall Purchases": "4", "Revenue per Item": "150", "Revenue": "0", "Revenue per Year": "300", "Theoretical Max Revenue": "600"},
+                {"Sender": "Nurse B", "Item": "Bravecto", "Outcome": "No Match", "Success Gap Days": "", "Desired Gap Days": "90", "Avg Item Purchase Gap Days": "120", "Overall Repeat Purchases": "2", "Overall Purchases": "5", "Revenue per Item": "100", "Revenue": "0", "Revenue per Year": "200", "Theoretical Max Revenue": "500"},
+            ]
+        )
+
+        raw_summary = self.app.summarize_outcomes(outcomes)
+        prepared = self.app.outcome_summary_precompute_numeric_columns(outcomes.copy())
+        prepared_summary = self.app.summarize_outcomes(prepared)
+
+        self.assertEqual(raw_summary.keys(), prepared_summary.keys())
+        for key in raw_summary:
+            raw_value = raw_summary[key]
+            prepared_value = prepared_summary[key]
+            if pd.isna(raw_value) and pd.isna(prepared_value):
+                continue
+            self.assertEqual(raw_value, prepared_value)
+
+        with mock.patch.object(
+            self.app,
+            "outcome_summary_precompute_numeric_columns",
+            wraps=self.app.outcome_summary_precompute_numeric_columns,
+        ) as precompute:
+            grouped = self.app.build_outcome_group_frame(outcomes, "Sender")
+
+        precompute.assert_called_once()
+        rows = {row["Sender"]: row for row in grouped.to_dict("records")}
+        self.assertEqual(rows["Nurse A"]["Sent"], 2)
+        self.assertEqual(rows["Nurse A"]["Successes"], 1)
+        self.assertEqual(rows["Nurse A"]["Revenue"], 120)
+        self.assertEqual(rows["Nurse B"]["Overall Repeat Purchases"], 2)
 
     def test_render_outcome_dataframe_uses_native_sortable_dataframe_for_summary_rows(self):
         frame = pd.DataFrame([
