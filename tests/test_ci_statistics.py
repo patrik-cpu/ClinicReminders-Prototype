@@ -3,6 +3,7 @@ import importlib
 import io
 import unittest
 from datetime import date
+from unittest import mock
 
 import pandas as pd
 
@@ -1183,6 +1184,52 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("25.0000%", style)
         self.assertIn("50.0000%", style)
         self.assertIn("100.0000%", style)
+
+    def test_outcome_success_meter_html_shows_three_colour_line(self):
+        row = pd.Series({
+            "Sent": 4,
+            "Successes": 1,
+            "Pending": 1,
+            "No Match": 2,
+            "Success Rate": 0.25,
+        })
+
+        html = self.app.outcome_success_meter_html(row)
+
+        self.assertIn("cr-outcome-meter-segment is-success", html)
+        self.assertIn("cr-outcome-meter-segment is-pending", html)
+        self.assertIn("cr-outcome-meter-segment is-no-match", html)
+        self.assertIn('style="width: 25.0000%"', html)
+        self.assertIn('style="width: 50.0000%"', html)
+        self.assertIn(">25%</span>", html)
+
+    def test_render_outcome_dataframe_uses_html_meter_table_for_summary_rows(self):
+        frame = pd.DataFrame([
+            {
+                "Item": "Rabies",
+                "Sent": 4,
+                "Successes": 1,
+                "Pending": 1,
+                "No Match": 2,
+                "Success Rate": 0.25,
+                "Desired Gap Days": 365,
+                "Avg Item Purchase Gap Days": 370,
+                "Revenue": 120,
+            }
+        ])
+
+        with (
+            mock.patch.object(self.app.st, "markdown") as markdown,
+            mock.patch.object(self.app.st, "dataframe") as dataframe,
+        ):
+            self.app.render_outcome_dataframe(frame)
+
+        dataframe.assert_not_called()
+        rendered_html = markdown.call_args.args[0]
+        self.assertIn("cr-outcome-meter-table", rendered_html)
+        self.assertIn("cr-outcome-meter-segment is-success", rendered_html)
+        self.assertIn("cr-outcome-meter-segment is-pending", rendered_html)
+        self.assertIn("cr-outcome-meter-segment is-no-match", rendered_html)
 
     def test_prepare_outcome_dataframe_for_display_formats_dates_without_time(self):
         frame = pd.DataFrame(

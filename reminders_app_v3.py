@@ -9193,6 +9193,86 @@ st.markdown(
         min-width: 1.45rem;
         padding: 0.2rem 0.38rem;
       }
+      .cr-outcome-meter-table-wrap {
+        border: 1px solid var(--cr-border);
+        border-radius: 8px;
+        max-height: 32rem;
+        overflow: auto;
+        width: 100%;
+      }
+      .cr-outcome-meter-table {
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 0.88rem;
+        min-width: 920px;
+        width: 100%;
+      }
+      .cr-outcome-meter-table th,
+      .cr-outcome-meter-table td {
+        border-bottom: 1px solid var(--cr-border);
+        border-right: 1px solid var(--cr-border);
+        color: var(--cr-text);
+        padding: 0.48rem 0.55rem;
+        vertical-align: middle;
+        white-space: nowrap;
+      }
+      .cr-outcome-meter-table th {
+        background: #f8fafc;
+        color: #667085;
+        font-weight: 500;
+        position: sticky;
+        text-align: left;
+        top: 0;
+        z-index: 1;
+      }
+      .cr-outcome-meter-table td:last-child,
+      .cr-outcome-meter-table th:last-child {
+        border-right: 0;
+      }
+      .cr-outcome-meter-table tr:last-child td {
+        border-bottom: 0;
+      }
+      .cr-outcome-meter-number {
+        text-align: right;
+      }
+      .cr-outcome-meter-cell {
+        min-width: 12rem;
+      }
+      .cr-outcome-meter-content {
+        align-items: center;
+        display: flex;
+        gap: 0.5rem;
+        justify-content: space-between;
+      }
+      .cr-outcome-meter {
+        background: #ffffff;
+        border: 1px solid #dbe9e1;
+        border-radius: 999px;
+        display: flex;
+        flex: 1 1 auto;
+        height: 0.52rem;
+        min-width: 8rem;
+        overflow: hidden;
+      }
+      .cr-outcome-meter-segment {
+        height: 100%;
+      }
+      .cr-outcome-meter-segment.is-success {
+        background: #22c55e;
+      }
+      .cr-outcome-meter-segment.is-pending {
+        background: #ffffff;
+      }
+      .cr-outcome-meter-segment.is-no-match {
+        background: #ef4444;
+      }
+      .cr-outcome-meter-label {
+        color: var(--cr-text);
+        flex: 0 0 auto;
+        font-weight: 700;
+        min-width: 2.8rem;
+        text-align: right;
+      }
       .st-key-main_section_tab {
         border-bottom: 1px solid var(--cr-border);
         margin: 0.35rem 0 1rem;
@@ -12257,13 +12337,24 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     return display_frame
 
 
-def outcome_success_meter_cell_style(row: pd.Series) -> str:
+def outcome_success_meter_segments(row: pd.Series | dict) -> dict[str, float]:
     try:
         sent = max(0.0, float(row.get("Sent", 0) or 0))
     except (TypeError, ValueError):
         sent = 0.0
     if sent <= 0:
-        return ""
+        return {
+            "sent": 0.0,
+            "successes": 0.0,
+            "pending": 0.0,
+            "no_match": 0.0,
+            "success_width": 0.0,
+            "pending_width": 0.0,
+            "no_match_width": 0.0,
+            "success_end": 0.0,
+            "pending_end": 0.0,
+            "no_match_end": 0.0,
+        }
 
     def segment_count(column: str) -> float:
         try:
@@ -12274,14 +12365,35 @@ def outcome_success_meter_cell_style(row: pd.Series) -> str:
     successes = min(segment_count("Successes"), sent)
     pending = min(segment_count("Pending"), max(0.0, sent - successes))
     no_match = max(0.0, sent - successes - pending)
-    success_end = successes / sent * 100
-    pending_end = (successes + pending) / sent * 100
-    no_match_end = (successes + pending + no_match) / sent * 100
+    success_width = successes / sent * 100
+    pending_width = pending / sent * 100
+    no_match_width = no_match / sent * 100
+    success_end = success_width
+    pending_end = success_width + pending_width
+    no_match_end = success_width + pending_width + no_match_width
+    return {
+        "sent": sent,
+        "successes": successes,
+        "pending": pending,
+        "no_match": no_match,
+        "success_width": success_width,
+        "pending_width": pending_width,
+        "no_match_width": no_match_width,
+        "success_end": success_end,
+        "pending_end": pending_end,
+        "no_match_end": no_match_end,
+    }
+
+
+def outcome_success_meter_cell_style(row: pd.Series) -> str:
+    segments = outcome_success_meter_segments(row)
+    if segments["sent"] <= 0:
+        return ""
     return (
         "background-image: "
-        f"linear-gradient(to right, #22c55e 0%, #22c55e {success_end:.4f}%, "
-        f"#ffffff {success_end:.4f}%, #ffffff {pending_end:.4f}%, "
-        f"#ef4444 {pending_end:.4f}%, #ef4444 {no_match_end:.4f}%), "
+        f"linear-gradient(to right, #22c55e 0%, #22c55e {segments['success_end']:.4f}%, "
+        f"#ffffff {segments['success_end']:.4f}%, #ffffff {segments['pending_end']:.4f}%, "
+        f"#ef4444 {segments['pending_end']:.4f}%, #ef4444 {segments['no_match_end']:.4f}%), "
         "linear-gradient(to right, #dbe9e1, #dbe9e1); "
         "background-position: center, center; "
         "background-repeat: no-repeat, no-repeat; "
@@ -12290,16 +12402,118 @@ def outcome_success_meter_cell_style(row: pd.Series) -> str:
     )
 
 
-def apply_outcome_success_meter_style(display_frame: pd.DataFrame):
-    if not OUTCOME_SUCCESS_METER_COLUMNS.issubset(display_frame.columns):
-        return display_frame
-    return display_frame.style.apply(
-        lambda row: [
-            outcome_success_meter_cell_style(row) if column == "Success Rate" else ""
-            for column in display_frame.columns
-        ],
-        axis=1,
-    ).format({"Success Rate": "{:.0%}"})
+def outcome_success_meter_html(row: pd.Series | dict) -> str:
+    segments = outcome_success_meter_segments(row)
+    try:
+        rate = float(row.get("Success Rate", 0) or 0)
+    except (TypeError, ValueError):
+        rate = 0.0
+    rate = max(0.0, min(rate, 1.0))
+    label = f"{rate:.0%}"
+    aria = (
+        f"{label} success rate; "
+        f"{int(segments['successes'])} successes, "
+        f"{int(segments['pending'])} pending, "
+        f"{int(segments['no_match'])} no match"
+    )
+    segment_html = []
+    for key, class_name in [
+        ("success_width", "is-success"),
+        ("pending_width", "is-pending"),
+        ("no_match_width", "is-no-match"),
+    ]:
+        width = segments[key]
+        if width <= 0:
+            continue
+        segment_html.append(
+            f'<span class="cr-outcome-meter-segment {class_name}" style="width: {width:.4f}%"></span>'
+        )
+    if not segment_html:
+        segment_html.append('<span class="cr-outcome-meter-segment is-pending" style="width: 100%"></span>')
+    return (
+        '<div class="cr-outcome-meter-content">'
+        f'<div class="cr-outcome-meter" role="img" aria-label="{html_lib.escape(aria)}">'
+        + "".join(segment_html)
+        + "</div>"
+        f'<span class="cr-outcome-meter-label">{html_lib.escape(label)}</span>'
+        "</div>"
+    )
+
+
+def format_outcome_table_value(column: str, value) -> str:
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    if column in {"Sent", "Successes", "Pending", "No Match"}:
+        try:
+            return f"{int(float(value)):,}"
+        except (TypeError, ValueError):
+            return str(value)
+    if column == "Success Rate":
+        try:
+            return f"{float(value):.0%}"
+        except (TypeError, ValueError):
+            return str(value)
+    if column == "Desired Gap Days":
+        try:
+            return f"{float(value):.0f}"
+        except (TypeError, ValueError):
+            return str(value)
+    if column in {"Avg Success Gap Days", "Avg Item Purchase Gap Days"}:
+        try:
+            return f"{float(value):,.1f}"
+        except (TypeError, ValueError):
+            return str(value)
+    if column == "Revenue":
+        try:
+            return f"{float(value):,.2f}".rstrip("0").rstrip(".")
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)
+
+
+def render_outcome_success_meter_table(frame: pd.DataFrame) -> None:
+    display_frame = prepare_outcome_dataframe_for_display(frame)
+    original_columns = list(frame.columns)
+    display_columns = list(display_frame.columns)
+    numeric_columns = {
+        "Sent",
+        "Successes",
+        "Pending",
+        "No Match",
+        "Desired Gap Days",
+        "Avg Success Gap Days",
+        "Avg Item Purchase Gap Days",
+        "Revenue",
+    }
+    header_html = "".join(
+        f"<th>{html_lib.escape(str(column))}</th>"
+        for column in display_columns
+    )
+    rows_html = []
+    for raw_row, display_row in zip(frame.to_dict("records"), display_frame.to_dict("records")):
+        cells = []
+        for original_column, display_column in zip(original_columns, display_columns):
+            if original_column == "Success Rate":
+                cell_html = outcome_success_meter_html(raw_row)
+                cells.append(f'<td class="cr-outcome-meter-cell">{cell_html}</td>')
+                continue
+            text = format_outcome_table_value(original_column, display_row.get(display_column, ""))
+            class_name = ' class="cr-outcome-meter-number"' if original_column in numeric_columns else ""
+            cells.append(f"<td{class_name}>{html_lib.escape(text)}</td>")
+        rows_html.append("<tr>" + "".join(cells) + "</tr>")
+    st.markdown(
+        '<div class="cr-outcome-meter-table-wrap">'
+        '<table class="cr-outcome-meter-table">'
+        f"<thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{''.join(rows_html)}</tbody>"
+        "</table></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_outcome_dataframe(frame: pd.DataFrame, columns: list[str] | None = None):
@@ -12308,8 +12522,10 @@ def render_outcome_dataframe(frame: pd.DataFrame, columns: list[str] | None = No
     if frame.empty:
         st.info("No outcome rows for this view yet.")
         return
+    if OUTCOME_SUCCESS_METER_COLUMNS.issubset(frame.columns):
+        render_outcome_success_meter_table(frame)
+        return
     display_frame = prepare_outcome_dataframe_for_display(frame)
-    display_data = apply_outcome_success_meter_style(display_frame)
     column_config = {
         "Desired Gap Days": st.column_config.NumberColumn("Desired Gap Days", format="%.0f"),
         "Success Gap Days": st.column_config.NumberColumn("Success Gap Days", format="%.0f"),
@@ -12318,10 +12534,9 @@ def render_outcome_dataframe(frame: pd.DataFrame, columns: list[str] | None = No
         "Avg Item Purchase Gap Days": st.column_config.NumberColumn("Avg Item Purchase Gap Days", format="%.1f"),
         "Revenue": st.column_config.NumberColumn("Revenue", format="localized"),
     }
-    if not OUTCOME_SUCCESS_METER_COLUMNS.issubset(display_frame.columns):
-        column_config["Success Rate"] = st.column_config.ProgressColumn("Success Rate", format="percent", min_value=0, max_value=1)
+    column_config["Success Rate"] = st.column_config.ProgressColumn("Success Rate", format="percent", min_value=0, max_value=1)
     st.dataframe(
-        display_data,
+        display_frame,
         hide_index=True,
         use_container_width=True,
         column_config=column_config,
