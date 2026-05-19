@@ -7928,7 +7928,8 @@ def render_main_section_nav(active_tab: str) -> None:
     for tab_name in MAIN_SECTION_TABS:
         count = main_section_tab_badge_count(tab_name)
         widths.append(max(1.2, min(2.6, len(tab_name) / 8 + (0.35 if count > 0 else 0))))
-    columns = st.columns(widths, gap="small")
+    nav_spacer_width = 7.8
+    columns = st.columns([*widths, nav_spacer_width], gap="small")[:len(MAIN_SECTION_TABS)]
     for column, tab_name in zip(columns, MAIN_SECTION_TABS):
         with column:
             st.button(

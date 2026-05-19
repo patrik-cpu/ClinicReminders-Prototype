@@ -78,6 +78,8 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("st.button(", source)
         self.assertIn("on_click=set_main_section_tab", source)
         self.assertIn("render_main_section_nav(active_main_section)", source)
+        self.assertIn("nav_spacer_width = 7.8", source)
+        self.assertIn("[*widths, nav_spacer_width]", source)
         self.assertNotIn('<a class="cr-main-section-tab"', source)
         self.assertNotIn('href="?{MAIN_SECTION_TAB_QUERY_PARAM}', source)
         self.assertIn("box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;", source)
