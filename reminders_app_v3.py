@@ -1591,7 +1591,7 @@ st.markdown(
     }
     .block-container h1, .block-container h2, .block-container h3 { margin-top: 0.2rem; }
     div[data-testid="stButton"] { min-height: 0px !important; height: auto !important; }
-    .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; padding-bottom: 7rem !important; }
+    .block-container { max-width: 100% !important; padding-left: 2rem; padding-right: 2rem; padding-bottom: max(7rem, 42vh) !important; }
     h2[id] { scroll-margin-top: 80px; }
     .anchor-offset { position: relative; top: -100px; height: 0; }
     .sidebar-clinic-block {
