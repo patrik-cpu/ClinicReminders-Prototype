@@ -64,9 +64,9 @@ class VisualThemeCssTests(unittest.TestCase):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
         for selector in [
-            ".cr-main-section-nav",
-            ".cr-main-section-tab.is-active",
-            ".cr-main-section-badge",
+            ".cr-main-section-nav-rule",
+            '[class*="st-key-main_section_nav_"] button',
+            ".st-key-{active_button_key} button",
             '.st-key-main_section_tab [data-baseweb="button-group"] [aria-checked="true"]',
             '.st-key-main_section_tab [data-baseweb="button"][aria-checked="true"]',
             '.st-key-main_section_tab [aria-checked="true"]:hover',
@@ -74,9 +74,12 @@ class VisualThemeCssTests(unittest.TestCase):
             with self.subTest(selector=selector):
                 self.assertIn(selector, source)
 
-        self.assertIn('aria-current="page"', source)
+        self.assertIn("st.button(", source)
+        self.assertIn("on_click=set_main_section_tab", source)
         self.assertIn("render_main_section_nav(active_main_section)", source)
-        self.assertIn("box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-surface) !important;", source)
+        self.assertNotIn('<a class="cr-main-section-tab"', source)
+        self.assertNotIn('href="?{MAIN_SECTION_TAB_QUERY_PARAM}', source)
+        self.assertIn("box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;", source)
         self.assertIn("background: var(--cr-primary) !important;", source)
 
 

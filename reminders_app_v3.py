@@ -7893,23 +7893,54 @@ def main_section_tab_badge_count(tab_name: str) -> int:
     return 0
 
 
+def main_section_nav_button_key(tab_name: str) -> str:
+    slug = MAIN_SECTION_TAB_TO_SLUG.get(tab_name, tab_name.lower().replace(" ", "-"))
+    return f"main_section_nav_{slug.replace('-', '_')}"
+
+
 def render_main_section_nav(active_tab: str) -> None:
-    links = []
-    for tab_name in MAIN_SECTION_TABS:
-        slug = MAIN_SECTION_TAB_TO_SLUG.get(tab_name, "")
-        is_active = tab_name == active_tab
-        classes = "cr-main-section-tab is-active" if is_active else "cr-main-section-tab"
-        aria_current = ' aria-current="page"' if is_active else ""
-        count = main_section_tab_badge_count(tab_name)
-        badge_html = f'<span class="cr-main-section-badge">{count}</span>' if count > 0 else ""
-        links.append(
-            f'<a class="{classes}" href="?{MAIN_SECTION_TAB_QUERY_PARAM}={html_lib.escape(slug)}"{aria_current}>'
-            f'<span>{html_lib.escape(tab_name)}</span>{badge_html}</a>'
-        )
+    active_button_key = main_section_nav_button_key(active_tab)
     st.markdown(
-        '<nav class="cr-main-section-nav" aria-label="Main section">'
-        + "".join(links)
-        + "</nav>",
+        f"""
+        <style>
+          .st-key-{active_button_key} button {{
+            background: var(--cr-primary) !important;
+            border-color: var(--cr-primary-dark) !important;
+            box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;
+            color: #062d19 !important;
+            position: relative !important;
+            z-index: 1 !important;
+          }}
+          .st-key-{active_button_key} button:hover {{
+            background: var(--cr-primary) !important;
+            border-color: var(--cr-primary-dark) !important;
+            color: #062d19 !important;
+          }}
+          .st-key-{active_button_key} button p,
+          .st-key-{active_button_key} button span {{
+            color: #062d19 !important;
+          }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    widths = []
+    for tab_name in MAIN_SECTION_TABS:
+        count = main_section_tab_badge_count(tab_name)
+        widths.append(max(1.2, min(2.6, len(tab_name) / 8 + (0.35 if count > 0 else 0))))
+    columns = st.columns(widths, gap="small")
+    for column, tab_name in zip(columns, MAIN_SECTION_TABS):
+        with column:
+            st.button(
+                main_section_tab_label(tab_name),
+                key=main_section_nav_button_key(tab_name),
+                on_click=set_main_section_tab,
+                args=(tab_name,),
+                type="secondary",
+                use_container_width=True,
+            )
+    st.markdown(
+        '<div class="cr-main-section-nav-rule" aria-hidden="true"></div>',
         unsafe_allow_html=True,
     )
 
@@ -9134,18 +9165,16 @@ st.markdown(
         font-weight: 600 !important;
         line-height: 1.2 !important;
       }
-      .cr-main-section-nav {
+      div[data-testid="stHorizontalBlock"]:has([class*="st-key-main_section_nav_"]) {
         align-items: flex-end;
-        border-bottom: 1px solid var(--cr-border);
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.2rem;
-        margin: 0.35rem 0 1rem;
-        overflow: visible;
-        padding-top: 0.15rem;
+        column-gap: 0.2rem !important;
+        margin: 0.35rem 0 0 !important;
       }
-      .cr-main-section-tab {
-        align-items: center;
+      .cr-main-section-nav-rule {
+        border-bottom: 1px solid var(--cr-border);
+        margin: -1px 0 1rem;
+      }
+      [class*="st-key-main_section_nav_"] button {
         background: var(--cr-primary-quiet);
         border: 1px solid var(--cr-border);
         border-bottom: 0;
@@ -9164,34 +9193,28 @@ st.markdown(
         text-decoration: none !important;
         white-space: nowrap;
       }
-      .cr-main-section-tab:hover {
+      [class*="st-key-main_section_nav_"] button:hover {
         background: var(--cr-primary-soft);
+        border-color: var(--cr-border);
         color: #062d19 !important;
         text-decoration: none !important;
       }
-      .cr-main-section-tab.is-active {
-        background: var(--cr-primary) !important;
-        border-color: var(--cr-primary-dark) !important;
-        box-shadow: inset 0 4px 0 var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;
-        color: #062d19 !important;
-        position: relative;
-        z-index: 1;
+      [class*="st-key-main_section_nav_"] button p,
+      [class*="st-key-main_section_nav_"] button span {
+        color: #23513a !important;
+        font-size: 1.35rem !important;
+        font-weight: 800 !important;
+        line-height: 1.2 !important;
       }
-      .cr-main-section-tab.is-active:hover {
-        background: var(--cr-primary) !important;
+      [class*="st-key-main_section_nav_"] button img {
+        display: inline-block !important;
+        height: 1.1rem !important;
+        margin-left: 0.25rem !important;
+        max-width: none !important;
+        vertical-align: -0.15rem !important;
       }
-      .cr-main-section-badge {
-        align-items: center;
-        background: #dc2626;
-        border-radius: 999px;
-        color: #ffffff;
-        display: inline-flex;
-        font-size: 0.78rem;
-        font-weight: 800;
-        justify-content: center;
-        line-height: 1;
-        min-width: 1.45rem;
-        padding: 0.2rem 0.38rem;
+      [class*="st-key-main_section_nav_"] button:focus {
+        box-shadow: inset 0 -1px 0 var(--cr-border), 0 0 0 2px rgba(34, 197, 94, 0.25) !important;
       }
       .cr-outcome-meter-table-wrap {
         border: 1px solid var(--cr-border);
@@ -9442,10 +9465,13 @@ st.markdown(
         padding: 0.35rem 0.8rem !important;
       }
       @media (max-width: 900px) {
-        .cr-main-section-tab {
-          font-size: 1.05rem;
+        [class*="st-key-main_section_nav_"] button {
           min-height: 2.65rem;
           padding: 0.45rem 0.65rem;
+        }
+        [class*="st-key-main_section_nav_"] button p,
+        [class*="st-key-main_section_nav_"] button span {
+          font-size: 1.05rem !important;
         }
         .st-key-main_section_tab [role="radio"],
         .st-key-main_section_tab button,
@@ -9479,8 +9505,9 @@ st.markdown(
         }
       }
       @media (max-width: 640px) {
-        .cr-main-section-tab {
-          font-size: 0.98rem;
+        [class*="st-key-main_section_nav_"] button p,
+        [class*="st-key-main_section_nav_"] button span {
+          font-size: 0.98rem !important;
         }
         .st-key-main_section_tab [role="radio"],
         .st-key-main_section_tab button,
