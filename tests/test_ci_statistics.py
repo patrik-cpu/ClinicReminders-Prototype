@@ -1298,18 +1298,38 @@ class StatisticsTests(unittest.TestCase):
 
         with (
             mock.patch.object(self.app.st, "markdown") as markdown,
+            mock.patch.object(self.app.st, "button") as button,
             mock.patch.object(self.app.st, "dataframe") as dataframe,
         ):
-            self.app.render_outcome_dataframe(frame)
+            self.app.render_outcome_dataframe(frame, table_key="outcomes_by_item")
 
         dataframe.assert_not_called()
         rendered_html = markdown.call_args.args[0]
+        sort_button_labels = [call.args[0] for call in button.call_args_list]
+        self.assertIn("Item", sort_button_labels)
+        self.assertIn("Successes ↓", sort_button_labels)
+        self.assertIn("Overall Avg Purchase Gap Days", sort_button_labels)
         self.assertIn("cr-outcome-meter-table", rendered_html)
         self.assertIn("cr-outcome-meter-segment is-success", rendered_html)
         self.assertIn("cr-outcome-meter-segment is-pending", rendered_html)
         self.assertIn("cr-outcome-meter-segment is-no-match", rendered_html)
-        self.assertIn("Overall Avg Purchase Gap Days", rendered_html)
         self.assertNotIn("Avg Item Purchase Gap Days</th>", rendered_html)
+
+    def test_sort_outcome_table_frame_uses_click_state_for_meter_rows(self):
+        frame = pd.DataFrame(
+            [
+                {"Item": "Zed", "Sent": 2, "Successes": 1, "Pending": 0, "No Match": 1, "Success Rate": 0.5},
+                {"Item": "Alpha", "Sent": 10, "Successes": 2, "Pending": 3, "No Match": 5, "Success Rate": 0.2},
+            ]
+        )
+
+        self.app.set_outcome_table_sort("outcomes_by_item", "Item", default_ascending=True)
+        sorted_by_item = self.app.sort_outcome_table_frame(frame, "outcomes_by_item")
+        self.assertEqual(list(sorted_by_item["Item"]), ["Alpha", "Zed"])
+
+        self.app.set_outcome_table_sort("outcomes_by_item", "Sent", default_ascending=False)
+        sorted_by_sent = self.app.sort_outcome_table_frame(frame, "outcomes_by_item")
+        self.assertEqual(list(sorted_by_sent["Sent"]), [10, 2])
 
     def test_prepare_outcome_dataframe_for_display_formats_dates_without_time(self):
         frame = pd.DataFrame(

@@ -11069,6 +11069,19 @@ OUTCOME_SENDER_GROUP_COLUMNS = [
     "Revenue",
 ]
 OUTCOME_SUCCESS_METER_COLUMNS = {"Sent", "Successes", "Pending", "No Match", "Success Rate"}
+OUTCOME_SORT_NUMERIC_COLUMNS = {
+    "Sent",
+    "Successes",
+    "Pending",
+    "No Match",
+    "Success Rate",
+    "Desired Gap Days",
+    "Success Gap Days",
+    "Next Purchase Gap Days",
+    "Avg Success Gap Days",
+    "Avg Item Purchase Gap Days",
+    "Revenue",
+}
 
 
 def statistics_exclusion_fp() -> str:
@@ -12382,6 +12395,59 @@ def prepare_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     return display_frame
 
 
+def safe_outcome_sort_key_part(value: str) -> str:
+    return re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower()).strip("_") or "table"
+
+
+def get_outcome_table_sort(table_key: str, default_column: str, default_ascending: bool) -> dict:
+    state_key = f"{table_key}_outcome_sort"
+    current = st.session_state.get(state_key)
+    if isinstance(current, dict) and current.get("column"):
+        return {
+            "column": str(current.get("column")),
+            "ascending": bool(current.get("ascending", default_ascending)),
+        }
+    return {"column": default_column, "ascending": default_ascending}
+
+
+def set_outcome_table_sort(table_key: str, column: str, default_ascending: bool = False) -> None:
+    state_key = f"{table_key}_outcome_sort"
+    current = st.session_state.get(state_key)
+    if isinstance(current, dict) and current.get("column") == column:
+        st.session_state[state_key] = {"column": column, "ascending": not bool(current.get("ascending", default_ascending))}
+        return
+    st.session_state[state_key] = {"column": column, "ascending": default_ascending}
+
+
+def sort_outcome_table_frame(
+    frame: pd.DataFrame,
+    table_key: str,
+    default_column: str = "Successes",
+    default_ascending: bool = False,
+) -> pd.DataFrame:
+    if frame is None or frame.empty:
+        return frame
+    sort_state = get_outcome_table_sort(table_key, default_column, default_ascending)
+    sort_column = sort_state["column"]
+    if sort_column not in frame.columns:
+        return frame
+
+    sorted_frame = frame.copy()
+    helper_col = "__outcome_sort_value"
+    if sort_column in OUTCOME_DISPLAY_DATE_COLUMNS:
+        sorted_frame[helper_col] = pd.to_datetime(sorted_frame[sort_column], errors="coerce")
+    elif sort_column in OUTCOME_SORT_NUMERIC_COLUMNS:
+        sorted_frame[helper_col] = pd.to_numeric(sorted_frame[sort_column], errors="coerce")
+    else:
+        sorted_frame[helper_col] = sorted_frame[sort_column].fillna("").astype(str).map(lambda value: value.casefold())
+
+    return (
+        sorted_frame
+        .sort_values(helper_col, ascending=sort_state["ascending"], kind="mergesort", na_position="last")
+        .drop(columns=[helper_col])
+    )
+
+
 def outcome_success_meter_segments(row: pd.Series | dict) -> dict[str, float]:
     try:
         sent = max(0.0, float(row.get("Sent", 0) or 0))
@@ -12521,7 +12587,69 @@ def format_outcome_table_value(column: str, value) -> str:
     return str(value)
 
 
-def render_outcome_success_meter_table(frame: pd.DataFrame) -> None:
+def render_outcome_sort_header(
+    frame: pd.DataFrame,
+    table_key: str,
+    default_column: str = "Successes",
+    default_ascending: bool = False,
+) -> None:
+    if frame is None or frame.empty:
+        return
+    sort_state = get_outcome_table_sort(table_key, default_column, default_ascending)
+    display_columns = list(prepare_outcome_dataframe_for_display(frame).columns)
+    original_columns = list(frame.columns)
+    columns = st.columns([max(1.0, min(3.2, len(str(column)) / 9)) for column in display_columns], gap="small")
+    safe_table_key = safe_outcome_sort_key_part(table_key)
+    st.markdown(
+        f"""
+        <style>
+          [class*="st-key-outcome_sort_{safe_table_key}_"] button {{
+            background: #f8fafc !important;
+            border: 1px solid var(--cr-border) !important;
+            border-radius: 6px !important;
+            color: #475569 !important;
+            font-size: 0.82rem !important;
+            font-weight: 700 !important;
+            min-height: 2rem !important;
+            padding: 0.25rem 0.45rem !important;
+            text-align: left !important;
+          }}
+          [class*="st-key-outcome_sort_{safe_table_key}_"] button:hover {{
+            background: var(--cr-primary-soft) !important;
+            color: #062d19 !important;
+          }}
+          [class*="st-key-outcome_sort_{safe_table_key}_"] button p {{
+            color: inherit !important;
+            font-size: 0.82rem !important;
+            font-weight: 700 !important;
+            line-height: 1.15 !important;
+          }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    for idx, (column_container, original_column, display_column) in enumerate(zip(columns, original_columns, display_columns)):
+        label = str(display_column)
+        if sort_state["column"] == original_column:
+            label = f"{label} {'↑' if sort_state['ascending'] else '↓'}"
+        with column_container:
+            st.button(
+                label,
+                key=f"outcome_sort_{safe_table_key}_{idx}",
+                on_click=set_outcome_table_sort,
+                args=(table_key, original_column, original_column not in OUTCOME_SORT_NUMERIC_COLUMNS),
+                use_container_width=True,
+            )
+
+
+def render_outcome_success_meter_table(
+    frame: pd.DataFrame,
+    table_key: str = "outcome_meter",
+    default_sort_column: str = "Successes",
+    default_sort_ascending: bool = False,
+) -> None:
+    frame = sort_outcome_table_frame(frame, table_key, default_sort_column, default_sort_ascending)
+    render_outcome_sort_header(frame, table_key, default_sort_column, default_sort_ascending)
     display_frame = prepare_outcome_dataframe_for_display(frame)
     original_columns = list(frame.columns)
     display_columns = list(display_frame.columns)
@@ -12535,10 +12663,6 @@ def render_outcome_success_meter_table(frame: pd.DataFrame) -> None:
         "Avg Item Purchase Gap Days",
         "Revenue",
     }
-    header_html = "".join(
-        f"<th>{html_lib.escape(str(column))}</th>"
-        for column in display_columns
-    )
     rows_html = []
     for raw_row, display_row in zip(frame.to_dict("records"), display_frame.to_dict("records")):
         cells = []
@@ -12554,21 +12678,26 @@ def render_outcome_success_meter_table(frame: pd.DataFrame) -> None:
     st.markdown(
         '<div class="cr-outcome-meter-table-wrap">'
         '<table class="cr-outcome-meter-table">'
-        f"<thead><tr>{header_html}</tr></thead>"
         f"<tbody>{''.join(rows_html)}</tbody>"
         "</table></div>",
         unsafe_allow_html=True,
     )
 
 
-def render_outcome_dataframe(frame: pd.DataFrame, columns: list[str] | None = None):
+def render_outcome_dataframe(
+    frame: pd.DataFrame,
+    columns: list[str] | None = None,
+    table_key: str = "outcome_table",
+    default_sort_column: str = "Successes",
+    default_sort_ascending: bool = False,
+):
     if columns is not None and frame is not None and not frame.empty:
         frame = frame[[column for column in columns if column in frame.columns]]
     if frame.empty:
         st.info("No outcome rows for this view yet.")
         return
     if OUTCOME_SUCCESS_METER_COLUMNS.issubset(frame.columns):
-        render_outcome_success_meter_table(frame)
+        render_outcome_success_meter_table(frame, table_key, default_sort_column, default_sort_ascending)
         return
     display_frame = prepare_outcome_dataframe_for_display(frame)
     column_config = {
@@ -12688,20 +12817,26 @@ def render_outcomes_tab(sales_df: pd.DataFrame):
     with sent_tab:
         sent_rows = period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
         sent_rows = paginate_dataframe(sent_rows, "outcomes_sent", OUTCOME_SENT_PAGE_SIZE, "sent outcome rows")
-        render_outcome_dataframe(sent_rows, OUTCOME_SENT_DISPLAY_COLUMNS)
+        render_outcome_dataframe(sent_rows, OUTCOME_SENT_DISPLAY_COLUMNS, table_key="outcomes_sent")
 
     with success_tab:
         success_rows = period_rows.loc[period_rows["Outcome"].eq("Reminder Success")].sort_values(
             ["Success Date", "Client Name"],
             ascending=[False, True],
         )
-        render_outcome_dataframe(success_rows, OUTCOME_SENT_DISPLAY_COLUMNS)
+        render_outcome_dataframe(success_rows, OUTCOME_SENT_DISPLAY_COLUMNS, table_key="outcomes_successes")
 
     with item_tab:
-        render_outcome_dataframe(build_outcome_group_frame(period_rows, "Item", OUTCOME_ITEM_GROUP_COLUMNS))
+        render_outcome_dataframe(
+            build_outcome_group_frame(period_rows, "Item", OUTCOME_ITEM_GROUP_COLUMNS),
+            table_key="outcomes_by_item",
+        )
 
     with sender_tab:
-        render_outcome_dataframe(build_outcome_group_frame(period_rows, "Sender", OUTCOME_SENDER_GROUP_COLUMNS))
+        render_outcome_dataframe(
+            build_outcome_group_frame(period_rows, "Sender", OUTCOME_SENDER_GROUP_COLUMNS),
+            table_key="outcomes_by_sender",
+        )
 
 
 def statistics_completion_metric_labels(period: str) -> list[str]:
