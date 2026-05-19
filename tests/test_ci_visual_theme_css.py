@@ -92,10 +92,11 @@ class VisualThemeCssTests(unittest.TestCase):
     def test_statistics_explains_mixed_date_filters(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
-        self.assertIn("Overview, Items, Completion, and the daily chart use Reminder Date", source)
-        self.assertIn("Team uses Actioned Date", source)
-        self.assertIn("Filtered by Reminder Date: reminders scheduled in the selected period.", source)
-        self.assertIn("Filtered by Actioned Date: reminders marked sent or declined in the selected period.", source)
+        self.assertIn("Overview, Items, Completion, and the daily chart are filtered by Reminder Date", source)
+        self.assertIn("Team is filtered by Actioned Date", source)
+        self.assertIn('st.caption("Filtered by Reminder Date")', source)
+        self.assertIn('st.caption("Filtered by Actioned Date")', source)
+        self.assertIn('STATISTICS_SCHEDULED_REMINDERS_LABEL = "Scheduled reminders"', source)
 
 
 if __name__ == "__main__":

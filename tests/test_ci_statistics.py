@@ -114,12 +114,21 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(
             self.app.statistics_completion_metric_labels("All time"),
             [
-                "All time Generated",
+                "All time Scheduled reminders",
                 "All time Actioned",
                 "All time Remaining",
                 "All time Ring",
             ],
         )
+
+    def test_statistics_display_frame_renames_generated_for_users(self):
+        frame = pd.DataFrame([{"Generated": 2, "Actioned": 1}])
+
+        display_frame = self.app.prepare_statistics_display_frame(frame)
+
+        self.assertIn("Scheduled reminders", display_frame.columns)
+        self.assertNotIn("Generated", display_frame.columns)
+        self.assertEqual(display_frame.iloc[0]["Scheduled reminders"], 2)
 
     def test_statistics_exclusion_fingerprint_tracks_filter_changes(self):
         state = self.app.st.session_state
