@@ -168,6 +168,70 @@ class ErrorHandlingObservabilityTests(unittest.TestCase):
         st_code.assert_not_called()
         record_error.assert_called_once()
 
+    def test_drive_download_timeout_records_sanitized_diagnostic(self):
+        class FakeFiles:
+            def get_media(self, **kwargs):
+                return object()
+
+        class FakeService:
+            def files(self):
+                return FakeFiles()
+
+        class SlowDownloader:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def next_chunk(self):
+                return None, False
+
+        with (
+            patch.object(self.app, "get_drive_service", return_value=FakeService()),
+            patch.object(self.app, "MediaIoBaseDownload", SlowDownloader),
+            patch.object(self.app.time, "perf_counter", side_effect=[0.0, 0.5, 2.0]),
+            patch.object(self.app, "record_error_tracker_event") as record_error,
+            patch.object(self.app.st, "error") as st_error,
+        ):
+            with self.assertRaises(self.app.DriveTransferTimeoutError):
+                self.app.drive_download_bytes("1AbCdEfGhIjKlMnOpQrStUv", timeout_seconds=1)
+
+        st_error.assert_called_once_with("Drive download timed out. Please try again or contact support.")
+        record_error.assert_called_once()
+        _, kwargs = record_error.call_args
+        self.assertEqual(kwargs["stage"], "drive_download_bytes")
+        self.assertEqual(kwargs["source"], "drive_download_bytes")
+
+    def test_drive_upload_timeout_records_sanitized_diagnostic(self):
+        class SlowUploadRequest:
+            def next_chunk(self):
+                return None, None
+
+        class FakeFiles:
+            def create(self, **kwargs):
+                return SlowUploadRequest()
+
+        class FakeService:
+            def files(self):
+                return FakeFiles()
+
+        with (
+            patch.object(self.app, "get_drive_service", return_value=FakeService()),
+            patch.object(self.app.time, "perf_counter", side_effect=[0.0, 0.5, 2.0]),
+            patch.object(self.app, "record_error_tracker_event") as record_error,
+        ):
+            with self.assertRaises(self.app.DriveTransferTimeoutError):
+                self.app.drive_upsert_csv_bytes(
+                    b"ChargeDate,Client Name\n2025-01-01,Client A\n",
+                    "clinic.csv",
+                    "folder-id",
+                    existing_file_id=None,
+                    timeout_seconds=1,
+                )
+
+        record_error.assert_called_once()
+        _, kwargs = record_error.call_args
+        self.assertEqual(kwargs["stage"], "drive_upsert_csv_bytes")
+        self.assertEqual(kwargs["source"], "drive_upsert_csv_bytes")
+
 
 if __name__ == "__main__":
     unittest.main()

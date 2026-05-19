@@ -339,6 +339,7 @@ top_account_slot = tut_col.empty()
 # === Drive folder where canonical datasets live ===
 DEFAULT_DATASETS_FOLDER_ID = "1omuJfEmo_nuntr5uQBJhil_Q8ZNa2Lpr"  # from Drive folder URL
 DATASETS_FOLDER_ID = config_value("DATASETS_FOLDER_ID", DEFAULT_DATASETS_FOLDER_ID)
+DRIVE_TRANSFER_TIMEOUT_SECONDS = 300
 
 # === Sheet columns you created ===
 WORKSHEET_NAME_SUFFIX = config_value("WORKSHEET_NAME_SUFFIX", default_worksheet_name_suffix())
@@ -1123,6 +1124,10 @@ class TenantAuthorizationError(PermissionError):
 
 
 class SettingsFreshReadError(RuntimeError):
+    pass
+
+
+class DriveTransferTimeoutError(TimeoutError):
     pass
 
 
@@ -3005,7 +3010,20 @@ def get_drive_service():
 
     return build("drive", "v3", credentials=creds)
 
-def drive_download_bytes(file_id: str, clinic_id: str | None = None, current_file_id: str | None = None) -> bytes:
+def raise_if_drive_transfer_timed_out(started_at: float, timeout_seconds: float | int | None, operation: str) -> None:
+    if timeout_seconds is None:
+        return
+    elapsed = time.perf_counter() - started_at
+    if elapsed >= float(timeout_seconds):
+        raise DriveTransferTimeoutError(f"{operation} timed out after {elapsed:.1f}s. Please try again.")
+
+
+def drive_download_bytes(
+    file_id: str,
+    clinic_id: str | None = None,
+    current_file_id: str | None = None,
+    timeout_seconds: float | int | None = DRIVE_TRANSFER_TIMEOUT_SECONDS,
+) -> bytes:
     if clinic_id is not None:
         require_clinic_dataset_file_access(clinic_id, file_id, current_file_id=current_file_id)
     service = get_drive_service()
@@ -3013,10 +3031,22 @@ def drive_download_bytes(file_id: str, clinic_id: str | None = None, current_fil
         request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
         fh = BytesIO()
         downloader = MediaIoBaseDownload(fh, request)
+        started_at = time.perf_counter()
         done = False
         while not done:
+            raise_if_drive_transfer_timed_out(started_at, timeout_seconds, "Drive download")
             _, done = downloader.next_chunk()
+            raise_if_drive_transfer_timed_out(started_at, timeout_seconds, "Drive download")
         return fh.getvalue()
+    except DriveTransferTimeoutError as e:
+        record_error_tracker_event(
+            "drive_download_timeout",
+            stage="drive_download_bytes",
+            error=e,
+            source="drive_download_bytes",
+        )
+        st.error("Drive download timed out. Please try again or contact support.")
+        raise
     except HttpError as e:
         record_error_tracker_event(
             "drive_download_failed",
@@ -3335,6 +3365,7 @@ def drive_upsert_csv_bytes(
     folder_id: str,
     existing_file_id: str | None,
     clinic_id: str | None = None,
+    timeout_seconds: float | int | None = DRIVE_TRANSFER_TIMEOUT_SECONDS,
 ) -> str:
     """
     If existing_file_id is provided -> update that file in-place.
@@ -3371,8 +3402,20 @@ def drive_upsert_csv_bytes(
         )
 
     resp = None
-    while resp is None:
-        status, resp = req.next_chunk()
+    started_at = time.perf_counter()
+    try:
+        while resp is None:
+            raise_if_drive_transfer_timed_out(started_at, timeout_seconds, "Drive upload")
+            status, resp = req.next_chunk()
+            raise_if_drive_transfer_timed_out(started_at, timeout_seconds, "Drive upload")
+    except DriveTransferTimeoutError as e:
+        record_error_tracker_event(
+            "drive_upload_timeout",
+            stage="drive_upsert_csv_bytes",
+            error=e,
+            source="drive_upsert_csv_bytes",
+        )
+        raise
 
     return resp["id"]
 
