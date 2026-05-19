@@ -1230,6 +1230,8 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("cr-outcome-meter-segment is-success", rendered_html)
         self.assertIn("cr-outcome-meter-segment is-pending", rendered_html)
         self.assertIn("cr-outcome-meter-segment is-no-match", rendered_html)
+        self.assertIn("Overall Avg Purchase Gap Days", rendered_html)
+        self.assertNotIn("Avg Item Purchase Gap Days</th>", rendered_html)
 
     def test_prepare_outcome_dataframe_for_display_formats_dates_without_time(self):
         frame = pd.DataFrame(
@@ -1242,6 +1244,7 @@ class StatisticsTests(unittest.TestCase):
                     "Window Starts": pd.Timestamp("2024-01-01"),
                     "Success Date": pd.Timestamp("2024-03-05"),
                     "Window Ends": pd.Timestamp("2024-04-30"),
+                    "Avg Item Purchase Gap Days": 370,
                     "Client Name": "Client A",
                 }
             ]
@@ -1253,6 +1256,8 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(display_frame.iloc[0]["Actioned Date"], "Feb-14-2024")
         self.assertEqual(display_frame.iloc[0]["Billed Date"], "Jan-01-2024")
         self.assertNotIn("Charge Date", display_frame.columns)
+        self.assertIn("Overall Avg Purchase Gap Days", display_frame.columns)
+        self.assertNotIn("Avg Item Purchase Gap Days", display_frame.columns)
         self.assertEqual(display_frame.iloc[0]["Due Date"], "")
         self.assertEqual(display_frame.iloc[0]["Window Ends"], "Apr-30-2024")
         self.assertEqual(str(frame.iloc[0]["Sent Date"]), "2024-01-13 00:00:00")
