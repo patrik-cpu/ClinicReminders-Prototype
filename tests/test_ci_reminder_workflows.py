@@ -153,7 +153,7 @@ class ReminderWorkflowTests(unittest.TestCase):
             patch.object(self.app, "load_action_tracker_records_for_clinic", return_value=[tracked_record]) as load_actions,
             patch.object(self.app, "load_shared_dataset_for_clinic") as load_dataset,
         ):
-            self.app.refresh_outcome_results_state()
+            self.app.refresh_outcome_results_state(sync_remote=True)
 
         state = self.app.st.session_state
         load_actions.assert_called_once_with("Clinic Workflow")
@@ -162,6 +162,23 @@ class ReminderWorkflowTests(unittest.TestCase):
         self.assertEqual(state["deleted_reminders"][0]["Action"], self.app.REMINDER_ACTION_SENT)
         self.assertEqual(len(state["wa_reminder_log"]), 1)
         self.assertEqual(state["_outcomes_refresh_success"], "Stats refreshed.")
+
+    def test_refresh_stats_applies_search_terms_without_remote_sync(self):
+        state = self.app.st.session_state
+        state["rules"] = {"rabies": {"days": 180, "use_qty": False}}
+        state["applied_rules"] = {"rabies": {"days": 365, "use_qty": False}}
+
+        with (
+            patch.object(self.app, "load_action_tracker_records_for_clinic") as load_actions,
+            patch.object(self.app, "load_shared_dataset_for_clinic") as load_dataset,
+        ):
+            self.app.refresh_outcome_results_state()
+
+        load_actions.assert_not_called()
+        load_dataset.assert_not_called()
+        self.assertEqual(state["applied_rules"], state["rules"])
+        self.assertNotIn("_search_criteria_refreshed", state)
+        self.assertEqual(state["_outcomes_refresh_success"], "Stats refreshed with the latest search terms.")
 
     def test_decline_action_preserves_existing_sent_state_when_tracker_write_fails(self):
         row = sample_reminder_row()

@@ -8308,14 +8308,17 @@ def get_applied_reminder_rules() -> dict:
 
 
 def search_criteria_have_pending_changes() -> bool:
+    if "rules" not in st.session_state:
+        return False
     return _rules_fp(st.session_state.get("rules", {})) != _rules_fp(get_applied_reminder_rules())
 
 
-def apply_search_criteria_changes():
+def apply_search_criteria_changes(show_notice: bool = True):
     st.session_state["applied_rules"] = clone_reminder_rules(st.session_state.get("rules", DEFAULT_RULES.copy()))
     st.session_state.pop("prepared_df", None)
     st.session_state.pop("prepared_key", None)
-    st.session_state["_search_criteria_refreshed"] = True
+    if show_notice:
+        st.session_state["_search_criteria_refreshed"] = True
 
 
 # === Optional analytics bundle creation ===
@@ -13430,13 +13433,21 @@ def render_stats_sent_reminders_period_selector() -> str:
     return selected_period or current
 
 
-def refresh_outcome_results_state() -> None:
+def refresh_outcome_results_state(sync_remote: bool = False) -> None:
     try:
         build_reminder_outcomes.clear()
     except Exception:
         pass
+    try:
+        cached_statistics_generated_rows.clear()
+    except Exception:
+        pass
+    applied_search_changes = False
+    if search_criteria_have_pending_changes():
+        apply_search_criteria_changes(show_notice=False)
+        applied_search_changes = True
     clinic_id = str(st.session_state.get("clinic_id", "") or "").strip()
-    if clinic_id:
+    if sync_remote and clinic_id:
         invalidate_action_tracker_records_cache()
         tracked_actions = load_action_tracker_records_for_clinic(clinic_id)
         st.session_state["deleted_reminders"] = merge_deleted_reminders(
@@ -13450,12 +13461,16 @@ def refresh_outcome_results_state() -> None:
         if shared_dataset_reload_needed_for_clinic(clinic_id):
             st.session_state.pop("_shared_dataset_load_attempted_for", None)
             load_shared_dataset_for_clinic()
-    st.session_state["_outcomes_refresh_success"] = "Stats refreshed."
+    st.session_state["_outcomes_refresh_success"] = (
+        "Stats refreshed with the latest search terms."
+        if applied_search_changes
+        else "Stats refreshed."
+    )
 
 
 def refresh_outcome_results_action() -> None:
     set_main_section_tab("Stats")
-    with busy_overlay("Refreshing stats", "Re-syncing reminder actions and saved clinic data."):
+    with busy_overlay("Refreshing stats", "Applying latest search terms and recalculating stats."):
         refresh_outcome_results_state()
 
 
@@ -13471,7 +13486,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             key="outcomes_refresh_results",
             type="primary",
             use_container_width=True,
-            help="Re-sync sent reminders and saved clinic data, then recalculate stats.",
+            help="Apply the latest search terms and recalculate stats.",
             on_click=refresh_outcome_results_action,
         )
     st.caption(
@@ -13480,6 +13495,8 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     refresh_success = st.session_state.pop("_outcomes_refresh_success", "")
     if refresh_success:
         st.success(refresh_success)
+    if search_criteria_have_pending_changes():
+        st.warning("Search terms have changed. Click Refresh Stats to apply the latest rules here.")
 
     controls = st.columns([0.8, 0.8, 3.4], gap="large")
     with controls[0]:
