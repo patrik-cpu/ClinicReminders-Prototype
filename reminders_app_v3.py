@@ -2423,6 +2423,19 @@ st.markdown(
     .field-examples div + div {
         margin-top: 0.2rem;
     }
+    div[data-testid="stHorizontalBlock"]:has(.search-term-column-header) > div[data-testid="column"] {
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: flex-end !important;
+    }
+    .search-term-column-header {
+        align-items: flex-end;
+        display: flex;
+        font-weight: 700;
+        line-height: 1.25;
+        margin: 0 0 0.2rem;
+        min-height: 3.1rem;
+    }
     .setup-panel {
         border: 1px solid var(--cr-border);
         border-radius: 8px;
@@ -16820,7 +16833,7 @@ def render_search_terms_editor():
         safe_label = html_lib.escape(label)
         safe_help = html_lib.escape(help_text)
         st.markdown(
-            f"**{safe_label}** <span class='column-help' data-tooltip='{safe_help}'>?</span>",
+            f"<div class='search-term-column-header'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
             unsafe_allow_html=True,
         )
 

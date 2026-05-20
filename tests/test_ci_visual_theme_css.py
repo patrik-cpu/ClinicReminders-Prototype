@@ -218,6 +218,15 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("graphs-coming-soon-art", source)
         self.assertIn("Check back soon", source)
 
+    def test_search_term_headers_bottom_align_wrapped_labels(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn(".search-term-column-header", source)
+        self.assertIn('div[data-testid="stHorizontalBlock"]:has(.search-term-column-header)', source)
+        self.assertIn("justify-content: flex-end !important;", source)
+        self.assertIn("align-items: flex-end;", source)
+        self.assertIn("min-height: 3.1rem;", source)
+
 
 if __name__ == "__main__":
     unittest.main()
