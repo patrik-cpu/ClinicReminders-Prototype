@@ -852,10 +852,9 @@ class StatisticsTests(unittest.TestCase):
     def test_stats_summary_cards_have_user_friendly_tooltips(self):
         expected_labels = [
             "Total Reminded Items",
-            "Reminder Successes",
-            "Success Rate",
-            "Pending",
-            "Revenue from Successes",
+            "Total Reminder Successes",
+            "Total Success Rate",
+            "Total Revenue from Successes",
         ]
 
         for label in expected_labels:
