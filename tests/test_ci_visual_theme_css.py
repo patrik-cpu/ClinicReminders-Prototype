@@ -190,7 +190,10 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('st.markdown("## 📊 Stats")', source)
         self.assertIn("See which reminders were sent, which ones led to repeat purchases", source)
         self.assertIn('STATS_SUBTABS = ["Items", "Item Activity", "Team", "Sent Reminders", "Successes"]', source)
-        self.assertIn('"Stats view"', source)
+        self.assertIn("def render_stats_subtab_selector", source)
+        self.assertIn("def stats_subtab_button_key", source)
+        self.assertIn("cr-stats-subtab-rule", source)
+        self.assertIn("st.button(\n                tab_name", source)
         self.assertIn('STATS_SENT_REMINDER_PERIODS = ["Today", "Previous 7 days", "Previous 30 days", "All-time", "Custom"]', source)
         self.assertIn('"Sent reminders period"', source)
         self.assertIn("filtered by Sent Date", source)
@@ -205,6 +208,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("build_stats_team_frame", source)
         self.assertIn("All time; generated reminders and saved actions by actual item.", source)
         self.assertIn("All time; outcome results by sender plus reminder actions by actioned date.", source)
+        self.assertNotIn('st.segmented_control(\n            "Stats view"', source)
         self.assertNotIn('st.segmented_control(\n            "Statistics period"', source)
         self.assertNotIn('["Overview", "Team", "Items", "Completion"]', source)
         self.assertIn('STATISTICS_SCHEDULED_REMINDERS_LABEL = "Scheduled reminders"', source)
@@ -251,7 +255,8 @@ class VisualThemeCssTests(unittest.TestCase):
     def test_search_term_current_columns_keep_second_reminder_help_inline(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
-        self.assertIn("current_rule_col_widths = [2.25, 0.9, 0.95", source)
+        self.assertIn("add_rule_col_widths = [2.2, 1.35, 0.9, 0.9, 1.1, 1.1, 0.45, 1.95, 0.65]", source)
+        self.assertIn("current_rule_col_widths = [2.25, 0.9, 0.95, 1.05, 1.05, 0.45, 1.75", source)
 
     def test_search_term_due_date_reminder_copy_marks_add_field_required(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")

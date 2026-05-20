@@ -11732,23 +11732,18 @@ st.markdown(
         min-height: 2.15rem !important;
         padding: 0.35rem 0.8rem !important;
       }
-      .st-key-stats_active_subtab {
-        border-bottom: 1px solid var(--cr-border) !important;
-        margin: 0.15rem 0 1rem !important;
-        overflow-x: auto !important;
-        scrollbar-width: thin !important;
-      }
-      .st-key-stats_active_subtab [data-testid="stSegmentedControl"],
-      .st-key-stats_active_subtab div[role="radiogroup"] {
+      div[data-testid="stHorizontalBlock"]:has([class*="st-key-stats_subtab_"]) {
         align-items: flex-end !important;
-        display: flex !important;
-        flex-wrap: nowrap !important;
-        gap: 0.2rem !important;
-        overflow: visible !important;
+        column-gap: 0.2rem !important;
+        justify-content: flex-start !important;
+        margin: 0.15rem 0 0 !important;
       }
-      .st-key-stats_active_subtab button,
-      .st-key-stats_active_subtab [role="radio"],
-      .st-key-stats_active_subtab label {
+      div[data-testid="stHorizontalBlock"]:has([class*="st-key-stats_subtab_"]) > div[data-testid="column"] {
+        flex: 0 0 auto !important;
+        min-width: fit-content !important;
+        width: auto !important;
+      }
+      [class*="st-key-stats_subtab_"] button {
         background: var(--cr-primary-quiet) !important;
         border: 1px solid var(--cr-border) !important;
         border-bottom: 0 !important;
@@ -11757,46 +11752,20 @@ st.markdown(
         color: #23513a !important;
         margin: 0 0 -1px !important;
         min-height: 2.3rem !important;
-        padding: 0.35rem 0.8rem !important;
+        padding: 0.35rem 0.75rem !important;
         white-space: nowrap !important;
       }
-      .st-key-stats_active_subtab button p,
-      .st-key-stats_active_subtab button span,
-      .st-key-stats_active_subtab [role="radio"] p,
-      .st-key-stats_active_subtab [role="radio"] span,
-      .st-key-stats_active_subtab label p,
-      .st-key-stats_active_subtab label span {
+      [class*="st-key-stats_subtab_"] button p,
+      [class*="st-key-stats_subtab_"] button span {
         color: #23513a !important;
         font-weight: 600 !important;
       }
-      .st-key-stats_active_subtab button:hover,
-      .st-key-stats_active_subtab [role="radio"]:hover,
-      .st-key-stats_active_subtab label:hover {
+      [class*="st-key-stats_subtab_"] button:hover {
         background: var(--cr-primary-soft) !important;
       }
-      .st-key-stats_active_subtab [aria-checked="true"],
-      .st-key-stats_active_subtab [aria-selected="true"],
-      .st-key-stats_active_subtab button[aria-pressed="true"],
-      .st-key-stats_active_subtab button[aria-selected="true"],
-      .st-key-stats_active_subtab label:has(input:checked) {
-        background: var(--cr-primary) !important;
-        border-color: var(--cr-primary) !important;
-        box-shadow: 0 1px 0 var(--cr-primary) !important;
-        color: #062d19 !important;
-        position: relative !important;
-        z-index: 1 !important;
-      }
-      .st-key-stats_active_subtab [aria-checked="true"] p,
-      .st-key-stats_active_subtab [aria-checked="true"] span,
-      .st-key-stats_active_subtab [aria-selected="true"] p,
-      .st-key-stats_active_subtab [aria-selected="true"] span,
-      .st-key-stats_active_subtab button[aria-pressed="true"] p,
-      .st-key-stats_active_subtab button[aria-pressed="true"] span,
-      .st-key-stats_active_subtab button[aria-selected="true"] p,
-      .st-key-stats_active_subtab button[aria-selected="true"] span,
-      .st-key-stats_active_subtab label:has(input:checked) p,
-      .st-key-stats_active_subtab label:has(input:checked) span {
-        color: #062d19 !important;
+      .cr-stats-subtab-rule {
+        border-bottom: 1px solid var(--cr-border);
+        margin: -1px 0 1rem;
       }
       div[data-testid="stHorizontalBlock"]:has([class*="st-key-search_term_category_"]) {
         align-items: flex-end !important;
@@ -16399,30 +16368,55 @@ def reset_stats_successes_page() -> None:
     st.session_state["outcomes_successes_page"] = 0
 
 
+def stats_subtab_button_key(tab_name: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_-]", "_", str(tab_name or "").strip()).strip("_").lower()
+    return f"stats_subtab_{slug or 'items'}"
+
+
+def set_active_stats_subtab(tab_name: str) -> None:
+    st.session_state["stats_active_subtab"] = tab_name if tab_name in STATS_SUBTABS else "Items"
+
+
 def render_stats_subtab_selector() -> str:
     key = "stats_active_subtab"
     current = st.session_state.get(key, "Items")
     if current not in STATS_SUBTABS:
         current = "Items"
-    if hasattr(st, "segmented_control"):
-        selected_tab = st.segmented_control(
-            "Stats view",
-            STATS_SUBTABS,
-            selection_mode="single",
-            default=current,
-            key=key,
-            label_visibility="collapsed",
-        )
-    else:
-        selected_tab = st.radio(
-            "Stats view",
-            STATS_SUBTABS,
-            index=STATS_SUBTABS.index(current),
-            horizontal=True,
-            key=key,
-            label_visibility="collapsed",
-        )
-    return selected_tab or current
+    st.session_state[key] = current
+    active_button_key = stats_subtab_button_key(current)
+    st.markdown(
+        f"""
+        <style>
+          .st-key-{active_button_key} button {{
+            background: var(--cr-primary) !important;
+            border-color: var(--cr-primary) !important;
+            box-shadow: 0 1px 0 var(--cr-primary) !important;
+            color: #062d19 !important;
+            position: relative !important;
+            z-index: 1 !important;
+          }}
+          .st-key-{active_button_key} button p,
+          .st-key-{active_button_key} button span {{
+            color: #062d19 !important;
+          }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    widths = [max(1.1, min(2.4, len(tab_name) / 8)) for tab_name in STATS_SUBTABS]
+    columns = st.columns(widths, gap="small")
+    for column, tab_name in zip(columns, STATS_SUBTABS):
+        with column:
+            st.button(
+                tab_name,
+                key=stats_subtab_button_key(tab_name),
+                on_click=set_active_stats_subtab,
+                args=(tab_name,),
+                type="secondary",
+                use_container_width=True,
+            )
+    st.markdown('<div class="cr-stats-subtab-rule" aria-hidden="true"></div>', unsafe_allow_html=True)
+    return current
 
 
 def normalize_stats_sent_custom_range(value) -> tuple[date, date] | None:
@@ -17032,7 +17026,7 @@ def render_search_terms_editor():
 
     st.markdown("### Add New Search Term")
     row_id = st.session_state['new_rule_counter']
-    add_rule_col_widths = [2.2, 1.35, 0.9, 0.9, 1.1, 1.1, 0.65, 1.75, 0.65]
+    add_rule_col_widths = [2.2, 1.35, 0.9, 0.9, 1.1, 1.1, 0.45, 1.95, 0.65]
     header_cols = st.columns(add_rule_col_widths, gap="small")
     with header_cols[0]: column_header("Search Term", "The product or service text to match in uploaded item names, such as bravecto, rabies, or librela.")
     with header_cols[1]: column_header("Category", "Choose the search term category.")
@@ -17179,7 +17173,7 @@ def render_search_terms_editor():
     if autosave_error:
         st.error(autosave_error)
 
-    current_rule_col_widths = [2.25, 0.9, 0.95, 1.05, 1.05, 0.65, 1.55, 1.25, 0.55]
+    current_rule_col_widths = [2.25, 0.9, 0.95, 1.05, 1.05, 0.45, 1.75, 1.25, 0.55]
     rule_items_by_category = {
         category: sorted(
             [
