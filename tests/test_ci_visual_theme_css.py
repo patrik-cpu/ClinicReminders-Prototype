@@ -79,6 +79,8 @@ class VisualThemeCssTests(unittest.TestCase):
             ".exclusion-chip",
             "transform: translateY(-0.12rem);",
             "exclusion_chip_html",
+            "row_cols = st.columns([2.15, 5.85], gap=\"small\")",
+            "chip_cols = st.columns([0.82, 0.08, 0.1], gap=\"small\")",
         ]:
             with self.subTest(selector=selector):
                 self.assertIn(selector, source)

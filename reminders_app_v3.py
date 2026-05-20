@@ -3111,10 +3111,10 @@ def render_exclusion_chip_delete_row(
     delete_button_key: str,
     delete_help: str,
 ) -> bool:
-    row_cols = st.columns([2.7, 5.3], gap="small")
+    row_cols = st.columns([2.15, 5.85], gap="small")
     with row_cols[0]:
         with st.container(key=f"exclusion_row_{row_key}"):
-            chip_cols = st.columns([0.9, 0.1], gap="small")
+            chip_cols = st.columns([0.82, 0.08, 0.1], gap="small")
             with chip_cols[0]:
                 st.markdown(label_html, unsafe_allow_html=True)
             with chip_cols[1]:
@@ -18219,10 +18219,10 @@ if st.session_state.get("logged_in", False):
                     if not client_name or not patient_name:
                         continue
                     safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"auto_{client_name}_{patient_name}_{exclusion_idx}")
-                    row_cols = st.columns([2.7, 5.3], gap="small")
+                    row_cols = st.columns([2.15, 5.85], gap="small")
                     with row_cols[0]:
                         with st.container(key=f"auto_patient_exclusion_row_{safe_pair}"):
-                            chip_cols = st.columns([0.9, 0.1], gap="small")
+                            chip_cols = st.columns([0.82, 0.08, 0.1], gap="small")
                             with chip_cols[0]:
                                 st.markdown(patient_exclusion_label_html(client_name, patient_name), unsafe_allow_html=True)
                             with chip_cols[1]:
