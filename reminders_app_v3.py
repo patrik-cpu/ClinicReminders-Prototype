@@ -2506,6 +2506,8 @@ st.markdown(
         min-height: 2.2rem;
         display: flex;
         align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
         font-size: 0.92rem;
         line-height: 1.25;
     }
@@ -9826,6 +9828,34 @@ def get_setup_checklist_modules() -> list[dict]:
         return action_after_reset(REMINDER_ACTION_SENT)
 
     manual_off = get_started_manual_off()
+    item_help = {
+        "upload_data": "Upload a recent PMS sales export so Clinic Reminders can build reminder dates from real clinic activity.",
+        "review_upload_checks": "Check that the saved upload has the right PMS, enough date coverage, and no large gaps.",
+        "review_search_terms": "Look through the default item rules so you know which products and services create reminders.",
+        "add_search_term": "Add a clinic-specific item rule for a product or service your clinic wants to remind clients about.",
+        "check_rule_days": "Set optional first, second, or overdue reminder timing for an item rule.",
+        "add_sender_name": "Add the clinic or team member name that should appear as the reminder sender.",
+        "review_reminder_settings": "Review the reminder date, look-back, grouping, and warning settings before sending messages.",
+        "send_whatsapp": "Open a prepared WhatsApp message from a reminder row and review it before contacting the client.",
+        "mark_sent": "Use the sent action after contacting a client so the reminder moves into action history.",
+        "decline_reminder": "Use the declined action when a reminder should not be sent, while keeping an audit trail.",
+        "edit_template": "Adjust the General WhatsApp template so routine reminders match your clinic voice.",
+        "create_template": "Create another WhatsApp template for a different message style or reminder type.",
+        "add_client_exclusion": "Hide every reminder for a specific client who should not be contacted.",
+        "add_patient_exclusion": "Hide reminders for one patient under one specific client.",
+        "add_item_exclusion": "Hide an item or phrase across all clients when it should never create reminders.",
+        "add_client_item_exclusion": "Hide one item only for one client, while keeping the item active for everyone else.",
+        "review_death_keywords": "Review the words that automatically exclude patients when uploads suggest a pet has passed away.",
+        "test_due_date_window": "Try changing the success window around the due date to see how outcome matching changes.",
+        "test_sent_date_window": "Try changing the success window after the sent date to see recent reminder outcomes fairly.",
+        "review_primary_stats_metrics": "Review the headline stats to understand total reminders, successes, rate, and revenue.",
+        "review_items_capturable_revenue": "Use the Items subtab to spot high-value reminders with the most remaining revenue potential.",
+        "review_team_metrics": "Use the Team subtab to compare reminder actions and outcomes by sender.",
+        "review_stats_date_filters": "Filter Sent Reminders or Successes by date range to review a specific period.",
+        "review_profile": "Check the clinic profile details used for account identity and access.",
+        "review_privacy": "Review what data Clinic Reminders stores and how deletion works.",
+        "review_clinic_access": "Create staff access when another team member should use the clinic account.",
+    }
 
     def item(item_id: str, label: str, auto_done: bool = False, auto_token: str = "") -> dict:
         auto_token = str(auto_token or "")
@@ -9840,6 +9870,7 @@ def get_setup_checklist_modules() -> list[dict]:
             "done": done,
             "auto_done": bool(auto_done),
             "class_name": "done" if done else "todo",
+            "help": item_help.get(item_id, ""),
         }
 
     modules = [
@@ -10452,7 +10483,6 @@ def render_setup_checklist():
                         f"""
                         <div class="setup-module {html_lib.escape(module["class_name"])}">
                           <div class="setup-module-title">{html_lib.escape(module["tab"])}</div>
-                          <div class="setup-module-copy">{html_lib.escape(module["copy"])}</div>
                         </div>
                         """,
                         unsafe_allow_html=True,
@@ -10463,8 +10493,15 @@ def render_setup_checklist():
                             st.session_state[widget_key] = bool(entry["done"])
                         item_cols = st.columns([4.2, 1.1], gap="small")
                         with item_cols[0]:
+                            safe_label = html_lib.escape(entry["label"])
+                            safe_help = html_lib.escape(entry.get("help", ""), quote=True)
                             st.markdown(
-                                f'<div class="setup-item-label {html_lib.escape(entry["class_name"])}">{html_lib.escape(entry["label"])}</div>',
+                                f"""
+                                <div class="setup-item-label {html_lib.escape(entry["class_name"])}">
+                                  <span>{safe_label}</span>
+                                  <span class="column-help" data-tooltip="{safe_help}">?</span>
+                                </div>
+                                """,
                                 unsafe_allow_html=True,
                             )
                         with item_cols[1]:
