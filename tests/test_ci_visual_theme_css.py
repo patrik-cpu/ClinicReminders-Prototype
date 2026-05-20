@@ -245,6 +245,11 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")', source)
         self.assertNotIn('column_header("Multiply by quantity"', source)
 
+    def test_search_term_current_columns_keep_second_reminder_help_inline(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn("current_rule_col_widths = [2.25, 0.9, 0.95", source)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17174,7 +17174,7 @@ def render_search_terms_editor():
     if autosave_error:
         st.error(autosave_error)
 
-    current_rule_col_widths = [2.4, 0.8, 0.8, 1.05, 1.05, 0.65, 1.65, 1.25, 0.55]
+    current_rule_col_widths = [2.25, 0.9, 0.95, 1.05, 1.05, 0.65, 1.55, 1.25, 0.55]
     rule_items_by_category = {
         category: sorted(
             [
