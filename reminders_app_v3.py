@@ -2553,13 +2553,29 @@ st.markdown(
     [class*="st-key-client_exclusions_list_box"],
     [class*="st-key-patient_exclusions_list_box"],
     [class*="st-key-client_item_exclusions_list_box"],
-    [class*="st-key-item_exclusions_list_box"],
-    [class*="st-key-auto_patient_exclusions_list_box"] {
+    [class*="st-key-item_exclusions_list_box"] {
         background: rgba(255, 247, 237, 0.38);
         border-color: rgba(251, 146, 60, 0.18) !important;
         border-radius: 8px;
         margin: 0.55rem 0 0.65rem;
         padding: 0.3rem 0.45rem;
+    }
+    [class*="st-key-auto_patient_exclusion_row_"] {
+        background: rgba(255, 247, 237, 0.34);
+        border: 1px solid rgba(251, 146, 60, 0.18);
+        border-radius: 8px;
+        margin: 0.22rem 0;
+        padding: 0.2rem 0.35rem;
+    }
+    [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stHorizontalBlock"] {
+        align-items: center;
+        gap: 0.35rem !important;
+    }
+    [class*="st-key-auto_patient_exclusion_row_"] .exclusion-chip {
+        padding: 0.12rem 0;
+    }
+    [class*="st-key-auto_patient_exclusion_row_"] [class*="st-key-del_auto_patient_excl_"] button {
+        margin-top: 0 !important;
     }
     .exclusion-chip {
         color: #344054;
@@ -17700,30 +17716,33 @@ if st.session_state.get("logged_in", False):
                 TABLE_PAGE_SIZE,
                 "automatic patient exclusions",
             )
-            with st.container(border=True, key="auto_patient_exclusions_list_box"):
+            with st.container(key="auto_patient_exclusions_list_box"):
                 for exclusion_idx, exclusion in paged_auto_exclusions:
                     client_name = _SPACE_RX.sub(" ", str(exclusion.get("client", "") or "").strip())
                     patient_name = _SPACE_RX.sub(" ", str(exclusion.get("patient", "") or "").strip())
                     if not client_name or not patient_name:
                         continue
                     safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"auto_{client_name}_{patient_name}_{exclusion_idx}")
-                    cols = st.columns([4, 0.25, 4], gap="small")
-                    with cols[0]:
-                        st.markdown(patient_exclusion_label_html(client_name, patient_name), unsafe_allow_html=True)
-                    with cols[1]:
-                        if st.button("×", key=f"del_auto_patient_excl_{safe_pair}", help="Remove automatic patient exclusion"):
-                            st.session_state["automatic_patient_exclusions"].remove(exclusion)
-                            save_settings_quietly()
-                            record_settings_audit_event(
-                                "exclusion_deleted",
-                                "exclusions",
-                                f"{client_name} - {patient_name}",
-                                "automatic_patient",
-                                exclusion,
-                                "",
-                                "exclusions_tab",
-                            )
-                            st.rerun()
+                    row_cols = st.columns([2.7, 5.3], gap="small")
+                    with row_cols[0]:
+                        with st.container(key=f"auto_patient_exclusion_row_{safe_pair}"):
+                            chip_cols = st.columns([0.9, 0.1], gap="small")
+                            with chip_cols[0]:
+                                st.markdown(patient_exclusion_label_html(client_name, patient_name), unsafe_allow_html=True)
+                            with chip_cols[1]:
+                                if st.button("×", key=f"del_auto_patient_excl_{safe_pair}", help="Remove automatic patient exclusion"):
+                                    st.session_state["automatic_patient_exclusions"].remove(exclusion)
+                                    save_settings_quietly()
+                                    record_settings_audit_event(
+                                        "exclusion_deleted",
+                                        "exclusions",
+                                        f"{client_name} - {patient_name}",
+                                        "automatic_patient",
+                                        exclusion,
+                                        "",
+                                        "exclusions_tab",
+                                    )
+                                    st.rerun()
         else:
             st.caption("No automatic patient death exclusions yet. Matching uploads will add patients here.")
 
