@@ -1340,6 +1340,39 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("stored_range or (today_value, today_value)", source[selector_start:selector_end])
         self.assertIn("st.session_state[storage_key] = custom_range", source[selector_start:selector_end])
 
+    def test_stats_custom_range_rehydrates_last_completed_range(self):
+        range_key = "stats_successes_custom_range"
+        storage_key = self.app.stats_custom_range_storage_key(range_key)
+        stale_widget_range = (date(2026, 5, 20), date(2026, 5, 20))
+        saved_range = (date(2026, 5, 10), date(2026, 5, 15))
+        self.app.st.session_state["stats_successes_period"] = "Custom"
+        self.app.st.session_state[range_key] = stale_widget_range
+        self.app.st.session_state[storage_key] = saved_range
+
+        with (
+            mock.patch.object(
+                self.app.st,
+                "segmented_control",
+                return_value="Custom",
+            ),
+            mock.patch.object(
+                self.app.st,
+                "date_input",
+                side_effect=lambda *_args, value=None, **_kwargs: value,
+            ) as date_input,
+        ):
+            selected_period, custom_range = self.app.render_stats_period_selector(
+                label="Successes period",
+                filter_key="stats_successes_period",
+                range_key=range_key,
+                on_change=lambda: None,
+            )
+
+        self.assertEqual(selected_period, "Custom")
+        self.assertEqual(custom_range, saved_range)
+        self.assertEqual(self.app.st.session_state[range_key], saved_range)
+        self.assertEqual(date_input.call_args.kwargs["value"], saved_range)
+
     def test_stats_custom_range_storage_keys_are_account_scoped(self):
         self.assertIn("stats_sent_reminders_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
         self.assertIn("stats_successes_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)

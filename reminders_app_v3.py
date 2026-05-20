@@ -16999,7 +16999,10 @@ def render_stats_period_selector(
         today_value = user_today()
         storage_key = stats_custom_range_storage_key(range_key)
         stored_range = normalize_stats_sent_custom_range(st.session_state.get(storage_key))
-        if range_key not in st.session_state:
+        current_range = normalize_stats_sent_custom_range(st.session_state.get(range_key))
+        if stored_range is not None and current_range != stored_range:
+            st.session_state[range_key] = stored_range
+        elif range_key not in st.session_state:
             st.session_state[range_key] = stored_range or (today_value, today_value)
         custom_range_value = st.date_input(
             "Custom date range",
