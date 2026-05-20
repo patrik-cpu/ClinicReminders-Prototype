@@ -2143,6 +2143,36 @@ st.markdown(
         -webkit-text-fill-color: #101828 !important;
         width: 100% !important;
     }
+    .st-key-login_password_input [data-baseweb="base-input"] > div,
+    .st-key-login_password_input [data-baseweb="input"] > div {
+        background: #f8fafc !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        height: 2.75rem !important;
+        margin: 0 !important;
+    }
+    .st-key-login_password_input [data-baseweb="base-input"] button,
+    .st-key-login_password_input [data-baseweb="input"] button {
+        align-items: center !important;
+        align-self: stretch !important;
+        background: #f8fafc !important;
+        border: 0 !important;
+        border-left: 0 !important;
+        border-radius: 0 8px 8px 0 !important;
+        box-shadow: none !important;
+        color: #101828 !important;
+        display: inline-flex !important;
+        height: 2.75rem !important;
+        justify-content: center !important;
+        margin: 0 !important;
+        min-height: 2.75rem !important;
+        padding: 0 0.85rem !important;
+    }
+    .st-key-login_password_input [data-baseweb="base-input"] button svg,
+    .st-key-login_password_input [data-baseweb="input"] button svg {
+        color: #101828 !important;
+        display: block !important;
+    }
     .st-key-login_username_input input:-webkit-autofill,
     .st-key-login_username_input input:-webkit-autofill:hover,
     .st-key-login_username_input input:-webkit-autofill:focus,
@@ -2167,6 +2197,12 @@ st.markdown(
     .st-key-login_username_input [data-baseweb="base-input"]:focus-within input,
     .st-key-login_password_input [data-baseweb="input"]:focus-within input,
     .st-key-login_password_input [data-baseweb="base-input"]:focus-within input {
+        background: #ffffff !important;
+    }
+    .st-key-login_password_input [data-baseweb="base-input"]:focus-within > div,
+    .st-key-login_password_input [data-baseweb="input"]:focus-within > div,
+    .st-key-login_password_input [data-baseweb="base-input"]:focus-within button,
+    .st-key-login_password_input [data-baseweb="input"]:focus-within button {
         background: #ffffff !important;
     }
     .st-key-google_signup_button button {

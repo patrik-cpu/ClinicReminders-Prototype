@@ -29,6 +29,9 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertNotIn("text-security: disc !important;", source)
         self.assertIn("padding-top: 3.45rem !important;", source)
         self.assertIn("padding-bottom: max(10rem, 74vh) !important;", source)
+        self.assertIn(".st-key-login_password_input [data-baseweb=\"base-input\"] button", source)
+        self.assertIn("border-radius: 0 8px 8px 0 !important;", source)
+        self.assertIn("align-self: stretch !important;", source)
         self.assertIn('[data-baseweb="checkbox"] input[type="checkbox"]', source)
         self.assertRegex(
             source,
