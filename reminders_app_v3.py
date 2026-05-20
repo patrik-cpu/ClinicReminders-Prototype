@@ -2688,7 +2688,26 @@ st.markdown(
         font-weight: 700;
         line-height: 1.2;
         margin-top: 0.32rem;
+        max-width: 100%;
+        overflow-wrap: anywhere;
         padding: 0.38rem 0.62rem;
+        white-space: normal;
+    }
+    [class*="st-key-auto_death_keyword_row_"] {
+        max-width: min(100%, 42rem);
+    }
+    [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"] {
+        align-items: center;
+        gap: 0.25rem !important;
+    }
+    [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
+        min-width: 0 !important;
+        width: auto !important;
+    }
+    [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {
+        flex: 0 0 2.4rem !important;
+        min-width: 2.4rem !important;
+        width: 2.4rem !important;
     }
     .auto-death-patient-section-title {
         border-top: 1px solid var(--cr-border);
@@ -17908,8 +17927,8 @@ if st.session_state.get("logged_in", False):
                         st.rerun()
                 for keyword in st.session_state["patient_passaway_keywords"]:
                     safe_keyword = re.sub(r'[^a-zA-Z0-9_-]', '_', keyword)
-                    with st.container():
-                        cols = st.columns([0.58, 0.18, 6.84], gap="small")
+                    with st.container(key=f"auto_death_keyword_row_{safe_keyword}"):
+                        cols = st.columns([1, 0.12], gap="small")
                         with cols[0]:
                             st.markdown(
                                 f"<span class='auto-death-keyword-chip'>{safe_html_text(keyword)}</span>",

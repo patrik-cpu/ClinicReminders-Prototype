@@ -168,7 +168,12 @@ class VisualThemeCssTests(unittest.TestCase):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
         self.assertIn("auto-death-keyword-chip", source)
+        self.assertIn("auto_death_keyword_row_", source)
         self.assertIn("Reset keywords", source)
+        self.assertIn("cols = st.columns([1, 0.12], gap=\"small\")", source)
+        self.assertIn('[class*="st-key-auto_death_keyword_row_"]', source)
+        self.assertIn("max-width: min(100%, 42rem);", source)
+        self.assertNotIn("st.columns([0.58, 0.18, 6.84]", source)
         self.assertNotIn('", ".join(f"`{keyword}`"', source)
 
     def test_login_google_button_sits_above_staff_and_signup_buttons(self):
