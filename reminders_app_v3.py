@@ -2412,6 +2412,9 @@ st.markdown(
         padding: 0.65rem;
         background: var(--cr-surface);
     }
+    [class*="st-key-get_started_module_"] [data-testid="stVerticalBlock"] {
+        gap: 0.35rem !important;
+    }
     .setup-module.complete {
         border-color: var(--cr-step-complete-border);
         background: var(--cr-step-complete-bg);
@@ -9958,7 +9961,7 @@ def render_setup_checklist():
         module_columns = st.columns(2, gap="medium")
         for module_index, module in enumerate(modules):
             with module_columns[module_index % 2]:
-                with st.container(border=True):
+                with st.container(border=True, key=f"get_started_module_{module_index}"):
                     st.markdown(
                         f"""
                         <div class="setup-module {html_lib.escape(module["class_name"])}">
