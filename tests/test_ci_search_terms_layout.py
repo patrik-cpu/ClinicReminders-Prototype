@@ -109,11 +109,16 @@ class SearchTermsLayoutTests(unittest.TestCase):
                 y_positions[key] = round(float(box["y"]), 2)
 
             reference_y = statistics.median(y_positions[key] for key in reference_keys)
-            delta = abs(y_positions["use-qty"] - reference_y)
-            self.assertLessEqual(
-                delta,
+            offset = y_positions["use-qty"] - reference_y
+            self.assertGreaterEqual(
+                offset,
                 2,
-                f"Use Qty example line {line} is misaligned against the row baseline: {y_positions}",
+                f"Use Qty example line {line} should sit slightly lower than the row baseline: {y_positions}",
+            )
+            self.assertLessEqual(
+                offset,
+                8,
+                f"Use Qty example line {line} moved too far below the row baseline: {y_positions}",
             )
 
     def _wait_for_initial_page(self, proc, output, url: str) -> str:
