@@ -2457,7 +2457,7 @@ st.markdown(
         display: flex;
         flex-direction: column;
         gap: 1rem;
-        margin-top: 0.5rem;
+        margin-top: 2.25rem;
         padding: 0;
     }
     .graphs-coming-soon-art {
