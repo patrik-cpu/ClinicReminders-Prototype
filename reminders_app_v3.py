@@ -6248,6 +6248,22 @@ PMS_DEFINITIONS = {
             "qty": "Qty",
             "amount": "Total Invoiced (excl)"
         }
+    },
+    "Merlin": {
+        "columns": [
+            "Itemdate", "Description", "AnimalName", "Qty", "Total",
+            "Surname", "FirstName", "TreatmentDate"
+        ],
+        "mappings": {
+            "date": "Itemdate",
+            "date_fallback": "TreatmentDate",
+            "client_first": "FirstName",
+            "client_last": "Surname",
+            "animal": "AnimalName",
+            "item": "Description",
+            "qty": "Qty",
+            "amount": "Total"
+        }
     }
 }
 
@@ -6269,6 +6285,8 @@ def detect_pms(df: pd.DataFrame) -> str:
         return "VETport"
     x_keys = {"date", "animal name", "amount", "item name"}
     e_keys = {"invoice date", "total invoiced (excl)", "product name", "first name", "last name"}
+    m_keys = {"itemdate", "description", "animalname", "firstname", "surname", "qty", "total"}
+    if m_keys.issubset(normalized_cols): return "Merlin"
     if e_keys.issubset(normalized_cols): return "ezyVet"
     if x_keys.issubset(normalized_cols): return "Xpress"
     for pms_name, definition in PMS_DEFINITIONS.items():
@@ -6291,12 +6309,12 @@ def parse_dates(series: pd.Series) -> pd.Series:
     series = pd.Series(series, copy=False)
     if pd.api.types.is_datetime64_any_dtype(series):
         return pd.to_datetime(series.dt.date, errors="coerce")
-    s = series.astype(str).str.strip()
-    s = s.str.extract(
+    raw_s = series.astype(str).str.strip()
+    s = raw_s.str.extract(
         r"(\d{1,2}[\s/-][A-Za-z]{3}[\s/-]\d{4}|\d{1,2}[\s/-]\d{1,2}[\s/-]\d{4}|\d{4}[\s/-]\d{1,2}[\s/-]\d{1,2})"
     )[0]
     parsed_dates = pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]")
-    numeric = pd.to_numeric(s, errors="coerce")
+    numeric = pd.to_numeric(raw_s, errors="coerce")
     if numeric.notna().sum() > 0:
         base_1900 = pd.Timestamp("1899-12-30")
         dt_1900 = base_1900 + pd.to_timedelta(numeric, unit="D")
@@ -6490,6 +6508,22 @@ def finalize_processed_upload_df(df: pd.DataFrame, filename: str) -> pd.DataFram
 # --------------------------------
 # File processing (decoupled from rules)
 # --------------------------------
+def read_csv_upload(file_bytes, filename: str) -> pd.DataFrame:
+    read_kwargs = {
+        "dtype": str,
+        "keep_default_na": False,
+        "index_col": False,
+        "skip_blank_lines": True,
+    }
+    try:
+        df = pd.read_csv(BytesIO(file_bytes), **read_kwargs)
+    except pd.errors.ParserError:
+        df = pd.read_csv(BytesIO(file_bytes), sep="\t", **read_kwargs)
+    if len(df.columns) == 1 and "\t" in str(df.columns[0]):
+        df = pd.read_csv(BytesIO(file_bytes), sep="\t", **read_kwargs)
+    return df
+
+
 @st.cache_data(show_spinner=False, max_entries=8)
 def process_file(file_bytes, filename):
     """
@@ -6506,13 +6540,7 @@ def process_file(file_bytes, filename):
 
     # --- 1️⃣ Load file ---
     if lowerfn.endswith(".csv"):
-        df = pd.read_csv(
-            file,
-            dtype=str,
-            keep_default_na=False,
-            index_col=False,
-            skip_blank_lines=True,
-        )
+        df = read_csv_upload(file_bytes, filename)
     elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file, dtype=str)
     else:
@@ -6584,15 +6612,14 @@ def process_file(file_bytes, filename):
     else:
         df["Amount"] = 0
 
-    # --- 8️⃣ ezyVet: merge first + last name ---
-    if pms_name == "ezyVet":
-        cf = mappings.get("client_first")
-        cl = mappings.get("client_last")
-        if cf and cl and cf in df.columns and cl in df.columns:
-            df["Client Name"] = (
-                df[cf].fillna("").astype(str).str.strip() + " " +
-                df[cl].fillna("").astype(str).str.strip()
-            ).str.strip()
+    # --- 8️⃣ Merge first + last client names when the PMS exports them separately ---
+    cf = mappings.get("client_first")
+    cl = mappings.get("client_last")
+    if cf and cl and cf in df.columns and cl in df.columns:
+        df["Client Name"] = (
+            df[cf].fillna("").astype(str).str.strip() + " " +
+            df[cl].fillna("").astype(str).str.strip()
+        ).str.strip()
 
     # --- 9️⃣ Quantity handling ---
     if qty_col and qty_col in df.columns:
@@ -6616,7 +6643,14 @@ def process_file(file_bytes, filename):
     
     # Keep raw date strings for debugging
     if "ChargeDate" in df.columns:
-        df["ChargeDate"] = parse_dates(df["ChargeDate"]).dt.normalize()
+        parsed_charge_dates = parse_dates(df["ChargeDate"]).dt.normalize()
+        date_fallback_col = get_col_ci(mappings.get("date_fallback", ""))
+        if date_fallback_col:
+            fallback_dates = parse_dates(df[date_fallback_col]).dt.normalize()
+            fill_mask = parsed_charge_dates.isna() & fallback_dates.notna()
+            if fill_mask.any():
+                parsed_charge_dates.loc[fill_mask] = fallback_dates.loc[fill_mask]
+        df["ChargeDate"] = parsed_charge_dates
     else:
         df["ChargeDate"] = pd.NaT
 
@@ -8459,17 +8493,17 @@ def render_delete_account_dialog():
             st.rerun()
 
     if hasattr(st, "dialog"):
-        @st.dialog("Delete Account And Data")
+        @st.dialog("Delete account and data")
         def _delete_dialog():
             _render_dialog_body()
         _delete_dialog()
     elif hasattr(st, "experimental_dialog"):
-        @st.experimental_dialog("Delete Account And Data")
+        @st.experimental_dialog("Delete account and data")
         def _delete_dialog():
             _render_dialog_body()
         _delete_dialog()
     else:
-        with st.expander("Delete Account And Data", expanded=True):
+        with st.expander("Delete account and data", expanded=True):
             _render_dialog_body()
 
 
@@ -9017,6 +9051,7 @@ else:
     with top_account_slot.container():
         with st.popover("Account", use_container_width=False):
             signed_in_with_staff_access = st.session_state.get("auth_provider") == CLINIC_ACCESS_AUTH_PROVIDER
+            st.caption("Clinic")
             if not signed_in_with_staff_access:
                 if st.button("Profile", key="top_account_profile", use_container_width=True):
                     open_account_dialog("profile")
@@ -9025,6 +9060,8 @@ else:
                 open_account_dialog("privacy")
 
             if not signed_in_with_staff_access:
+                st.divider()
+                st.caption("Access")
                 if st.button("Clinic access", key="top_account_clinic_access", use_container_width=True):
                     open_account_dialog("clinic_access")
 
@@ -9032,10 +9069,8 @@ else:
                 if st.button("Change password", key="top_account_show_change_password", use_container_width=True):
                     st.session_state["show_top_change_password"] = not st.session_state.get("show_top_change_password", False)
 
-            if not signed_in_with_staff_access:
-                if st.button("Delete account and data", key="top_account_delete", use_container_width=True):
-                    open_account_dialog("delete")
-
+            st.divider()
+            st.caption("Session")
             if st.button("Logout", key="top_account_logout", use_container_width=True):
                 google_session_active = get_google_user_info().get("is_logged_in", False)
                 clear_remember_login_token()
@@ -9045,6 +9080,12 @@ else:
                     st.logout()
                 else:
                     st.rerun()
+
+            if not signed_in_with_staff_access:
+                st.divider()
+                st.caption("Danger zone")
+                if st.button("Delete account and data", key="top_account_delete", use_container_width=True):
+                    open_account_dialog("delete")
 
             if st.session_state.get("show_top_change_password", False):
                 st.markdown("#### Change password")
@@ -9376,7 +9417,7 @@ def render_dataset_status(saved_rows: list[dict] | None = None):
         else:
             st.warning("⚠️ Could not load clinic data. Please try again or contact support.")
     elif not saved_rows and not has_working_dataset() and not st.session_state.get("shared_dataset_loaded"):
-        st.caption("No clinic data saved yet — upload a file to start.")
+        st.caption("No clinic data saved yet. Upload a sales export to start.")
 
 
 def format_dataset_saved_summary(row_count: int, start_date, end_date) -> str:
@@ -11061,6 +11102,7 @@ if active_main_section == "Upload Data":
             <div class="cr-field-intro">
               <div class="cr-section-title">Upload files</div>
               <p class="cr-section-copy">Choose recent sales exports. The app will check the format, merge valid files, and save the result for this clinic account.</p>
+              <p class="cr-field-footnote">Needed fields: billed date, client name, patient name, and item or service.</p>
               <p class="cr-field-footnote">Supported systems: VETport, ezyVet, Xpress, or a clean sales export.</p>
             </div>
             """,
@@ -11482,12 +11524,12 @@ if active_main_section == "Upload Data":
 def render_table(df, title, key_prefix, msg_key, rules):
     render_started = time.perf_counter()
     if df.empty:
-        st.info(f"No reminders in {title}.")
+        st.info(f"No reminders in {title}. Try another date range or check Search Terms.")
         record_slow_render_performance("reminders_table_render", render_started, rows=0, source=key_prefix)
         return
     df = apply_reminder_exclusion_filters(df, rules)
     if df.empty:
-        st.info("All reminders in this view are hidden by exclusions.")
+        st.info("All reminders in this view are hidden by exclusions. Review Exclusions if this looks wrong.")
         record_slow_render_performance("reminders_table_render", render_started, rows=0, source=key_prefix)
         return
 
@@ -11630,6 +11672,7 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
 
 
 def mark_all_listed_reminders_sent_action(rows: list[dict], key_prefix: str, msg_key: str):
+    st.session_state[f"{key_prefix}_send_all_confirm"] = False
     with busy_overlay("Marking reminders as sent", "Saving the listed reminders and updating action history."):
         set_main_section_tab("Reminders")
         now = utc_now()
@@ -12121,6 +12164,12 @@ def sort_actioned_reminders(rows: list[dict], key_prefix: str) -> list[dict]:
 
 def render_actioned_reminders_tab(key_prefix: str):
     options = ["Daily", "Weekly", "Monthly", "All"]
+    option_labels = {
+        "Daily": "Today",
+        "Weekly": "This week",
+        "Monthly": "This month",
+        "All": "All time",
+    }
     filter_key = f"{key_prefix}_actioned_period"
     current = st.session_state.get(filter_key, "Daily")
     if current not in options:
@@ -12132,6 +12181,7 @@ def render_actioned_reminders_tab(key_prefix: str):
             options,
             selection_mode="single",
             default=current,
+            format_func=lambda option: option_labels.get(option, option),
             key=filter_key,
             label_visibility="collapsed",
         )
@@ -12140,6 +12190,7 @@ def render_actioned_reminders_tab(key_prefix: str):
             "Actioned reminder period",
             options,
             index=options.index(current),
+            format_func=lambda option: option_labels.get(option, option),
             horizontal=True,
             key=filter_key,
             label_visibility="collapsed",
@@ -12148,7 +12199,7 @@ def render_actioned_reminders_tab(key_prefix: str):
 
     rows = get_actioned_reminders_for_period(selected_period)
     if not rows:
-        st.info(f"No actioned reminders for {selected_period.lower()}.")
+        st.info(f"No actioned reminders for {selected_period.lower()}. Sent and declined reminders will appear here.")
         return
     rows = sort_actioned_reminders(rows, key_prefix)
     paged_rows = paginate_sequence(
@@ -12365,15 +12416,32 @@ def render_table_with_buttons(df, key_prefix, msg_key, hidden_index=None):
             args=(row_data, key_prefix),
         )
 
-    footer_cols = st.columns(col_widths, gap="small")
-    footer_cols[9].button(
-        "Send All",
-        key=f"{key_prefix}_send_all",
-        use_container_width=True,
-        help="Mark every currently listed active reminder as sent.",
-        on_click=mark_all_listed_reminders_sent_action,
-        args=(listed_rows, key_prefix, msg_key),
-    )
+    send_all_confirm_key = f"{key_prefix}_send_all_confirm"
+    if st.session_state.get(send_all_confirm_key):
+        st.warning(f"Mark {len(listed_rows)} listed reminder{'s' if len(listed_rows) != 1 else ''} as sent?")
+        confirm_cols = st.columns([1.5, 1.1, 5.4], gap="small")
+        confirm_cols[0].button(
+            "Mark listed as sent",
+            key=f"{key_prefix}_send_all_confirm_yes",
+            type="primary",
+            use_container_width=True,
+            help="Mark every currently listed active reminder as sent.",
+            on_click=mark_all_listed_reminders_sent_action,
+            args=(listed_rows, key_prefix, msg_key),
+        )
+        if confirm_cols[1].button("Cancel", key=f"{key_prefix}_send_all_confirm_no", use_container_width=True):
+            st.session_state[send_all_confirm_key] = False
+            st.rerun()
+    else:
+        footer_cols = st.columns(col_widths, gap="small")
+        if footer_cols[9].button(
+            "Mark listed as sent",
+            key=f"{key_prefix}_send_all",
+            use_container_width=True,
+            help="Confirm before marking every currently listed active reminder as sent.",
+        ):
+            st.session_state[send_all_confirm_key] = True
+            st.rerun()
     record_slow_render_performance("active_reminder_rows_render", render_started, rows=len(rendered_rows), source=key_prefix)
 
 def render_whatsapp_tools(key_prefix: str, msg_key: str):
@@ -12608,14 +12676,24 @@ def render_whatsapp_tools(key_prefix: str, msg_key: str):
                     st.rerun()
         with col_delete:
             delete_disabled = selected_template_name == DEFAULT_WA_TEMPLATE_NAME
-            if st.button("Delete template", key=f"delete_template_{key_prefix}", use_container_width=True, disabled=delete_disabled):
-                old_template = templates.pop(selected_template_name, "")
-                st.session_state["wa_templates"] = normalize_wa_templates(templates, DEFAULT_WA_TEMPLATE)
-                set_current_wa_template(DEFAULT_WA_TEMPLATE_NAME)
-                st.session_state["wa_template_updated_at"] = user_now().isoformat()
-                save_settings_quietly()
-                record_settings_audit_event("template_deleted", "template", f"whatsapp:{selected_template_name}", "wa_templates", old_template, "", "reminders_tab")
-                st.session_state[template_selector_ver_key] += 1
+            delete_confirm_key = f"delete_template_confirm_{key_prefix}"
+            if st.session_state.get(delete_confirm_key) == selected_template_name and not delete_disabled:
+                st.warning(f"Delete {selected_template_name}?")
+                if st.button("Confirm delete", key=f"confirm_delete_template_{key_prefix}", use_container_width=True):
+                    old_template = templates.pop(selected_template_name, "")
+                    st.session_state["wa_templates"] = normalize_wa_templates(templates, DEFAULT_WA_TEMPLATE)
+                    set_current_wa_template(DEFAULT_WA_TEMPLATE_NAME)
+                    st.session_state["wa_template_updated_at"] = user_now().isoformat()
+                    st.session_state.pop(delete_confirm_key, None)
+                    save_settings_quietly()
+                    record_settings_audit_event("template_deleted", "template", f"whatsapp:{selected_template_name}", "wa_templates", old_template, "", "reminders_tab")
+                    st.session_state[template_selector_ver_key] += 1
+                    st.rerun()
+                if st.button("Cancel", key=f"cancel_delete_template_{key_prefix}", use_container_width=True):
+                    st.session_state.pop(delete_confirm_key, None)
+                    st.rerun()
+            elif st.button("Delete template", key=f"delete_template_{key_prefix}", use_container_width=True, disabled=delete_disabled):
+                st.session_state[delete_confirm_key] = selected_template_name
                 st.rerun()
 
         st.markdown(
@@ -15491,7 +15569,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     except (TypeError, ValueError):
         statistics_data_version = 0
 
-    with busy_overlay("Calculating stats", "Matching sent reminders to later sales and summarising actioning."):
+    with busy_overlay("Calculating stats", "Matching sent reminders to later sales and summarising activity."):
         action_records = statistics_current_action_records()
         stats_action_item_rows = expand_rows_for_statistics_item_period(action_records, stats_period)
         stats_actioned_rows = filter_actions_by_actioned_period(
@@ -15558,7 +15636,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     st.markdown("<div class='stats-summary-tab-gap' aria-hidden='true'></div>", unsafe_allow_html=True)
 
     item_tab, item_actioning_tab, team_tab, sent_tab, success_tab = st.tabs(
-        ["Items", "Item Actioning", "Team", "Sent Reminders", "Successes"]
+        ["Items", "Item Activity", "Team", "Sent Reminders", "Successes"]
     )
 
     with item_tab:
@@ -15589,7 +15667,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             action_rows=stats_action_item_rows,
         )
         if item_actioning_frame.empty:
-            st.info("No item actioning stats yet.")
+            st.info("No item activity stats yet.")
         else:
             render_stats_csv_export(
                 item_actioning_frame,
@@ -15601,7 +15679,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 item_actioning_frame,
                 "stats_item_actioning",
                 STATS_TABLE_PAGE_SIZE,
-                "item actioning rows",
+                "item activity rows",
             )
             st.dataframe(
                 prepare_statistics_display_frame(paged_item_actioning_frame),
@@ -15699,7 +15777,7 @@ def render_search_terms_editor():
     def save_rule_days(rule, key):
         days_raw = str(st.session_state.get(key, "")).strip()
         if not days_raw.isdigit() or int(days_raw) <= 0:
-            st.session_state["_search_terms_autosave_error"] = f"Reminder 3 (Due Date) must be a positive integer for: {rule}"
+            st.session_state["_search_terms_autosave_error"] = f"Due after days must be a positive number for: {rule}"
             return
         old_value = st.session_state["rules"][rule].get("days", "")
         st.session_state["rules"][rule]["days"] = int(days_raw)
@@ -15719,11 +15797,11 @@ def render_search_terms_editor():
             new_value = int(days_raw)
         else:
             label = {
-                "reminder_1": "Reminder 1",
-                "reminder_2": "Reminder 2",
-                "overdue_reminder": "Overdue Reminder",
+                "reminder_1": "First reminder",
+                "reminder_2": "Second reminder",
+                "overdue_reminder": "Overdue reminder",
             }.get(field, "Reminder")
-            st.session_state["_search_terms_autosave_error"] = f"{label} must be blank or a positive integer for: {rule}"
+            st.session_state["_search_terms_autosave_error"] = f"{label} must be blank or a positive number for: {rule}"
             return
         save_settings_quietly()
         if str(old_value) != str(new_value):
@@ -15755,11 +15833,11 @@ def render_search_terms_editor():
     rule_col_widths = [3, 1, 1, 1.35, 1.35, 0.7, 2, 0.7]
     header_cols = st.columns(rule_col_widths, gap="small")
     with header_cols[0]: column_header("Search Term", "The product or service text to match in uploaded item names, such as bravecto, rabies, or librela.")
-    with header_cols[1]: column_header("Reminder 1", "Optional early reminder date, counted in days after the billed date.")
-    with header_cols[2]: column_header("Reminder 2", "Optional second early reminder date, counted in days after the billed date.")
-    with header_cols[3]: column_header("Reminder 3 (Due Date)", "The main due date, counted in days after the billed date.")
-    with header_cols[4]: column_header("Overdue Reminder", "Optional overdue reminder date, counted in days after the billed date. Example: due at 90, overdue at 100.")
-    with header_cols[5]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
+    with header_cols[1]: column_header("First reminder", "Optional first reminder, in days after the billed date.")
+    with header_cols[2]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
+    with header_cols[3]: column_header("Due after days", "The main reminder interval, in days after the billed date.")
+    with header_cols[4]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
+    with header_cols[5]: column_header("Multiply by quantity", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
     with header_cols[6]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
 
     def field_examples(first_example: str, second_example: str, extra_class: str = ""):
@@ -15788,39 +15866,39 @@ def render_search_terms_editor():
         )
     with c2:
         new_rule_reminder_1 = st.text_input(
-            "Reminder 1",
+            "First reminder",
             key=f"new_rule_reminder_1_{row_id}",
             label_visibility="collapsed",
-            help="Optional first reminder date, in days after the billed date."
+            help="Optional first reminder, in days after the billed date."
         )
         field_examples("335", "blank")
     with c3:
         new_rule_reminder_2 = st.text_input(
-            "Reminder 2",
+            "Second reminder",
             key=f"new_rule_reminder_2_{row_id}",
             label_visibility="collapsed",
-            help="Optional second reminder date, in days after the billed date."
+            help="Optional second reminder, in days after the billed date."
         )
         field_examples("357", "50")
     with c4:
         new_rule_days = st.text_input(
-            "Reminder 3 (Due Date)",
+            "Due after days",
             key=f"new_rule_days_{row_id}",
             label_visibility="collapsed",
-            help="Positive integer number of days until this item should be due again."
+            help="Positive number of days until this item should be due again."
         )
         field_examples("365", "60")
     with c5:
         new_rule_overdue = st.text_input(
-            "Overdue Reminder",
+            "Overdue after days",
             key=f"new_rule_overdue_{row_id}",
             label_visibility="collapsed",
-            help="Optional overdue reminder date, counted in days after the billed date."
+            help="Optional overdue reminder, in days after the billed date."
         )
         field_examples("375", "70")
     with c6:
         new_rule_use_qty = st.checkbox(
-            "Use Qty",
+            "Multiply by quantity",
             key=f"new_rule_useqty_{row_id}",
             label_visibility="collapsed",
             help="Use when quantity should extend the reminder interval."
@@ -15848,9 +15926,9 @@ def render_search_terms_editor():
                 rule_data = {"days": int(new_rule_days), "use_qty": bool(new_rule_use_qty)}
                 invalid_reminder = ""
                 for raw_value, field, label in [
-                    (new_rule_reminder_1, "reminder_1", "Reminder 1"),
-                    (new_rule_reminder_2, "reminder_2", "Reminder 2"),
-                    (new_rule_overdue, "overdue_reminder", "Overdue Reminder"),
+                    (new_rule_reminder_1, "reminder_1", "First reminder"),
+                    (new_rule_reminder_2, "reminder_2", "Second reminder"),
+                    (new_rule_overdue, "overdue_reminder", "Overdue reminder"),
                 ]:
                     raw_value = str(raw_value or "").strip()
                     if raw_value:
@@ -15859,7 +15937,7 @@ def render_search_terms_editor():
                             break
                         rule_data[field] = int(raw_value)
                 if invalid_reminder:
-                    st.error(f"{invalid_reminder} must be blank or a positive integer")
+                    st.error(f"{invalid_reminder} must be blank or a positive number")
                 else:
                     if new_rule_visible.strip():
                         rule_data["visible_text"] = new_rule_visible.strip()
@@ -15875,7 +15953,7 @@ def render_search_terms_editor():
                         invalidate_reminder_rule_cache()
                         st.rerun()
             else:
-                st.error("Enter a name and valid positive integer for Reminder 3 (Due Date)")
+                st.error("Enter a name and a positive number for Due after days")
 
 
     st.divider()
@@ -15883,11 +15961,11 @@ def render_search_terms_editor():
 
     cols = st.columns(rule_col_widths)
     with cols[0]: column_header("Search Term", "The product or service text matched against uploaded item names.")
-    with cols[1]: column_header("Reminder 1", "Optional early reminder date, counted in days after the billed date.")
-    with cols[2]: column_header("Reminder 2", "Optional second early reminder date, counted in days after the billed date.")
-    with cols[3]: column_header("Reminder 3 (Due Date)", "The main due date, counted in days after the billed date.")
-    with cols[4]: column_header("Overdue Reminder", "Optional extra reminder after the due date, counted in days after the billed date.")
-    with cols[5]: column_header("Use Qty", "When enabled, quantity extends the due date.")
+    with cols[1]: column_header("First reminder", "Optional first reminder, in days after the billed date.")
+    with cols[2]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
+    with cols[3]: column_header("Due after days", "The main reminder interval, in days after the billed date.")
+    with cols[4]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
+    with cols[5]: column_header("Multiply by quantity", "When enabled, quantity extends the due date.")
     with cols[6]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
     with cols[7]: column_header("Delete", "Remove this search term from matching.")
 
@@ -15915,39 +15993,39 @@ def render_search_terms_editor():
                 st.markdown(padded_html_text(rule), unsafe_allow_html=True)
             with cols[1]:
                 st.text_input(
-                    "Reminder 1", value=str(settings.get("reminder_1", "") or ""),
+                    "First reminder", value=str(settings.get("reminder_1", "") or ""),
                     key=f"reminder_1_{safe_rule}_{ver}", label_visibility="collapsed",
                     on_change=save_rule_reminder_day,
                     args=(rule, "reminder_1", f"reminder_1_{safe_rule}_{ver}",),
-                    help="Optional first reminder date, in days after the billed date."
+                    help="Optional first reminder, in days after the billed date."
                 )
             with cols[2]:
                 st.text_input(
-                    "Reminder 2", value=str(settings.get("reminder_2", "") or ""),
+                    "Second reminder", value=str(settings.get("reminder_2", "") or ""),
                     key=f"reminder_2_{safe_rule}_{ver}", label_visibility="collapsed",
                     on_change=save_rule_reminder_day,
                     args=(rule, "reminder_2", f"reminder_2_{safe_rule}_{ver}",),
-                    help="Optional second reminder date, in days after the billed date."
+                    help="Optional second reminder, in days after the billed date."
                 )
             with cols[3]:
                 st.text_input(
-                    "Reminder 3 (Due Date)", value=str(settings["days"]),
+                    "Due after days", value=str(settings["days"]),
                     key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
                     on_change=save_rule_days,
                     args=(rule, f"days_{safe_rule}_{ver}",),
-                    help="Exact due date in days after the billed date. If Reminder 1 and 2 are blank, the reminder appears on this due date."
+                    help="Main reminder interval in days after the billed date."
                 )
             with cols[4]:
                 st.text_input(
-                    "Overdue Reminder", value=str(settings.get("overdue_reminder", "") or ""),
+                    "Overdue after days", value=str(settings.get("overdue_reminder", "") or ""),
                     key=f"overdue_reminder_{safe_rule}_{ver}", label_visibility="collapsed",
                     on_change=save_rule_reminder_day,
                     args=(rule, "overdue_reminder", f"overdue_reminder_{safe_rule}_{ver}",),
-                    help="Optional overdue reminder date, counted in days after the billed date."
+                    help="Optional overdue reminder, in days after the billed date."
                 )
             with cols[5]:
                 st.checkbox(
-                    "Use Qty", value=settings["use_qty"],
+                    "Multiply by quantity", value=settings["use_qty"],
                     key=f"useqty_{safe_rule}_{ver}",
                     label_visibility="collapsed",
                     on_change=toggle_use_qty,
@@ -16147,9 +16225,9 @@ if st.session_state.get("logged_in", False):
             render_table(grouped, f"{lookback_start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
         else:
             if reminders_before_exclusions:
-                st.info("All reminders in the selected date range are hidden by exclusions.")
+                st.info("All reminders in the selected date range are hidden by exclusions. Review Exclusions if this looks wrong.")
             elif should_show_no_reminders_info(reminders_before_exclusions, active_reminder_count):
-                st.info("No reminders in the selected date range.")
+                st.info("No reminders in the selected date range. Try Today, widen the date window, or check Search Terms.")
 
     if active_main_section == "Stats":
         render_stats_tab(df, prepared, applied_rules)
@@ -16177,7 +16255,7 @@ if st.session_state.get("logged_in", False):
                             record_settings_audit_event("exclusion_deleted", "exclusions", client_name, "client", client_name, "", "exclusions_tab")
                             st.rerun()
         else:
-            st.caption("No client exclusions yet.")
+            st.caption("No client exclusions yet. Add one to hide all reminders for a client.")
 
         row_id = st.session_state['new_rule_counter']
         c1, c2 = st.columns([4,1], gap="small")
@@ -16243,7 +16321,7 @@ if st.session_state.get("logged_in", False):
                             record_settings_audit_event("exclusion_deleted", "exclusions", f"{client_name} - {patient_name}", "patient", exclusion, "", "exclusions_tab")
                             st.rerun()
         else:
-            st.caption("No patient exclusions yet.")
+            st.caption("No patient exclusions yet. Add one to hide reminders for one patient.")
 
         pc1, pc2, pc3 = st.columns([2, 2, 1], gap="small")
         with pc1:
@@ -16327,7 +16405,7 @@ if st.session_state.get("logged_in", False):
                             record_settings_audit_event("exclusion_deleted", "exclusions", f"{client_name} - {item_name}", "client_item", exclusion, "", "exclusions_tab")
                             st.rerun()
         else:
-            st.caption("No client-specific item exclusions yet.")
+            st.caption("No client-specific item exclusions yet. Add one to hide one item for one client.")
 
         ci1, ci2, ci3 = st.columns([2, 2, 1], gap="small")
         with ci1:
@@ -16395,7 +16473,7 @@ if st.session_state.get("logged_in", False):
                             record_settings_audit_event("exclusion_deleted", "exclusions", term, "item", term, "", "exclusions_tab")
                             st.rerun()
         else:
-            st.caption("No item exclusions yet.")
+            st.caption("No item exclusions yet. Add one to hide an item across all clients.")
 
         row_id = st.session_state['new_rule_counter']
         c1, c2 = st.columns([4,1], gap="small")
@@ -16578,7 +16656,7 @@ if st.session_state.get("logged_in", False):
                             )
                             st.rerun()
         else:
-            st.caption("No automatic patient death exclusions yet.")
+            st.caption("No automatic patient death exclusions yet. Matching uploads will add patients here.")
 
 # --------------------------------
 # 📊 Factoids Section (temporarily hidden)

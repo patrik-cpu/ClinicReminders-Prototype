@@ -851,6 +851,13 @@ class DatasetUpdateTests(unittest.TestCase):
 
         self.assertEqual(list(parsed.dt.strftime("%Y-%m-%d")), ["2025-09-30", "2025-10-01", "2025-09-01"])
 
+    def test_parse_dates_handles_excel_serial_dates(self):
+        values = pd.Series(["46044.6958838773"])
+
+        parsed = self.app.parse_dates(values)
+
+        self.assertEqual(parsed.iloc[0].strftime("%Y-%m-%d"), "2026-01-22")
+
     def test_dataframe_to_csv_bytes_matches_existing_serialization(self):
         df = pd.DataFrame({
             "ChargeDate": pd.to_datetime(["2025-10-01", "2025-10-02"]),
@@ -949,6 +956,23 @@ class DatasetUpdateTests(unittest.TestCase):
 
         self.assertEqual(pms_name, "Canonical CSV")
         self.assertEqual(df.loc[0, "ChargeDate"].strftime("%Y-%m-%d"), "2025-09-30")
+
+    def test_process_file_accepts_merlin_tab_separated_csv(self):
+        csv_bytes = (
+            "Itemdate\tDescription\tAnimalName\tQty\tTotal\tSurname\tFirstName\tTreatmentDate\n"
+            "46044.6958838773\tRabies Vaccination\tAlfie\t2\t123.45\tAaron\tSusan\t46044.5\n"
+        ).encode("utf-8")
+
+        df, pms_name, amount_col = self.app.process_file(csv_bytes, "merlin.csv")
+
+        self.assertEqual(pms_name, "Merlin")
+        self.assertEqual(amount_col, "Total")
+        self.assertEqual(df.loc[0, "ChargeDate"].strftime("%Y-%m-%d"), "2026-01-22")
+        self.assertEqual(df.loc[0, "Client Name"], "Susan Aaron")
+        self.assertEqual(df.loc[0, "Animal Name"], "Alfie")
+        self.assertEqual(df.loc[0, "Item Name"], "Rabies Vaccination")
+        self.assertEqual(df.loc[0, "Qty"], 2)
+        self.assertEqual(df.loc[0, "Amount"], 123.45)
 
     def test_upload_validation_reports_billed_date_label(self):
         df = pd.DataFrame(
