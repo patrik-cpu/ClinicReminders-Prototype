@@ -16430,7 +16430,7 @@ def render_stats_subtab_selector() -> str:
         unsafe_allow_html=True,
     )
     widths = [max(1.1, min(2.4, len(tab_name) / 8)) for tab_name in STATS_SUBTABS]
-    columns = st.columns(widths, gap="small")
+    columns = st.columns([*widths, 7.2], gap="small")[:len(STATS_SUBTABS)]
     for column, tab_name in zip(columns, STATS_SUBTABS):
         with column:
             st.button(
