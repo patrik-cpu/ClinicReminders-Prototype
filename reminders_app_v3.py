@@ -13603,10 +13603,12 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Success Rate": "Percentage of sent reminders that became successful by either success window.",
     "Revenue per Item": "Average revenue per matching purchase in the uploaded sales data.",
     "Revenue from Successes": "Revenue from repeat purchases that counted as reminder successes.",
-    "Revenue per Year": "Estimated annual revenue from actual repeat purchases, using the overall average purchase gap.",
-    "Theoretical Max Revenue": "Estimated annual ceiling using all matching purchases and the faster of actual or desired cadence.",
-    "Capturable Revenue per Year": "Estimated annual revenue still available: theoretical max revenue minus revenue per year.",
-    "Captured Revenue %": "Revenue per year divided by theoretical max revenue.",
+    "Revenue per Year": "Estimated annual revenue from actual repeat purchases.\nFormula: Total Repeat Purchases x (365 / Actual Gap Days) x Revenue per Item.",
+    "Calculated Revenue per Year": "Estimated annual revenue from actual repeat purchases.\nFormula: Total Repeat Purchases x (365 / Actual Gap Days) x Revenue per Item.",
+    "Theoretical Max Revenue": "Estimated annual ceiling from all matching purchases at the desired cadence.\nFormula: Total Purchases x (365 / Desired Gap Days) x Revenue per Item.",
+    "Capturable Revenue per Year": "Estimated annual revenue still available.\nFormula: Theoretical Max Revenue - Calculated Revenue per Year.",
+    "Capturable Revenue Potential per Year": "Estimated annual revenue still available.\nFormula: Theoretical Max Revenue - Calculated Revenue per Year.",
+    "Captured Revenue %": "Calculated revenue per year divided by theoretical max revenue.",
     "Matched Item": "Purchased item that counted as the success.",
     "Next Matched Item": "Next matching purchased item after the billed date.",
 }
@@ -13635,8 +13637,10 @@ OUTCOME_DISPLAY_COLUMN_TITLES = {
     "Repeat Purchase %": "Repeat\nPurchase %",
     "Revenue per Item": "Revenue\nper Item",
     "Revenue from Successes": "Revenue from\nSuccesses",
+    "Calculated Revenue per Year": "Calculated Revenue\nper Year",
     "Revenue per Year": "Revenue\nper Year",
     "Theoretical Max Revenue": "Theoretical\nMax Revenue",
+    "Capturable Revenue Potential per Year": "Capturable Revenue\nPotential per Year",
     "Capturable Revenue per Year": "Capturable Revenue\nper Year",
     "Captured Revenue %": "Captured\nRevenue %",
 }
@@ -13671,8 +13675,10 @@ OUTCOME_DISPLAY_COLUMN_WIDTHS = {
     "Repeat Purchase %": "small",
     "Revenue per Item": "small",
     "Revenue from Successes": "small",
+    "Calculated Revenue per Year": "small",
     "Revenue per Year": "small",
     "Theoretical Max Revenue": "small",
+    "Capturable Revenue Potential per Year": "small",
     "Capturable Revenue per Year": "small",
     "Captured Revenue %": "small",
 }
@@ -13738,6 +13744,7 @@ STATS_ITEMS_DISPLAY_COLUMNS = [
     "Revenue per Year",
     "Theoretical Max Revenue",
     "Captured Revenue %",
+    "Revenue per Item",
     "Sent",
     "Successes",
     "Success Rate",
@@ -13745,9 +13752,8 @@ STATS_ITEMS_DISPLAY_COLUMNS = [
     "Desired Gap Days",
     "Avg Item Purchase Gap Days",
     "Gap Day % to Desired",
-    "Revenue per Item",
-    "Overall Repeat Purchases",
     "Overall Purchases",
+    "Overall Repeat Purchases",
     "Repeat Purchase %",
 ]
 STATS_ITEMS_DISPLAY_COLUMN_LABELS = {
@@ -13756,6 +13762,8 @@ STATS_ITEMS_DISPLAY_COLUMN_LABELS = {
     "Gap Day % to Desired": "Gap Day %",
     "Overall Repeat Purchases": "Total Repeat Purchases",
     "Overall Purchases": "Total Purchases",
+    "Revenue per Year": "Calculated Revenue per Year",
+    "Capturable Revenue per Year": "Capturable Revenue Potential per Year",
 }
 OUTCOME_SENDER_GROUP_COLUMNS = [
     "Sender",
@@ -16004,8 +16012,10 @@ def outcome_display_column_config() -> dict:
         "Repeat Purchase %": outcome_display_number_column("Repeat Purchase %", "%.0f%%"),
         "Revenue per Item": outcome_display_number_column("Revenue per Item", "localized"),
         "Revenue from Successes": outcome_display_number_column("Revenue from Successes", "localized"),
+        "Calculated Revenue per Year": outcome_display_number_column("Calculated Revenue per Year", "localized"),
         "Revenue per Year": outcome_display_number_column("Revenue per Year", "localized"),
         "Theoretical Max Revenue": outcome_display_number_column("Theoretical Max Revenue", "localized"),
+        "Capturable Revenue Potential per Year": outcome_display_number_column("Capturable Revenue Potential per Year", "localized"),
         "Capturable Revenue per Year": outcome_display_number_column("Capturable Revenue per Year", "localized"),
         "Captured Revenue %": outcome_display_number_column("Captured Revenue %", "%.0f%%"),
         "Success Rate": st.column_config.ProgressColumn(
@@ -16077,8 +16087,10 @@ STATS_EXPORT_CURRENCY_COLUMNS = {
     "Revenue",
     "Revenue per Item",
     "Revenue from Successes",
+    "Calculated Revenue per Year",
     "Revenue per Year",
     "Theoretical Max Revenue",
+    "Capturable Revenue Potential per Year",
     "Capturable Revenue per Year",
 }
 
@@ -16709,7 +16721,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             default_sort_ascending=False,
             item_label="item rows",
             display_column_labels=STATS_ITEMS_DISPLAY_COLUMN_LABELS,
-            highlight_column="Capturable Revenue per Year",
+            highlight_column="Capturable Revenue Potential per Year",
         )
         render_stats_csv_export(
             item_frame,

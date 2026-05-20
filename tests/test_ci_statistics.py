@@ -819,10 +819,11 @@ class StatisticsTests(unittest.TestCase):
             rendered_frame.columns.tolist(),
             [
                 "Item",
-                "Capturable Revenue per Year",
-                "Revenue per Year",
+                "Capturable Revenue Potential per Year",
+                "Calculated Revenue per Year",
                 "Theoretical Max Revenue",
                 "Captured Revenue %",
+                "Revenue per Item",
                 "Sent Reminders",
                 "Successes",
                 "Success Rate",
@@ -830,9 +831,8 @@ class StatisticsTests(unittest.TestCase):
                 "Desired Gap Days",
                 "Actual Gap Days",
                 "Gap Day %",
-                "Revenue per Item",
-                "Total Repeat Purchases",
                 "Total Purchases",
+                "Total Repeat Purchases",
                 "Repeat Purchase %",
             ],
         )
@@ -3184,12 +3184,13 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(column_config["Captured Revenue %"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Revenue per Item"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Revenue from Successes"]["type_config"]["format"], "localized")
-        self.assertEqual(column_config["Revenue per Year"]["type_config"]["format"], "localized")
+        self.assertEqual(column_config["Calculated Revenue per Year"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Theoretical Max Revenue"]["type_config"]["format"], "localized")
-        self.assertEqual(column_config["Capturable Revenue per Year"]["type_config"]["format"], "localized")
+        self.assertEqual(column_config["Capturable Revenue Potential per Year"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Revenue from Successes"]["label"], "Revenue from\nSuccesses")
         self.assertEqual(column_config["Revenue per Item"]["label"], "Revenue\nper Item")
-        self.assertEqual(column_config["Capturable Revenue per Year"]["label"], "Capturable Revenue\nper Year")
+        self.assertEqual(column_config["Calculated Revenue per Year"]["label"], "Calculated Revenue\nper Year")
+        self.assertEqual(column_config["Capturable Revenue Potential per Year"]["label"], "Capturable Revenue\nPotential per Year")
         self.assertEqual(column_config["Overall Avg Purchase Gap Days"]["label"], "Overall Avg\nPurchase Gap\nDays")
         self.assertEqual(rendered_frame.iloc[0]["Success Rate"], 25)
         self.assertEqual(round(rendered_frame.iloc[0]["Gap Day % to Desired"]), 101)
@@ -3205,10 +3206,10 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Percentage of matching purchases", column_config["Repeat Purchase %"]["help"])
         self.assertIn("Average revenue per matching purchase", column_config["Revenue per Item"]["help"])
         self.assertIn("Revenue from repeat purchases", column_config["Revenue from Successes"]["help"])
-        self.assertIn("Estimated annual revenue", column_config["Revenue per Year"]["help"])
-        self.assertIn("faster of actual or desired cadence", column_config["Theoretical Max Revenue"]["help"])
-        self.assertIn("theoretical max revenue minus revenue per year", column_config["Capturable Revenue per Year"]["help"])
-        self.assertIn("Revenue per year divided", column_config["Captured Revenue %"]["help"])
+        self.assertIn("Total Repeat Purchases x (365 / Actual Gap Days) x Revenue per Item", column_config["Calculated Revenue per Year"]["help"])
+        self.assertIn("Total Purchases x (365 / Desired Gap Days) x Revenue per Item", column_config["Theoretical Max Revenue"]["help"])
+        self.assertIn("Theoretical Max Revenue - Calculated Revenue per Year", column_config["Capturable Revenue Potential per Year"]["help"])
+        self.assertIn("Calculated revenue per year divided", column_config["Captured Revenue %"]["help"])
         self.assertIn("Current result", column_config["Outcome"]["help"])
         self.assertNotIn("Avg Item Purchase Gap Days", rendered_frame.columns)
         self.assertNotIn("Revenue", rendered_frame.columns)
