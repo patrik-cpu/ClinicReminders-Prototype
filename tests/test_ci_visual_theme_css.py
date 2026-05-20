@@ -73,6 +73,8 @@ class VisualThemeCssTests(unittest.TestCase):
             "st-key-patient_exclusions_list_box",
             "st-key-client_item_exclusions_list_box",
             "st-key-item_exclusions_list_box",
+            "background: transparent !important;",
+            "border-color: transparent !important;",
             ".exclusion-chip",
             "transform: translateY(-0.12rem);",
             "exclusion_chip_html",

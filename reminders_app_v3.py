@@ -2633,11 +2633,11 @@ st.markdown(
     [class*="st-key-patient_exclusions_list_box"],
     [class*="st-key-client_item_exclusions_list_box"],
     [class*="st-key-item_exclusions_list_box"] {
-        background: rgba(255, 247, 237, 0.38);
-        border-color: rgba(251, 146, 60, 0.18) !important;
-        border-radius: 8px;
+        background: transparent !important;
+        border-color: transparent !important;
+        box-shadow: none !important;
         margin: 0.55rem 0 0.65rem;
-        padding: 0.3rem 0.45rem;
+        padding: 0;
     }
     [class*="st-key-auto_patient_exclusion_row_"],
     [class*="st-key-auto_death_keyword_row_"],
@@ -2678,7 +2678,7 @@ st.markdown(
     [class*="st-key-exclusion_row_"] .exclusion-chip {
         align-items: center;
         min-height: 2rem;
-        line-height: 2rem;
+        line-height: 1;
         padding: 0.12rem 0;
     }
     [class*="st-key-auto_patient_exclusion_row_"] [class*="st-key-del_auto_patient_excl_"] button {
