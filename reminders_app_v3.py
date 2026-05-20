@@ -9188,22 +9188,22 @@ def get_setup_checklist_steps() -> list[dict]:
         {
             "number": 2,
             "done": search_term_added and happened_after_reset(st.session_state.get("search_term_added_at", "")),
-            "title": "Add new search term",
+            "title": "Add a search term",
             "copy": "Add at least one clinic-specific product or service so reminders match your clinic language.",
             "where": "Where: Search Terms tab",
         },
         {
             "number": 3,
             "done": has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", "")),
-            "title": "Set sender name",
+            "title": "Add sender name",
             "copy": "This fills [Your Name] in WhatsApp messages. Example: Mary from Bob's Test Vet Clinic.",
             "where": "Where: Reminders tab, above the reminder list",
         },
         {
             "number": 4,
             "done": template_updated and happened_after_reset(st.session_state.get("wa_template_updated_at", "")),
-            "title": "Update template",
-            "copy": "Save the WhatsApp template once so it matches your clinic tone and wording.",
+            "title": "Review message templates",
+            "copy": "Check the General WhatsApp template. Add extra templates if your clinic uses different wording for different reminder types.",
             "where": "Where: Template Editor in the Reminders tab",
         },
         {
@@ -9216,7 +9216,7 @@ def get_setup_checklist_steps() -> list[dict]:
         {
             "number": 6,
             "done": action_after_reset(REMINDER_ACTION_DECLINED),
-            "title": "Decline your first reminder",
+            "title": "Try declining a reminder",
             "copy": "Tick the red X to decline sending this reminder while still marking it actioned.",
             "where": "Where: Reminders tab",
         },
@@ -9701,7 +9701,7 @@ def render_setup_checklist():
 
     with setup_panel:
         st.markdown(
-            '<p class="setup-intro">Six quick checks before you start using reminders.</p>',
+            '<p class="setup-intro">Set up your data, reminder rules, and WhatsApp messages before working through your first reminders.</p>',
             unsafe_allow_html=True,
         )
         step_cards = []

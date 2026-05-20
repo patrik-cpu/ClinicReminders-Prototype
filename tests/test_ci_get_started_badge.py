@@ -37,6 +37,14 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertEqual(self.app.get_started_incomplete_count(), 0)
         self.assertEqual(self.app.get_started_badge_label(), "Get Started")
 
+    def test_get_started_steps_include_template_guidance(self):
+        steps = self.app.get_setup_checklist_steps()
+        step_titles = [step["title"] for step in steps]
+        template_step = next(step for step in steps if step["number"] == 4)
+
+        self.assertIn("Review message templates", step_titles)
+        self.assertIn("Add extra templates", template_step["copy"])
+
     def test_stats_tab_shows_new_badge(self):
         label = self.app.main_section_tab_label("Stats")
 
