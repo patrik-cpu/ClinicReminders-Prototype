@@ -57,7 +57,11 @@ PRECOMPUTE_ANALYTICS_BUNDLE = False
 UPLOAD_SUMMARY_SCHEMA_VERSION = 2
 DEFAULT_REMINDER_LOOKBACK_DAYS = 2
 MIN_VALID_CHARGE_DATE = pd.Timestamp("2000-01-01")
-HELP_ICON_SYMBOL = "⊙"
+HELP_ICON_HTML = (
+    "<svg class='column-help-svg' viewBox='0 0 512 512' aria-hidden='true' focusable='false'>"
+    "<path fill='currentColor' d='M256 0C114.6 0 0 114.6 0 256s114.6 256 256 256 256-114.6 256-256S397.4 0 256 0zm0 48c114.9 0 208 93.1 208 208s-93.1 208-208 208S48 370.9 48 256 141.1 48 256 48zm-28 156h56v184h-56V204zm0-80h56v56h-56v-56z'/>"
+    "</svg>"
+)
 DRIVE_SCOPE = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
@@ -2837,6 +2841,12 @@ st.markdown(
         vertical-align: -0.02rem;
         white-space: nowrap;
     }
+    .column-help-svg {
+        display: block;
+        flex: 0 0 auto;
+        height: 100%;
+        width: 100%;
+    }
     .column-help::after {
         background: #ffffff;
         border: 1px solid rgba(15,23,42,0.14);
@@ -3070,7 +3080,7 @@ def render_field_label(container, label: str, help_text: str, class_name: str = 
     safe_class = html_lib.escape(str(class_name or ""))
     classes = "field-label" + (f" {safe_class}" if safe_class else "")
     container.markdown(
-        f"<div class='{classes}'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_SYMBOL}</span></div>",
+        f"<div class='{classes}'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_HTML}</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -4432,7 +4442,7 @@ def dataset_summary_checks_html(rows: list[dict]) -> str:
         icon = "✅" if check.get("good") else "⚠️"
         text = html_lib.escape(str(check.get("text", "")))
         help_text = html_lib.escape(str(check.get("help", "")))
-        help_icon = f" <span class='column-help' data-tooltip='{help_text}'>{HELP_ICON_SYMBOL}</span>" if help_text else ""
+        help_icon = f" <span class='column-help' data-tooltip='{help_text}'>{HELP_ICON_HTML}</span>" if help_text else ""
         check_items.append(
             f"<div class='dataset-check {status_class}'>{icon} {text}{help_icon}</div>"
         )
@@ -10701,7 +10711,7 @@ def render_setup_checklist():
                                 f"""
                                 <div class="setup-item-label {html_lib.escape(entry["class_name"])}">
                                   <span>{safe_label}</span>
-                                  <span class="column-help" data-tooltip="{safe_help}">{HELP_ICON_SYMBOL}</span>
+                                  <span class="column-help" data-tooltip="{safe_help}">{HELP_ICON_HTML}</span>
                                 </div>
                                 """,
                                 unsafe_allow_html=True,
@@ -12957,7 +12967,7 @@ def reminder_header_help(column: str) -> str:
 def render_column_help_icon(container, help_text: str, align: str = "left"):
     safe_help = html_lib.escape(help_text)
     container.markdown(
-        f"<div style='text-align:{align}; line-height:1.6rem;'><span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_SYMBOL}</span></div>",
+        f"<div style='text-align:{align}; line-height:1.6rem;'><span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_HTML}</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -12976,7 +12986,7 @@ def render_reminder_header_label(container, label: str, column: str, align: str 
     safe_label = html_lib.escape(label)
     safe_help = html_lib.escape(reminder_header_help(column))
     container.markdown(
-        f"<div style='text-align:{align}; font-weight:600;'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_SYMBOL}</span></div>",
+        f"<div style='text-align:{align}; font-weight:600;'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_HTML}</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -14719,7 +14729,7 @@ def render_statistics_metric_card(label: str, value: str, help_text: str = ""):
     safe_value = html_lib.escape(str(value or "0"))
     safe_help = html_lib.escape(str(help_text or ""))
     help_html = (
-        f" <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_SYMBOL}</span>"
+        f" <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_HTML}</span>"
         if safe_help
         else ""
     )
@@ -16796,18 +16806,6 @@ def format_stats_sent_custom_range(custom_range: tuple[date, date] | None) -> st
     return f"{start_label} to {end_label}"
 
 
-def stats_sent_period_caption(selected_period: str, custom_range: tuple[date, date] | None = None) -> str:
-    if selected_period == "Custom" and custom_range is not None:
-        return f"Custom: {format_stats_sent_custom_range(custom_range)}; filtered by Sent Date."
-    return f"{selected_period}; filtered by Sent Date."
-
-
-def stats_success_period_caption(selected_period: str, custom_range: tuple[date, date] | None = None) -> str:
-    if selected_period == "Custom" and custom_range is not None:
-        return f"Custom: {format_stats_sent_custom_range(custom_range)}; filtered by Success Date."
-    return f"{selected_period}; filtered by Success Date."
-
-
 def stats_sent_export_period_label(selected_period: str, custom_range: tuple[date, date] | None = None) -> str:
     if selected_period == "Custom" and custom_range is not None:
         start_date, end_date = custom_range
@@ -17147,7 +17145,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     active_stats_subtab = render_stats_subtab_selector()
 
     if active_stats_subtab == "Revenue":
-        st.caption("All time; matched sent reminders grouped by item.")
         item_frame = stats_item_outcome_frame
         render_outcome_dataframe(
             item_frame,
@@ -17167,7 +17164,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         )
 
     elif active_stats_subtab == "Items":
-        st.caption("All time; generated reminders and saved actions by actual item.")
         item_actioning_frame = build_statistics_item_frame(
             generated_df,
             action_records,
@@ -17200,7 +17196,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     elif active_stats_subtab == "Successes":
         selected_success_period, success_custom_range = render_stats_successes_period_selector()
-        st.caption(stats_success_period_caption(selected_success_period, success_custom_range))
         success_rows = stats_success_rows_for_render(
             period_rows,
             selected_success_period,
@@ -17239,7 +17234,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         )
 
     elif active_stats_subtab == "Team":
-        st.caption("All time; outcome results by sender plus reminder actions by actioned date.")
         team_frame = build_stats_team_frame(
             stats_sender_outcome_frame,
             action_records,
@@ -17280,7 +17274,7 @@ def render_search_terms_editor():
         safe_label = html_lib.escape(label)
         safe_help = html_lib.escape(help_text)
         st.markdown(
-            f"<div class='search-term-column-header'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_SYMBOL}</span></div>",
+            f"<div class='search-term-column-header'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_HTML}</span></div>",
             unsafe_allow_html=True,
         )
 

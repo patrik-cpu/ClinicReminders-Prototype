@@ -1304,14 +1304,6 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertEqual(rows["Client Name"].tolist(), ["Inside"])
 
-    def test_stats_sent_custom_caption_shows_chosen_range(self):
-        caption = self.app.stats_sent_period_caption(
-            "Custom",
-            (date(2025, 9, 20), date(2025, 9, 25)),
-        )
-
-        self.assertEqual(caption, "Custom: 20 Sep 2025 to 25 Sep 2025; filtered by Sent Date.")
-
     def test_stats_custom_range_selection_detects_half_selected_range(self):
         self.assertTrue(self.app.stats_custom_range_selection_in_progress((date(2025, 9, 20),)))
         self.assertFalse(
@@ -1379,14 +1371,6 @@ class StatisticsTests(unittest.TestCase):
         )
 
         self.assertEqual(rows["Client Name"].tolist(), ["Inside"])
-
-    def test_stats_success_custom_caption_shows_chosen_range(self):
-        caption = self.app.stats_success_period_caption(
-            "Custom",
-            (date(2025, 9, 20), date(2025, 9, 25)),
-        )
-
-        self.assertEqual(caption, "Custom: 20 Sep 2025 to 25 Sep 2025; filtered by Success Date.")
 
     def test_stats_sent_tab_period_filter_uses_user_today_not_sales_as_of_date(self):
         outcomes = pd.DataFrame(
