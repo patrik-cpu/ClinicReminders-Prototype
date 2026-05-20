@@ -8181,9 +8181,12 @@ def get_remember_login_cookie() -> str:
     return normalize_remember_login_cookie_value(value)
 
 
-def set_remember_login_token(token: str):
-    """Legacy compatibility wrapper. Remember tokens must not be stored in URLs."""
-    clear_query_param(REMEMBER_LOGIN_QUERY_PARAM)
+def set_remember_login_token(token: str, use_url_fallback: bool = False):
+    """Queue a remember token cookie, with an explicit URL fallback for hosts that block cookie writes."""
+    if token and use_url_fallback:
+        set_query_param(REMEMBER_LOGIN_QUERY_PARAM, token)
+    else:
+        clear_query_param(REMEMBER_LOGIN_QUERY_PARAM)
     queue_remember_login_cookie_update(token)
 
 
@@ -8199,10 +8202,14 @@ def discard_remember_login_query_param() -> bool:
     return False
 
 
-def remember_authenticated_session(clinic_id: str, user_row: dict | None = None) -> None:
+def remember_authenticated_session(
+    clinic_id: str,
+    user_row: dict | None = None,
+    use_url_fallback: bool = False,
+) -> None:
     token = create_remember_login_token(clinic_id, user_row=user_row)
     if token:
-        set_remember_login_token(token)
+        set_remember_login_token(token, use_url_fallback=use_url_fallback)
     else:
         clear_remember_login_token()
 
@@ -8211,9 +8218,12 @@ def restore_remembered_login_session() -> bool:
     if st.session_state.get("logged_in"):
         return False
 
-    token = get_remember_login_cookie()
+    cookie_token = get_remember_login_cookie()
+    query_token = get_query_param(REMEMBER_LOGIN_QUERY_PARAM)
+    token = cookie_token or query_token
     if not token:
         return False
+    use_url_fallback = bool(query_token and token == query_token and not cookie_token)
 
     clinic_id = validate_remember_login_token(token)
     if not clinic_id:
@@ -8226,7 +8236,7 @@ def restore_remembered_login_session() -> bool:
             event="remembered_login",
             auth_provider="password",
         )
-        remember_authenticated_session(clinic_id)
+        remember_authenticated_session(clinic_id, use_url_fallback=use_url_fallback)
         return True
     except Exception as e:
         record_error_tracker_event(
@@ -9390,6 +9400,7 @@ def finish_authenticated_session(
     google_user: dict | None = None,
     session_user_name: str = "",
     remember_session: bool = False,
+    remember_url_fallback: bool = False,
     user_row: dict | None = None,
 ):
     clinic_id = str(clinic_id or "").strip()
@@ -9402,7 +9413,11 @@ def finish_authenticated_session(
         st.session_state["google_email"] = google_user.get("email", "")
         st.session_state["google_subject"] = google_user.get("subject", "")
     if remember_session:
-        remember_authenticated_session(clinic_id, user_row=user_row)
+        remember_authenticated_session(
+            clinic_id,
+            user_row=user_row,
+            use_url_fallback=remember_url_fallback,
+        )
 
     with busy_overlay("Loading clinic data", "Preparing saved settings, data, and reminders for this clinic."):
         reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
@@ -9581,7 +9596,6 @@ else:
     google_user = get_google_user_info()
 
 render_pending_remember_login_cookie_update()
-discard_remember_login_query_param()
 staff_access_link_requested = get_query_param(STAFF_ACCESS_QUERY_PARAM).strip().lower() in {"1", "true", "yes"}
 if staff_access_link_requested and not st.session_state["logged_in"]:
     st.session_state["show_staff_access_login"] = True
@@ -9676,6 +9690,11 @@ if not st.session_state["logged_in"]:
             st.markdown("<span class='login-form-marker'></span>", unsafe_allow_html=True)
             username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0], key="login_username_input")
             password = st.text_input("Password", value="", type="password", key="login_password_input")
+            keep_logged_in = st.checkbox(
+                "Keep me logged in on this browser",
+                value=True,
+                key="login_keep_logged_in",
+            )
             login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
 
         google_auth_ready = authlib_available()
@@ -9734,7 +9753,8 @@ if not st.session_state["logged_in"]:
                         username,
                         event="login",
                         auth_provider="password",
-                        remember_session=True,
+                        remember_session=bool(keep_logged_in),
+                        remember_url_fallback=bool(keep_logged_in),
                         user_row=user_row,
                     )
 
@@ -9819,6 +9839,7 @@ if not st.session_state["logged_in"]:
                                 event="login",
                                 auth_provider="password",
                                 remember_session=True,
+                                remember_url_fallback=True,
                                 user_row={SHEET_COL_PASSWORD_HASH: password_hash},
                             )
                             mark_new_account_welcome_pending()
