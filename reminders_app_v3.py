@@ -9497,21 +9497,21 @@ def get_setup_checklist_modules() -> list[dict]:
             "items": [
                 item(
                     "add_sender_name",
-                    "Add the sender name",
+                    "Add your name as Sender",
                     has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", "")),
                     st.session_state.get("user_name_updated_at", ""),
                 ),
-                item("review_reminder_settings", "Review reminder date and grouping settings"),
-                item("send_whatsapp", "Open a WhatsApp message", sent_after_reset(), get_started_latest_sent_token()),
-                item("mark_sent", "Mark a reminder as sent", action_after_reset(REMINDER_ACTION_SENT), get_started_latest_action_token(REMINDER_ACTION_SENT)),
-                item("decline_reminder", "Decline a reminder", action_after_reset(REMINDER_ACTION_DECLINED), get_started_latest_action_token(REMINDER_ACTION_DECLINED)),
+                item("review_reminder_settings", "Review reminder dates, grouping, and alert settings"),
+                item("send_whatsapp", "Create a WhatsApp message", sent_after_reset(), get_started_latest_sent_token()),
+                item("mark_sent", "Action a reminder as sent", action_after_reset(REMINDER_ACTION_SENT), get_started_latest_action_token(REMINDER_ACTION_SENT)),
+                item("decline_reminder", "Action a reminder as declined", action_after_reset(REMINDER_ACTION_DECLINED), get_started_latest_action_token(REMINDER_ACTION_DECLINED)),
                 item(
                     "edit_template",
                     "Edit the General template",
                     template_updated and happened_after_reset(st.session_state.get("wa_template_updated_at", "")),
                     st.session_state.get("wa_template_updated_at", ""),
                 ),
-                item("create_template", "Create or select another template", has_extra_template, str(sorted(templates.keys()))),
+                item("create_template", "Create a new WhatsApp template", has_extra_template, str(sorted(templates.keys()))),
             ],
         },
         {

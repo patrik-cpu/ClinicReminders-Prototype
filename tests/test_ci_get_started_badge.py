@@ -43,7 +43,7 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertIn("Reminders", module_titles)
         self.assertIn("Exclusions", module_titles)
         self.assertIn("Stats", module_titles)
-        self.assertIn("Create or select another template", [item["label"] for item in reminder_items])
+        self.assertIn("Create a new WhatsApp template", [item["label"] for item in reminder_items])
         self.assertIn("Review automatic death keywords", [item["label"] for item in exclusion_items])
 
     def test_auto_completed_get_started_item_can_be_manually_turned_off(self):
