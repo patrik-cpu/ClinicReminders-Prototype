@@ -228,6 +228,8 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("def stats_subtab_button_key", source)
         self.assertIn("cr-stats-subtab-rule", source)
         self.assertIn("st.button(\n                tab_name", source)
+        self.assertIn('[class*="st-key-reminders_subtab_"] button,', source)
+        self.assertIn('[class*="st-key-reminders_subtab_"] button p,', source)
         self.assertIn('STATS_SENT_REMINDER_PERIODS = ["Today", "Previous 7 days", "Previous 30 days", "All-time", "Custom"]', source)
         self.assertIn('"Sent reminders period"', source)
         self.assertNotIn("filtered by Sent Date", source)

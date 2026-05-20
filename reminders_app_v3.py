@@ -9251,6 +9251,7 @@ def render_reminders_subtab_selector(key_prefix: str) -> str:
           .st-key-{active_button_key} button {{
             background: var(--cr-primary) !important;
             border-color: var(--cr-primary) !important;
+            box-shadow: 0 1px 0 var(--cr-primary) !important;
             color: #062d19 !important;
             position: relative !important;
             z-index: 1 !important;
@@ -12058,6 +12059,7 @@ st.markdown(
         min-width: fit-content !important;
         width: auto !important;
       }
+      [class*="st-key-reminders_subtab_"] button,
       [class*="st-key-stats_subtab_"] button {
         background: var(--cr-primary-quiet) !important;
         border: 1px solid var(--cr-border) !important;
@@ -12070,11 +12072,14 @@ st.markdown(
         padding: 0.35rem 0.75rem !important;
         white-space: nowrap !important;
       }
+      [class*="st-key-reminders_subtab_"] button p,
+      [class*="st-key-reminders_subtab_"] button span,
       [class*="st-key-stats_subtab_"] button p,
       [class*="st-key-stats_subtab_"] button span {
         color: #23513a !important;
         font-weight: 600 !important;
       }
+      [class*="st-key-reminders_subtab_"] button:hover,
       [class*="st-key-stats_subtab_"] button:hover {
         background: var(--cr-primary-soft) !important;
       }
