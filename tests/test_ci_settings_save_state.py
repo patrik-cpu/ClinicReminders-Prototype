@@ -105,6 +105,27 @@ class SettingsSaveStateTests(unittest.TestCase):
             ],
         )
 
+    def test_search_term_rules_get_default_categories(self):
+        normalized = self.app.normalize_search_term_rules({
+            "rabies": {"days": 365, "use_qty": False},
+            "bravecto": {"days": 90, "use_qty": True},
+            "custom local term": {"days": 30, "use_qty": False},
+        })
+
+        self.assertEqual(normalized["rabies"]["category"], "Vaccinations")
+        self.assertEqual(normalized["bravecto"]["category"], "Parasite Control")
+        self.assertEqual(normalized["custom local term"]["category"], "Other")
+
+    def test_search_term_category_tab_label_hides_zero_counts(self):
+        self.assertEqual(
+            self.app.search_term_category_tab_label("Vaccinations", 3),
+            "Vaccinations (3)",
+        )
+        self.assertEqual(
+            self.app.search_term_category_tab_label("Behaviour", 0),
+            "Behaviour",
+        )
+
     def test_save_settings_persists_automatic_patient_exclusions_and_keywords(self):
         self.app.cache_remote_settings(
             "Clinic Save State",

@@ -2928,6 +2928,25 @@ def patient_exclusion_label_html(client_name: str, patient_name: str) -> str:
 # --------------------------------
 # Defaults
 # --------------------------------
+SEARCH_TERM_CATEGORIES = [
+    "Parasite Control",
+    "Vaccinations",
+    "Dental Care",
+    "Grooming",
+    "Medication",
+    "Injection Therapies",
+    "Supplements",
+    "Wellness & Senior Care",
+    "Diagnostics & Monitoring",
+    "Surgery & Post-Op",
+    "Mobility & Pain Management",
+    "Nutrition & Diets",
+    "Behaviour",
+    "Puppy & Kitten Care",
+    "Travel & Certificates",
+    "Other",
+]
+
 DEFAULT_RULES = {
     "rabies": {"days": 365, "use_qty": False, "visible_text": "Rabies Vaccine"},
     "pch": {"days": 365, "use_qty": False, "visible_text": "Tricat Vaccine"},
@@ -2960,6 +2979,90 @@ DEFAULT_RULES = {
     "cystaid": {"days": 30, "use_qty": False, "visible_text": "Cystaid"},
     "kennel cough": {"days": 365, "use_qty": False, "visible_text": "Kennel Cough Vaccine"},
 }
+
+DEFAULT_RULE_CATEGORIES = {
+    "rabies": "Vaccinations",
+    "pch": "Vaccinations",
+    "dhppil": "Vaccinations",
+    "leukemia": "Vaccinations",
+    "tricat": "Vaccinations",
+    "vaccination": "Vaccinations",
+    "kennel cough": "Vaccinations",
+    "dental cat": "Dental Care",
+    "dental dog": "Dental Care",
+    "dental descale": "Dental Care",
+    "dental package": "Dental Care",
+    "dental scale and polish": "Dental Care",
+    "groom": "Grooming",
+    "cardisure": "Medication",
+    "librela": "Injection Therapies",
+    "cytopoint": "Injection Therapies",
+    "solensia": "Injection Therapies",
+    "feliway": "Supplements",
+    "dermoscent": "Supplements",
+    "samylin": "Supplements",
+    "cystaid": "Supplements",
+    "cardiac ultrasound": "Diagnostics & Monitoring",
+    "ultrasound - cardiac": "Diagnostics & Monitoring",
+    "caniverm": "Parasite Control",
+    "deworm": "Parasite Control",
+    "milpro": "Parasite Control",
+    "bravecto plus": "Parasite Control",
+    "bravecto": "Parasite Control",
+    "frontline": "Parasite Control",
+    "revolution": "Parasite Control",
+}
+
+
+def normalize_search_term_category(value) -> str:
+    category = _SPACE_RX.sub(" ", str(value or "").strip())
+    return category if category in SEARCH_TERM_CATEGORIES else ""
+
+
+def infer_search_term_category(rule: str) -> str:
+    key = _SPACE_RX.sub(" ", str(rule or "").strip()).lower()
+    if key in DEFAULT_RULE_CATEGORIES:
+        return DEFAULT_RULE_CATEGORIES[key]
+    category_keywords = [
+        ("Parasite Control", ["bravecto", "frontline", "revolution", "deworm", "worm", "flea", "tick", "parasite", "milpro", "caniverm"]),
+        ("Vaccinations", ["rabies", "vacc", "vaccine", "dhpp", "kennel cough", "tricat", "leukemia"]),
+        ("Dental Care", ["dental", "tooth", "teeth", "scale", "polish"]),
+        ("Grooming", ["groom", "bath", "clip"]),
+        ("Medication", ["tablet", "capsule", "cardisure", "medication", "medicine"]),
+        ("Injection Therapies", ["librela", "cytopoint", "solensia", "injection"]),
+        ("Supplements", ["supplement", "samylin", "cystaid", "feliway", "dermoscent"]),
+        ("Wellness & Senior Care", ["wellness", "senior", "health check", "annual check"]),
+        ("Diagnostics & Monitoring", ["ultrasound", "xray", "x-ray", "diagnostic", "blood", "monitor"]),
+        ("Surgery & Post-Op", ["surgery", "post-op", "post op", "operation"]),
+        ("Mobility & Pain Management", ["mobility", "pain", "arthritis", "joint"]),
+        ("Nutrition & Diets", ["diet", "food", "nutrition"]),
+        ("Behaviour", ["behaviour", "behavior", "anxiety", "training"]),
+        ("Puppy & Kitten Care", ["puppy", "kitten"]),
+        ("Travel & Certificates", ["travel", "certificate", "passport"]),
+    ]
+    for category, keywords in category_keywords:
+        if any(keyword in key for keyword in keywords):
+            return category
+    return "Other"
+
+
+def normalize_search_term_rules(rules: dict | None) -> dict:
+    normalized = {}
+    for raw_rule, raw_settings in (rules or {}).items():
+        rule = str(raw_rule or "").strip()
+        if not rule or not isinstance(raw_settings, dict):
+            continue
+        settings = dict(raw_settings)
+        settings["category"] = normalize_search_term_category(settings.get("category")) or infer_search_term_category(rule)
+        normalized[rule] = settings
+    return normalized
+
+
+def search_term_category_tab_label(category: str, count: int) -> str:
+    return f"{category} ({count})" if count > 0 else category
+
+
+DEFAULT_RULES = normalize_search_term_rules(DEFAULT_RULES)
 
 # Global default WA template (single source of truth)
 DEFAULT_WA_TEMPLATE = (
@@ -4586,7 +4689,7 @@ def load_settings(load_action_history: bool = True):
         except Exception:
             settings = {}
         cache_remote_settings(clinic_id, settings)
-        st.session_state["rules"] = settings.get("rules", DEFAULT_RULES.copy())
+        st.session_state["rules"] = normalize_search_term_rules(settings.get("rules", DEFAULT_RULES.copy()))
         st.session_state["exclusions"] = settings.get("exclusions", [])
         st.session_state["client_exclusions"] = settings.get("client_exclusions", [])
         st.session_state["patient_exclusions"] = normalize_patient_exclusions(settings.get("patient_exclusions", []))
@@ -4650,7 +4753,7 @@ def load_settings(load_action_history: bool = True):
         # Defaults for new clinics
         settings = default_settings_for_country("")
         cache_remote_settings(clinic_id, settings)
-        st.session_state["rules"] = DEFAULT_RULES.copy()
+        st.session_state["rules"] = normalize_search_term_rules(DEFAULT_RULES.copy())
         st.session_state["exclusions"] = []
         st.session_state["client_exclusions"] = []
         st.session_state["patient_exclusions"] = []
@@ -4936,7 +5039,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
     current_template_for_save = templates_for_save.get(current_template_name_for_save, DEFAULT_WA_TEMPLATE)
     replace_search_settings = st.session_state.pop("_replace_search_settings_once", False)
     if replace_search_settings:
-        rules_for_save = setting_for_save("rules", DEFAULT_RULES.copy())
+        rules_for_save = normalize_search_term_rules(setting_for_save("rules", DEFAULT_RULES.copy()))
         exclusions_for_save = setting_for_save("exclusions", [])
         client_exclusions_for_save = setting_for_save("client_exclusions", [])
         patient_exclusions_for_save = setting_for_save("patient_exclusions", [])
@@ -4944,11 +5047,11 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         automatic_patient_exclusions_for_save = setting_for_save("automatic_patient_exclusions", [])
         patient_passaway_keywords_for_save = setting_for_save("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy())
     else:
-        rules_for_save = merge_rule_settings_for_save(
+        rules_for_save = normalize_search_term_rules(merge_rule_settings_for_save(
             base_settings.get("rules", {}),
             remote_settings.get("rules", {}),
             setting_for_save("rules", DEFAULT_RULES.copy()),
-        )
+        ))
         exclusions_for_save = merge_keyed_list_setting_for_save(
             base_settings.get("exclusions", []),
             remote_settings.get("exclusions", []),
@@ -7819,7 +7922,7 @@ def restore_remembered_login_session() -> bool:
 
 def default_settings_for_country(country: str = "") -> dict:
     return {
-        "rules": DEFAULT_RULES.copy(),
+        "rules": normalize_search_term_rules(DEFAULT_RULES.copy()),
         "exclusions": [],
         "client_exclusions": [],
         "patient_exclusions": [],
@@ -9806,7 +9909,7 @@ def _rules_fp(rules: dict) -> str:
 
 def get_applied_reminder_rules() -> dict:
     if "applied_rules" not in st.session_state:
-        st.session_state["applied_rules"] = clone_reminder_rules(st.session_state.get("rules", DEFAULT_RULES.copy()))
+        st.session_state["applied_rules"] = clone_reminder_rules(normalize_search_term_rules(st.session_state.get("rules", DEFAULT_RULES.copy())))
     return st.session_state["applied_rules"]
 
 
@@ -9817,7 +9920,8 @@ def search_criteria_have_pending_changes() -> bool:
 
 
 def apply_search_criteria_changes(show_notice: bool = True):
-    st.session_state["applied_rules"] = clone_reminder_rules(st.session_state.get("rules", DEFAULT_RULES.copy()))
+    st.session_state["rules"] = normalize_search_term_rules(st.session_state.get("rules", DEFAULT_RULES.copy()))
+    st.session_state["applied_rules"] = clone_reminder_rules(st.session_state["rules"])
     st.session_state.pop("prepared_df", None)
     st.session_state.pop("prepared_key", None)
     if show_notice:
@@ -16713,17 +16817,33 @@ def render_search_terms_editor():
             record_settings_audit_event("search_term_changed", "search_terms", rule, "use_qty", old_value, st.session_state[key], "search_terms_tab")
         invalidate_reminder_rule_cache()
 
+    def save_rule_category(rule, key):
+        category = normalize_search_term_category(st.session_state.get(key, ""))
+        if not category:
+            st.session_state["_search_terms_autosave_error"] = f"Choose a category for: {rule}"
+            return
+        old_value = st.session_state["rules"][rule].get("category", "")
+        st.session_state["rules"][rule]["category"] = category
+        if "applied_rules" in st.session_state and rule in st.session_state["applied_rules"]:
+            st.session_state["applied_rules"][rule]["category"] = category
+        save_settings_quietly()
+        if str(old_value) != str(category):
+            record_settings_audit_event("search_term_changed", "search_terms", rule, "category", old_value, category, "search_terms_tab")
+
+    st.session_state["rules"] = normalize_search_term_rules(st.session_state.get("rules", DEFAULT_RULES.copy()))
+
     st.markdown("### Add New Search Term")
     row_id = st.session_state['new_rule_counter']
-    rule_col_widths = [3, 1, 1, 1.35, 1.35, 0.7, 2, 0.7]
-    header_cols = st.columns(rule_col_widths, gap="small")
+    add_rule_col_widths = [2.2, 1.35, 0.9, 0.9, 1.1, 1.1, 0.65, 1.75, 0.65]
+    header_cols = st.columns(add_rule_col_widths, gap="small")
     with header_cols[0]: column_header("Search Term", "The product or service text to match in uploaded item names, such as bravecto, rabies, or librela.")
-    with header_cols[1]: column_header("First reminder", "Optional first reminder, in days after the billed date.")
-    with header_cols[2]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
-    with header_cols[3]: column_header("Due after days", "The main reminder interval, in days after the billed date.")
-    with header_cols[4]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
-    with header_cols[5]: column_header("Multiply by quantity", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
-    with header_cols[6]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
+    with header_cols[1]: column_header("Category", "Choose the search term category.")
+    with header_cols[2]: column_header("First reminder", "Optional first reminder, in days after the billed date.")
+    with header_cols[3]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
+    with header_cols[4]: column_header("Due after days", "The main reminder interval, in days after the billed date.")
+    with header_cols[5]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
+    with header_cols[6]: column_header("Multiply by quantity", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
+    with header_cols[7]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
 
     def field_examples(first_example: str, second_example: str, extra_class: str = ""):
         classes = f"field-examples {extra_class}".strip()
@@ -16737,7 +16857,7 @@ def render_search_terms_editor():
             unsafe_allow_html=True,
         )
 
-    c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(rule_col_widths, gap="small")
+    c1, c2, c3, c4, c5, c6, c7, c8, c9 = st.columns(add_rule_col_widths, gap="small")
     with c1:
         new_rule_name = st.text_input(
             "Search Term",
@@ -16750,6 +16870,16 @@ def render_search_terms_editor():
             "Example 2: stride-joint-supplement-120ml-small",
         )
     with c2:
+        new_rule_category = st.selectbox(
+            "Category",
+            [""] + SEARCH_TERM_CATEGORIES,
+            key=f"new_rule_category_{row_id}",
+            label_visibility="collapsed",
+            format_func=lambda option: "Select category" if option == "" else option,
+            help="Required category for this search term.",
+        )
+        field_examples("Vaccinations", "Supplements")
+    with c3:
         new_rule_reminder_1 = st.text_input(
             "First reminder",
             key=f"new_rule_reminder_1_{row_id}",
@@ -16757,7 +16887,7 @@ def render_search_terms_editor():
             help="Optional first reminder, in days after the billed date."
         )
         field_examples("335", "blank")
-    with c3:
+    with c4:
         new_rule_reminder_2 = st.text_input(
             "Second reminder",
             key=f"new_rule_reminder_2_{row_id}",
@@ -16765,7 +16895,7 @@ def render_search_terms_editor():
             help="Optional second reminder, in days after the billed date."
         )
         field_examples("357", "50")
-    with c4:
+    with c5:
         new_rule_days = st.text_input(
             "Due after days",
             key=f"new_rule_days_{row_id}",
@@ -16773,7 +16903,7 @@ def render_search_terms_editor():
             help="Positive number of days until this item should be due again."
         )
         field_examples("365", "60")
-    with c5:
+    with c6:
         new_rule_overdue = st.text_input(
             "Overdue after days",
             key=f"new_rule_overdue_{row_id}",
@@ -16781,7 +16911,7 @@ def render_search_terms_editor():
             help="Optional overdue reminder, in days after the billed date."
         )
         field_examples("375", "70")
-    with c6:
+    with c7:
         new_rule_use_qty = st.checkbox(
             "Multiply by quantity",
             key=f"new_rule_useqty_{row_id}",
@@ -16793,7 +16923,7 @@ def render_search_terms_editor():
             "Ticked",
             "use-qty-examples",
         )
-    with c7:
+    with c8:
         new_rule_visible = st.text_input(
             "Message Text (optional)",
             key=f"new_rule_vis_{row_id}",
@@ -16804,11 +16934,12 @@ def render_search_terms_editor():
             "Annual vaccination and check-up",
             "Stride joint health supplement",
         )
-    with c8:
+    with c9:
         if st.button("➕ Add", key=f"add_{row_id}"):
             safe_rule = str(new_rule_name or "").strip().lower()
-            if safe_rule and str(new_rule_days).isdigit() and int(new_rule_days) > 0:
-                rule_data = {"days": int(new_rule_days), "use_qty": bool(new_rule_use_qty)}
+            selected_category = normalize_search_term_category(new_rule_category)
+            if safe_rule and selected_category and str(new_rule_days).isdigit() and int(new_rule_days) > 0:
+                rule_data = {"days": int(new_rule_days), "use_qty": bool(new_rule_use_qty), "category": selected_category}
                 invalid_reminder = ""
                 for raw_value, field, label in [
                     (new_rule_reminder_1, "reminder_1", "First reminder"),
@@ -16838,21 +16969,11 @@ def render_search_terms_editor():
                         invalidate_reminder_rule_cache()
                         st.rerun()
             else:
-                st.error("Enter a name and a positive number for Due after days")
+                st.error("Enter a name, choose a category, and add a positive number for Due after days")
 
 
     st.divider()
     st.markdown("### Current Search Terms")
-
-    cols = st.columns(rule_col_widths)
-    with cols[0]: column_header("Search Term", "The product or service text matched against uploaded item names.")
-    with cols[1]: column_header("First reminder", "Optional first reminder, in days after the billed date.")
-    with cols[2]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
-    with cols[3]: column_header("Due after days", "The main reminder interval, in days after the billed date.")
-    with cols[4]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
-    with cols[5]: column_header("Multiply by quantity", "When enabled, quantity extends the due date.")
-    with cols[6]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
-    with cols[7]: column_header("Delete", "Remove this search term from matching.")
 
     to_delete = []
 
@@ -16860,73 +16981,119 @@ def render_search_terms_editor():
     if autosave_error:
         st.error(autosave_error)
 
+    current_rule_col_widths = [2.4, 0.8, 0.8, 1.05, 1.05, 0.65, 1.65, 1.25, 0.55]
+    rule_items_by_category = {
+        category: sorted(
+            [
+                (rule, settings)
+                for rule, settings in st.session_state["rules"].items()
+                if normalize_search_term_category(settings.get("category")) == category
+            ],
+            key=lambda x: x[0],
+        )
+        for category in SEARCH_TERM_CATEGORIES
+    }
+    category_tabs = st.tabs([
+        search_term_category_tab_label(category, len(rule_items_by_category[category]))
+        for category in SEARCH_TERM_CATEGORIES
+    ])
 
-    sorted_rule_items = sorted(st.session_state["rules"].items(), key=lambda x: x[0])
-    paged_rule_items = paginate_sequence(
-        sorted_rule_items,
-        "search_terms_current_rules",
-        TABLE_PAGE_SIZE,
-        "search terms",
-    )
+    for category, tab in zip(SEARCH_TERM_CATEGORIES, category_tabs):
+        with tab:
+            cols = st.columns(current_rule_col_widths)
+            with cols[0]: column_header("Search Term", "The product or service text matched against uploaded item names.")
+            with cols[1]: column_header("First reminder", "Optional first reminder, in days after the billed date.")
+            with cols[2]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
+            with cols[3]: column_header("Due after days", "The main reminder interval, in days after the billed date.")
+            with cols[4]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
+            with cols[5]: column_header("Multiply by quantity", "When enabled, quantity extends the due date.")
+            with cols[6]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
+            with cols[7]: column_header("Move", "Move this search term to another category.")
+            with cols[8]: column_header("Delete", "Remove this search term from matching.")
 
-    for _, (rule, settings) in paged_rule_items:
-        ver = st.session_state["form_version"]
-        safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
-        with st.container():
-            cols = st.columns(rule_col_widths, gap="small")
-            with cols[0]:
-                st.markdown(padded_html_text(rule), unsafe_allow_html=True)
-            with cols[1]:
-                st.text_input(
-                    "First reminder", value=str(settings.get("reminder_1", "") or ""),
-                    key=f"reminder_1_{safe_rule}_{ver}", label_visibility="collapsed",
-                    on_change=save_rule_reminder_day,
-                    args=(rule, "reminder_1", f"reminder_1_{safe_rule}_{ver}",),
-                    help="Optional first reminder, in days after the billed date."
-                )
-            with cols[2]:
-                st.text_input(
-                    "Second reminder", value=str(settings.get("reminder_2", "") or ""),
-                    key=f"reminder_2_{safe_rule}_{ver}", label_visibility="collapsed",
-                    on_change=save_rule_reminder_day,
-                    args=(rule, "reminder_2", f"reminder_2_{safe_rule}_{ver}",),
-                    help="Optional second reminder, in days after the billed date."
-                )
-            with cols[3]:
-                st.text_input(
-                    "Due after days", value=str(settings["days"]),
-                    key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
-                    on_change=save_rule_days,
-                    args=(rule, f"days_{safe_rule}_{ver}",),
-                    help="Main reminder interval in days after the billed date."
-                )
-            with cols[4]:
-                st.text_input(
-                    "Overdue after days", value=str(settings.get("overdue_reminder", "") or ""),
-                    key=f"overdue_reminder_{safe_rule}_{ver}", label_visibility="collapsed",
-                    on_change=save_rule_reminder_day,
-                    args=(rule, "overdue_reminder", f"overdue_reminder_{safe_rule}_{ver}",),
-                    help="Optional overdue reminder, in days after the billed date."
-                )
-            with cols[5]:
-                st.checkbox(
-                    "Multiply by quantity", value=settings["use_qty"],
-                    key=f"useqty_{safe_rule}_{ver}",
-                    label_visibility="collapsed",
-                    on_change=toggle_use_qty,
-                    args=(rule, f"useqty_{safe_rule}_{ver}",),
-                )
-            with cols[6]:
-                st.text_input(
-                    "Message Text", value=settings.get("visible_text",""),
-                    key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
-                    on_change=save_rule_visible_text,
-                    args=(rule, f"vis_{safe_rule}_{ver}",),
-                    help="Optional friendly wording shown in tables and WhatsApp messages."
-                )
-            with cols[7]:
-                if st.button("❌", key=f"del_{safe_rule}_{ver}"):
-                    to_delete.append(rule)
+            sorted_rule_items = rule_items_by_category[category]
+            if not sorted_rule_items:
+                st.info("No search terms in this category yet.")
+                continue
+            safe_category = re.sub(r'[^a-zA-Z0-9_-]', '_', category)
+            paged_rule_items = paginate_sequence(
+                sorted_rule_items,
+                f"search_terms_current_rules_{safe_category}",
+                TABLE_PAGE_SIZE,
+                "search terms",
+            )
+
+            for _, (rule, settings) in paged_rule_items:
+                ver = st.session_state["form_version"]
+                safe_rule = re.sub(r'[^a-zA-Z0-9_-]', '_', rule)
+                with st.container():
+                    cols = st.columns(current_rule_col_widths, gap="small")
+                    with cols[0]:
+                        st.markdown(padded_html_text(rule), unsafe_allow_html=True)
+                    with cols[1]:
+                        st.text_input(
+                            "First reminder", value=str(settings.get("reminder_1", "") or ""),
+                            key=f"reminder_1_{safe_rule}_{ver}", label_visibility="collapsed",
+                            on_change=save_rule_reminder_day,
+                            args=(rule, "reminder_1", f"reminder_1_{safe_rule}_{ver}",),
+                            help="Optional first reminder, in days after the billed date."
+                        )
+                    with cols[2]:
+                        st.text_input(
+                            "Second reminder", value=str(settings.get("reminder_2", "") or ""),
+                            key=f"reminder_2_{safe_rule}_{ver}", label_visibility="collapsed",
+                            on_change=save_rule_reminder_day,
+                            args=(rule, "reminder_2", f"reminder_2_{safe_rule}_{ver}",),
+                            help="Optional second reminder, in days after the billed date."
+                        )
+                    with cols[3]:
+                        st.text_input(
+                            "Due after days", value=str(settings["days"]),
+                            key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
+                            on_change=save_rule_days,
+                            args=(rule, f"days_{safe_rule}_{ver}",),
+                            help="Main reminder interval in days after the billed date."
+                        )
+                    with cols[4]:
+                        st.text_input(
+                            "Overdue after days", value=str(settings.get("overdue_reminder", "") or ""),
+                            key=f"overdue_reminder_{safe_rule}_{ver}", label_visibility="collapsed",
+                            on_change=save_rule_reminder_day,
+                            args=(rule, "overdue_reminder", f"overdue_reminder_{safe_rule}_{ver}",),
+                            help="Optional overdue reminder, in days after the billed date."
+                        )
+                    with cols[5]:
+                        st.checkbox(
+                            "Multiply by quantity", value=settings["use_qty"],
+                            key=f"useqty_{safe_rule}_{ver}",
+                            label_visibility="collapsed",
+                            on_change=toggle_use_qty,
+                            args=(rule, f"useqty_{safe_rule}_{ver}",),
+                        )
+                    with cols[6]:
+                        st.text_input(
+                            "Message Text", value=settings.get("visible_text",""),
+                            key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
+                            on_change=save_rule_visible_text,
+                            args=(rule, f"vis_{safe_rule}_{ver}",),
+                            help="Optional friendly wording shown in tables and WhatsApp messages."
+                        )
+                    with cols[7]:
+                        category_key = f"category_{safe_rule}_{ver}"
+                        current_category = normalize_search_term_category(settings.get("category")) or "Other"
+                        st.selectbox(
+                            "Move",
+                            SEARCH_TERM_CATEGORIES,
+                            index=SEARCH_TERM_CATEGORIES.index(current_category),
+                            key=category_key,
+                            label_visibility="collapsed",
+                            on_change=save_rule_category,
+                            args=(rule, category_key,),
+                            help="Move this search term to another category.",
+                        )
+                    with cols[8]:
+                        if st.button("❌", key=f"del_{safe_rule}_{ver}"):
+                            to_delete.append(rule)
 
     if to_delete:
         for rule in to_delete:
@@ -16937,7 +17104,7 @@ def render_search_terms_editor():
         st.rerun()
 
     if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
-        st.session_state["rules"] = DEFAULT_RULES.copy()
+        st.session_state["rules"] = normalize_search_term_rules(DEFAULT_RULES.copy())
         st.session_state["exclusions"] = []
         st.session_state["client_exclusions"] = []
         st.session_state["patient_exclusions"] = []
