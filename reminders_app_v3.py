@@ -2707,6 +2707,19 @@ st.markdown(
     .column-help:hover::after {
         display: block;
     }
+    [data-testid="stDataFrame"] [role="columnheader"],
+    [data-testid="stDataFrame"] [data-testid="stDataFrameResizableHeader"] {
+        min-height: 3rem !important;
+        white-space: normal !important;
+    }
+    [data-testid="stDataFrame"] [role="columnheader"] *,
+    [data-testid="stDataFrame"] [data-testid="stDataFrameResizableHeader"] * {
+        line-height: 1.2 !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        white-space: normal !important;
+        word-break: normal !important;
+    }
     div[data-baseweb="tooltip"],
     div[data-baseweb="popover"][role="tooltip"],
     div[role="tooltip"] {
