@@ -777,7 +777,7 @@ class StatisticsTests(unittest.TestCase):
         selectbox.assert_not_called()
         radio.assert_not_called()
 
-    def test_stats_items_outcome_display_columns_match_requested_labels(self):
+    def test_stats_revenue_display_columns_keep_revenue_metrics_only(self):
         frame = pd.DataFrame([
             {
                 "Item": "Rabies",
@@ -810,7 +810,7 @@ class StatisticsTests(unittest.TestCase):
         ):
             self.app.render_outcome_dataframe(
                 frame,
-                columns=self.app.STATS_ITEMS_DISPLAY_COLUMNS,
+                columns=self.app.STATS_REVENUE_DISPLAY_COLUMNS,
                 table_key="stats_items",
                 default_sort_column="Capturable Revenue per Year",
                 item_label="item rows",
@@ -829,23 +829,20 @@ class StatisticsTests(unittest.TestCase):
                 "Revenue per Item",
                 "Unique Purchasing Patients",
                 "Unique Repeat Purchasing Patients",
-                "Sent Reminders",
-                "Successes",
-                "Success Rate",
-                "Revenue from Successes",
                 "Desired Gap Days",
                 "Actual Gap Days",
                 "Gap Day %",
-                "Total Purchases",
-                "Total Repeat Purchases",
-                "Repeat Purchase %",
             ],
         )
-        self.assertIn("Sent Reminders", rendered_frame.columns)
+        self.assertNotIn("Sent Reminders", rendered_frame.columns)
+        self.assertNotIn("Successes", rendered_frame.columns)
+        self.assertNotIn("Success Rate", rendered_frame.columns)
+        self.assertNotIn("Revenue from Successes", rendered_frame.columns)
+        self.assertNotIn("Total Purchases", rendered_frame.columns)
+        self.assertNotIn("Total Repeat Purchases", rendered_frame.columns)
+        self.assertNotIn("Repeat Purchase %", rendered_frame.columns)
         self.assertIn("Actual Gap Days", rendered_frame.columns)
         self.assertIn("Gap Day %", rendered_frame.columns)
-        self.assertIn("Total Repeat Purchases", rendered_frame.columns)
-        self.assertIn("Total Purchases", rendered_frame.columns)
         self.assertIn("Unique Purchasing Patients", rendered_frame.columns)
         self.assertIn("Unique Repeat Purchasing Patients", rendered_frame.columns)
         self.assertNotIn("Sent", rendered_frame.columns)
@@ -856,6 +853,56 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Overall Repeat Purchases", rendered_frame.columns)
         self.assertNotIn("Overall Purchases", rendered_frame.columns)
         self.assertAlmostEqual(rendered_frame.iloc[0]["Gap Day %"], (370 / 365) * 100)
+
+    def test_stats_items_display_columns_receive_moved_outcome_metrics(self):
+        frame = pd.DataFrame([
+            {
+                "Item": "Rabies",
+                "Sent": 4,
+                "Successes": 1,
+                "Success Rate": 0.25,
+                "Revenue": 120.4,
+                "Overall Purchases": 4,
+                "Overall Repeat Purchases": 3,
+                "Repeat Purchase %": 0.75,
+                "Revenue per Year": 300.6,
+                "Capturable Revenue per Year": 299.6,
+            }
+        ])
+
+        with (
+            mock.patch.object(self.app.st, "caption"),
+            mock.patch.object(self.app.st, "button", return_value=False),
+            mock.patch.object(self.app.st, "dataframe") as dataframe,
+        ):
+            self.app.render_outcome_dataframe(
+                frame,
+                columns=self.app.STATS_ITEMS_DISPLAY_COLUMNS,
+                table_key="stats_items_detail",
+                default_sort_column="Sent",
+                item_label="item rows",
+                display_column_labels=self.app.STATS_ITEMS_DISPLAY_COLUMN_LABELS,
+            )
+
+        rendered_frame = dataframe.call_args.args[0]
+        self.assertEqual(
+            rendered_frame.columns.tolist(),
+            [
+                "Item",
+                "Sent Reminders",
+                "Successes",
+                "Success Rate",
+                "Revenue from Successes",
+                "Total Purchases",
+                "Total Repeat Purchases",
+                "Repeat Purchase %",
+            ],
+        )
+        self.assertNotIn("Calculated Revenue per Year", rendered_frame.columns)
+        self.assertNotIn("Capturable Revenue Potential per Year", rendered_frame.columns)
+        self.assertEqual(rendered_frame.iloc[0]["Success Rate"], 25)
+        self.assertEqual(rendered_frame.iloc[0]["Revenue from Successes"], 120)
+        self.assertEqual(rendered_frame.iloc[0]["Repeat Purchase %"], 75)
 
     def test_stats_sent_reminders_display_puts_sent_date_first(self):
         self.assertEqual(self.app.OUTCOME_SENT_DISPLAY_COLUMNS[0], "Sent Date")

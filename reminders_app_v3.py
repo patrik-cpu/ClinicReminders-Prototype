@@ -14203,7 +14203,7 @@ OUTCOME_ITEM_GROUP_COLUMNS = [
     "Capturable Revenue per Year",
     "Captured Revenue %",
 ]
-STATS_ITEMS_DISPLAY_COLUMNS = [
+STATS_REVENUE_DISPLAY_COLUMNS = [
     "Item",
     "Capturable Revenue per Year",
     "Revenue per Year",
@@ -14212,13 +14212,16 @@ STATS_ITEMS_DISPLAY_COLUMNS = [
     "Revenue per Item",
     "Unique Purchasing Patients",
     "Unique Repeat Purchasing Patients",
+    "Desired Gap Days",
+    "Avg Item Purchase Gap Days",
+    "Gap Day % to Desired",
+]
+STATS_ITEMS_DISPLAY_COLUMNS = [
+    "Item",
     "Sent",
     "Successes",
     "Success Rate",
     "Revenue",
-    "Desired Gap Days",
-    "Avg Item Purchase Gap Days",
-    "Gap Day % to Desired",
     "Overall Purchases",
     "Overall Repeat Purchases",
     "Repeat Purchase %",
@@ -16437,8 +16440,6 @@ def prepare_outcome_dataframe_for_display(
 def prepare_stats_items_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd.DataFrame:
     if frame is None:
         frame = pd.DataFrame()
-    elif not frame.empty:
-        frame = frame[[column for column in STATS_ITEMS_DISPLAY_COLUMNS if column in frame.columns]]
     return prepare_outcome_dataframe_for_display(
         frame,
         column_labels=STATS_ITEMS_DISPLAY_COLUMN_LABELS,
@@ -17275,7 +17276,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         item_frame = stats_item_outcome_frame
         render_outcome_dataframe(
             item_frame,
-            columns=STATS_ITEMS_DISPLAY_COLUMNS,
+            columns=STATS_REVENUE_DISPLAY_COLUMNS,
             table_key="stats_items",
             default_sort_column="Capturable Revenue per Year",
             default_sort_ascending=False,
@@ -17287,39 +17288,28 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             item_frame,
             "stats-items",
             "stats_items",
+            columns=STATS_REVENUE_DISPLAY_COLUMNS,
             display_preparer=prepare_stats_items_outcome_dataframe_for_display,
         )
 
     elif active_stats_subtab == "Items":
-        item_actioning_frame = build_statistics_item_frame(
-            generated_df,
-            action_records,
-            stats_period,
-            generated_rows=stats_generated_item_rows,
-            action_rows=stats_action_item_rows,
+        item_frame = stats_item_outcome_frame
+        render_outcome_dataframe(
+            item_frame,
+            columns=STATS_ITEMS_DISPLAY_COLUMNS,
+            table_key="stats_items_detail",
+            default_sort_column="Sent",
+            default_sort_ascending=False,
+            item_label="item rows",
+            display_column_labels=STATS_ITEMS_DISPLAY_COLUMN_LABELS,
         )
-        if item_actioning_frame.empty:
-            st.info("No item activity stats yet.")
-        else:
-            paged_item_actioning_frame = paginate_dataframe(
-                item_actioning_frame,
-                "stats_item_actioning",
-                STATS_TABLE_PAGE_SIZE,
-                "item activity rows",
-            )
-            st.dataframe(
-                prepare_statistics_display_frame(paged_item_actioning_frame),
-                hide_index=True,
-                use_container_width=True,
-                height=STATS_TABLE_HEIGHT,
-                column_config=stats_item_actioning_column_config(),
-            )
-            render_stats_csv_export(
-                item_actioning_frame,
-                "stats-item-actioning",
-                "stats_item_actioning",
-                display_preparer=prepare_statistics_display_frame,
-            )
+        render_stats_csv_export(
+            item_frame,
+            "stats-items",
+            "stats_items_detail",
+            columns=STATS_ITEMS_DISPLAY_COLUMNS,
+            display_preparer=prepare_stats_items_outcome_dataframe_for_display,
+        )
 
     elif active_stats_subtab == "Successes":
         selected_success_period, success_custom_range = render_stats_successes_period_selector()
