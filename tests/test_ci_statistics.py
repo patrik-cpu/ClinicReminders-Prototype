@@ -625,7 +625,11 @@ class StatisticsTests(unittest.TestCase):
                 self.assertIn(column, item_config)
                 self.assertTrue(item_config[column]["help"])
 
-        for column in self.app.STATS_TEAM_COLUMNS:
+        expected_team_columns = [
+            "Revenue from Successes" if column == "Revenue" else column
+            for column in self.app.STATS_TEAM_COLUMNS
+        ]
+        for column in expected_team_columns:
             with self.subTest(column=column):
                 self.assertIn(column, team_config)
                 self.assertTrue(team_config[column]["help"])
@@ -825,6 +829,9 @@ class StatisticsTests(unittest.TestCase):
         display_frame = self.app.prepare_stats_team_display_frame(frame)
 
         self.assertAlmostEqual(display_frame.iloc[0]["Success Rate"], 100 / 3)
+        self.assertIn("Revenue from Successes", display_frame.columns)
+        self.assertNotIn("Revenue", display_frame.columns)
+        self.assertEqual(display_frame.iloc[0]["Revenue from Successes"], 120)
         self.assertAlmostEqual(frame.iloc[0]["Success Rate"], 1 / 3)
 
     def test_outcome_column_config_explains_every_stats_table_header(self):

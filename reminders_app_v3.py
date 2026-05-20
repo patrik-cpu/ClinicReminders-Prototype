@@ -13072,6 +13072,7 @@ STATS_TEAM_COLUMN_HELP = {
     "No Match": "Sent reminders with no matching repeat purchase after the window closed.",
     "Success Rate": "Percentage of sent reminders that became successes.",
     "Revenue": "Revenue linked to this team member's successful reminders.",
+    "Revenue from Successes": "Revenue linked to this team member's successful reminders.",
     "Actioned": "Reminders this team member sent or declined.",
     "Sent Actions": "Reminder actions marked as sent.",
     "Declined Actions": "Reminder actions marked as declined.",
@@ -15233,6 +15234,8 @@ def prepare_stats_team_display_frame(frame: pd.DataFrame) -> pd.DataFrame:
         display_frame["Success Rate"] = (
             pd.to_numeric(display_frame["Success Rate"], errors="coerce") * 100
         )
+    if "Revenue" in display_frame.columns:
+        display_frame = display_frame.rename(columns={"Revenue": "Revenue from Successes"})
     return display_frame
 
 
@@ -15435,7 +15438,7 @@ def stats_team_column_config() -> dict:
         "Pending": st.column_config.NumberColumn("Pending", help=STATS_TEAM_COLUMN_HELP["Pending"], format="%d"),
         "No Match": st.column_config.NumberColumn("No Match", help=STATS_TEAM_COLUMN_HELP["No Match"], format="%d"),
         "Success Rate": st.column_config.NumberColumn("Success Rate", help=STATS_TEAM_COLUMN_HELP["Success Rate"], format="%.0f%%"),
-        "Revenue": st.column_config.NumberColumn("Revenue", help=STATS_TEAM_COLUMN_HELP["Revenue"], format="localized"),
+        "Revenue from Successes": st.column_config.NumberColumn("Revenue from Successes", help=STATS_TEAM_COLUMN_HELP["Revenue from Successes"], format="localized"),
         "Actioned": st.column_config.NumberColumn("Actioned", help=STATS_TEAM_COLUMN_HELP["Actioned"], format="%d"),
         "Sent Actions": st.column_config.NumberColumn("Sent Actions", help=STATS_TEAM_COLUMN_HELP["Sent Actions"], format="%d"),
         "Declined Actions": st.column_config.NumberColumn("Declined Actions", help=STATS_TEAM_COLUMN_HELP["Declined Actions"], format="%d"),
