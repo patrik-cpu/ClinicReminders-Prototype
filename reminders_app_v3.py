@@ -12175,6 +12175,14 @@ if active_main_section == "Upload Data":
 
         st.rerun()
 
+    def show_clear_clinic_data_confirmation():
+        st.session_state["show_clear_clinic_data_confirm"] = True
+        st.session_state["confirm_reset_dataset"] = False
+
+    def cancel_clear_clinic_data_confirmation():
+        st.session_state["show_clear_clinic_data_confirm"] = False
+        st.session_state["confirm_reset_dataset"] = False
+
     with st.container(border=True):
         st.markdown(
             """
@@ -12186,14 +12194,12 @@ if active_main_section == "Upload Data":
             unsafe_allow_html=True,
         )
         if not st.session_state.get("show_clear_clinic_data_confirm", False):
-            if st.button(
+            st.button(
                 "Clear clinic data",
                 key="start_clear_clinic_data",
                 help="Clear clinic data so the clinic behaves like no data is saved.",
-            ):
-                st.session_state["show_clear_clinic_data_confirm"] = True
-                st.session_state["confirm_reset_dataset"] = False
-                st.rerun()
+                on_click=show_clear_clinic_data_confirmation,
+            )
         else:
             st.markdown(
                 """
@@ -12216,10 +12222,11 @@ if active_main_section == "Upload Data":
                     st.session_state["show_clear_clinic_data_confirm"] = False
                     clear_saved_clinic_data()
             with cancel_col:
-                if st.button("Cancel", key="cancel_clear_clinic_data"):
-                    st.session_state["show_clear_clinic_data_confirm"] = False
-                    st.session_state["confirm_reset_dataset"] = False
-                    st.rerun()
+                st.button(
+                    "Cancel",
+                    key="cancel_clear_clinic_data",
+                    on_click=cancel_clear_clinic_data_confirmation,
+                )
 
 # --------------------------------
 # Render Tables
