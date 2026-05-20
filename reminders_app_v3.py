@@ -17035,7 +17035,7 @@ def render_search_terms_editor():
     with header_cols[3]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
     with header_cols[4]: column_header("Due after days", "The main reminder interval, in days after the billed date.")
     with header_cols[5]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
-    with header_cols[6]: column_header("Multiply by quantity", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
+    with header_cols[6]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
     with header_cols[7]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
 
     def field_examples(first_example: str, second_example: str, extra_class: str = ""):
@@ -17106,7 +17106,7 @@ def render_search_terms_editor():
         field_examples("375", "70")
     with c7:
         new_rule_use_qty = st.checkbox(
-            "Multiply by quantity",
+            "Use Qty",
             key=f"new_rule_useqty_{row_id}",
             label_visibility="collapsed",
             help="Use when quantity should extend the reminder interval."
@@ -17194,7 +17194,7 @@ def render_search_terms_editor():
     with cols[2]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
     with cols[3]: column_header("Due after days", "The main reminder interval, in days after the billed date.")
     with cols[4]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
-    with cols[5]: column_header("Multiply by quantity", "When enabled, quantity extends the due date.")
+    with cols[5]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
     with cols[6]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
     with cols[7]: column_header("Move", "Move this search term to another category.")
     with cols[8]: column_header("Delete", "Remove this search term from matching.")
@@ -17252,7 +17252,7 @@ def render_search_terms_editor():
                     )
                 with cols[5]:
                     st.checkbox(
-                        "Multiply by quantity", value=settings["use_qty"],
+                        "Use Qty", value=settings["use_qty"],
                         key=f"useqty_{safe_rule}_{ver}",
                         label_visibility="collapsed",
                         on_change=toggle_use_qty,

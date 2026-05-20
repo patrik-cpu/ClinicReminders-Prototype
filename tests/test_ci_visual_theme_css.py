@@ -239,6 +239,12 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("Medications", source)
         self.assertIn("Mobility & Pain", source)
 
+    def test_search_term_quantity_column_uses_short_label_with_example_help(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn('column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")', source)
+        self.assertNotIn('column_header("Multiply by quantity"', source)
+
 
 if __name__ == "__main__":
     unittest.main()
