@@ -800,6 +800,46 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertNotIn("last_saved_upload_key", state)
         self.assertGreater(state["file_uploader_reset_version"], 3)
 
+    def test_remove_last_upload_clears_undated_leftover_rows(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        state["clinic_id"] = "Clinic Remove Undated"
+        state["logged_in"] = True
+        state["dataset_upload_history"] = [
+            {
+                "file_name": "sample.csv",
+                "pms": "Merlin",
+                "rows": 1,
+                "from": "2026-01-01",
+                "to": "2026-01-01",
+                "status": "Saved",
+            }
+        ]
+        state["working_df"] = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2026-01-01", None]),
+                "Client Name": ["Client A", "Client B"],
+                "Animal Name": ["Pet A", "Pet B"],
+                "Item Name": ["Vaccination", "Clinical note residue"],
+                "Qty": [1, 1],
+                "Amount": [10, 0],
+            }
+        )
+
+        with (
+            patch.object(self.app, "get_existing_dataset_pointer", return_value=("file-id", "clinic_shared_dataset.csv")),
+            patch.object(self.app, "clear_clinic_dataset_pointer"),
+            patch.object(self.app, "save_settings_quietly", return_value=True),
+            patch.object(self.app, "record_dataset_tracker_event"),
+        ):
+            self.app.remove_dataset_upload_at_index(0)
+
+        self.assertEqual(state["dataset_upload_history"], [])
+        self.assertFalse(state["shared_dataset_loaded"])
+        self.assertNotIn("working_df", state)
+        self.assertEqual(self.app.get_saved_dataset_summary_rows(), [])
+
     def test_upload_history_drops_overlapping_rows_when_replacing_dates(self):
         existing = [
             {

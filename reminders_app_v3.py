@@ -9623,10 +9623,15 @@ def remove_dataset_upload_at_index(remove_idx: int):
     if (current_df is None or getattr(current_df, "empty", True)) and existing_file_id:
         current_df = load_existing_shared_df(existing_file_id, existing_name, clinic_id=clinic_id)
 
+    remaining_df = pd.DataFrame()
     target_start = parse_history_date(target.get("from"))
     target_end = parse_history_date(target.get("to"))
-    remaining_df = pd.DataFrame()
-    if current_df is not None and not getattr(current_df, "empty", True) and "ChargeDate" in current_df.columns:
+    if (
+        current_df is not None
+        and not getattr(current_df, "empty", True)
+        and "ChargeDate" in current_df.columns
+        and (not using_history or bool(remaining_history))
+    ):
         source_df = current_df.copy()
         charge_dates = parse_dates(source_df["ChargeDate"])
         if target_start is not None and target_end is not None:
