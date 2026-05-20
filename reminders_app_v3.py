@@ -2491,28 +2491,29 @@ st.markdown(
         line-height: 1 !important;
         margin: 0 !important;
     }
-    .exclusion-chip {
-        align-items: center;
-        background: #fff7ed;
-        border: 1px solid rgba(251, 113, 133, 0.34);
+    [class*="st-key-client_exclusions_list_box"],
+    [class*="st-key-patient_exclusions_list_box"],
+    [class*="st-key-client_item_exclusions_list_box"],
+    [class*="st-key-item_exclusions_list_box"],
+    [class*="st-key-auto_patient_exclusions_list_box"] {
+        background: rgba(255, 247, 237, 0.38);
+        border-color: rgba(251, 146, 60, 0.18) !important;
         border-radius: 8px;
-        color: #7f1d1d;
-        display: inline-flex;
-        gap: 0.45rem;
-        line-height: 1.25;
-        margin-top: 0.25rem;
-        max-width: 100%;
-        padding: 0.42rem 0.58rem;
+        margin: 0.55rem 0 0.65rem;
+        padding: 0.3rem 0.45rem;
     }
-    .exclusion-chip-tag {
-        color: #be123c;
-        font-size: 0.74rem;
-        font-weight: 800;
-        text-transform: uppercase;
+    .exclusion-chip {
+        color: #344054;
+        line-height: 1.3;
+        max-width: 100%;
+        padding: 0.36rem 0.15rem;
+    }
+    .exclusion-chip + .exclusion-chip {
+        border-top: 1px solid rgba(251, 146, 60, 0.16);
     }
     .exclusion-chip-text {
-        color: #111827;
-        font-weight: 650;
+        color: #344054;
+        font-weight: 400;
         overflow-wrap: anywhere;
     }
     .auto-death-keyword-panel-title {
@@ -2856,7 +2857,6 @@ def padded_html_text(value) -> str:
 def exclusion_chip_html(value) -> str:
     return (
         "<div class='exclusion-chip'>"
-        "<span class='exclusion-chip-tag'>Excluded</span>"
         f"<span class='exclusion-chip-text'>{safe_html_text(value)}</span>"
         "</div>"
     )
@@ -16318,10 +16318,10 @@ if st.session_state.get("logged_in", False):
         st.caption("Hide every reminder for a specific client.")
         st.session_state.setdefault("client_exclusions", [])
         if st.session_state["client_exclusions"]:
-            for client_name in sorted(st.session_state["client_exclusions"]):
-                safe_client = re.sub(r'[^a-zA-Z0-9_-]', '_', client_name)
-                with st.container():
-                    cols = st.columns([1.4, 0.18, 6], gap="small")
+            with st.container(border=True, key="client_exclusions_list_box"):
+                for client_name in sorted(st.session_state["client_exclusions"]):
+                    safe_client = re.sub(r'[^a-zA-Z0-9_-]', '_', client_name)
+                    cols = st.columns([4, 0.25, 4], gap="small")
                     with cols[0]:
                         st.markdown(exclusion_chip_html(client_name), unsafe_allow_html=True)
                     with cols[1]:
@@ -16378,16 +16378,16 @@ if st.session_state.get("logged_in", False):
                     str(item.get("patient", "")).casefold() if isinstance(item, dict) else "",
                 ),
             )
-            for exclusion_idx, exclusion in enumerate(sorted_patient_exclusions):
-                if not isinstance(exclusion, dict):
-                    continue
-                client_name = _SPACE_RX.sub(" ", str(exclusion.get("client", "") or "").strip())
-                patient_name = _SPACE_RX.sub(" ", str(exclusion.get("patient", "") or "").strip())
-                if not client_name or not patient_name:
-                    continue
-                safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"{client_name}_{patient_name}_{exclusion_idx}")
-                with st.container():
-                    cols = st.columns([1.4, 0.18, 6], gap="small")
+            with st.container(border=True, key="patient_exclusions_list_box"):
+                for exclusion_idx, exclusion in enumerate(sorted_patient_exclusions):
+                    if not isinstance(exclusion, dict):
+                        continue
+                    client_name = _SPACE_RX.sub(" ", str(exclusion.get("client", "") or "").strip())
+                    patient_name = _SPACE_RX.sub(" ", str(exclusion.get("patient", "") or "").strip())
+                    if not client_name or not patient_name:
+                        continue
+                    safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"{client_name}_{patient_name}_{exclusion_idx}")
+                    cols = st.columns([4, 0.25, 4], gap="small")
                     with cols[0]:
                         st.markdown(patient_exclusion_label_html(client_name, patient_name), unsafe_allow_html=True)
                     with cols[1]:
@@ -16462,16 +16462,16 @@ if st.session_state.get("logged_in", False):
                     str(item.get("item", "")).casefold() if isinstance(item, dict) else "",
                 ),
             )
-            for exclusion_idx, exclusion in enumerate(sorted_client_item_exclusions):
-                if not isinstance(exclusion, dict):
-                    continue
-                client_name = _SPACE_RX.sub(" ", str(exclusion.get("client", "") or "").strip())
-                item_name = _SPACE_RX.sub(" ", str(exclusion.get("item", "") or "").strip())
-                if not client_name or not item_name:
-                    continue
-                safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"{client_name}_{item_name}_{exclusion_idx}")
-                with st.container():
-                    cols = st.columns([1.4, 0.18, 6], gap="small")
+            with st.container(border=True, key="client_item_exclusions_list_box"):
+                for exclusion_idx, exclusion in enumerate(sorted_client_item_exclusions):
+                    if not isinstance(exclusion, dict):
+                        continue
+                    client_name = _SPACE_RX.sub(" ", str(exclusion.get("client", "") or "").strip())
+                    item_name = _SPACE_RX.sub(" ", str(exclusion.get("item", "") or "").strip())
+                    if not client_name or not item_name:
+                        continue
+                    safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"{client_name}_{item_name}_{exclusion_idx}")
+                    cols = st.columns([4, 0.25, 4], gap="small")
                     with cols[0]:
                         st.markdown(patient_exclusion_label_html(client_name, item_name), unsafe_allow_html=True)
                     with cols[1]:
@@ -16536,10 +16536,10 @@ if st.session_state.get("logged_in", False):
         st.markdown("### General Item Exclusions")
         st.caption("Hide reminders for an item or phrase across every client.")
         if st.session_state["exclusions"]:
-            for term in sorted(st.session_state["exclusions"]):
-                safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
-                with st.container():
-                    cols = st.columns([1.4, 0.18, 6], gap="small")
+            with st.container(border=True, key="item_exclusions_list_box"):
+                for term in sorted(st.session_state["exclusions"]):
+                    safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
+                    cols = st.columns([4, 0.25, 4], gap="small")
                     with cols[0]:
                         st.markdown(exclusion_chip_html(term), unsafe_allow_html=True)
                     with cols[1]:
@@ -16707,14 +16707,14 @@ if st.session_state.get("logged_in", False):
                 TABLE_PAGE_SIZE,
                 "automatic patient exclusions",
             )
-            for exclusion_idx, exclusion in paged_auto_exclusions:
-                client_name = _SPACE_RX.sub(" ", str(exclusion.get("client", "") or "").strip())
-                patient_name = _SPACE_RX.sub(" ", str(exclusion.get("patient", "") or "").strip())
-                if not client_name or not patient_name:
-                    continue
-                safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"auto_{client_name}_{patient_name}_{exclusion_idx}")
-                with st.container():
-                    cols = st.columns([1.4, 0.18, 6], gap="small")
+            with st.container(border=True, key="auto_patient_exclusions_list_box"):
+                for exclusion_idx, exclusion in paged_auto_exclusions:
+                    client_name = _SPACE_RX.sub(" ", str(exclusion.get("client", "") or "").strip())
+                    patient_name = _SPACE_RX.sub(" ", str(exclusion.get("patient", "") or "").strip())
+                    if not client_name or not patient_name:
+                        continue
+                    safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"auto_{client_name}_{patient_name}_{exclusion_idx}")
+                    cols = st.columns([4, 0.25, 4], gap="small")
                     with cols[0]:
                         st.markdown(patient_exclusion_label_html(client_name, patient_name), unsafe_allow_html=True)
                     with cols[1]:

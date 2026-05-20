@@ -63,12 +63,16 @@ class VisualThemeCssTests(unittest.TestCase):
             ".auto-death-patient-section-title",
             '[class*="st-key-del_passaway_keyword_"] button',
             "keyword_panel = st.container(border=True)",
+            "st-key-client_exclusions_list_box",
+            "st-key-patient_exclusions_list_box",
+            "st-key-client_item_exclusions_list_box",
+            "st-key-item_exclusions_list_box",
             ".exclusion-chip",
-            ".exclusion-chip-tag",
             "exclusion_chip_html",
         ]:
             with self.subTest(selector=selector):
                 self.assertIn(selector, source)
+        self.assertNotIn("exclusion-chip-tag", source)
 
     def test_streamlit_theme_defaults_to_light(self):
         config = (REPO_ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
