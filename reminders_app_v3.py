@@ -11488,6 +11488,72 @@ st.markdown(
         min-height: 2.15rem !important;
         padding: 0.35rem 0.8rem !important;
       }
+      .st-key-stats_active_subtab {
+        border-bottom: 1px solid var(--cr-border) !important;
+        margin: 0.15rem 0 1rem !important;
+        overflow-x: auto !important;
+        scrollbar-width: thin !important;
+      }
+      .st-key-stats_active_subtab [data-testid="stSegmentedControl"],
+      .st-key-stats_active_subtab div[role="radiogroup"] {
+        align-items: flex-end !important;
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        gap: 0.2rem !important;
+        overflow: visible !important;
+      }
+      .st-key-stats_active_subtab button,
+      .st-key-stats_active_subtab [role="radio"],
+      .st-key-stats_active_subtab label {
+        background: var(--cr-primary-quiet) !important;
+        border: 1px solid var(--cr-border) !important;
+        border-bottom: 0 !important;
+        border-radius: 8px 8px 0 0 !important;
+        box-shadow: inset 0 -1px 0 var(--cr-border) !important;
+        color: #23513a !important;
+        margin: 0 0 -1px !important;
+        min-height: 2.3rem !important;
+        padding: 0.35rem 0.8rem !important;
+        white-space: nowrap !important;
+      }
+      .st-key-stats_active_subtab button p,
+      .st-key-stats_active_subtab button span,
+      .st-key-stats_active_subtab [role="radio"] p,
+      .st-key-stats_active_subtab [role="radio"] span,
+      .st-key-stats_active_subtab label p,
+      .st-key-stats_active_subtab label span {
+        color: #23513a !important;
+        font-weight: 600 !important;
+      }
+      .st-key-stats_active_subtab button:hover,
+      .st-key-stats_active_subtab [role="radio"]:hover,
+      .st-key-stats_active_subtab label:hover {
+        background: var(--cr-primary-soft) !important;
+      }
+      .st-key-stats_active_subtab [aria-checked="true"],
+      .st-key-stats_active_subtab [aria-selected="true"],
+      .st-key-stats_active_subtab button[aria-pressed="true"],
+      .st-key-stats_active_subtab button[aria-selected="true"],
+      .st-key-stats_active_subtab label:has(input:checked) {
+        background: var(--cr-primary) !important;
+        border-color: var(--cr-primary) !important;
+        box-shadow: 0 1px 0 var(--cr-primary) !important;
+        color: #062d19 !important;
+        position: relative !important;
+        z-index: 1 !important;
+      }
+      .st-key-stats_active_subtab [aria-checked="true"] p,
+      .st-key-stats_active_subtab [aria-checked="true"] span,
+      .st-key-stats_active_subtab [aria-selected="true"] p,
+      .st-key-stats_active_subtab [aria-selected="true"] span,
+      .st-key-stats_active_subtab button[aria-pressed="true"] p,
+      .st-key-stats_active_subtab button[aria-pressed="true"] span,
+      .st-key-stats_active_subtab button[aria-selected="true"] p,
+      .st-key-stats_active_subtab button[aria-selected="true"] span,
+      .st-key-stats_active_subtab label:has(input:checked) p,
+      .st-key-stats_active_subtab label:has(input:checked) span {
+        color: #062d19 !important;
+      }
       @media (max-width: 900px) {
         [class*="st-key-main_section_nav_"] button {
           min-height: 2.65rem;
