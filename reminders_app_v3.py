@@ -66,6 +66,7 @@ _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
 MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Stats", "Graphs"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
+STAFF_ACCESS_QUERY_PARAM = "staff_access"
 PENDING_MAIN_SECTION_TAB_KEY = "_pending_main_section_tab"
 GET_STARTED_MANUAL_DONE_KEY = "get_started_manual_done"
 GET_STARTED_MANUAL_OFF_KEY = "get_started_manual_off"
@@ -8831,7 +8832,7 @@ def clinic_access_dialog_html(access_enabled: bool, generated_code: str = "") ->
 
 
 def clinic_access_app_url() -> str:
-    return "https://clinic-reminders.streamlit.app"
+    return f"https://clinic-reminders.streamlit.app?{STAFF_ACCESS_QUERY_PARAM}=1"
 
 
 def clinic_access_share_text(clinic_id: str, app_url: str, access_code: str) -> str:
@@ -9485,8 +9486,13 @@ else:
 
 render_pending_remember_login_cookie_update()
 discard_remember_login_query_param()
+staff_access_link_requested = get_query_param(STAFF_ACCESS_QUERY_PARAM).strip().lower() in {"1", "true", "yes"}
+if staff_access_link_requested and not st.session_state["logged_in"]:
+    st.session_state["show_staff_access_login"] = True
+    st.session_state.pop("pending_google_signup", None)
+    st.session_state.pop("google_onboarding_mode", None)
 
-if google_user.get("is_logged_in") and not st.session_state["logged_in"]:
+if google_user.get("is_logged_in") and not st.session_state["logged_in"] and not staff_access_link_requested:
     try:
         google_clinic_row = get_clinic_row_by_google_identity(google_user)
     except Exception:

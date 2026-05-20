@@ -401,17 +401,24 @@ class AuthSessionTests(unittest.TestCase):
     def test_clinic_access_share_text_contains_required_login_details(self):
         share_text = self.app.clinic_access_share_text(
             "Clinic A",
-            "https://clinic-reminders.streamlit.app/",
+            "https://clinic-reminders.streamlit.app?staff_access=1",
             "123456",
         )
 
         self.assertIn("Clinic name: Clinic A", share_text)
-        self.assertIn("Login URL: https://clinic-reminders.streamlit.app", share_text)
+        self.assertIn("Login URL: https://clinic-reminders.streamlit.app?staff_access=1", share_text)
         self.assertIn("Access code: 123456", share_text)
         self.assertIn("choose Staff Access", share_text)
 
-    def test_clinic_access_app_url_is_public_login_url(self):
-        self.assertEqual(self.app.clinic_access_app_url(), "https://clinic-reminders.streamlit.app")
+    def test_clinic_access_app_url_opens_staff_access_login(self):
+        self.assertEqual(self.app.clinic_access_app_url(), "https://clinic-reminders.streamlit.app?staff_access=1")
+
+    def test_staff_access_link_bypasses_google_onboarding(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+
+        self.assertIn('staff_access_link_requested = get_query_param(STAFF_ACCESS_QUERY_PARAM)', source)
+        self.assertIn('st.session_state["show_staff_access_login"] = True', source)
+        self.assertIn('and not staff_access_link_requested', source)
 
     def test_authenticate_clinic_access_uses_settings_hash(self):
         stored_hash = self.app.clinic_access_code_hash_for_storage("123456")
