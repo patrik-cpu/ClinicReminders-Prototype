@@ -959,14 +959,16 @@ class DatasetUpdateTests(unittest.TestCase):
 
     def test_process_file_accepts_merlin_tab_separated_csv(self):
         csv_bytes = (
-            "Itemdate\tDescription\tAnimalName\tQty\tTotal\tSurname\tFirstName\tTreatmentDate\n"
-            "46044.6958838773\tRabies Vaccination\tAlfie\t2\t123.45\tAaron\tSusan\t46044.5\n"
+            "Itemdate\tDescription\tAnimalName\tQty\tTotal\tSurname\tFirstName\tTreatmentDate\tCodeDescription\n"
+            "46044.6958838773\tDiagnosis and Plan - simparica reminder note\tAlfie\t1\t0\tAaron\tSusan\t46044.5\t\n"
+            "46044.6958838773\tLong product row text\tAlfie\t2\t123.45\tAaron\tSusan\t46044.5\tRabies Vaccination\n"
         ).encode("utf-8")
 
         df, pms_name, amount_col = self.app.process_file(csv_bytes, "merlin.csv")
 
         self.assertEqual(pms_name, "Merlin")
         self.assertEqual(amount_col, "Total")
+        self.assertEqual(len(df), 1)
         self.assertEqual(df.loc[0, "ChargeDate"].strftime("%Y-%m-%d"), "2026-01-22")
         self.assertEqual(df.loc[0, "Client Name"], "Susan Aaron")
         self.assertEqual(df.loc[0, "Animal Name"], "Alfie")

@@ -6254,7 +6254,7 @@ PMS_DEFINITIONS = {
     "Merlin": {
         "columns": [
             "Itemdate", "Description", "AnimalName", "Qty", "Total",
-            "Surname", "FirstName", "TreatmentDate"
+            "Surname", "FirstName", "TreatmentDate", "CodeDescription"
         ],
         "mappings": {
             "date": "Itemdate",
@@ -6262,7 +6262,7 @@ PMS_DEFINITIONS = {
             "client_first": "FirstName",
             "client_last": "Surname",
             "animal": "AnimalName",
-            "item": "Description",
+            "item": "CodeDescription",
             "qty": "Qty",
             "amount": "Total"
         }
@@ -6287,7 +6287,7 @@ def detect_pms(df: pd.DataFrame) -> str:
         return "VETport"
     x_keys = {"date", "animal name", "amount", "item name"}
     e_keys = {"invoice date", "total invoiced (excl)", "product name", "first name", "last name"}
-    m_keys = {"itemdate", "description", "animalname", "firstname", "surname", "qty", "total"}
+    m_keys = {"itemdate", "description", "animalname", "firstname", "surname", "qty", "total", "codedescription"}
     if m_keys.issubset(normalized_cols): return "Merlin"
     if e_keys.issubset(normalized_cols): return "ezyVet"
     if x_keys.issubset(normalized_cols): return "Xpress"
@@ -6475,6 +6475,14 @@ def apply_vetport_alias_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def filter_merlin_item_rows(df: pd.DataFrame) -> pd.DataFrame:
+    code_description_col = find_column_ci(df.columns, ["CodeDescription"])
+    if code_description_col is None:
+        return df
+    item_text = df[code_description_col].astype(str).str.strip()
+    return df.loc[item_text.ne("")].copy().reset_index(drop=True)
+
+
 def validate_upload_dataframe(df: pd.DataFrame, filename: str):
     validate_upload_dataframe_limits(df, filename)
     missing = [col for col in REQUIRED_UPLOAD_COLUMNS if col not in df.columns]
@@ -6576,6 +6584,9 @@ def process_file(file_bytes, filename):
     if pms_name == "VETport":
         df = apply_vetport_alias_columns(df)
         df = normalize_vetport_to_patrikedit(df)
+
+    if pms_name == "Merlin":
+        df = filter_merlin_item_rows(df)
 
 
     # --- 6️⃣ Apply PMS mappings ---
