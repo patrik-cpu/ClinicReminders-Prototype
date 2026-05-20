@@ -2617,8 +2617,19 @@ st.markdown(
         align-items: center;
         gap: 0.35rem !important;
     }
-    [class*="st-key-auto_patient_exclusion_row_"] .exclusion-chip {
+    [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stMarkdownContainer"],
+    [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stMarkdownContainer"] > div {
+        display: flex;
+        align-items: center;
         min-height: 2rem;
+    }
+    [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stMarkdownContainer"] p {
+        margin: 0 !important;
+    }
+    [class*="st-key-auto_patient_exclusion_row_"] .exclusion-chip {
+        align-items: center;
+        min-height: 2rem;
+        line-height: 2rem;
         padding: 0.12rem 0;
     }
     [class*="st-key-auto_patient_exclusion_row_"] [class*="st-key-del_auto_patient_excl_"] button {
@@ -2640,6 +2651,7 @@ st.markdown(
         align-items: center;
         color: #344054;
         font-weight: 400;
+        line-height: 1.2;
         overflow-wrap: anywhere;
     }
     .auto-death-keyword-panel-title {
