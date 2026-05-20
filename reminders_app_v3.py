@@ -106,6 +106,7 @@ REMINDER_GROUP_DAYS_LOADED_KEY = "_client_group_days_loaded"
 REMINDER_WARNING_DAYS_DIRTY_KEY = "_reminder_warning_days_dirty"
 REMINDER_WARNING_DAYS_LOADED_KEY = "_reminder_warning_days_loaded"
 _SETTING_MISSING = object()
+E2E_SEARCH_TERMS_LAYOUT_MODE = os.environ.get("CLINIC_REMINDERS_E2E_SEARCH_TERMS_LAYOUT") == "1"
 
 
 def canonical_main_section_tab(tab_name: str) -> str:
@@ -2418,10 +2419,18 @@ st.markdown(
         min-height: 3rem;
     }
     .field-examples.use-qty-examples {
-        margin-top: 0.45rem;
+        margin-top: 0.95rem;
+    }
+    .field-examples[data-field-examples="search-term"],
+    .field-examples[data-field-examples="category"] {
+        margin-top: 0.24rem;
     }
     .field-examples div + div {
         margin-top: 0.2rem;
+    }
+    .field-examples[data-field-examples="search-term"] div + div,
+    .field-examples[data-field-examples="category"] div + div {
+        margin-top: 0.41rem;
     }
     div[data-testid="stHorizontalBlock"]:has(.search-term-column-header) > div[data-testid="column"] {
         display: flex !important;
@@ -2609,6 +2618,7 @@ st.markdown(
         gap: 0.35rem !important;
     }
     [class*="st-key-auto_patient_exclusion_row_"] .exclusion-chip {
+        min-height: 2rem;
         padding: 0.12rem 0;
     }
     [class*="st-key-auto_patient_exclusion_row_"] [class*="st-key-del_auto_patient_excl_"] button {
@@ -2616,6 +2626,8 @@ st.markdown(
     }
     .exclusion-chip {
         color: #344054;
+        display: flex;
+        align-items: center;
         line-height: 1.3;
         max-width: 100%;
         padding: 0.36rem 0.15rem;
@@ -2624,6 +2636,8 @@ st.markdown(
         border-top: 1px solid rgba(251, 146, 60, 0.16);
     }
     .exclusion-chip-text {
+        display: flex;
+        align-items: center;
         color: #344054;
         font-weight: 400;
         overflow-wrap: anywhere;
@@ -9314,7 +9328,14 @@ if "logged_in" not in st.session_state:
 if "auto_login_attempted" not in st.session_state:
     st.session_state["auto_login_attempted"] = False
 st.session_state.setdefault("show_top_change_password", False)
-google_user = get_google_user_info()
+if E2E_SEARCH_TERMS_LAYOUT_MODE:
+    st.session_state["logged_in"] = True
+    st.session_state["clinic_id"] = "e2e-layout-clinic"
+    st.session_state["main_section_tab"] = "Search Terms"
+    st.session_state.setdefault("rules", normalize_search_term_rules(DEFAULT_RULES.copy()))
+    google_user = {"is_logged_in": False}
+else:
+    google_user = get_google_user_info()
 
 render_pending_remember_login_cookie_update()
 discard_remember_login_query_param()
@@ -9341,7 +9362,11 @@ elif st.session_state.get("pending_google_signup"):
     st.session_state.pop("pending_google_signup", None)
     st.session_state.pop("google_onboarding_mode", None)
 
-if not st.session_state["logged_in"] and not st.session_state.get("pending_google_signup"):
+if (
+    not E2E_SEARCH_TERMS_LAYOUT_MODE
+    and not st.session_state["logged_in"]
+    and not st.session_state.get("pending_google_signup")
+):
     if restore_remembered_login_session():
         rerun_app()
 render_pending_remember_login_cookie_update()
@@ -9662,10 +9687,11 @@ if not st.session_state["logged_in"]:
 
 if "rules" not in st.session_state:
     load_settings()
-ensure_tracking_sheets()
-ensure_shared_dataset_loaded_for_session()
-show_pending_settings_sync_warning()
-show_pending_action_sync_warning()
+if not E2E_SEARCH_TERMS_LAYOUT_MODE:
+    ensure_tracking_sheets()
+    ensure_shared_dataset_loaded_for_session()
+    show_pending_settings_sync_warning()
+    show_pending_action_sync_warning()
 
 
 def get_started_manual_done() -> dict:
@@ -17028,13 +17054,18 @@ def render_search_terms_editor():
     with header_cols[6]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
     with header_cols[7]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
 
-    def field_examples(first_example: str, second_example: str, extra_class: str = ""):
+    def field_examples(first_example: str, second_example: str, extra_class: str = "", example_key: str = ""):
         classes = f"field-examples {extra_class}".strip()
+        key_attr = (
+            f' data-field-examples="{html_lib.escape(example_key, quote=True)}"'
+            if example_key
+            else ""
+        )
         st.markdown(
             f"""
-            <div class="{classes}">
-              <div>{first_example}</div>
-              <div>{second_example}</div>
+            <div class="{classes}"{key_attr}>
+              <div data-example-line="1">{html_lib.escape(str(first_example))}</div>
+              <div data-example-line="2">{html_lib.escape(str(second_example))}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -17051,6 +17082,7 @@ def render_search_terms_editor():
         field_examples(
             "Example 1: Canine Annual Vaccine Package",
             "Example 2: stride-joint-supplement-120ml-small",
+            example_key="search-term",
         )
     with c2:
         new_rule_category = st.selectbox(
@@ -17061,7 +17093,7 @@ def render_search_terms_editor():
             format_func=lambda option: "Select category" if option == "" else option,
             help="Required category for this search term.",
         )
-        field_examples("Vaccinations", "Supplements")
+        field_examples("Vaccinations", "Supplements", example_key="category")
     with c3:
         new_rule_reminder_1 = st.text_input(
             "First reminder",
@@ -17069,7 +17101,7 @@ def render_search_terms_editor():
             label_visibility="collapsed",
             help="Optional first reminder, in days after the billed date."
         )
-        field_examples("335", "blank")
+        field_examples("335", "blank", example_key="first-reminder")
     with c4:
         new_rule_reminder_2 = st.text_input(
             "Second reminder",
@@ -17077,7 +17109,7 @@ def render_search_terms_editor():
             label_visibility="collapsed",
             help="Optional second reminder, in days after the billed date."
         )
-        field_examples("357", "50")
+        field_examples("357", "50", example_key="second-reminder")
     with c5:
         new_rule_days = st.text_input(
             "Due date reminder",
@@ -17085,7 +17117,7 @@ def render_search_terms_editor():
             label_visibility="collapsed",
             help="Positive number of days until this item should be due again."
         )
-        field_examples("365", "60")
+        field_examples("365", "60", example_key="due-date")
     with c6:
         new_rule_overdue = st.text_input(
             "Overdue after days",
@@ -17093,7 +17125,7 @@ def render_search_terms_editor():
             label_visibility="collapsed",
             help="Optional overdue reminder, in days after the billed date."
         )
-        field_examples("375", "70")
+        field_examples("375", "70", example_key="overdue")
     with c7:
         new_rule_use_qty = st.checkbox(
             "Use Qty",
@@ -17105,6 +17137,7 @@ def render_search_terms_editor():
             "Unticked",
             "Ticked",
             "use-qty-examples",
+            example_key="use-qty",
         )
     with c8:
         new_rule_visible = st.text_input(
@@ -17116,6 +17149,7 @@ def render_search_terms_editor():
         field_examples(
             "Annual vaccination and check-up",
             "Stride joint health supplement",
+            example_key="message-text",
         )
     with c9:
         if st.button("➕ Add", key=f"add_{row_id}"):
