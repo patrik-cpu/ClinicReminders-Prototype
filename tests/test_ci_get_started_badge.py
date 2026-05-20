@@ -108,6 +108,13 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertIn('dy="0.08em"', svg)
         self.assertIn('alignment-baseline="middle"', svg)
 
+    def test_new_and_soon_badges_use_normal_text_weight(self):
+        for label in (self.app.stats_badge_label(), self.app.graphs_badge_label()):
+            encoded = re.search(r"base64,([A-Za-z0-9+/=]+)", label).group(1)
+            svg = base64.b64decode(encoded).decode("utf-8")
+
+            self.assertIn('font-weight="400"', svg)
+
     def test_new_account_welcome_copy_is_clear_and_actionable(self):
         html = self.app.new_account_welcome_dialog_html()
 

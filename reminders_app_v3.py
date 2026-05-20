@@ -10011,7 +10011,13 @@ def get_started_incomplete_count() -> int:
     return sum(1 for step in get_setup_checklist_steps() if not step["done"])
 
 
-def tab_badge_label_text(tab_name: str, badge_text: str, alt_text: str, fill: str = "#dc2626") -> str:
+def tab_badge_label_text(
+    tab_name: str,
+    badge_text: str,
+    alt_text: str,
+    fill: str = "#dc2626",
+    font_weight: str = "700",
+) -> str:
     badge_text = str(badge_text or "").strip()
     if not badge_text:
         return tab_name
@@ -10020,7 +10026,7 @@ def tab_badge_label_text(tab_name: str, badge_text: str, alt_text: str, fill: st
     badge_svg = f"""
     <svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="22" viewBox="0 0 {width} 22">
       <rect x="1" y="2" width="{width - 2}" height="18" rx="9" fill="{fill}"/>
-      <text x="{text_x}" y="11" dy="0.08em" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle">{html_lib.escape(badge_text)}</text>
+      <text x="{text_x}" y="11" dy="0.08em" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="{html_lib.escape(font_weight)}" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle">{html_lib.escape(badge_text)}</text>
     </svg>
     """
     encoded_badge = base64.b64encode(badge_svg.encode("utf-8")).decode("ascii")
@@ -10054,11 +10060,11 @@ def upload_data_badge_label(count: int | None = None) -> str:
 
 
 def stats_badge_label() -> str:
-    return tab_badge_label_text("Stats", "New", "New Stats tab", fill="#23513a")
+    return tab_badge_label_text("Stats", "New", "New Stats tab", fill="#23513a", font_weight="400")
 
 
 def graphs_badge_label() -> str:
-    return tab_badge_label_text("Graphs", "Soon", "Graphs coming soon", fill="#23513a")
+    return tab_badge_label_text("Graphs", "Soon", "Graphs coming soon", fill="#23513a", font_weight="400")
 
 
 def main_section_tab_label(tab_name: str) -> str:
