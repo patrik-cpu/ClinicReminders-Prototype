@@ -85,6 +85,55 @@ class AuthSessionTests(unittest.TestCase):
 
         set_query_param.assert_not_called()
         clear_query_param.assert_called_once_with(self.app.REMEMBER_LOGIN_QUERY_PARAM)
+        self.assertEqual(
+            self.app.st.session_state[self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY],
+            "unsafe-token",
+        )
+        self.app.st.session_state.pop(self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY, None)
+
+    def test_clear_remember_login_token_queues_cookie_deletion(self):
+        with patch.object(self.app, "clear_query_param") as clear_query_param:
+            self.app.clear_remember_login_token()
+
+        clear_query_param.assert_called_once_with(self.app.REMEMBER_LOGIN_QUERY_PARAM)
+        self.assertEqual(
+            self.app.st.session_state[self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY],
+            "",
+        )
+        self.app.st.session_state.pop(self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY, None)
+
+    def test_restore_remembered_login_validates_cookie_before_session_restore(self):
+        self.app.st.session_state["logged_in"] = False
+        token = "signed-cookie-token"
+
+        with (
+            patch.object(self.app, "get_remember_login_cookie", return_value=token),
+            patch.object(self.app, "validate_remember_login_token", return_value="Clinic Login") as validate_token,
+            patch.object(self.app, "finish_authenticated_session") as finish_session,
+            patch.object(self.app, "remember_authenticated_session") as remember_session,
+        ):
+            restored = self.app.restore_remembered_login_session()
+
+        self.assertTrue(restored)
+        validate_token.assert_called_once_with(token)
+        finish_session.assert_called_once_with(
+            "Clinic Login",
+            event="remembered_login",
+            auth_provider="password",
+        )
+        remember_session.assert_called_once_with("Clinic Login")
+
+    def test_restore_remembered_login_clears_invalid_cookie(self):
+        self.app.st.session_state["logged_in"] = False
+        with (
+            patch.object(self.app, "get_remember_login_cookie", return_value="bad-token"),
+            patch.object(self.app, "validate_remember_login_token", return_value=None),
+            patch.object(self.app, "clear_remember_login_token") as clear_token,
+        ):
+            restored = self.app.restore_remembered_login_session()
+
+        self.assertFalse(restored)
+        clear_token.assert_called_once()
 
     def test_incoming_remember_login_query_param_is_discarded_without_validation(self):
         with (

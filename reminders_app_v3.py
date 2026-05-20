@@ -3013,6 +3013,9 @@ SETTINGS_SHEET_ID = config_value("SETTINGS_SHEET_ID", DEFAULT_SETTINGS_SHEET_ID)
 SETTINGS_SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 REMEMBER_LOGIN_DAYS = 30
 REMEMBER_LOGIN_QUERY_PARAM = "remember"
+REMEMBER_LOGIN_COOKIE_NAME = "clinic_reminders_session"
+REMEMBER_LOGIN_COOKIE_MAX_AGE_SECONDS = REMEMBER_LOGIN_DAYS * 24 * 60 * 60
+REMEMBER_LOGIN_COOKIE_UPDATE_KEY = "_remember_login_cookie_update"
 PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 260_000
 PASSWORD_SALT_BYTES = 16
@@ -7636,13 +7639,53 @@ def clear_query_param(name: str):
         st.experimental_set_query_params(**params)
 
 
+def queue_remember_login_cookie_update(token: str = "") -> None:
+    st.session_state[REMEMBER_LOGIN_COOKIE_UPDATE_KEY] = str(token or "")
+
+
+def render_pending_remember_login_cookie_update() -> None:
+    if REMEMBER_LOGIN_COOKIE_UPDATE_KEY not in st.session_state:
+        return
+
+    token = str(st.session_state.pop(REMEMBER_LOGIN_COOKIE_UPDATE_KEY, "") or "")
+    cookie_name = json.dumps(REMEMBER_LOGIN_COOKIE_NAME)
+    cookie_value = json.dumps(token)
+    max_age = REMEMBER_LOGIN_COOKIE_MAX_AGE_SECONDS if token else 0
+    components.html(
+        f"""
+        <script>
+        (function() {{
+          const name = {cookie_name};
+          const value = encodeURIComponent({cookie_value});
+          const secure = window.location.protocol === "https:" ? "; Secure" : "";
+          document.cookie = name + "=" + value + "; Max-Age={max_age}; Path=/; SameSite=Lax" + secure;
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def get_remember_login_cookie() -> str:
+    try:
+        cookies = st.context.cookies
+        value = cookies.get(REMEMBER_LOGIN_COOKIE_NAME, "")
+    except Exception:
+        value = ""
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    return str(value or "").strip()
+
+
 def set_remember_login_token(token: str):
     """Legacy compatibility wrapper. Remember tokens must not be stored in URLs."""
-    clear_remember_login_token()
+    clear_query_param(REMEMBER_LOGIN_QUERY_PARAM)
+    queue_remember_login_cookie_update(token)
 
 
 def clear_remember_login_token():
     clear_query_param(REMEMBER_LOGIN_QUERY_PARAM)
+    queue_remember_login_cookie_update("")
 
 
 def discard_remember_login_query_param() -> bool:
@@ -7650,6 +7693,46 @@ def discard_remember_login_query_param() -> bool:
         clear_remember_login_token()
         return True
     return False
+
+
+def remember_authenticated_session(clinic_id: str, user_row: dict | None = None) -> None:
+    token = create_remember_login_token(clinic_id, user_row=user_row)
+    if token:
+        set_remember_login_token(token)
+    else:
+        clear_remember_login_token()
+
+
+def restore_remembered_login_session() -> bool:
+    if st.session_state.get("logged_in"):
+        return False
+
+    token = get_remember_login_cookie()
+    if not token:
+        return False
+
+    clinic_id = validate_remember_login_token(token)
+    if not clinic_id:
+        clear_remember_login_token()
+        return False
+
+    try:
+        finish_authenticated_session(
+            clinic_id,
+            event="remembered_login",
+            auth_provider="password",
+        )
+        remember_authenticated_session(clinic_id)
+        return True
+    except Exception as e:
+        record_error_tracker_event(
+            "remembered_login_failed",
+            stage="restore_remembered_login_session",
+            error=e,
+            source="auth_session",
+        )
+        clear_remember_login_token()
+        return False
 
 
 def default_settings_for_country(country: str = "") -> dict:
@@ -8463,7 +8546,7 @@ def render_profile_dialog():
                 updated = update_clinic_profile(clinic_id, new_clinic_id, new_email)
                 st.session_state["clinic_id"] = updated["clinic_id"]
                 if st.session_state.get("auth_provider") != GOOGLE_AUTH_PROVIDER:
-                    clear_remember_login_token()
+                    remember_authenticated_session(updated["clinic_id"])
                 load_settings()
                 close_profile_dialog()
                 st.success("Profile updated.")
@@ -8913,6 +8996,7 @@ if "auto_login_attempted" not in st.session_state:
 st.session_state.setdefault("show_top_change_password", False)
 google_user = get_google_user_info()
 
+render_pending_remember_login_cookie_update()
 discard_remember_login_query_param()
 
 if google_user.get("is_logged_in") and not st.session_state["logged_in"]:
@@ -8936,6 +9020,11 @@ if google_user.get("is_logged_in") and not st.session_state["logged_in"]:
 elif st.session_state.get("pending_google_signup"):
     st.session_state.pop("pending_google_signup", None)
     st.session_state.pop("google_onboarding_mode", None)
+
+if not st.session_state["logged_in"] and not st.session_state.get("pending_google_signup"):
+    if restore_remembered_login_session():
+        rerun_app()
+render_pending_remember_login_cookie_update()
 
 default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
 
@@ -9052,7 +9141,7 @@ if not st.session_state["logged_in"]:
                     st.session_state["clinic_id"] = username
                     st.session_state["logged_in"] = True
                     st.session_state["show_top_change_password"] = False
-                    clear_remember_login_token()
+                    remember_authenticated_session(username, user_row)
 
                     reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
                     load_settings(load_action_history=False)
@@ -9149,7 +9238,10 @@ if not st.session_state["logged_in"]:
                             st.session_state["clinic_id"] = new_clinic
                             st.session_state["logged_in"] = True
                             st.session_state["show_top_change_password"] = False
-                            clear_remember_login_token()
+                            remember_authenticated_session(
+                                new_clinic,
+                                {SHEET_COL_PASSWORD_HASH: password_hash},
+                            )
                             reset_uploaded_data_state(
                                 clear_cache=False,
                                 reset_uploader=True,
@@ -9219,6 +9311,7 @@ else:
                     else:
                         password_hash = update_clinic_password(clinic_id, new_password)
                         clear_remember_login_token()
+                        render_pending_remember_login_cookie_update()
                         upsert_user_tracker(
                             clinic_id,
                             country=st.session_state.get("user_country", ""),
