@@ -16575,10 +16575,8 @@ def refresh_outcome_results_state(sync_remote: bool = False) -> None:
         cached_statistics_generated_rows.clear()
     except Exception:
         pass
-    applied_search_changes = False
     if search_criteria_have_pending_changes():
         apply_search_criteria_changes(show_notice=False)
-        applied_search_changes = True
     clinic_id = str(st.session_state.get("clinic_id", "") or "").strip()
     if sync_remote and clinic_id:
         invalidate_action_tracker_records_cache()
@@ -16594,11 +16592,6 @@ def refresh_outcome_results_state(sync_remote: bool = False) -> None:
         if shared_dataset_reload_needed_for_clinic(clinic_id):
             st.session_state.pop("_shared_dataset_load_attempted_for", None)
             load_shared_dataset_for_clinic()
-    st.session_state["_outcomes_refresh_success"] = (
-        "Stats refreshed with the latest search terms."
-        if applied_search_changes
-        else "Stats refreshed."
-    )
 
 
 def refresh_outcome_results_action() -> None:
@@ -16655,9 +16648,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     st.caption(
         "See which reminders were sent, which ones led to repeat purchases, and how items and team members are performing over time."
     )
-    refresh_success = st.session_state.pop("_outcomes_refresh_success", "")
-    if refresh_success:
-        st.success(refresh_success)
+    st.session_state.pop("_outcomes_refresh_success", None)
     if search_criteria_have_pending_changes():
         st.warning("Search terms have changed. Click Refresh Stats to apply the latest rules here.")
 

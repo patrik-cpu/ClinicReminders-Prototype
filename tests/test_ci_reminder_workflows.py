@@ -199,7 +199,7 @@ class ReminderWorkflowTests(unittest.TestCase):
         self.assertEqual(len(state["deleted_reminders"]), 1)
         self.assertEqual(state["deleted_reminders"][0]["Action"], self.app.REMINDER_ACTION_SENT)
         self.assertEqual(len(state["wa_reminder_log"]), 1)
-        self.assertEqual(state["_outcomes_refresh_success"], "Stats refreshed.")
+        self.assertNotIn("_outcomes_refresh_success", state)
 
     def test_refresh_stats_applies_search_terms_without_remote_sync(self):
         state = self.app.st.session_state
@@ -216,7 +216,7 @@ class ReminderWorkflowTests(unittest.TestCase):
         load_dataset.assert_not_called()
         self.assertEqual(state["applied_rules"], state["rules"])
         self.assertNotIn("_search_criteria_refreshed", state)
-        self.assertEqual(state["_outcomes_refresh_success"], "Stats refreshed with the latest search terms.")
+        self.assertNotIn("_outcomes_refresh_success", state)
 
     def test_decline_action_preserves_existing_sent_state_when_tracker_write_fails(self):
         row = sample_reminder_row()
