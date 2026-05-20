@@ -484,13 +484,24 @@ class AuthSessionTests(unittest.TestCase):
 
     def test_clinic_access_dialog_updates_code_only_from_admin_button(self):
         source = inspect.getsource(self.app.render_clinic_access_dialog)
-        update_call = "update_clinic_access_code_hash(clinic_id, clinic_access_code_hash_for_storage(access_code))"
+        update_call = "update_clinic_access_code_hash(clinic_id, clinic_access_code_hash_for_storage(access_code), access_code)"
         button_block_start = source.index('if st.button(primary_label, key="clinic_access_generate_button"')
         update_index = source.index(update_call)
 
         self.assertGreater(update_index, button_block_start)
         self.assertIn('primary_label = "Rotate access code" if access_hash else "Generate access code"', source)
         self.assertNotIn("generate_clinic_access_code()", source[:button_block_start])
+
+    def test_clinic_access_dialog_reuses_saved_plain_code(self):
+        source = inspect.getsource(self.app.render_clinic_access_dialog)
+
+        self.assertIn('st.session_state.get("clinic_access_code_plain", "")', source)
+        self.assertIn("clinic_access_share_text(clinic_id, clinic_access_app_url(), current_code)", source)
+
+    def test_clinic_access_dialog_close_keeps_generated_code_available(self):
+        source = inspect.getsource(self.app.close_clinic_access_dialog)
+
+        self.assertNotIn("_clinic_access_generated_code", source)
 
     def test_finish_staff_access_session_sets_display_name_without_google_identity(self):
         state = self.app.st.session_state

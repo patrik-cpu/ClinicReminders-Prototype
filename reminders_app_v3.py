@@ -671,6 +671,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "show_staff_access_login",
     "_clinic_access_generated_code",
     "clinic_access_code_hash",
+    "clinic_access_code_plain",
     "google_signup_error",
     "google_onboarding_clinic_name",
     "google_onboarding_country",
@@ -4944,6 +4945,9 @@ def load_settings(load_action_history: bool = True):
         load_outcome_due_date_window_days(settings)
         load_outcome_post_reminder_window_days(settings)
         st.session_state["clinic_access_code_hash"] = str(settings.get("clinic_access_code_hash", "") or "").strip()
+        st.session_state["clinic_access_code_plain"] = normalize_clinic_access_code(
+            settings.get("clinic_access_code_plain", "")
+        )
         migrated_legacy_actions = False
         legacy_wa_log = settings.get("wa_reminder_log", [])
         legacy_deleted_reminders = settings.get("deleted_reminders", [])
@@ -5001,6 +5005,7 @@ def load_settings(load_action_history: bool = True):
         load_outcome_due_date_window_days(settings)
         load_outcome_post_reminder_window_days(settings)
         st.session_state["clinic_access_code_hash"] = ""
+        st.session_state["clinic_access_code_plain"] = ""
         st.session_state["wa_reminder_log"] = []
         st.session_state["deleted_reminders"] = []
         st.session_state["search_terms_reviewed"] = False
@@ -5269,6 +5274,16 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
     if current_template_name_for_save not in templates_for_save:
         current_template_name_for_save = DEFAULT_WA_TEMPLATE_NAME
     current_template_for_save = templates_for_save.get(current_template_name_for_save, DEFAULT_WA_TEMPLATE)
+    clinic_access_hash_for_save = str(
+        setting_for_save("clinic_access_code_hash", remote_settings.get("clinic_access_code_hash", "")) or ""
+    ).strip()
+    clinic_access_plain_for_save = (
+        normalize_clinic_access_code(
+            setting_for_save("clinic_access_code_plain", remote_settings.get("clinic_access_code_plain", ""))
+        )
+        if clinic_access_hash_for_save
+        else ""
+    )
     replace_search_settings = st.session_state.pop("_replace_search_settings_once", False)
     if replace_search_settings:
         rules_for_save = normalize_search_term_rules(setting_for_save("rules", DEFAULT_RULES.copy()))
@@ -5344,7 +5359,8 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "outcome_post_reminder_window_days": normalized_outcome_post_reminder_window_days(
             int_setting_for_save("outcome_post_reminder_window_days", outcome_post_reminder_window_default)
         ),
-        "clinic_access_code_hash": setting_for_save("clinic_access_code_hash", remote_settings.get("clinic_access_code_hash", "")),
+        "clinic_access_code_hash": clinic_access_hash_for_save,
+        "clinic_access_code_plain": clinic_access_plain_for_save,
         OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY: bool(
             setting_for_save(OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY, False)
         ),
@@ -8200,6 +8216,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "outcome_due_date_window_days": DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
         "outcome_post_reminder_window_days": DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
         "clinic_access_code_hash": "",
+        "clinic_access_code_plain": "",
         "action_tracker_migrated_at": "",
         "search_terms_reviewed": False,
         "search_term_added": False,
@@ -8893,7 +8910,6 @@ def render_clipboard_button(text: str, key: str, label: str = "Copy to Clipboard
 
 def close_clinic_access_dialog():
     st.session_state["show_clinic_access_dialog"] = False
-    st.session_state.pop("_clinic_access_generated_code", None)
 
 
 def render_clinic_access_dialog():
@@ -8904,11 +8920,14 @@ def render_clinic_access_dialog():
 
     def _render_dialog_body():
         access_hash = str(st.session_state.get("clinic_access_code_hash", "") or "").strip()
-        generated_code = str(st.session_state.get("_clinic_access_generated_code", "") or "").strip()
-        st.markdown(clinic_access_dialog_html(bool(access_hash), generated_code), unsafe_allow_html=True)
+        current_code = normalize_clinic_access_code(
+            st.session_state.get("_clinic_access_generated_code", "")
+            or st.session_state.get("clinic_access_code_plain", "")
+        )
+        st.markdown(clinic_access_dialog_html(bool(access_hash), current_code), unsafe_allow_html=True)
 
-        if generated_code:
-            share_text = clinic_access_share_text(clinic_id, clinic_access_app_url(), generated_code)
+        if current_code:
+            share_text = clinic_access_share_text(clinic_id, clinic_access_app_url(), current_code)
             with st.container(border=True):
                 st.markdown("**Staff access details**")
                 st.caption("Copy this message into WhatsApp or email for the team member.")
@@ -8916,7 +8935,7 @@ def render_clinic_access_dialog():
                     "Staff access details",
                     value=share_text,
                     height=170,
-                    key=f"clinic_access_share_text_{normalize_clinic_access_code(generated_code)}",
+                    key=f"clinic_access_share_text_{current_code}",
                     label_visibility="collapsed",
                     disabled=True,
                 )
@@ -8931,7 +8950,7 @@ def render_clinic_access_dialog():
         primary_label = "Rotate access code" if access_hash else "Generate access code"
         if st.button(primary_label, key="clinic_access_generate_button", type="primary", use_container_width=True):
             access_code = generate_clinic_access_code()
-            update_clinic_access_code_hash(clinic_id, clinic_access_code_hash_for_storage(access_code))
+            update_clinic_access_code_hash(clinic_id, clinic_access_code_hash_for_storage(access_code), access_code)
             st.session_state["_clinic_access_generated_code"] = access_code
             st.success("Clinic access code updated.")
             st.rerun()
@@ -8940,6 +8959,7 @@ def render_clinic_access_dialog():
             if st.button("Disable staff access", key="clinic_access_disable_button", use_container_width=True):
                 update_clinic_access_code_hash(clinic_id, "")
                 st.session_state.pop("_clinic_access_generated_code", None)
+                st.session_state["clinic_access_code_plain"] = ""
                 st.success("Staff access disabled.")
                 st.rerun()
 
@@ -9177,7 +9197,11 @@ def update_clinic_password(clinic_id: str, new_password: str):
     return password_hash
 
 
-def update_clinic_access_code_hash(clinic_id: str, access_code_hash: str) -> None:
+def update_clinic_access_code_hash(
+    clinic_id: str,
+    access_code_hash: str,
+    access_code_plain: str | None = None,
+) -> None:
     clinic_id = require_authenticated_tenant_access(clinic_id)
     _sheet, _headers, _row_idx, row_values = get_authorized_fresh_settings_row_values(clinic_id)
     row = {
@@ -9186,6 +9210,11 @@ def update_clinic_access_code_hash(clinic_id: str, access_code_hash: str) -> Non
     }
     settings = settings_json_from_row(row)
     settings["clinic_access_code_hash"] = str(access_code_hash or "").strip()
+    if settings["clinic_access_code_hash"]:
+        if access_code_plain is not None:
+            settings["clinic_access_code_plain"] = normalize_clinic_access_code(access_code_plain)
+    else:
+        settings["clinic_access_code_plain"] = ""
     settings_json = json.dumps(settings)
     updated_at = utc_now_iso()
     update_authorized_settings_row_fields(
@@ -9207,6 +9236,7 @@ def update_clinic_access_code_hash(clinic_id: str, access_code_hash: str) -> Non
     )
     cache_remote_settings(clinic_id, settings)
     st.session_state["clinic_access_code_hash"] = settings["clinic_access_code_hash"]
+    st.session_state["clinic_access_code_plain"] = settings.get("clinic_access_code_plain", "")
 
 def _to_blob(uploaded):
     # Deterministic blob for caching; avoids .read() side effects
