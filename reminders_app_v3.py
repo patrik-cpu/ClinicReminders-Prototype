@@ -2454,14 +2454,11 @@ st.markdown(
     }
     .graphs-coming-soon-panel {
         align-items: center;
-        background: #ffffff;
-        border: 1px solid var(--cr-border);
-        border-radius: 8px;
         display: flex;
         flex-direction: column;
         gap: 1rem;
-        margin-top: 0.75rem;
-        padding: 1.2rem;
+        margin-top: 0.5rem;
+        padding: 0;
     }
     .graphs-coming-soon-art {
         height: auto;
