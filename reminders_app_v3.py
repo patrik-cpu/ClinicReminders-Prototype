@@ -14036,9 +14036,9 @@ STATS_SUMMARY_CARD_HELP = {
     "Total Revenue from Successes": "Revenue from matching repeat purchases that counted as reminder successes.",
 }
 OUTCOME_SENT_DISPLAY_COLUMNS = [
+    "Sent Date",
     "Charge Date",
     "Reminder Date",
-    "Sent Date",
     "Due Date",
     "Window Starts",
     "Window Ends",
@@ -16754,6 +16754,7 @@ def render_stats_sent_reminders_period_selector() -> tuple[str, tuple[date, date
         filter_key="stats_sent_reminders_period",
         range_key="stats_sent_reminders_custom_range",
         on_change=reset_stats_sent_reminders_page,
+        default_period="Today",
     )
 
 
@@ -16771,10 +16772,11 @@ def render_stats_period_selector(
     filter_key: str,
     range_key: str,
     on_change,
+    default_period: str = "All-time",
 ) -> tuple[str, tuple[date, date] | None]:
-    current = st.session_state.get(filter_key, "All-time")
+    current = st.session_state.get(filter_key, default_period)
     if current not in STATS_SENT_REMINDER_PERIODS:
-        current = "All-time"
+        current = default_period if default_period in STATS_SENT_REMINDER_PERIODS else "All-time"
 
     if hasattr(st, "segmented_control"):
         selected_period = st.segmented_control(
@@ -16821,7 +16823,7 @@ def stats_sent_rows_for_render(
     sent_period_rows = filter_stats_sent_tab_rows(period_rows, selected_period, custom_range=custom_range)
     if sent_period_rows.empty:
         return sent_period_rows
-    return sent_period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
+    return sent_period_rows.sort_values(["Sent Date", "Client Name"], ascending=[True, True])
 
 
 def stats_success_rows_for_render(
@@ -17158,7 +17160,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     elif active_stats_subtab == "Sent Reminders":
         selected_sent_period, sent_custom_range = render_stats_sent_reminders_period_selector()
-        st.caption(stats_sent_period_caption(selected_sent_period, sent_custom_range))
         sent_rows = stats_sent_rows_for_render(period_rows, selected_sent_period, custom_range=sent_custom_range)
         render_outcome_dataframe(
             sent_rows,

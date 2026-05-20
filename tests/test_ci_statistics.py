@@ -3,6 +3,7 @@ import importlib
 import io
 import unittest
 from datetime import date
+from pathlib import Path
 from unittest import mock
 
 import pandas as pd
@@ -850,6 +851,19 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Overall Purchases", rendered_frame.columns)
         self.assertAlmostEqual(rendered_frame.iloc[0]["Gap Day %"], (370 / 365) * 100)
 
+    def test_stats_sent_reminders_display_puts_sent_date_first(self):
+        self.assertEqual(self.app.OUTCOME_SENT_DISPLAY_COLUMNS[0], "Sent Date")
+
+    def test_stats_sent_reminders_defaults_to_today_without_caption(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        selector_start = source.index("def render_stats_sent_reminders_period_selector")
+        selector_end = source.index("def render_stats_successes_period_selector", selector_start)
+        sent_tab_start = source.index('elif active_stats_subtab == "Sent Reminders":')
+        sent_tab_end = source.index('elif active_stats_subtab == "Successes":', sent_tab_start)
+
+        self.assertIn('default_period="Today"', source[selector_start:selector_end])
+        self.assertNotIn("stats_sent_period_caption", source[sent_tab_start:sent_tab_end])
+
     def test_stats_items_highlight_styles_capturable_revenue_column(self):
         display_frame = pd.DataFrame(
             [
@@ -1392,7 +1406,7 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertTrue(rows.empty)
 
-    def test_stats_sent_and_success_rows_for_render_preserve_sort_order(self):
+    def test_stats_sent_rows_for_render_sort_earliest_first(self):
         outcomes = pd.DataFrame(
             [
                 {
@@ -1417,9 +1431,35 @@ class StatisticsTests(unittest.TestCase):
         )
 
         sent_rows = self.app.stats_sent_rows_for_render(outcomes, "All-time")
+
+        self.assertEqual(sent_rows["Client Name"].tolist(), ["Client A", "Client B", "Client C"])
+
+    def test_stats_success_rows_for_render_preserve_sort_order(self):
+        outcomes = pd.DataFrame(
+            [
+                {
+                    "Sent Date": pd.Timestamp("2026-05-18"),
+                    "Success Date": pd.Timestamp("2026-05-20"),
+                    "Outcome": "Reminder Success",
+                    "Client Name": "Client B",
+                },
+                {
+                    "Sent Date": pd.Timestamp("2026-05-19"),
+                    "Success Date": pd.Timestamp("2026-05-19"),
+                    "Outcome": "No Match",
+                    "Client Name": "Client C",
+                },
+                {
+                    "Sent Date": pd.Timestamp("2026-05-18"),
+                    "Success Date": pd.Timestamp("2026-05-21"),
+                    "Outcome": "Reminder Success",
+                    "Client Name": "Client A",
+                },
+            ]
+        )
+
         success_rows = self.app.stats_success_rows_for_render(outcomes)
 
-        self.assertEqual(sent_rows["Client Name"].tolist(), ["Client C", "Client A", "Client B"])
         self.assertEqual(success_rows["Client Name"].tolist(), ["Client A", "Client B"])
 
     def test_reminder_outcomes_use_actioned_date_as_sent_date_for_historical_backtests(self):
@@ -1467,9 +1507,9 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(
             self.app.OUTCOME_SENT_DISPLAY_COLUMNS[:7],
             [
+                "Sent Date",
                 "Charge Date",
                 "Reminder Date",
-                "Sent Date",
                 "Due Date",
                 "Window Starts",
                 "Window Ends",
