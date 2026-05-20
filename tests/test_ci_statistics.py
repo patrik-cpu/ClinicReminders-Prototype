@@ -1098,6 +1098,68 @@ class StatisticsTests(unittest.TestCase):
             date(2025, 9, 30),
         )
 
+    def test_stats_outcome_as_of_date_is_never_before_today(self):
+        sales = pd.DataFrame(
+            [
+                {"ChargeDate": "2026-04-22"},
+                {"ChargeDate": ""},
+            ]
+        )
+
+        self.assertEqual(
+            self.app.stats_outcome_as_of_date(sales, today=date(2026, 5, 20)),
+            date(2026, 5, 20),
+        )
+
+    def test_stats_outcome_as_of_date_keeps_later_upload_date(self):
+        sales = pd.DataFrame(
+            [
+                {"ChargeDate": "2026-06-01"},
+            ]
+        )
+
+        self.assertEqual(
+            self.app.stats_outcome_as_of_date(sales, today=date(2026, 5, 20)),
+            date(2026, 6, 1),
+        )
+
+    def test_stats_outcomes_keep_today_sent_reminder_pending_when_upload_is_older(self):
+        actions = [
+            {
+                "Reminder Date": "17 May 2024",
+                "Due Date": "17 May 2024",
+                "Charge Date": "17 Feb 2024",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Deworm",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-20T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2026-04-22",
+                    "Client Name": "Other Client",
+                    "Animal Name": "Other Pet",
+                    "Item Name": "Deworm",
+                    "Amount": 100,
+                }
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            post_reminder_window_days=7,
+            today=self.app.stats_outcome_as_of_date(sales, today=date(2026, 5, 20)),
+            rules={},
+        )
+
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Pending")
+
     def test_reminder_outcomes_status_uses_dataset_as_of_date_by_default(self):
         actions = [
             {

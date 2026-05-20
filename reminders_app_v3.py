@@ -14086,6 +14086,11 @@ def outcome_as_of_date(sales_df: pd.DataFrame | None, fallback: date | None = No
     return pd.Timestamp(latest_sale_date).date()
 
 
+def stats_outcome_as_of_date(sales_df: pd.DataFrame | None, today: date | None = None) -> date:
+    current_date = today or user_today()
+    return max(outcome_as_of_date(sales_df, fallback=current_date), current_date)
+
+
 def outcome_timing_label(days_vs_due, on_time_grace_days: int) -> str:
     if days_vs_due is None or pd.isna(days_vs_due):
         return ""
@@ -15728,7 +15733,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         "A success is one matching repeat purchase either near the due date or soon after the reminder was sent. "
         "Multiple reminder steps for the same purchase cycle still count once."
     )
-    outcomes_as_of_date = outcome_as_of_date(sales_df)
+    outcomes_as_of_date = stats_outcome_as_of_date(sales_df)
     stats_period = "All time"
     try:
         statistics_group_days = max(0, int(st.session_state.get("client_group_days", 1) or 0))
