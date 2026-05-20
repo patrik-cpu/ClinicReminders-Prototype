@@ -9389,11 +9389,11 @@ def get_setup_checklist_modules() -> list[dict]:
                 item("review_search_terms", "Review default search terms", bool(st.session_state.get("search_terms_reviewed", False))),
                 item(
                     "add_search_term",
-                    "Add a clinic-specific search term",
+                    "Add a search term",
                     search_term_added and happened_after_reset(st.session_state.get("search_term_added_at", "")),
                     st.session_state.get("search_term_added_at", ""),
                 ),
-                item("check_rule_days", "Check rule intervals and quantities"),
+                item("check_rule_days", "Add a Reminder 1, Reminder 2, or Overdue reminder."),
             ],
         },
         {
