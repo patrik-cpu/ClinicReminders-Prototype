@@ -74,7 +74,7 @@ class VisualThemeCssTests(unittest.TestCase):
             "st-key-client_item_exclusions_list_box",
             "st-key-item_exclusions_list_box",
             ".exclusion-chip",
-            "transform: translateY(-0.08rem);",
+            "transform: translateY(-0.12rem);",
             "exclusion_chip_html",
         ]:
             with self.subTest(selector=selector):
