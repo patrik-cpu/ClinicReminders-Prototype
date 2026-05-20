@@ -58,7 +58,7 @@ UPLOAD_SUMMARY_SCHEMA_VERSION = 2
 DEFAULT_REMINDER_LOOKBACK_DAYS = 2
 MIN_VALID_CHARGE_DATE = pd.Timestamp("2000-01-01")
 HELP_ICON_HTML = (
-    "<svg class='column-help-svg' viewBox='0 0 512 512' aria-hidden='true' focusable='false'>"
+    "<svg class='column-help-svg' viewBox='-24 -24 560 560' aria-hidden='true' focusable='false'>"
     "<path fill='currentColor' d='M256 0C114.6 0 0 114.6 0 256s114.6 256 256 256 256-114.6 256-256S397.4 0 256 0zm0 48c114.9 0 208 93.1 208 208s-93.1 208-208 208S48 370.9 48 256 141.1 48 256 48zm-28 156h56v184h-56V204zm0-80h56v56h-56v-56z'/>"
     "</svg>"
 )
@@ -2822,12 +2822,12 @@ st.markdown(
         flex: 0 0 auto;
         flex-shrink: 0;
         position: relative;
-        width: 1em;
-        min-width: 1em;
-        max-width: 1em;
-        height: 1em;
-        min-height: 1em;
-        max-height: 1em;
+        width: 1.08em;
+        min-width: 1.08em;
+        max-width: 1.08em;
+        height: 1.08em;
+        min-height: 1.08em;
+        max-height: 1.08em;
         border: 0;
         border-radius: 0;
         font-family: Arial, Helvetica, sans-serif;
@@ -2840,6 +2840,7 @@ st.markdown(
         text-align: center;
         vertical-align: -0.02rem;
         white-space: nowrap;
+        overflow: visible;
     }
     .column-help-svg {
         display: block;
