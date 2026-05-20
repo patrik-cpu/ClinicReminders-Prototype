@@ -9229,12 +9229,13 @@ def finish_authenticated_session(
     if remember_session:
         remember_authenticated_session(clinic_id, user_row=user_row)
 
-    reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
-    load_settings(load_action_history=False)
-    session_user_name = str(session_user_name or "").strip()
-    if session_user_name:
-        st.session_state["user_name"] = session_user_name
-    load_shared_dataset_for_clinic()
+    with busy_overlay("Loading clinic data", "Preparing saved settings, data, and reminders for this clinic."):
+        reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
+        load_settings(load_action_history=False)
+        session_user_name = str(session_user_name or "").strip()
+        if session_user_name:
+            st.session_state["user_name"] = session_user_name
+        load_shared_dataset_for_clinic()
     record_settings_account_event(
         clinic_id,
         event=event,

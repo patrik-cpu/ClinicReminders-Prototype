@@ -500,6 +500,7 @@ class AuthSessionTests(unittest.TestCase):
             patch.object(self.app, "reset_uploaded_data_state"),
             patch.object(self.app, "load_settings") as load_settings,
             patch.object(self.app, "load_shared_dataset_for_clinic"),
+            patch.object(self.app, "busy_overlay", return_value=contextlib.nullcontext()),
             patch.object(self.app, "record_settings_account_event"),
             patch.object(self.app, "upsert_user_tracker"),
         ):
@@ -530,6 +531,7 @@ class AuthSessionTests(unittest.TestCase):
             patch.object(self.app, "reset_uploaded_data_state"),
             patch.object(self.app, "load_settings"),
             patch.object(self.app, "load_shared_dataset_for_clinic"),
+            patch.object(self.app, "busy_overlay", return_value=contextlib.nullcontext()),
             patch.object(self.app, "record_settings_account_event"),
             patch.object(self.app, "upsert_user_tracker"),
             patch.object(self.app, "create_remember_login_token", return_value="fresh-token") as create_token,
@@ -549,6 +551,23 @@ class AuthSessionTests(unittest.TestCase):
         )
         self.assertEqual(state[self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY], "fresh-token")
         state.pop(self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY, None)
+
+    def test_finish_authenticated_session_shows_clinic_data_loading_overlay(self):
+        with (
+            patch.object(self.app, "close_account_dialogs"),
+            patch.object(self.app, "reset_uploaded_data_state"),
+            patch.object(self.app, "load_settings"),
+            patch.object(self.app, "load_shared_dataset_for_clinic"),
+            patch.object(self.app, "busy_overlay", return_value=contextlib.nullcontext()) as overlay,
+            patch.object(self.app, "record_settings_account_event"),
+            patch.object(self.app, "upsert_user_tracker"),
+        ):
+            self.app.finish_authenticated_session("Clinic A", event="login")
+
+        overlay.assert_called_once_with(
+            "Loading clinic data",
+            "Preparing saved settings, data, and reminders for this clinic.",
+        )
 
     def test_failed_login_attempts_lock_username_temporarily(self):
         state = {}
