@@ -139,6 +139,34 @@ class AuthSessionTests(unittest.TestCase):
             token,
         )
 
+    def test_remember_login_cookie_falls_back_to_raw_cookie_header(self):
+        token = "signed-cookie-token=="
+        fake_context = type(
+            "FakeContext",
+            (),
+            {
+                "cookies": {},
+                "headers": {
+                    "Cookie": f"other=value; {self.app.REMEMBER_LOGIN_COOKIE_NAME}={quote(token)}"
+                },
+            },
+        )()
+
+        with patch.object(self.app.st, "context", fake_context):
+            self.assertEqual(self.app.get_remember_login_cookie(), token)
+
+    def test_remember_login_cookie_writer_targets_top_parent_and_current_window(self):
+        self.app.st.session_state[self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY] = "signed-cookie-token"
+
+        with patch.object(self.app.components, "html") as html:
+            self.app.render_pending_remember_login_cookie_update()
+
+        script = html.call_args.args[0]
+        self.assertIn("window.top", script)
+        self.assertIn("window.parent", script)
+        self.assertIn("Max-Age=", script)
+        self.assertIn("Expires=", script)
+
     def test_restore_remembered_login_clears_invalid_cookie(self):
         self.app.st.session_state["logged_in"] = False
         with (
@@ -454,6 +482,35 @@ class AuthSessionTests(unittest.TestCase):
         self.assertEqual(state["user_name"], "Nurse A")
         self.assertNotIn("google_email", state)
         load_settings.assert_called_once_with(load_action_history=False)
+
+    def test_finish_authenticated_session_can_refresh_password_remember_cookie(self):
+        state = self.app.st.session_state
+        state.pop(self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY, None)
+
+        with (
+            patch.object(self.app, "close_account_dialogs"),
+            patch.object(self.app, "reset_uploaded_data_state"),
+            patch.object(self.app, "load_settings"),
+            patch.object(self.app, "load_shared_dataset_for_clinic"),
+            patch.object(self.app, "record_settings_account_event"),
+            patch.object(self.app, "upsert_user_tracker"),
+            patch.object(self.app, "create_remember_login_token", return_value="fresh-token") as create_token,
+            patch.object(self.app, "clear_query_param"),
+        ):
+            self.app.finish_authenticated_session(
+                "Clinic A",
+                event="login",
+                auth_provider="password",
+                remember_session=True,
+                user_row={self.app.SHEET_COL_PASSWORD_HASH: "hash"},
+            )
+
+        create_token.assert_called_once_with(
+            "Clinic A",
+            user_row={self.app.SHEET_COL_PASSWORD_HASH: "hash"},
+        )
+        self.assertEqual(state[self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY], "fresh-token")
+        state.pop(self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY, None)
 
     def test_failed_login_attempts_lock_username_temporarily(self):
         state = {}

@@ -17,6 +17,7 @@ import base64
 import hmac
 import uuid
 import secrets
+from http.cookies import SimpleCookie
 from urllib.parse import unquote, urlparse
 from typing import Iterable
 import numpy as np
@@ -8018,14 +8019,22 @@ def render_pending_remember_login_cookie_update() -> None:
     cookie_name = json.dumps(REMEMBER_LOGIN_COOKIE_NAME)
     cookie_value = json.dumps(token)
     max_age = REMEMBER_LOGIN_COOKIE_MAX_AGE_SECONDS if token else 0
+    expires_ms = int((time.time() + max_age) * 1000) if token else 0
     components.html(
         f"""
         <script>
         (function() {{
           const name = {cookie_name};
           const value = encodeURIComponent({cookie_value});
+          const expiresAt = {expires_ms};
           const secure = window.location.protocol === "https:" ? "; Secure" : "";
-          document.cookie = name + "=" + value + "; Max-Age={max_age}; Path=/; SameSite=Lax" + secure;
+          const expires = expiresAt ? "; Expires=" + new Date(expiresAt).toUTCString() : "; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
+          const cookie = name + "=" + value + "; Max-Age={max_age}" + expires + "; Path=/; SameSite=Lax" + secure;
+          for (const target of [window.top, window.parent, window]) {{
+            try {{
+              target.document.cookie = cookie;
+            }} catch (_err) {{}}
+          }}
         }})();
         </script>
         """,
@@ -8045,6 +8054,16 @@ def get_remember_login_cookie() -> str:
         value = cookies.get(REMEMBER_LOGIN_COOKIE_NAME, "")
     except Exception:
         value = ""
+    if not value:
+        try:
+            headers = getattr(st.context, "headers", {}) or {}
+            raw_cookie_header = headers.get("cookie", "") or headers.get("Cookie", "")
+            parsed_cookies = SimpleCookie()
+            parsed_cookies.load(raw_cookie_header)
+            morsel = parsed_cookies.get(REMEMBER_LOGIN_COOKIE_NAME)
+            value = morsel.value if morsel else ""
+        except Exception:
+            value = ""
     return normalize_remember_login_cookie_value(value)
 
 
@@ -9188,6 +9207,8 @@ def finish_authenticated_session(
     auth_provider: str = "password",
     google_user: dict | None = None,
     session_user_name: str = "",
+    remember_session: bool = False,
+    user_row: dict | None = None,
 ):
     clinic_id = str(clinic_id or "").strip()
     close_account_dialogs()
@@ -9198,6 +9219,8 @@ def finish_authenticated_session(
     if google_user:
         st.session_state["google_email"] = google_user.get("email", "")
         st.session_state["google_subject"] = google_user.get("subject", "")
+    if remember_session:
+        remember_authenticated_session(clinic_id, user_row=user_row)
 
     reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
     load_settings(load_action_history=False)
@@ -9519,26 +9542,12 @@ if not st.session_state["logged_in"]:
                 user_row = authenticate_user(username, password)
                 if user_row:
                     record_successful_login_attempt(username)
-                    close_account_dialogs()
-                    st.session_state["clinic_id"] = username
-                    st.session_state["logged_in"] = True
-                    st.session_state["show_top_change_password"] = False
-                    remember_authenticated_session(username, user_row)
-
-                    reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
-                    load_settings(load_action_history=False)
-                    # ✅ Auto-load shared dataset from Drive into working_df
-                    load_shared_dataset_for_clinic()
-                    record_settings_account_event(
+                    finish_authenticated_session(
                         username,
                         event="login",
                         auth_provider="password",
-                        country=st.session_state.get("user_country", ""),
-                    )
-                    upsert_user_tracker(
-                        username,
-                        country=st.session_state.get("user_country", ""),
-                        event="login",
+                        remember_session=True,
+                        user_row=user_row,
                     )
 
                     st.success(f"✅ Welcome, {username}!")
@@ -9616,20 +9625,14 @@ if not st.session_state["logged_in"]:
                                 country,
                                 new_password,
                             )
-                            close_account_dialogs()
-                            st.session_state["clinic_id"] = new_clinic
-                            st.session_state["logged_in"] = True
-                            st.session_state["show_top_change_password"] = False
-                            remember_authenticated_session(
-                                new_clinic,
-                                {SHEET_COL_PASSWORD_HASH: password_hash},
-                            )
-                            reset_uploaded_data_state(
-                                clear_cache=False,
-                                reset_uploader=True,
-                            )
-                            load_settings(load_action_history=False)
                             st.session_state["user_country"] = country
+                            finish_authenticated_session(
+                                new_clinic,
+                                event="login",
+                                auth_provider="password",
+                                remember_session=True,
+                                user_row={SHEET_COL_PASSWORD_HASH: password_hash},
+                            )
                             mark_new_account_welcome_pending()
                             st.success(
                                 f"✅ Account created. Welcome, {new_clinic}!"
