@@ -17,7 +17,7 @@ import base64
 import hmac
 import uuid
 import secrets
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from typing import Iterable
 import numpy as np
 from gspread.exceptions import APIError
@@ -7880,15 +7880,19 @@ def render_pending_remember_login_cookie_update() -> None:
     )
 
 
+def normalize_remember_login_cookie_value(value) -> str:
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    return unquote(str(value or "").strip())
+
+
 def get_remember_login_cookie() -> str:
     try:
         cookies = st.context.cookies
         value = cookies.get(REMEMBER_LOGIN_COOKIE_NAME, "")
     except Exception:
         value = ""
-    if isinstance(value, list):
-        value = value[0] if value else ""
-    return str(value or "").strip()
+    return normalize_remember_login_cookie_value(value)
 
 
 def set_remember_login_token(token: str):

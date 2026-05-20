@@ -7,6 +7,7 @@ from pathlib import Path
 import time
 import unittest
 from datetime import date, datetime
+from urllib.parse import quote
 from unittest.mock import patch
 
 
@@ -130,6 +131,13 @@ class AuthSessionTests(unittest.TestCase):
             auth_provider="password",
         )
         remember_session.assert_called_once_with("Clinic Login")
+
+    def test_remember_login_cookie_value_decodes_url_encoded_value(self):
+        token = "signed-cookie-token=="
+        self.assertEqual(
+            self.app.normalize_remember_login_cookie_value(quote(token)),
+            token,
+        )
 
     def test_restore_remembered_login_clears_invalid_cookie(self):
         self.app.st.session_state["logged_in"] = False
