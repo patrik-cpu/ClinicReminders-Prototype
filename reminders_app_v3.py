@@ -2565,7 +2565,11 @@ st.markdown(
         font-weight: 800;
     }
     [class*="st-key-reset_get_started_checklist"] button {
-        min-width: 13rem;
+        min-width: 9rem;
+    }
+    [class*="st-key-get_started_reset_row"] {
+        margin-top: 0.55rem;
+        width: 9rem !important;
     }
     [class*="st-key-del_client_excl_"] button,
     [class*="st-key-del_patient_excl_"] button,
@@ -10515,18 +10519,17 @@ def render_setup_checklist():
                                 args=(entry["id"], entry["auto_done"]),
                             )
 
-    reset_col, _ = st.columns([0.85, 5], gap="small")
-    with reset_col:
-        if st.button("↻ Reset", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
-            st.session_state["get_started_reset_at"] = user_now().isoformat()
-            st.session_state[GET_STARTED_MANUAL_DONE_KEY] = {}
-            st.session_state[GET_STARTED_MANUAL_OFF_KEY] = {}
-            for module in modules:
-                for entry in module["items"]:
-                    st.session_state.pop(f"get_started_done_{entry['id']}", None)
-            save_settings_quietly()
-            st.success("Get Started guide reset.")
-            st.rerun()
+        with st.container(key="get_started_reset_row"):
+            if st.button("↻ Reset", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
+                st.session_state["get_started_reset_at"] = user_now().isoformat()
+                st.session_state[GET_STARTED_MANUAL_DONE_KEY] = {}
+                st.session_state[GET_STARTED_MANUAL_OFF_KEY] = {}
+                for module in modules:
+                    for entry in module["items"]:
+                        st.session_state.pop(f"get_started_done_{entry['id']}", None)
+                save_settings_quietly()
+                st.success("Get Started guide reset.")
+                st.rerun()
 
 
 def render_graphs_coming_soon():

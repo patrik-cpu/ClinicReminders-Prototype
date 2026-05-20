@@ -291,6 +291,18 @@ class VisualThemeCssTests(unittest.TestCase):
                 self.assertIn("overflow-wrap: anywhere !important;", css_block)
                 self.assertNotIn("white-space: nowrap !important;", css_block)
 
+    def test_get_started_reset_button_stays_inside_setup_panel(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+        checklist_source = source[
+            source.index("def render_setup_checklist")
+            : source.index("def render_graphs_coming_soon")
+        ]
+
+        self.assertIn('with st.container(key="get_started_reset_row"):', checklist_source)
+        self.assertIn('[class*="st-key-get_started_reset_row"]', source)
+        self.assertIn("width: 9rem !important;", source)
+        self.assertNotIn("reset_col, _ = st.columns([0.85, 5]", checklist_source)
+
 
 if __name__ == "__main__":
     unittest.main()
