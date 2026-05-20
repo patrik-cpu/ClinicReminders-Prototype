@@ -57,6 +57,7 @@ PRECOMPUTE_ANALYTICS_BUNDLE = False
 UPLOAD_SUMMARY_SCHEMA_VERSION = 2
 DEFAULT_REMINDER_LOOKBACK_DAYS = 2
 MIN_VALID_CHARGE_DATE = pd.Timestamp("2000-01-01")
+HELP_ICON_SYMBOL = "⊙"
 DRIVE_SCOPE = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
@@ -2606,7 +2607,8 @@ st.markdown(
     [class*="st-key-del_patient_excl_"] button,
     [class*="st-key-del_client_item_excl_"] button,
     [class*="st-key-del_excl_"] button,
-    [class*="st-key-del_auto_patient_excl_"] button {
+    [class*="st-key-del_auto_patient_excl_"] button,
+    [class*="st-key-del_passaway_keyword_"] button {
         background: transparent !important;
         border: 0 !important;
         box-shadow: none !important;
@@ -2619,7 +2621,8 @@ st.markdown(
     [class*="st-key-del_patient_excl_"] button:hover,
     [class*="st-key-del_client_item_excl_"] button:hover,
     [class*="st-key-del_excl_"] button:hover,
-    [class*="st-key-del_auto_patient_excl_"] button:hover {
+    [class*="st-key-del_auto_patient_excl_"] button:hover,
+    [class*="st-key-del_passaway_keyword_"] button:hover {
         background: rgba(217, 45, 32, 0.08) !important;
         border-radius: 999px !important;
     }
@@ -2627,7 +2630,8 @@ st.markdown(
     [class*="st-key-del_patient_excl_"] button p,
     [class*="st-key-del_client_item_excl_"] button p,
     [class*="st-key-del_excl_"] button p,
-    [class*="st-key-del_auto_patient_excl_"] button p {
+    [class*="st-key-del_auto_patient_excl_"] button p,
+    [class*="st-key-del_passaway_keyword_"] button p {
         color: #d92d20 !important;
         font-size: 1.55rem !important;
         font-weight: 700 !important;
@@ -2655,7 +2659,16 @@ st.markdown(
     }
     [class*="st-key-auto_death_keyword_row_"] {
         background: transparent !important;
+        border: 0 !important;
         border-color: transparent !important;
+        box-shadow: none !important;
+    }
+    [class*="st-key-auto_death_keyword_row_"] > div,
+    [class*="st-key-auto_death_keyword_row_"] [data-testid="stVerticalBlock"],
+    [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"] {
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
     }
     [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stHorizontalBlock"],
     [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"],
@@ -2802,33 +2815,26 @@ st.markdown(
         align-items: center;
         justify-content: center;
         box-sizing: border-box;
-        flex: 0 0 0.95rem;
+        flex: 0 0 auto;
         flex-shrink: 0;
         position: relative;
-        width: 0.95rem;
-        min-width: 0.95rem;
-        max-width: 0.95rem;
-        height: 0.95rem;
-        min-height: 0.95rem;
-        max-height: 0.95rem;
-        inline-size: 0.95rem;
-        min-inline-size: 0.95rem;
-        max-inline-size: 0.95rem;
-        block-size: 0.95rem;
-        min-block-size: 0.95rem;
-        max-block-size: 0.95rem;
-        aspect-ratio: 1 / 1;
-        border: 1px solid var(--cr-muted);
-        border-radius: 999px;
+        width: 1em;
+        min-width: 1em;
+        max-width: 1em;
+        height: 1em;
+        min-height: 1em;
+        max-height: 1em;
+        border: 0;
+        border-radius: 0;
         font-family: Arial, Helvetica, sans-serif;
-        font-size: 0.72rem;
-        font-weight: 700;
+        font-size: 0.86rem;
+        font-weight: 600;
         font-style: normal;
         line-height: 1;
         margin-left: 0.25rem;
         padding: 0;
         text-align: center;
-        vertical-align: 0.05rem;
+        vertical-align: -0.02rem;
         white-space: nowrap;
     }
     .column-help::after {
@@ -3064,7 +3070,7 @@ def render_field_label(container, label: str, help_text: str, class_name: str = 
     safe_class = html_lib.escape(str(class_name or ""))
     classes = "field-label" + (f" {safe_class}" if safe_class else "")
     container.markdown(
-        f"<div class='{classes}'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>i</span></div>",
+        f"<div class='{classes}'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_SYMBOL}</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -4426,7 +4432,7 @@ def dataset_summary_checks_html(rows: list[dict]) -> str:
         icon = "✅" if check.get("good") else "⚠️"
         text = html_lib.escape(str(check.get("text", "")))
         help_text = html_lib.escape(str(check.get("help", "")))
-        help_icon = f" <span class='column-help' data-tooltip='{help_text}'>i</span>" if help_text else ""
+        help_icon = f" <span class='column-help' data-tooltip='{help_text}'>{HELP_ICON_SYMBOL}</span>" if help_text else ""
         check_items.append(
             f"<div class='dataset-check {status_class}'>{icon} {text}{help_icon}</div>"
         )
@@ -10695,7 +10701,7 @@ def render_setup_checklist():
                                 f"""
                                 <div class="setup-item-label {html_lib.escape(entry["class_name"])}">
                                   <span>{safe_label}</span>
-                                  <span class="column-help" data-tooltip="{safe_help}">i</span>
+                                  <span class="column-help" data-tooltip="{safe_help}">{HELP_ICON_SYMBOL}</span>
                                 </div>
                                 """,
                                 unsafe_allow_html=True,
@@ -12951,7 +12957,7 @@ def reminder_header_help(column: str) -> str:
 def render_column_help_icon(container, help_text: str, align: str = "left"):
     safe_help = html_lib.escape(help_text)
     container.markdown(
-        f"<div style='text-align:{align}; line-height:1.6rem;'><span class='column-help' data-tooltip='{safe_help}'>i</span></div>",
+        f"<div style='text-align:{align}; line-height:1.6rem;'><span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_SYMBOL}</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -12970,7 +12976,7 @@ def render_reminder_header_label(container, label: str, column: str, align: str 
     safe_label = html_lib.escape(label)
     safe_help = html_lib.escape(reminder_header_help(column))
     container.markdown(
-        f"<div style='text-align:{align}; font-weight:600;'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>i</span></div>",
+        f"<div style='text-align:{align}; font-weight:600;'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_SYMBOL}</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -14713,7 +14719,7 @@ def render_statistics_metric_card(label: str, value: str, help_text: str = ""):
     safe_value = html_lib.escape(str(value or "0"))
     safe_help = html_lib.escape(str(help_text or ""))
     help_html = (
-        f" <span class='column-help' data-tooltip='{safe_help}'>i</span>"
+        f" <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_SYMBOL}</span>"
         if safe_help
         else ""
     )
@@ -17274,7 +17280,7 @@ def render_search_terms_editor():
         safe_label = html_lib.escape(label)
         safe_help = html_lib.escape(help_text)
         st.markdown(
-            f"<div class='search-term-column-header'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>i</span></div>",
+            f"<div class='search-term-column-header'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_SYMBOL}</span></div>",
             unsafe_allow_html=True,
         )
 
@@ -18133,29 +18139,27 @@ if st.session_state.get("logged_in", False):
                         st.rerun()
                 for keyword in st.session_state["patient_passaway_keywords"]:
                     safe_keyword = re.sub(r'[^a-zA-Z0-9_-]', '_', keyword)
-                    row_cols = st.columns([2.7, 5.3], gap="small")
-                    with row_cols[0]:
-                        with st.container(key=f"auto_death_keyword_row_{safe_keyword}"):
-                            chip_cols = st.columns([0.9, 0.1], gap="small")
-                            with chip_cols[0]:
-                                st.markdown(
-                                    f"<span class='auto-death-keyword-chip'>{safe_html_text(keyword)}</span>",
-                                    unsafe_allow_html=True,
+                    with st.container(key=f"auto_death_keyword_row_{safe_keyword}"):
+                        chip_cols = st.columns([1.1, 0.16, 6.74], gap="small")
+                        with chip_cols[0]:
+                            st.markdown(
+                                f"<span class='auto-death-keyword-chip'>{safe_html_text(keyword)}</span>",
+                                unsafe_allow_html=True,
+                            )
+                        with chip_cols[1]:
+                            if st.button("×", key=f"del_passaway_keyword_{safe_keyword}", help="Remove automatic keyword"):
+                                st.session_state["patient_passaway_keywords"].remove(keyword)
+                                save_settings_quietly()
+                                record_settings_audit_event(
+                                    "exclusion_keyword_deleted",
+                                    "exclusions",
+                                    keyword,
+                                    "patient_passaway_keyword",
+                                    keyword,
+                                    "",
+                                    "exclusions_tab",
                                 )
-                            with chip_cols[1]:
-                                if st.button("×", key=f"del_passaway_keyword_{safe_keyword}", help="Remove automatic keyword"):
-                                    st.session_state["patient_passaway_keywords"].remove(keyword)
-                                    save_settings_quietly()
-                                    record_settings_audit_event(
-                                        "exclusion_keyword_deleted",
-                                        "exclusions",
-                                        keyword,
-                                        "patient_passaway_keyword",
-                                        keyword,
-                                        "",
-                                        "exclusions_tab",
-                                    )
-                                    st.rerun()
+                                st.rerun()
             else:
                 st.caption("No automatic death keywords are active.")
 
