@@ -937,7 +937,7 @@ def datepicker_today_ring_css(today: date | None = None) -> str:
       [role="grid"] [aria-label*="{html_lib.escape(month_day)}"][aria-label*="{year}"],
       [aria-label*="{html_lib.escape(month_day)}"][aria-label*="{year}"] {{
         border-radius: 999px !important;
-        box-shadow: 0 0 0 2px #dc2626, 0 0 0 5px rgba(220, 38, 38, 0.12) !important;
+        box-shadow: 0 0 0 2px #dc2626 !important;
       }}
     </style>
     """.strip()
