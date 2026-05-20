@@ -9535,10 +9535,22 @@ def get_setup_checklist_modules() -> list[dict]:
             "tab": "Stats",
             "copy": "Check outcomes and learn which reminders are working.",
             "items": [
-                item("open_stats", "Open the Stats tab", main_section_tab_visited("Stats"), str(st.session_state.get(GET_STARTED_VISITED_TABS_KEY, []))),
-                item("review_items_stats", "Review Items and capturable revenue"),
-                item("review_sent_successes", "Review Sent Reminders and Successes"),
-                item("export_stats_csv", "Export a stats CSV"),
+                item(
+                    "test_due_date_window",
+                    "Test setting new window around Due Date",
+                    st.session_state.get("outcome_due_date_window_days") != DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
+                    str(st.session_state.get("outcome_due_date_window_days", "")),
+                ),
+                item(
+                    "test_sent_date_window",
+                    "Test setting new window after Sent Date",
+                    st.session_state.get("outcome_post_reminder_window_days") != DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
+                    str(st.session_state.get("outcome_post_reminder_window_days", "")),
+                ),
+                item("review_primary_stats_metrics", "Review primary metrics in the Stats tab"),
+                item("review_items_capturable_revenue", "Review Capturable Revenue per Year column in the Items subtab"),
+                item("review_team_metrics", "Review Team metrics in the Team subtab"),
+                item("review_stats_date_filters", "Review date filters in the Sent Reminders or Success subtabs"),
             ],
         },
         {
