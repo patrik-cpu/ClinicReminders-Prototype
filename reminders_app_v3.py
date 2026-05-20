@@ -13165,18 +13165,21 @@ def render_actioned_reminders_tab(key_prefix: str):
             color: inherit !important;
             font-weight: 600 !important;
             justify-content: flex-start !important;
-            min-height: 1.6rem !important;
+            min-height: 2.2rem !important;
             padding: 0 !important;
             text-align: left !important;
+            white-space: normal !important;
           }}
           [class*="st-key-{safe_key_prefix}_actioned_sort_"] button:hover {{
             color: var(--cr-link) !important;
           }}
           [class*="st-key-{safe_key_prefix}_actioned_sort_"] button p {{
             font-weight: 600 !important;
+            line-height: 1.2 !important;
             margin: 0 !important;
+            overflow-wrap: anywhere !important;
             text-align: left !important;
-            white-space: nowrap !important;
+            white-space: normal !important;
           }}
         </style>
         """,
@@ -13259,18 +13262,21 @@ def render_table_with_buttons(df, key_prefix, msg_key, hidden_index=None):
             color: inherit !important;
             font-weight: 600 !important;
             justify-content: flex-start !important;
-            min-height: 1.6rem !important;
+            min-height: 2.2rem !important;
             padding: 0 !important;
             text-align: left !important;
+            white-space: normal !important;
           }}
           [class*="st-key-{safe_key_prefix}_sort_"] button:hover {{
             color: var(--cr-link) !important;
           }}
           [class*="st-key-{safe_key_prefix}_sort_"] button p {{
             font-weight: 600 !important;
+            line-height: 1.2 !important;
             margin: 0 !important;
+            overflow-wrap: anywhere !important;
             text-align: left !important;
-            white-space: nowrap !important;
+            white-space: normal !important;
           }}
         </style>
         """,

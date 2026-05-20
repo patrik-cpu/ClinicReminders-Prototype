@@ -266,6 +266,31 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('"Due date reminder", value=str(settings["days"])', source)
         self.assertNotIn('column_header("Due after days"', source)
 
+    def test_reminder_table_sort_headers_can_wrap_on_narrow_screens(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+        actioned_css = source[
+            source.index('[class*="st-key-{safe_key_prefix}_actioned_sort_"] button')
+            : source.index("</style>", source.index('[class*="st-key-{safe_key_prefix}_actioned_sort_"] button'))
+        ]
+        active_css = source[
+            source.index('[class*="st-key-{safe_key_prefix}_sort_"] button')
+            : source.index("</style>", source.index('[class*="st-key-{safe_key_prefix}_sort_"] button'))
+        ]
+
+        for selector in [
+            '[class*="st-key-{safe_key_prefix}_sort_"] button',
+            '[class*="st-key-{safe_key_prefix}_sort_"] button p',
+            '[class*="st-key-{safe_key_prefix}_actioned_sort_"] button',
+            '[class*="st-key-{safe_key_prefix}_actioned_sort_"] button p',
+        ]:
+            with self.subTest(selector=selector):
+                self.assertIn(selector, source)
+        for css_block in [actioned_css, active_css]:
+            with self.subTest(css_block=css_block[:50]):
+                self.assertIn("white-space: normal !important;", css_block)
+                self.assertIn("overflow-wrap: anywhere !important;", css_block)
+                self.assertNotIn("white-space: nowrap !important;", css_block)
+
 
 if __name__ == "__main__":
     unittest.main()
