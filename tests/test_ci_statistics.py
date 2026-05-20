@@ -812,9 +812,30 @@ class StatisticsTests(unittest.TestCase):
                 default_sort_column="Capturable Revenue per Year",
                 item_label="item rows",
                 display_column_labels=self.app.STATS_ITEMS_DISPLAY_COLUMN_LABELS,
-            )
+        )
 
         rendered_frame = dataframe.call_args.args[0]
+        self.assertEqual(
+            rendered_frame.columns.tolist(),
+            [
+                "Item",
+                "Capturable Revenue per Year",
+                "Revenue per Year",
+                "Theoretical Max Revenue",
+                "Captured Revenue %",
+                "Sent Reminders",
+                "Successes",
+                "Success Rate",
+                "Revenue from Successes",
+                "Desired Gap Days",
+                "Actual Gap Days",
+                "Gap Day %",
+                "Revenue per Item",
+                "Total Repeat Purchases",
+                "Total Purchases",
+                "Repeat Purchase %",
+            ],
+        )
         self.assertIn("Sent Reminders", rendered_frame.columns)
         self.assertIn("Actual Gap Days", rendered_frame.columns)
         self.assertIn("Gap Day %", rendered_frame.columns)
@@ -828,6 +849,25 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Overall Repeat Purchases", rendered_frame.columns)
         self.assertNotIn("Overall Purchases", rendered_frame.columns)
         self.assertAlmostEqual(rendered_frame.iloc[0]["Gap Day %"], (370 / 365) * 100)
+
+    def test_stats_items_highlight_styles_capturable_revenue_column(self):
+        display_frame = pd.DataFrame(
+            [
+                {
+                    "Item": "Rabies",
+                    "Capturable Revenue per Year": 300,
+                }
+            ]
+        )
+
+        styled = self.app.style_outcome_dataframe_for_display(
+            display_frame,
+            highlight_column="Capturable Revenue per Year",
+        )
+        html = styled.to_html()
+
+        self.assertIn("background-color: #e8f7ee", html)
+        self.assertIn("font-weight: 700", html)
 
     def test_prepare_stats_team_display_frame_formats_success_rate_as_whole_percent(self):
         frame = pd.DataFrame([{"Team Member": "Nurse A", "Success Rate": 1 / 3, "Sent %": 0.5, "Revenue": 120}])

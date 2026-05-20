@@ -13119,21 +13119,21 @@ OUTCOME_ITEM_GROUP_COLUMNS = [
 ]
 STATS_ITEMS_DISPLAY_COLUMNS = [
     "Item",
+    "Capturable Revenue per Year",
+    "Revenue per Year",
+    "Theoretical Max Revenue",
+    "Captured Revenue %",
     "Sent",
     "Successes",
     "Success Rate",
+    "Revenue",
     "Desired Gap Days",
     "Avg Item Purchase Gap Days",
     "Gap Day % to Desired",
+    "Revenue per Item",
     "Overall Repeat Purchases",
     "Overall Purchases",
     "Repeat Purchase %",
-    "Revenue per Item",
-    "Revenue",
-    "Revenue per Year",
-    "Theoretical Max Revenue",
-    "Capturable Revenue per Year",
-    "Captured Revenue %",
 ]
 STATS_ITEMS_DISPLAY_COLUMN_LABELS = {
     "Sent": "Sent Reminders",
@@ -15285,6 +15285,18 @@ def prepare_stats_items_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd
     )
 
 
+def style_outcome_dataframe_for_display(display_frame: pd.DataFrame, highlight_column: str | None = None):
+    if not highlight_column or display_frame is None or highlight_column not in display_frame.columns:
+        return display_frame
+    return display_frame.style.set_properties(
+        subset=[highlight_column],
+        **{
+            "background-color": "#e8f7ee",
+            "font-weight": "700",
+        },
+    )
+
+
 def sort_stats_frame_for_pagination(frame: pd.DataFrame, column: str, ascending: bool) -> pd.DataFrame:
     if frame is None or frame.empty or not column or column not in frame.columns:
         return frame
@@ -15623,6 +15635,7 @@ def render_outcome_dataframe(
     page_size: int = STATS_TABLE_PAGE_SIZE,
     item_label: str = "outcome rows",
     display_column_labels: dict[str, str] | None = None,
+    highlight_column: str | None = None,
 ):
     if columns is not None and frame is not None and not frame.empty:
         frame = frame[[column for column in columns if column in frame.columns]]
@@ -15632,8 +15645,9 @@ def render_outcome_dataframe(
     frame = sort_stats_frame_for_pagination(frame, default_sort_column, default_sort_ascending)
     frame = paginate_dataframe(frame, table_key, page_size, item_label)
     display_frame = prepare_outcome_dataframe_for_display(frame, column_labels=display_column_labels)
+    rendered_frame = style_outcome_dataframe_for_display(display_frame, highlight_column=highlight_column)
     st.dataframe(
-        display_frame,
+        rendered_frame,
         hide_index=True,
         use_container_width=True,
         height=STATS_TABLE_HEIGHT,
@@ -15975,8 +15989,10 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             columns=STATS_ITEMS_DISPLAY_COLUMNS,
             table_key="stats_items",
             default_sort_column="Capturable Revenue per Year",
+            default_sort_ascending=False,
             item_label="item rows",
             display_column_labels=STATS_ITEMS_DISPLAY_COLUMN_LABELS,
+            highlight_column="Capturable Revenue per Year",
         )
         render_stats_csv_export(
             item_frame,
