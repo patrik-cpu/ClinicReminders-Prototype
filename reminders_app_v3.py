@@ -15592,7 +15592,8 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             "Success window around due date",
             "A reminder is successful when the matching sale is within this many days before or after the due date.",
         )
-        st.session_state["outcome_due_date_window_days"] = normalized_outcome_due_date_window_days()
+        if "outcome_due_date_window_days" not in st.session_state:
+            st.session_state["outcome_due_date_window_days"] = normalized_outcome_due_date_window_days()
         due_date_window_days = st.number_input(
             "Success window around due date",
             min_value=0,
@@ -15609,7 +15610,8 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             "Success window after sent date",
             "Also counts as successful when a matching sale happens within this many days after the reminder is sent.",
         )
-        st.session_state["outcome_post_reminder_window_days"] = normalized_outcome_post_reminder_window_days()
+        if "outcome_post_reminder_window_days" not in st.session_state:
+            st.session_state["outcome_post_reminder_window_days"] = normalized_outcome_post_reminder_window_days()
         post_reminder_window_days = st.number_input(
             "Success window after sent date",
             min_value=0,

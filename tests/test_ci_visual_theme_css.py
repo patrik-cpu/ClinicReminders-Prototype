@@ -122,6 +122,20 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("on_change=save_reminder_window_days", source)
         self.assertIn("on_change=save_reminder_group_days", source)
         self.assertIn("on_change=save_reminder_warning_days", source)
+        self.assertIn('if "outcome_due_date_window_days" not in st.session_state:', source)
+        self.assertIn('if "outcome_post_reminder_window_days" not in st.session_state:', source)
+        self.assertIn(
+            'if "outcome_due_date_window_days" not in st.session_state:\n'
+            '            st.session_state["outcome_due_date_window_days"] = normalized_outcome_due_date_window_days()\n'
+            '        due_date_window_days = st.number_input',
+            source,
+        )
+        self.assertIn(
+            'if "outcome_post_reminder_window_days" not in st.session_state:\n'
+            '            st.session_state["outcome_post_reminder_window_days"] = normalized_outcome_post_reminder_window_days()\n'
+            '        post_reminder_window_days = st.number_input',
+            source,
+        )
         self.assertNotIn("Days to define success", source)
 
     def test_busy_overlay_is_self_styled_for_callbacks(self):
