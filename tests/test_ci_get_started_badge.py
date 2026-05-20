@@ -19,8 +19,11 @@ class GetStartedBadgeTests(unittest.TestCase):
             del state[key]
 
     def test_badge_count_matches_incomplete_setup_actions(self):
-        self.assertGreater(self.app.get_started_incomplete_count(), 6)
-        self.assertIn("setup steps remaining", self.app.get_started_badge_label())
+        incomplete_count = self.app.get_started_incomplete_count()
+        self.assertGreater(incomplete_count, 6)
+        badge_label = self.app.get_started_badge_label()
+        self.assertIn(f"{incomplete_count} setup steps remaining", badge_label)
+        self.assertIn(str(incomplete_count), badge_label)
 
         state = self.app.st.session_state
         state[self.app.GET_STARTED_MANUAL_DONE_KEY] = {

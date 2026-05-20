@@ -2424,14 +2424,10 @@ st.markdown(
     .setup-module-title {
         font-weight: 700;
         font-size: 1.08rem;
-        color: #06351f;
+        color: var(--cr-text);
         margin-bottom: 0.2rem;
         padding-bottom: 0.3rem;
-        border-bottom: 1px solid rgba(34, 197, 94, 0.22);
-    }
-    .setup-module.todo .setup-module-title {
-        border-bottom-color: rgba(248, 113, 113, 0.28);
-        color: #7f1d1d;
+        border-bottom: 1px solid var(--cr-border);
     }
     .setup-module-copy {
         color: var(--cr-muted);
@@ -9618,7 +9614,6 @@ def get_started_badge_label(count: int | None = None) -> str:
     count = get_started_incomplete_count() if count is None else int(count or 0)
     if count <= 0:
         return "Get Started"
-    count = max(1, min(6, count))
     return tab_badge_label("Get Started", count, f"{count} setup steps remaining")
 
 
