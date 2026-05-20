@@ -4326,9 +4326,12 @@ def normalized_outcome_due_date_window_days(value=None) -> int:
         else value
     )
     try:
-        return min(1095, max(0, int(value)))
+        normalized = int(value)
     except (TypeError, ValueError):
         return default_value
+    if normalized <= 0:
+        return default_value
+    return min(1095, normalized)
 
 
 def normalized_outcome_post_reminder_window_days(value=None) -> int:
@@ -4339,9 +4342,12 @@ def normalized_outcome_post_reminder_window_days(value=None) -> int:
         else value
     )
     try:
-        return min(1095, max(0, int(value)))
+        normalized = int(value)
     except (TypeError, ValueError):
         return default_value
+    if normalized <= 0:
+        return default_value
+    return min(1095, normalized)
 
 
 def load_outcome_due_date_window_days(settings: dict) -> None:
@@ -16218,11 +16224,10 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             "Success window around due date",
             "A reminder is successful when the matching sale is within this many days before or after the due date.",
         )
-        if "outcome_due_date_window_days" not in st.session_state:
-            st.session_state["outcome_due_date_window_days"] = normalized_outcome_due_date_window_days()
+        st.session_state["outcome_due_date_window_days"] = normalized_outcome_due_date_window_days()
         due_date_window_days = st.number_input(
             "Success window around due date",
-            min_value=0,
+            min_value=1,
             max_value=1095,
             step=1,
             key="outcome_due_date_window_days",
@@ -16236,11 +16241,10 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             "Success window after sent date",
             "Also counts as successful when a matching sale happens within this many days after the reminder is sent.",
         )
-        if "outcome_post_reminder_window_days" not in st.session_state:
-            st.session_state["outcome_post_reminder_window_days"] = normalized_outcome_post_reminder_window_days()
+        st.session_state["outcome_post_reminder_window_days"] = normalized_outcome_post_reminder_window_days()
         post_reminder_window_days = st.number_input(
             "Success window after sent date",
-            min_value=0,
+            min_value=1,
             max_value=1095,
             step=1,
             key="outcome_post_reminder_window_days",

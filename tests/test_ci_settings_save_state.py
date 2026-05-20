@@ -427,6 +427,10 @@ class SettingsSaveStateTests(unittest.TestCase):
         with patch.object(self.app, "save_settings_quietly", return_value=True):
             self.app.save_outcome_post_reminder_window_days()
 
+        self.assertEqual(
+            self.app.st.session_state["outcome_post_reminder_window_days"],
+            self.app.DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
+        )
         self.assertTrue(
             self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_USER_SET_KEY]
         )
@@ -502,6 +506,21 @@ class SettingsSaveStateTests(unittest.TestCase):
             self.app.load_settings()
 
         self.assertEqual(self.app.st.session_state["outcome_due_date_window_days"], 30)
+
+    def test_load_settings_upgrades_zero_outcome_due_date_window_to_default(self):
+        headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        sheet = FakeSettingsSheet({"outcome_due_date_window_days": 0})
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "load_action_tracker_records_for_clinic", return_value=[]),
+        ):
+            self.app.load_settings()
+
+        self.assertEqual(
+            self.app.st.session_state["outcome_due_date_window_days"],
+            self.app.DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
+        )
 
     def test_load_settings_restores_outcome_post_reminder_window_days(self):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
@@ -581,7 +600,7 @@ class SettingsSaveStateTests(unittest.TestCase):
             self.app.DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
         )
 
-    def test_load_settings_preserves_user_set_zero_post_reminder_window(self):
+    def test_load_settings_upgrades_user_set_zero_post_reminder_window_to_default(self):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
         sheet = FakeSettingsSheet({
             "outcome_post_reminder_window_days": 0,
@@ -594,7 +613,10 @@ class SettingsSaveStateTests(unittest.TestCase):
         ):
             self.app.load_settings()
 
-        self.assertEqual(self.app.st.session_state["outcome_post_reminder_window_days"], 0)
+        self.assertEqual(
+            self.app.st.session_state["outcome_post_reminder_window_days"],
+            self.app.DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
+        )
 
     def test_outcome_due_date_window_load_helper_is_defined_before_load_settings(self):
         source = Path("reminders_app_v3.py").read_text(encoding="utf-8")
@@ -671,7 +693,7 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertTrue(self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_DIRTY_KEY])
         self.assertTrue(self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_DIRTY_KEY])
 
-    def test_load_settings_preserves_dirty_outcome_post_reminder_window_days(self):
+    def test_load_settings_clears_dirty_post_reminder_window_when_zero_upgrades_to_current_default(self):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
         sheet = FakeSettingsSheet({"outcome_post_reminder_window_days": 0})
         self.app.st.session_state["outcome_post_reminder_window_days"] = 7
@@ -684,7 +706,7 @@ class SettingsSaveStateTests(unittest.TestCase):
             self.app.load_settings()
 
         self.assertEqual(self.app.st.session_state["outcome_post_reminder_window_days"], 7)
-        self.assertTrue(self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY])
+        self.assertFalse(self.app.st.session_state[self.app.OUTCOME_POST_REMINDER_WINDOW_DIRTY_KEY])
 
     def test_load_settings_keeps_existing_outcome_window_when_saved_key_missing(self):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
