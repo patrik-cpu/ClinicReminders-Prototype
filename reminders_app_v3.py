@@ -2155,26 +2155,6 @@ st.markdown(
         -webkit-text-fill-color: #101828 !important;
         transition: background-color 9999s ease-out 0s !important;
     }
-    .st-key-login_password_input input {
-        -webkit-text-security: disc !important;
-        text-security: disc !important;
-    }
-    .st-key-login_password_input [data-baseweb="input"] > div,
-    .st-key-login_password_input [data-baseweb="base-input"] > div {
-        background: transparent !important;
-        border: 0 !important;
-        box-shadow: none !important;
-        min-width: 0 !important;
-        width: 100% !important;
-    }
-    .st-key-login_password_input [data-baseweb="input"] > div:has(button),
-    .st-key-login_password_input [data-baseweb="base-input"] > div:has(button) {
-        display: none !important;
-        width: 0 !important;
-    }
-    .st-key-login_password_input button {
-        display: none !important;
-    }
     .st-key-login_username_input [data-baseweb="input"]:focus-within,
     .st-key-login_username_input [data-baseweb="base-input"]:focus-within,
     .st-key-login_password_input [data-baseweb="input"]:focus-within,

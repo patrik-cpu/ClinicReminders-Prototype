@@ -15,7 +15,6 @@ class VisualThemeCssTests(unittest.TestCase):
             'div[data-testid="stNumberInput"] [data-baseweb="input"]',
             'div[data-testid="stCheckbox"] label',
             'div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) div[data-testid="stPopover"] button',
-            '.st-key-login_password_input [data-baseweb="base-input"] > div',
             '.data-assurance-box',
         ]:
             with self.subTest(selector=selector):
@@ -24,6 +23,10 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("color-scheme: light !important;", source)
         self.assertIn("background: #ffffff !important;", source)
         self.assertIn("-webkit-text-fill-color: #101828 !important;", source)
+        self.assertIn(".st-key-login_password_input input", source)
+        self.assertNotIn(".st-key-login_password_input button {\n        display: none !important;", source)
+        self.assertNotIn(".st-key-login_password_input [data-baseweb=\"base-input\"] > div:has(button)", source)
+        self.assertNotIn("text-security: disc !important;", source)
         self.assertIn("padding-top: 3.45rem !important;", source)
         self.assertIn("padding-bottom: max(10rem, 74vh) !important;", source)
         self.assertIn('[data-baseweb="checkbox"] input[type="checkbox"]', source)
