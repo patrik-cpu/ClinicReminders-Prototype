@@ -11668,6 +11668,7 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
 
 def mark_all_listed_reminders_sent_action(rows: list[dict], key_prefix: str, msg_key: str):
     st.session_state[f"{key_prefix}_send_all_confirm"] = False
+    st.session_state.pop(f"{key_prefix}_send_all_rows", None)
     with busy_overlay("Marking reminders as sent", "Saving the listed reminders and updating action history."):
         set_main_section_tab("Reminders")
         now = utc_now()
@@ -12412,31 +12413,51 @@ def render_table_with_buttons(df, key_prefix, msg_key, hidden_index=None):
         )
 
     send_all_confirm_key = f"{key_prefix}_send_all_confirm"
+    send_all_rows_key = f"{key_prefix}_send_all_rows"
+    footer_cols = st.columns(col_widths, gap="small")
+    if footer_cols[9].button(
+        "Send All",
+        key=f"{key_prefix}_send_all",
+        use_container_width=True,
+        help="Confirm before marking every currently listed active reminder as sent.",
+    ):
+        st.session_state[send_all_confirm_key] = True
+        st.session_state[send_all_rows_key] = listed_rows
+        st.rerun()
+
     if st.session_state.get(send_all_confirm_key):
-        st.warning(f"Mark {len(listed_rows)} listed reminder{'s' if len(listed_rows) != 1 else ''} as sent?")
-        confirm_cols = st.columns([1.5, 1.1, 5.4], gap="small")
-        confirm_cols[0].button(
-            "Mark listed as sent",
-            key=f"{key_prefix}_send_all_confirm_yes",
-            type="primary",
-            use_container_width=True,
-            help="Mark every currently listed active reminder as sent.",
-            on_click=mark_all_listed_reminders_sent_action,
-            args=(listed_rows, key_prefix, msg_key),
-        )
-        if confirm_cols[1].button("Cancel", key=f"{key_prefix}_send_all_confirm_no", use_container_width=True):
-            st.session_state[send_all_confirm_key] = False
-            st.rerun()
-    else:
-        footer_cols = st.columns(col_widths, gap="small")
-        if footer_cols[9].button(
-            "Mark listed as sent",
-            key=f"{key_prefix}_send_all",
-            use_container_width=True,
-            help="Confirm before marking every currently listed active reminder as sent.",
-        ):
-            st.session_state[send_all_confirm_key] = True
-            st.rerun()
+        rows_to_confirm = st.session_state.get(send_all_rows_key, listed_rows)
+
+        def _render_send_all_confirm():
+            st.warning(f"Mark {len(rows_to_confirm)} listed reminder{'s' if len(rows_to_confirm) != 1 else ''} as sent?")
+            if st.button(
+                "Send All",
+                key=f"{key_prefix}_send_all_confirm_yes",
+                type="primary",
+                use_container_width=True,
+                help="Mark every currently listed active reminder as sent.",
+                on_click=mark_all_listed_reminders_sent_action,
+                args=(rows_to_confirm, key_prefix, msg_key),
+            ):
+                st.session_state.pop(send_all_rows_key, None)
+            if st.button("Cancel", key=f"{key_prefix}_send_all_confirm_no", use_container_width=True):
+                st.session_state[send_all_confirm_key] = False
+                st.session_state.pop(send_all_rows_key, None)
+                st.rerun()
+
+        if hasattr(st, "dialog"):
+            @st.dialog("Send All")
+            def _send_all_dialog():
+                _render_send_all_confirm()
+            _send_all_dialog()
+        elif hasattr(st, "experimental_dialog"):
+            @st.experimental_dialog("Send All")
+            def _send_all_dialog():
+                _render_send_all_confirm()
+            _send_all_dialog()
+        else:
+            with st.expander("Send All", expanded=True):
+                _render_send_all_confirm()
     record_slow_render_performance("active_reminder_rows_render", render_started, rows=len(rendered_rows), source=key_prefix)
 
 def render_whatsapp_tools(key_prefix: str, msg_key: str):
