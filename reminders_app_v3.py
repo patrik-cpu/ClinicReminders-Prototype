@@ -2934,9 +2934,6 @@ st.markdown(
         display: flex;
         min-height: 1.3rem;
     }
-    .cr-today-button-spacer {
-        height: 1.55rem;
-    }
     .st-key-reminders_jump_to_today button {
         height: 2.5rem;
         min-height: 2.5rem;
@@ -2948,9 +2945,6 @@ st.markdown(
     @media (max-width: 900px) {
         .reminder-control-label {
             min-height: auto;
-        }
-        .cr-today-button-spacer {
-            height: 0;
         }
     }
     .cr-busy-overlay {
@@ -17812,7 +17806,7 @@ if st.session_state.get("logged_in", False):
         initialize_reminder_filter_controls(user_today())
 
         st.markdown(datepicker_today_ring_css(user_today()), unsafe_allow_html=True)
-        start_col, today_button_col, lookback_col, window_col, group_col, warning_col = st.columns([2, 0.72, 2, 2, 2, 2])
+        start_col, lookback_col, window_col, group_col, warning_col = st.columns([2, 2, 2, 2, 2])
         with start_col:
             render_field_label(
                 st,
@@ -17826,8 +17820,6 @@ if st.session_state.get("logged_in", False):
                 label_visibility="collapsed",
             )
             st.session_state["reminders_start_date"] = start_date
-        with today_button_col:
-            st.markdown("<div class='cr-today-button-spacer'></div>", unsafe_allow_html=True)
             st.button(
                 "Today",
                 key="reminders_jump_to_today",
