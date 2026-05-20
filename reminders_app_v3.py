@@ -2657,6 +2657,7 @@ st.markdown(
         font-weight: 400;
         line-height: 1.2;
         overflow-wrap: anywhere;
+        transform: translateY(-0.08rem);
     }
     .auto-death-keyword-panel-title {
         color: var(--cr-text);
