@@ -11103,7 +11103,7 @@ if active_main_section == "Upload Data":
               <div class="cr-section-title">Upload files</div>
               <p class="cr-section-copy">Choose recent sales exports. The app will check the format, merge valid files, and save the result for this clinic account.</p>
               <p class="cr-field-footnote">Needed fields: billed date, client name, patient name, and item or service.</p>
-              <p class="cr-field-footnote">Supported systems: VETport, ezyVet, Xpress, or a clean sales export.</p>
+              <p class="cr-field-footnote">Supported systems: VETport, ezyVet, Xpress, Merlin, or a clean sales export.</p>
             </div>
             """,
             unsafe_allow_html=True,
