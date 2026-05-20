@@ -7135,14 +7135,20 @@ def process_file(file_bytes, filename):
         ).str.strip()
 
     # --- 9️⃣ Quantity handling ---
+    def normalize_upload_qty(series: pd.Series) -> pd.Series:
+        qty = pd.to_numeric(series, errors="coerce").fillna(1)
+        if pms_name == "Merlin":
+            qty = qty.mask(qty <= 0, 1)
+        return qty.astype(int)
+
     if qty_col and qty_col in df.columns:
-        df["Qty"] = pd.to_numeric(df[qty_col], errors="coerce").fillna(1).astype(int)
+        df["Qty"] = normalize_upload_qty(df[qty_col])
     else:
         fallback_qty_cols = ["Qty", "Quantity", "Plan Item Quantity"]
         found = False
         for c in fallback_qty_cols:
             if c in df.columns:
-                df["Qty"] = pd.to_numeric(df[c], errors="coerce").fillna(1).astype(int)
+                df["Qty"] = normalize_upload_qty(df[c])
                 found = True
                 break
         if not found:

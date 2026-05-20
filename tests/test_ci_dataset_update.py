@@ -1098,6 +1098,17 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertEqual(df.loc[0, "Qty"], 2)
         self.assertEqual(df.loc[0, "Amount"], 123.45)
 
+    def test_process_file_treats_merlin_zero_qty_as_one(self):
+        csv_bytes = (
+            "Itemdate\tDescription\tAnimalName\tQty\tTotal\tSurname\tFirstName\tTreatmentDate\tCodeDescription\n"
+            "46044.6958838773\tProduct row\tDexter\t0\t45.00\tBarker\tChristine\t46044.5\tDeworming\n"
+        ).encode("utf-8")
+
+        df, pms_name, _amount_col = self.app.process_file(csv_bytes, "merlin-zero-qty.csv")
+
+        self.assertEqual(pms_name, "Merlin")
+        self.assertEqual(df.loc[0, "Qty"], 1)
+
     def test_process_file_drops_pre_2000_artifact_dates(self):
         csv_bytes = (
             "ChargeDate,Client Name,Animal Name,Item Name,Qty,Amount\n"
