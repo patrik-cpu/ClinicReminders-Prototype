@@ -2130,7 +2130,7 @@ st.markdown(
     }
     .st-key-login_username_input input,
     .st-key-login_password_input input {
-        background: transparent !important;
+        background: #f8fafc !important;
         border: 0 !important;
         box-shadow: none !important;
         color: #101828 !important;
@@ -2140,6 +2140,18 @@ st.markdown(
         padding-right: 0.85rem !important;
         -webkit-text-fill-color: #101828 !important;
         width: 100% !important;
+    }
+    .st-key-login_username_input input:-webkit-autofill,
+    .st-key-login_username_input input:-webkit-autofill:hover,
+    .st-key-login_username_input input:-webkit-autofill:focus,
+    .st-key-login_password_input input:-webkit-autofill,
+    .st-key-login_password_input input:-webkit-autofill:hover,
+    .st-key-login_password_input input:-webkit-autofill:focus {
+        box-shadow: 0 0 0 1000px #f8fafc inset !important;
+        caret-color: #101828 !important;
+        -webkit-box-shadow: 0 0 0 1000px #f8fafc inset !important;
+        -webkit-text-fill-color: #101828 !important;
+        transition: background-color 9999s ease-out 0s !important;
     }
     .st-key-login_password_input input {
         -webkit-text-security: disc !important;
@@ -2151,6 +2163,12 @@ st.markdown(
         border: 0 !important;
         box-shadow: none !important;
         min-width: 0 !important;
+        width: 100% !important;
+    }
+    .st-key-login_password_input [data-baseweb="input"] > div:has(button),
+    .st-key-login_password_input [data-baseweb="base-input"] > div:has(button) {
+        display: none !important;
+        width: 0 !important;
     }
     .st-key-login_password_input button {
         display: none !important;
@@ -2162,6 +2180,12 @@ st.markdown(
         background: #ffffff !important;
         border-color: #29D272 !important;
         box-shadow: 0 0 0 2px rgba(41, 210, 114, 0.16) !important;
+    }
+    .st-key-login_username_input [data-baseweb="input"]:focus-within input,
+    .st-key-login_username_input [data-baseweb="base-input"]:focus-within input,
+    .st-key-login_password_input [data-baseweb="input"]:focus-within input,
+    .st-key-login_password_input [data-baseweb="base-input"]:focus-within input {
+        background: #ffffff !important;
     }
     .st-key-google_signup_button button {
         background: #ffffff !important;
