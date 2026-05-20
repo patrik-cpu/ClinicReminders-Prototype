@@ -71,7 +71,7 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertIn("Same supported PMS", html)
         self.assertIn("30-365 day reminder window covered", html)
         self.assertIn("No 3+ day gaps between uploads", html)
-        self.assertEqual(html.count("column-help"), 3)
+        self.assertEqual(html.count("class='column-help'"), 3)
         self.assertIn("Checks that saved uploads use one recognized PMS/export format", html)
         self.assertIn("Checks that uploaded sales cover the dates needed", html)
         self.assertIn("Gaps of 3+ days can hide purchases", html)
