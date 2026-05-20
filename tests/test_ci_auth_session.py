@@ -2,6 +2,7 @@ import base64
 import contextlib
 import importlib
 import io
+import inspect
 import json
 from pathlib import Path
 import time
@@ -453,6 +454,43 @@ class AuthSessionTests(unittest.TestCase):
         self.assertNotIn("_settings_row_cache", self.app.st.session_state)
         self.assertEqual(sheet.get_all_values_calls, 2)
         self.assertEqual(sheet.get_all_records_calls, 0)
+
+    def test_clinic_access_code_can_be_reused_by_staff_without_rotation(self):
+        stored_hash = self.app.clinic_access_code_hash_for_storage("123456")
+        headers = [self.app.SHEET_COL_CLINIC_ID, self.app.SHEET_COL_SETTINGS_JSON]
+        values_row = [
+            "Clinic A",
+            json.dumps({"clinic_access_code_hash": stored_hash}),
+        ]
+
+        class FakeSheet:
+            def get_all_values(self):
+                return [headers, values_row]
+
+            def get_all_records(self):
+                return []
+
+        with (
+            patch.object(self.app, "get_settings_sheet", return_value=FakeSheet()),
+            patch.object(self.app, "update_clinic_access_code_hash") as update_code,
+        ):
+            first_login = self.app.authenticate_clinic_access("Clinic A", "123456")
+            self.app.st.session_state.pop("_settings_row_cache", None)
+            second_login = self.app.authenticate_clinic_access("Clinic A", "123456")
+
+        self.assertIsNotNone(first_login)
+        self.assertEqual(first_login, second_login)
+        update_code.assert_not_called()
+
+    def test_clinic_access_dialog_updates_code_only_from_admin_button(self):
+        source = inspect.getsource(self.app.render_clinic_access_dialog)
+        update_call = "update_clinic_access_code_hash(clinic_id, clinic_access_code_hash_for_storage(access_code))"
+        button_block_start = source.index('if st.button(primary_label, key="clinic_access_generate_button"')
+        update_index = source.index(update_call)
+
+        self.assertGreater(update_index, button_block_start)
+        self.assertIn('primary_label = "Rotate access code" if access_hash else "Generate access code"', source)
+        self.assertNotIn("generate_clinic_access_code()", source[:button_block_start])
 
     def test_finish_staff_access_session_sets_display_name_without_google_identity(self):
         state = self.app.st.session_state
