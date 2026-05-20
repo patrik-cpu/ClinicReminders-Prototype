@@ -2595,6 +2595,7 @@ st.markdown(
         padding: 0.3rem 0.45rem;
     }
     [class*="st-key-auto_patient_exclusion_row_"],
+    [class*="st-key-auto_death_keyword_row_"],
     [class*="st-key-exclusion_row_"] {
         background: rgba(255, 247, 237, 0.34);
         border: 1px solid rgba(251, 146, 60, 0.18);
@@ -2602,13 +2603,20 @@ st.markdown(
         margin: 0.22rem 0;
         padding: 0.2rem 0.35rem;
     }
+    [class*="st-key-auto_death_keyword_row_"] {
+        background: rgba(236, 253, 243, 0.72);
+        border-color: rgba(41, 210, 114, 0.28);
+    }
     [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stHorizontalBlock"],
+    [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"],
     [class*="st-key-exclusion_row_"] [data-testid="stHorizontalBlock"] {
         align-items: center;
         gap: 0.35rem !important;
     }
     [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stMarkdownContainer"],
     [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stMarkdownContainer"] > div,
+    [class*="st-key-auto_death_keyword_row_"] [data-testid="stMarkdownContainer"],
+    [class*="st-key-auto_death_keyword_row_"] [data-testid="stMarkdownContainer"] > div,
     [class*="st-key-exclusion_row_"] [data-testid="stMarkdownContainer"],
     [class*="st-key-exclusion_row_"] [data-testid="stMarkdownContainer"] > div {
         display: flex;
@@ -2616,10 +2624,12 @@ st.markdown(
         min-height: 2rem;
     }
     [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stMarkdownContainer"] p,
+    [class*="st-key-auto_death_keyword_row_"] [data-testid="stMarkdownContainer"] p,
     [class*="st-key-exclusion_row_"] [data-testid="stMarkdownContainer"] p {
         margin: 0 !important;
     }
     [class*="st-key-auto_patient_exclusion_row_"] .exclusion-chip,
+    [class*="st-key-auto_death_keyword_row_"] .auto-death-keyword-chip,
     [class*="st-key-exclusion_row_"] .exclusion-chip {
         align-items: center;
         min-height: 2rem;
@@ -2659,40 +2669,14 @@ st.markdown(
         margin-bottom: 0.65rem;
     }
     .auto-death-keyword-chip {
-        display: inline-flex;
+        display: flex;
         align-items: center;
-        border: 1px solid rgba(41, 210, 114, 0.28);
-        border-radius: 999px;
-        background: #ecfdf3;
         color: #05603a;
         font-size: 0.92rem;
         font-weight: 700;
         line-height: 1.2;
-        margin-top: 0;
         max-width: 100%;
         overflow-wrap: anywhere;
-        padding: 0.38rem 0.62rem;
-        white-space: normal;
-    }
-    [class*="st-key-auto_death_keyword_row_"] {
-        max-width: min(100%, 42rem);
-    }
-    [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"] {
-        align-items: center;
-        gap: 0.25rem !important;
-    }
-    [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
-        align-items: center;
-        display: flex;
-        min-width: 0 !important;
-        width: auto !important;
-    }
-    [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {
-        align-items: center;
-        display: flex;
-        flex: 0 0 2.4rem !important;
-        min-width: 2.4rem !important;
-        width: 2.4rem !important;
     }
     .auto-death-patient-section-title {
         border-top: 1px solid var(--cr-border);
@@ -18009,27 +17993,29 @@ if st.session_state.get("logged_in", False):
                         st.rerun()
                 for keyword in st.session_state["patient_passaway_keywords"]:
                     safe_keyword = re.sub(r'[^a-zA-Z0-9_-]', '_', keyword)
-                    with st.container(key=f"auto_death_keyword_row_{safe_keyword}"):
-                        cols = st.columns([1, 0.12], gap="small")
-                        with cols[0]:
-                            st.markdown(
-                                f"<span class='auto-death-keyword-chip'>{safe_html_text(keyword)}</span>",
-                                unsafe_allow_html=True,
-                            )
-                        with cols[1]:
-                            if st.button("×", key=f"del_passaway_keyword_{safe_keyword}", help="Remove automatic keyword"):
-                                st.session_state["patient_passaway_keywords"].remove(keyword)
-                                save_settings_quietly()
-                                record_settings_audit_event(
-                                    "exclusion_keyword_deleted",
-                                    "exclusions",
-                                    keyword,
-                                    "patient_passaway_keyword",
-                                    keyword,
-                                    "",
-                                    "exclusions_tab",
+                    row_cols = st.columns([2.7, 5.3], gap="small")
+                    with row_cols[0]:
+                        with st.container(key=f"auto_death_keyword_row_{safe_keyword}"):
+                            chip_cols = st.columns([0.9, 0.1], gap="small")
+                            with chip_cols[0]:
+                                st.markdown(
+                                    f"<span class='auto-death-keyword-chip'>{safe_html_text(keyword)}</span>",
+                                    unsafe_allow_html=True,
                                 )
-                                st.rerun()
+                            with chip_cols[1]:
+                                if st.button("×", key=f"del_passaway_keyword_{safe_keyword}", help="Remove automatic keyword"):
+                                    st.session_state["patient_passaway_keywords"].remove(keyword)
+                                    save_settings_quietly()
+                                    record_settings_audit_event(
+                                        "exclusion_keyword_deleted",
+                                        "exclusions",
+                                        keyword,
+                                        "patient_passaway_keyword",
+                                        keyword,
+                                        "",
+                                        "exclusions_tab",
+                                    )
+                                    st.rerun()
             else:
                 st.caption("No automatic death keywords are active.")
 
