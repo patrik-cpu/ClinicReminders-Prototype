@@ -2461,6 +2461,7 @@ st.markdown(
     }
     [class*="st-key-del_client_excl_"] button,
     [class*="st-key-del_patient_excl_"] button,
+    [class*="st-key-del_client_item_excl_"] button,
     [class*="st-key-del_excl_"] button,
     [class*="st-key-del_auto_patient_excl_"] button {
         background: transparent !important;
@@ -2473,6 +2474,7 @@ st.markdown(
     }
     [class*="st-key-del_client_excl_"] button:hover,
     [class*="st-key-del_patient_excl_"] button:hover,
+    [class*="st-key-del_client_item_excl_"] button:hover,
     [class*="st-key-del_excl_"] button:hover,
     [class*="st-key-del_auto_patient_excl_"] button:hover {
         background: rgba(217, 45, 32, 0.08) !important;
@@ -2480,6 +2482,7 @@ st.markdown(
     }
     [class*="st-key-del_client_excl_"] button p,
     [class*="st-key-del_patient_excl_"] button p,
+    [class*="st-key-del_client_item_excl_"] button p,
     [class*="st-key-del_excl_"] button p,
     [class*="st-key-del_auto_patient_excl_"] button p {
         color: #d92d20 !important;
@@ -2487,6 +2490,30 @@ st.markdown(
         font-weight: 700 !important;
         line-height: 1 !important;
         margin: 0 !important;
+    }
+    .exclusion-chip {
+        align-items: center;
+        background: #fff7ed;
+        border: 1px solid rgba(251, 113, 133, 0.34);
+        border-radius: 8px;
+        color: #7f1d1d;
+        display: inline-flex;
+        gap: 0.45rem;
+        line-height: 1.25;
+        margin-top: 0.25rem;
+        max-width: 100%;
+        padding: 0.42rem 0.58rem;
+    }
+    .exclusion-chip-tag {
+        color: #be123c;
+        font-size: 0.74rem;
+        font-weight: 800;
+        text-transform: uppercase;
+    }
+    .exclusion-chip-text {
+        color: #111827;
+        font-weight: 650;
+        overflow-wrap: anywhere;
     }
     .auto-death-keyword-panel-title {
         color: var(--cr-text);
@@ -2826,11 +2853,17 @@ def padded_html_text(value) -> str:
     return f"<div style='padding-top:8px;'>{safe_html_text(value)}</div>"
 
 
-def patient_exclusion_label_html(client_name: str, patient_name: str) -> str:
+def exclusion_chip_html(value) -> str:
     return (
-        f"<div style='padding-top:8px;'>{safe_html_text(client_name)}"
-        f" - {safe_html_text(patient_name)}</div>"
+        "<div class='exclusion-chip'>"
+        "<span class='exclusion-chip-tag'>Excluded</span>"
+        f"<span class='exclusion-chip-text'>{safe_html_text(value)}</span>"
+        "</div>"
     )
+
+
+def patient_exclusion_label_html(client_name: str, patient_name: str) -> str:
+    return exclusion_chip_html(f"{client_name} - {patient_name}")
 
 # --------------------------------
 # Defaults
@@ -16279,7 +16312,7 @@ if st.session_state.get("logged_in", False):
                 with st.container():
                     cols = st.columns([1.4, 0.18, 6], gap="small")
                     with cols[0]:
-                        st.markdown(padded_html_text(client_name), unsafe_allow_html=True)
+                        st.markdown(exclusion_chip_html(client_name), unsafe_allow_html=True)
                     with cols[1]:
                         if st.button("×", key=f"del_client_excl_{safe_client}", help="Remove client exclusion"):
                             st.session_state["client_exclusions"].remove(client_name)
@@ -16497,7 +16530,7 @@ if st.session_state.get("logged_in", False):
                 with st.container():
                     cols = st.columns([1.4, 0.18, 6], gap="small")
                     with cols[0]:
-                        st.markdown(padded_html_text(term), unsafe_allow_html=True)
+                        st.markdown(exclusion_chip_html(term), unsafe_allow_html=True)
                     with cols[1]:
                         if st.button("×", key=f"del_excl_{safe_term}", help="Remove item exclusion"):
                             st.session_state["exclusions"].remove(term)

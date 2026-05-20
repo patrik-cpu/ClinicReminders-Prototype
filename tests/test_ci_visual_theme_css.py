@@ -46,6 +46,7 @@ class VisualThemeCssTests(unittest.TestCase):
         for key_prefix in [
             "st-key-del_client_excl_",
             "st-key-del_patient_excl_",
+            "st-key-del_client_item_excl_",
             "st-key-del_excl_",
             "st-key-del_passaway_keyword_",
             "st-key-del_auto_patient_excl_",
@@ -62,6 +63,9 @@ class VisualThemeCssTests(unittest.TestCase):
             ".auto-death-patient-section-title",
             '[class*="st-key-del_passaway_keyword_"] button',
             "keyword_panel = st.container(border=True)",
+            ".exclusion-chip",
+            ".exclusion-chip-tag",
+            "exclusion_chip_html",
         ]:
             with self.subTest(selector=selector):
                 self.assertIn(selector, source)
