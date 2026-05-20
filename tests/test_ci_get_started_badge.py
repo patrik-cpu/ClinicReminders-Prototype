@@ -52,6 +52,13 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertIn("New Stats tab", label)
         self.assertIn("data:image/svg+xml;base64", label)
 
+    def test_graphs_tab_shows_coming_soon_badge(self):
+        label = self.app.main_section_tab_label("Graphs")
+
+        self.assertIn("Graphs", label)
+        self.assertIn("Graphs coming soon", label)
+        self.assertIn("data:image/svg+xml;base64", label)
+
     def test_new_account_welcome_copy_is_clear_and_actionable(self):
         html = self.app.new_account_welcome_dialog_html()
 

@@ -63,7 +63,7 @@ DRIVE_SCOPE = [
 
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
-MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Stats"]
+MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Stats", "Graphs"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 PENDING_MAIN_SECTION_TAB_KEY = "_pending_main_section_tab"
 MAIN_SECTION_TAB_SLUGS = {
@@ -75,6 +75,7 @@ MAIN_SECTION_TAB_SLUGS = {
     "search-terms": "Search Terms",
     "exclusions": "Exclusions",
     "statistics": "Stats",
+    "graphs": "Graphs",
 }
 MAIN_SECTION_TAB_TO_SLUG = {
     "Reminders": "reminders",
@@ -83,6 +84,7 @@ MAIN_SECTION_TAB_TO_SLUG = {
     "Search Terms": "search-terms",
     "Exclusions": "exclusions",
     "Stats": "stats",
+    "Graphs": "graphs",
 }
 REMINDERS_START_DATE_INPUT_KEY = "reminders_start_date_input"
 DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14
@@ -2455,6 +2457,54 @@ st.markdown(
         font-size: 0.9rem;
         font-weight: 700;
         margin-top: 0.2rem;
+    }
+    .graphs-coming-soon-panel {
+        align-items: center;
+        background: #ffffff;
+        border: 1px solid var(--cr-border);
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        margin-top: 0.75rem;
+        padding: 1.2rem;
+    }
+    .graphs-coming-soon-art {
+        height: auto;
+        max-width: 720px;
+        width: 100%;
+    }
+    .graphs-axis {
+        stroke: #cbd5e1;
+        stroke-width: 2;
+    }
+    .graphs-line {
+        fill: none;
+        stroke: url(#graphsLineGradient);
+        stroke-linecap: round;
+        stroke-width: 7;
+    }
+    .graphs-dot {
+        fill: #ffffff;
+        stroke: #14b8a6;
+        stroke-width: 4;
+    }
+    .graphs-dot-hot {
+        stroke: #ef4444;
+    }
+    .graphs-bar {
+        opacity: 0.3;
+    }
+    .graphs-bar-a {
+        fill: #22c55e;
+    }
+    .graphs-bar-b {
+        fill: #14b8a6;
+    }
+    .graphs-coming-soon-copy {
+        color: var(--cr-text);
+        font-size: 1.4rem;
+        font-weight: 800;
     }
     [class*="st-key-reset_get_started_checklist"] button {
         min-width: 13rem;
@@ -9311,6 +9361,10 @@ def stats_badge_label() -> str:
     return tab_badge_label_text("Stats", "New", "New Stats tab")
 
 
+def graphs_badge_label() -> str:
+    return tab_badge_label_text("Graphs", "Soon", "Graphs coming soon")
+
+
 def main_section_tab_label(tab_name: str) -> str:
     if tab_name == "Reminders":
         return reminders_badge_label()
@@ -9320,6 +9374,8 @@ def main_section_tab_label(tab_name: str) -> str:
         return upload_data_badge_label()
     if tab_name == "Stats":
         return stats_badge_label()
+    if tab_name == "Graphs":
+        return graphs_badge_label()
     return tab_name
 
 
@@ -9370,8 +9426,9 @@ def render_main_section_nav(active_tab: str) -> None:
     widths = []
     for tab_name in MAIN_SECTION_TABS:
         count = main_section_tab_badge_count(tab_name)
-        widths.append(max(1.35, min(2.9, len(tab_name) / 7 + (0.38 if count > 0 else 0))))
-    nav_spacer_width = 7.8
+        extra_width = 0.7 if tab_name == "Graphs" else 0.38 if count > 0 else 0
+        widths.append(max(1.35, min(2.9, len(tab_name) / 7 + extra_width)))
+    nav_spacer_width = 6.8
     columns = st.columns([*widths, nav_spacer_width], gap="small")[:len(MAIN_SECTION_TABS)]
     for column, tab_name in zip(columns, MAIN_SECTION_TABS):
         with column:
@@ -9765,6 +9822,42 @@ def render_setup_checklist():
             save_settings_quietly()
             st.success("Get Started guide reset.")
             st.rerun()
+
+
+def render_graphs_coming_soon():
+    st.markdown("<div id='graphs' class='anchor-offset'></div>", unsafe_allow_html=True)
+    st.markdown("## 📈 Graphs")
+    st.error("Coming soon")
+    st.markdown(
+        """
+        <div class="graphs-coming-soon-panel">
+          <svg class="graphs-coming-soon-art" viewBox="0 0 720 260" role="img" aria-label="Decorative graph preview">
+            <defs>
+              <linearGradient id="graphsLineGradient" x1="0" x2="1" y1="0" y2="0">
+                <stop offset="0%" stop-color="#22c55e"/>
+                <stop offset="52%" stop-color="#14b8a6"/>
+                <stop offset="100%" stop-color="#ef4444"/>
+              </linearGradient>
+            </defs>
+            <line x1="70" y1="30" x2="70" y2="210" class="graphs-axis"/>
+            <line x1="70" y1="210" x2="650" y2="210" class="graphs-axis"/>
+            <path d="M88 184 C150 112 185 196 240 126 S340 82 400 118 492 204 556 92 620 88 648 48" class="graphs-line"/>
+            <circle cx="88" cy="184" r="5" class="graphs-dot"/>
+            <circle cx="240" cy="126" r="5" class="graphs-dot"/>
+            <circle cx="400" cy="118" r="5" class="graphs-dot"/>
+            <circle cx="556" cy="92" r="5" class="graphs-dot"/>
+            <circle cx="648" cy="48" r="5" class="graphs-dot graphs-dot-hot"/>
+            <rect x="118" y="154" width="34" height="56" rx="5" class="graphs-bar graphs-bar-a"/>
+            <rect x="172" y="126" width="34" height="84" rx="5" class="graphs-bar graphs-bar-b"/>
+            <rect x="226" y="168" width="34" height="42" rx="5" class="graphs-bar graphs-bar-a"/>
+            <rect x="280" y="96" width="34" height="114" rx="5" class="graphs-bar graphs-bar-b"/>
+            <rect x="334" y="138" width="34" height="72" rx="5" class="graphs-bar graphs-bar-a"/>
+          </svg>
+          <div class="graphs-coming-soon-copy">Check back soon</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # --------------------------------
 # Session state init
@@ -16307,6 +16400,9 @@ if st.session_state.get("logged_in", False):
 
     if active_main_section == "Stats":
         render_stats_tab(df, prepared, applied_rules)
+
+    if active_main_section == "Graphs":
+        render_graphs_coming_soon()
 
     if active_main_section == "Exclusions":
         # Exclusions

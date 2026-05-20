@@ -98,7 +98,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("st.button(", source)
         self.assertIn("on_click=set_main_section_tab", source)
         self.assertIn("render_main_section_nav(active_main_section)", source)
-        self.assertIn("nav_spacer_width = 7.8", source)
+        self.assertIn("nav_spacer_width = 6.8", source)
         self.assertIn("[*widths, nav_spacer_width]", source)
         self.assertIn("min(2.9, len(tab_name) / 7", source)
         self.assertNotIn('<a class="cr-main-section-tab"', source)
@@ -184,7 +184,7 @@ class VisualThemeCssTests(unittest.TestCase):
     def test_stats_page_folds_outcomes_and_actioning_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
-        self.assertIn('MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Stats"]', source)
+        self.assertIn('MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Stats", "Graphs"]', source)
         self.assertIn('"outcomes": "Stats"', source)
         self.assertIn('"statistics": "Stats"', source)
         self.assertIn('st.markdown("## 📊 Stats")', source)
@@ -207,6 +207,18 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertNotIn('st.segmented_control(\n            "Statistics period"', source)
         self.assertNotIn('["Overview", "Team", "Items", "Completion"]', source)
         self.assertIn('STATISTICS_SCHEDULED_REMINDERS_LABEL = "Scheduled reminders"', source)
+
+    def test_graphs_tab_is_coming_soon_placeholder(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn('"graphs": "Graphs"', source)
+        self.assertIn('"Graphs": "graphs"', source)
+        self.assertIn("def graphs_badge_label", source)
+        self.assertIn("Graphs coming soon", source)
+        self.assertIn("def render_graphs_coming_soon", source)
+        self.assertIn('st.error("Coming soon")', source)
+        self.assertIn("graphs-coming-soon-art", source)
+        self.assertIn("Check back soon", source)
 
 
 if __name__ == "__main__":
