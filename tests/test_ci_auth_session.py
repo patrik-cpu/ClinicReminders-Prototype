@@ -861,11 +861,16 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn("What should uploaded sales data look like?", html)
         self.assertIn("One row per billed item", html)
         self.assertIn("single billed product or service", html)
-        self.assertIn("Four required fields", html)
+        self.assertIn("Six useful fields", html)
         self.assertIn("Date billed", html)
         self.assertIn("Client name", html)
         self.assertIn("Animal name", html)
         self.assertIn("Billed product or service", html)
+        self.assertIn("Qty", html)
+        self.assertIn("Revenue", html)
+        self.assertIn("Dental scale and polish", html)
+        self.assertIn("Flea and worm treatment", html)
+        self.assertIn("cr-upload-help-row + .cr-upload-help-row", html)
         self.assertIn("Extra columns are fine", html)
 
     def test_data_privacy_dialog_html_escapes_policy_text(self):

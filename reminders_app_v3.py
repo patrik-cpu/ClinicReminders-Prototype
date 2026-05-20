@@ -5847,7 +5847,7 @@ def upload_sales_data_help_html() -> str:
       }
       .cr-upload-help-row {
         display: grid;
-        grid-template-columns: 1.1fr 1fr 1fr 1.7fr;
+        grid-template-columns: 0.9fr 1fr 0.9fr 1.55fr 0.45fr 0.65fr;
       }
       .cr-upload-help-row > div {
         border-right: 1px solid rgba(15, 23, 42, 0.08);
@@ -5855,6 +5855,9 @@ def upload_sales_data_help_html() -> str:
       }
       .cr-upload-help-row > div:last-child {
         border-right: 0;
+      }
+      .cr-upload-help-row + .cr-upload-help-row {
+        border-top: 1px solid rgba(15, 23, 42, 0.10);
       }
       .cr-upload-help-head {
         background: #f1f5f9;
@@ -5882,8 +5885,8 @@ def upload_sales_data_help_html() -> str:
           <p>Each row should be a single billed product or service, such as a vaccine, medication, food item, or consultation.</p>
         </div>
         <div class="cr-upload-help-rule">
-          <strong>Four required fields</strong>
-          <p>The upload needs the billed date, client name, animal name, and billed product or service.</p>
+          <strong>Six useful fields</strong>
+          <p>The upload should include billed date, client name, animal name, billed item, quantity, and revenue.</p>
         </div>
       </div>
       <div class="cr-upload-help-table">
@@ -5892,18 +5895,56 @@ def upload_sales_data_help_html() -> str:
           <div>Client name</div>
           <div>Animal name</div>
           <div>Billed product or service</div>
+          <div>Qty</div>
+          <div>Revenue</div>
         </div>
         <div class="cr-upload-help-row cr-upload-help-body">
           <div>02 Jan 2024</div>
           <div>Alexandra Field</div>
           <div>Sausage</div>
           <div>Kennel cough and rabies vaccine</div>
+          <div>1</div>
+          <div>420</div>
         </div>
         <div class="cr-upload-help-row cr-upload-help-body">
           <div>08 Jan 2024</div>
           <div>Nicole Mansour</div>
           <div>Fluffy</div>
           <div>Bravecto tablet</div>
+          <div>2</div>
+          <div>315</div>
+        </div>
+        <div class="cr-upload-help-row cr-upload-help-body">
+          <div>14 Jan 2024</div>
+          <div>Omar Haddad</div>
+          <div>Milo</div>
+          <div>Annual health check</div>
+          <div>1</div>
+          <div>180</div>
+        </div>
+        <div class="cr-upload-help-row cr-upload-help-body">
+          <div>22 Jan 2024</div>
+          <div>Priya Shah</div>
+          <div>Luna</div>
+          <div>Dental scale and polish</div>
+          <div>1</div>
+          <div>950</div>
+        </div>
+        <div class="cr-upload-help-row cr-upload-help-body">
+          <div>03 Feb 2024</div>
+          <div>James Wilson</div>
+          <div>Biscuit</div>
+          <div>Prescription diet food</div>
+          <div>3</div>
+          <div>270</div>
+        </div>
+        <div class="cr-upload-help-row cr-upload-help-body">
+          <div>11 Feb 2024</div>
+          <div>Fatima Khan</div>
+          <div>Nala</div>
+          <div>Flea and worm treatment</div>
+          <div>1</div>
+          <div>145</div>
         </div>
       </div>
       <p class="cr-upload-help-caption">Extra columns are fine. The app ignores columns it does not need.</p>
