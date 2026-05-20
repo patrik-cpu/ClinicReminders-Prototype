@@ -2088,6 +2088,20 @@ st.markdown(
         border-color: rgba(244, 63, 94, 0.42) !important;
         color: #881337 !important;
     }
+    .cr-account-login-context {
+        background: rgba(41, 210, 114, 0.08);
+        border: 1px solid rgba(22, 138, 76, 0.14);
+        border-radius: 8px;
+        color: #344054;
+        font-size: 0.9rem;
+        line-height: 1.35;
+        margin: 0 0 0.75rem;
+        padding: 0.65rem 0.75rem;
+    }
+    .cr-account-login-context strong {
+        color: #062d19;
+        font-weight: 800;
+    }
     .st-key-google_signup_button button,
     .st-key-toggle_staff_access button,
     .st-key-toggle_create_account button {
@@ -9820,6 +9834,11 @@ else:
     clinic_id = st.session_state.get("clinic_id", "")
     with top_account_slot.container():
         with st.popover("Account", use_container_width=False):
+            safe_clinic_id = html_lib.escape(str(clinic_id or ""))
+            st.markdown(
+                f"<div class='cr-account-login-context'>Logged in to Clinic:<br><strong>{safe_clinic_id}</strong></div>",
+                unsafe_allow_html=True,
+            )
             signed_in_with_staff_access = st.session_state.get("auth_provider") == CLINIC_ACCESS_AUTH_PROVIDER
             if not signed_in_with_staff_access:
                 if st.button("Profile", key="top_account_profile", use_container_width=True):

@@ -15,6 +15,7 @@ class VisualThemeCssTests(unittest.TestCase):
             'div[data-testid="stNumberInput"] [data-baseweb="input"]',
             'div[data-testid="stCheckbox"] label',
             'div[data-testid="stHorizontalBlock"]:has(.cr-brand-card) div[data-testid="stPopover"] button',
+            ".cr-account-login-context",
             '.data-assurance-box',
         ]:
             with self.subTest(selector=selector):
@@ -32,6 +33,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn(".st-key-login_password_input [data-baseweb=\"base-input\"] button", source)
         self.assertIn("border-radius: 0 8px 8px 0 !important;", source)
         self.assertIn("align-self: stretch !important;", source)
+        self.assertIn("Logged in to Clinic:", source)
         self.assertIn('[data-baseweb="checkbox"] input[type="checkbox"]', source)
         self.assertRegex(
             source,
