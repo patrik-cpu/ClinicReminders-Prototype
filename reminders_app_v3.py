@@ -2391,9 +2391,10 @@ st.markdown(
         font-style: italic;
         line-height: 1.45;
         margin-top: 0.45rem;
+        min-height: 3rem;
     }
     .field-examples.use-qty-examples {
-        margin-top: 0.85rem;
+        margin-top: 0.45rem;
     }
     .field-examples div + div {
         margin-top: 0.2rem;
