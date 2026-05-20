@@ -1,6 +1,8 @@
 import contextlib
+import base64
 import importlib
 import io
+import re
 import unittest
 from unittest import mock
 
@@ -97,6 +99,14 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertIn("Graphs", label)
         self.assertIn("Graphs coming soon", label)
         self.assertIn("data:image/svg+xml;base64", label)
+
+    def test_main_tab_badge_svg_has_optical_vertical_centering(self):
+        label = self.app.tab_badge_label_text("Stats", "New", "New Stats tab", fill="#23513a")
+        encoded = re.search(r"base64,([A-Za-z0-9+/=]+)", label).group(1)
+        svg = base64.b64decode(encoded).decode("utf-8")
+
+        self.assertIn('dy="0.08em"', svg)
+        self.assertIn('alignment-baseline="middle"', svg)
 
     def test_new_account_welcome_copy_is_clear_and_actionable(self):
         html = self.app.new_account_welcome_dialog_html()

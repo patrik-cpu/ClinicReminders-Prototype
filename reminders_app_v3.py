@@ -9912,7 +9912,7 @@ def tab_badge_label_text(tab_name: str, badge_text: str, alt_text: str, fill: st
     badge_svg = f"""
     <svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="22" viewBox="0 0 {width} 22">
       <rect x="1" y="2" width="{width - 2}" height="18" rx="9" fill="{fill}"/>
-      <text x="{text_x}" y="11" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="middle">{html_lib.escape(badge_text)}</text>
+      <text x="{text_x}" y="11" dy="0.08em" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle">{html_lib.escape(badge_text)}</text>
     </svg>
     """
     encoded_badge = base64.b64encode(badge_svg.encode("utf-8")).decode("ascii")
@@ -11549,12 +11549,17 @@ st.markdown(
         font-weight: 800 !important;
         line-height: 1.2 !important;
       }
+      [class*="st-key-main_section_nav_"] button p {
+        align-items: center !important;
+        display: inline-flex !important;
+        gap: 0.35rem !important;
+      }
       [class*="st-key-main_section_nav_"] button img {
         display: inline-block !important;
         height: 1.1rem !important;
-        margin-left: 0.25rem !important;
+        margin-left: 0 !important;
         max-width: none !important;
-        vertical-align: -0.15rem !important;
+        vertical-align: middle !important;
       }
       [class*="st-key-main_section_nav_"] button:focus {
         box-shadow: inset 0 -1px 0 var(--cr-border), 0 0 0 2px rgba(34, 197, 94, 0.25) !important;
