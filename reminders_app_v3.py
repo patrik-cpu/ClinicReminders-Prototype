@@ -11969,19 +11969,18 @@ if active_main_section == "Upload Data":
                 "I understand this will remove clinic data for my clinic",
                 key="confirm_reset_dataset",
             )
-            confirm_col, cancel_col = st.columns([1, 1])
+            confirm_col, cancel_col, _ = st.columns([0.9, 0.55, 4.2], gap="small")
             with confirm_col:
                 if st.button(
                     "Clear clinic data",
                     key="confirm_clear_clinic_data",
                     disabled=not confirm_reset,
                     help="Clear clinic data so the clinic behaves like no data is saved.",
-                    use_container_width=True,
                 ):
                     st.session_state["show_clear_clinic_data_confirm"] = False
                     clear_saved_clinic_data()
             with cancel_col:
-                if st.button("Cancel", key="cancel_clear_clinic_data", use_container_width=True):
+                if st.button("Cancel", key="cancel_clear_clinic_data"):
                     st.session_state["show_clear_clinic_data_confirm"] = False
                     st.session_state["confirm_reset_dataset"] = False
                     st.rerun()
