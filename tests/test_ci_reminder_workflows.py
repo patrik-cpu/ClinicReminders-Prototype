@@ -1,5 +1,6 @@
 import unittest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 from tests.workflow_harness import (
@@ -177,6 +178,59 @@ class ReminderWorkflowTests(unittest.TestCase):
             self.app.get_actioned_reminder_datetime(row),
             datetime(2026, 5, 16, 12, 0, 0),
         )
+
+    def test_actioned_reminders_custom_range_filters_actioned_date(self):
+        state = self.app.st.session_state
+        state["deleted_reminders"] = [
+            sample_reminder_row(
+                **{
+                    "Action": self.app.REMINDER_ACTION_SENT,
+                    "ActionedAt": "2026-05-10T12:00:00",
+                    "Client Name": "Before",
+                }
+            ),
+            sample_reminder_row(
+                **{
+                    "Action": self.app.REMINDER_ACTION_SENT,
+                    "ActionedAt": "2026-05-16T12:00:00",
+                    "Client Name": "Inside",
+                }
+            ),
+            sample_reminder_row(
+                **{
+                    "Action": self.app.REMINDER_ACTION_DECLINED,
+                    "ActionedAt": "2026-05-22T12:00:00",
+                    "Client Name": "After",
+                }
+            ),
+        ]
+
+        rows = self.app.get_actioned_reminders_for_period(
+            "Custom",
+            custom_range=(date(2026, 5, 15), date(2026, 5, 20)),
+        )
+
+        self.assertEqual([row["Client Name"] for row in rows], ["Inside"])
+
+    def test_actioned_reminders_use_stats_style_custom_date_selector(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        actioned_start = source.index("def render_actioned_reminders_tab")
+        actioned_end = source.index("headers = [", actioned_start)
+
+        self.assertIn("render_stats_period_selector(", source[actioned_start:actioned_end])
+        self.assertIn('range_key="reminders_actioned_custom_range"', source[actioned_start:actioned_end])
+        self.assertIn('default_period="Today"', source[actioned_start:actioned_end])
+
+    def test_actioned_reminders_hide_whatsapp_tools(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        render_start = source.index("def render_table(")
+        render_end = source.index("def render_sender_name_input", render_start)
+        active_branch = source[render_start:render_end]
+
+        self.assertIn('if selected_reminders_subtab == "Active Reminders":', active_branch)
+        self.assertIn("render_whatsapp_tools(key_prefix, msg_key)", active_branch)
+        actioned_branch = active_branch.split("else:", 1)[1]
+        self.assertNotIn("render_whatsapp_tools", actioned_branch)
 
     def test_refresh_outcomes_syncs_actions_and_reloads_dataset(self):
         tracked_record = sample_reminder_row(

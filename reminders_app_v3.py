@@ -672,6 +672,10 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "stats_successes_period",
     "stats_successes_custom_range",
     "stats_successes_custom_range_last_complete",
+    "reminders_active_subtab",
+    "reminders_actioned_period",
+    "reminders_actioned_custom_range",
+    "reminders_actioned_custom_range_last_complete",
     "_hidden_reminders_index_cache",
     "pending_google_signup",
     "google_onboarding_mode",
@@ -9205,6 +9209,59 @@ def update_clinic_password(clinic_id: str, new_password: str):
     return password_hash
 
 
+REMINDERS_SUBTABS = ["Active Reminders", "Actioned Reminders"]
+
+
+def reminders_subtab_key(tab_name: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_-]", "_", str(tab_name or "").strip()).strip("_").lower()
+    return f"reminders_subtab_{slug or 'active'}"
+
+
+def set_active_reminders_subtab(tab_name: str) -> None:
+    st.session_state["reminders_active_subtab"] = (
+        tab_name if tab_name in REMINDERS_SUBTABS else "Active Reminders"
+    )
+
+
+def render_reminders_subtab_selector(key_prefix: str) -> str:
+    current = st.session_state.get("reminders_active_subtab", "Active Reminders")
+    if current not in REMINDERS_SUBTABS:
+        current = "Active Reminders"
+    st.session_state["reminders_active_subtab"] = current
+    active_button_key = reminders_subtab_key(current)
+    st.markdown(
+        f"""
+        <style>
+          .st-key-{active_button_key} button {{
+            background: var(--cr-primary) !important;
+            border-color: var(--cr-primary) !important;
+            color: #062d19 !important;
+            position: relative !important;
+            z-index: 1 !important;
+          }}
+          .st-key-{active_button_key} button p,
+          .st-key-{active_button_key} button span {{
+            color: #062d19 !important;
+          }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    columns = st.columns([1.25, 1.45, 7.3], gap="small")[:len(REMINDERS_SUBTABS)]
+    for column, tab_name in zip(columns, REMINDERS_SUBTABS):
+        with column:
+            st.button(
+                tab_name,
+                key=reminders_subtab_key(tab_name),
+                on_click=set_active_reminders_subtab,
+                args=(tab_name,),
+                type="secondary",
+                use_container_width=True,
+            )
+    st.markdown('<div class="cr-stats-subtab-rule" aria-hidden="true"></div>', unsafe_allow_html=True)
+    return current
+
+
 def update_clinic_access_code_hash(
     clinic_id: str,
     access_code_hash: str,
@@ -12634,16 +12691,15 @@ def render_table(df, title, key_prefix, msg_key, rules):
 
     show_pending_recent_reminder_warning()
 
-    active_tab, actioned_tab = st.tabs(["Active Reminders", "Actioned Reminders"])
-    with active_tab:
+    selected_reminders_subtab = render_reminders_subtab_selector(key_prefix)
+    if selected_reminders_subtab == "Active Reminders":
         active_df = filter_hidden_reminders(df)
         if not active_df.empty:
             render_table_with_buttons(active_df, key_prefix, msg_key, hidden_index=get_hidden_reminders_index())
+        render_whatsapp_tools(key_prefix, msg_key)
 
-    with actioned_tab:
+    else:
         render_actioned_reminders_tab(key_prefix)
-
-    render_whatsapp_tools(key_prefix, msg_key)
     record_slow_render_performance("reminders_table_render", render_started, rows=len(df), source=key_prefix)
 
 
@@ -13176,17 +13232,25 @@ def format_actioned_reminder_date(row) -> str:
 def actioned_reminder_period_start(period: str, now: datetime | None = None) -> datetime | None:
     now = user_now(now)
     today_start = datetime.combine(now.date(), datetime.min.time())
-    if period == "Daily":
+    if period in {"Daily", "Today"}:
         return today_start
-    if period == "Weekly":
+    if period in {"Weekly", "Previous 7 days"}:
         return today_start - timedelta(days=6)
-    if period == "Monthly":
+    if period in {"Monthly", "Previous 30 days"}:
         return today_start - timedelta(days=29)
     return None
 
 
-def get_actioned_reminders_for_period(period: str) -> list[dict]:
+def get_actioned_reminders_for_period(
+    period: str,
+    custom_range: tuple[date, date] | None = None,
+) -> list[dict]:
     period_start = actioned_reminder_period_start(period)
+    custom_start = custom_end = None
+    if str(period or "").strip() == "Custom" and custom_range is not None:
+        custom_start, custom_end = custom_range
+        if custom_end < custom_start:
+            custom_start, custom_end = custom_end, custom_start
     rows = []
     for entry in st.session_state.get("deleted_reminders", []):
         if not isinstance(entry, dict):
@@ -13195,7 +13259,10 @@ def get_actioned_reminders_for_period(period: str) -> list[dict]:
         if action not in {REMINDER_ACTION_SENT, REMINDER_ACTION_DECLINED}:
             continue
         actioned_at = get_actioned_reminder_datetime(entry)
-        if period_start and (not actioned_at or actioned_at < period_start):
+        if custom_start is not None:
+            if not actioned_at or not (custom_start <= actioned_at.date() <= custom_end):
+                continue
+        elif period_start and (not actioned_at or actioned_at < period_start):
             continue
         row = dict(entry)
         if actioned_at:
@@ -13263,41 +13330,19 @@ def sort_actioned_reminders(rows: list[dict], key_prefix: str) -> list[dict]:
 
 
 def render_actioned_reminders_tab(key_prefix: str):
-    options = ["Daily", "Weekly", "Monthly", "All"]
-    option_labels = {
-        "Daily": "Today",
-        "Weekly": "This week",
-        "Monthly": "This month",
-        "All": "All time",
-    }
-    filter_key = f"{key_prefix}_actioned_period"
-    current = st.session_state.get(filter_key, "Daily")
-    if current not in options:
-        current = "Daily"
+    filter_key = "reminders_actioned_period"
+    legacy_periods = {"Daily": "Today", "Weekly": "Previous 7 days", "Monthly": "Previous 30 days", "All": "All-time"}
+    if st.session_state.get(filter_key) in legacy_periods:
+        st.session_state[filter_key] = legacy_periods[st.session_state[filter_key]]
+    selected_period, custom_range = render_stats_period_selector(
+        label="Actioned reminder period",
+        filter_key=filter_key,
+        range_key="reminders_actioned_custom_range",
+        on_change=lambda: st.session_state.__setitem__(f"{key_prefix}_actioned_reminders_page", 0),
+        default_period="Today",
+    )
 
-    if hasattr(st, "segmented_control"):
-        selected_period = st.segmented_control(
-            "Actioned reminder period",
-            options,
-            selection_mode="single",
-            default=current,
-            format_func=lambda option: option_labels.get(option, option),
-            key=filter_key,
-            label_visibility="collapsed",
-        )
-    else:
-        selected_period = st.radio(
-            "Actioned reminder period",
-            options,
-            index=options.index(current),
-            format_func=lambda option: option_labels.get(option, option),
-            horizontal=True,
-            key=filter_key,
-            label_visibility="collapsed",
-        )
-    selected_period = selected_period or "Daily"
-
-    rows = get_actioned_reminders_for_period(selected_period)
+    rows = get_actioned_reminders_for_period(selected_period, custom_range=custom_range)
     if not rows:
         st.info(f"No actioned reminders for {selected_period.lower()}. Sent and declined reminders will appear here.")
         return
