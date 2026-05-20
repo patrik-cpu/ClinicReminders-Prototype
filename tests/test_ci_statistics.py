@@ -631,10 +631,14 @@ class StatisticsTests(unittest.TestCase):
             "Revenue from Successes" if column == "Revenue" else column
             for column in self.app.STATS_TEAM_COLUMNS
         ]
+        self.assertNotIn("Pending", expected_team_columns)
+        self.assertNotIn("No Match", expected_team_columns)
         for column in expected_team_columns:
             with self.subTest(column=column):
                 self.assertIn(column, team_config)
                 self.assertTrue(team_config[column]["help"])
+        self.assertNotIn("Pending", team_config)
+        self.assertNotIn("No Match", team_config)
 
         self.assertIn("Unique item purchase cycles", item_config["Scheduled reminders"]["help"])
         self.assertIn("sent or declined", item_config["Actioned"]["help"])
