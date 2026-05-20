@@ -13053,6 +13053,7 @@ STATS_TEAM_COLUMNS = [
     "Actioned",
     "Sent Actions",
     "Declined Actions",
+    "Sent %",
     "Last Actioned",
 ]
 STATS_ITEM_ACTIONING_COLUMN_HELP = {
@@ -13076,6 +13077,7 @@ STATS_TEAM_COLUMN_HELP = {
     "Actioned": "Reminders this team member sent or declined.",
     "Sent Actions": "Reminder actions marked as sent.",
     "Declined Actions": "Reminder actions marked as declined.",
+    "Sent %": "Sent actions divided by all sent and declined actions.",
     "Last Actioned": "Most recent sent or declined action date.",
 }
 OUTCOME_SUCCESS_METER_COLUMNS = {"Sent", "Successes", "Pending", "No Match", "Success Rate"}
@@ -14984,6 +14986,11 @@ def build_stats_team_frame(
         merged[column] = pd.to_numeric(merged[column], errors="coerce").fillna(0)
     for column in ["Sent Reminders", "Successes", "Pending", "No Match", "Actioned", "Sent Actions", "Declined Actions"]:
         merged[column] = merged[column].astype(int)
+    merged["Sent %"] = np.where(
+        merged["Actioned"].gt(0),
+        merged["Sent Actions"] / merged["Actioned"],
+        0,
+    )
     merged["Revenue"] = merged["Revenue"].round().astype("Int64")
     merged["Team Member"] = merged["Team Member"].fillna("").astype(str).str.strip().replace("", "Unknown")
     merged["Last Actioned"] = merged["Last Actioned"].fillna("").astype(str)
@@ -15234,6 +15241,10 @@ def prepare_stats_team_display_frame(frame: pd.DataFrame) -> pd.DataFrame:
         display_frame["Success Rate"] = (
             pd.to_numeric(display_frame["Success Rate"], errors="coerce") * 100
         )
+    if "Sent %" in display_frame.columns:
+        display_frame["Sent %"] = (
+            pd.to_numeric(display_frame["Sent %"], errors="coerce") * 100
+        )
     if "Revenue" in display_frame.columns:
         display_frame = display_frame.rename(columns={"Revenue": "Revenue from Successes"})
     return display_frame
@@ -15442,6 +15453,7 @@ def stats_team_column_config() -> dict:
         "Actioned": st.column_config.NumberColumn("Actioned", help=STATS_TEAM_COLUMN_HELP["Actioned"], format="%d"),
         "Sent Actions": st.column_config.NumberColumn("Sent Actions", help=STATS_TEAM_COLUMN_HELP["Sent Actions"], format="%d"),
         "Declined Actions": st.column_config.NumberColumn("Declined Actions", help=STATS_TEAM_COLUMN_HELP["Declined Actions"], format="%d"),
+        "Sent %": st.column_config.NumberColumn("Sent %", help=STATS_TEAM_COLUMN_HELP["Sent %"], format="%.0f%%"),
         "Last Actioned": st.column_config.TextColumn("Last Actioned", help=STATS_TEAM_COLUMN_HELP["Last Actioned"]),
     }
 

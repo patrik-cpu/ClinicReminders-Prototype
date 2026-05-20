@@ -613,8 +613,10 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(rows["Nurse A"]["Revenue"], 120)
         self.assertEqual(rows["Nurse A"]["Actioned"], 1)
         self.assertEqual(rows["Nurse A"]["Sent Actions"], 1)
+        self.assertEqual(rows["Nurse A"]["Sent %"], 1)
         self.assertEqual(rows["Nurse B"]["Sent Reminders"], 0)
         self.assertEqual(rows["Nurse B"]["Declined Actions"], 1)
+        self.assertEqual(rows["Nurse B"]["Sent %"], 0)
 
     def test_stats_actioning_column_configs_explain_headers(self):
         item_config = self.app.stats_item_actioning_column_config()
@@ -824,11 +826,12 @@ class StatisticsTests(unittest.TestCase):
         self.assertAlmostEqual(rendered_frame.iloc[0]["Gap Day %"], (370 / 365) * 100)
 
     def test_prepare_stats_team_display_frame_formats_success_rate_as_whole_percent(self):
-        frame = pd.DataFrame([{"Team Member": "Nurse A", "Success Rate": 1 / 3, "Revenue": 120}])
+        frame = pd.DataFrame([{"Team Member": "Nurse A", "Success Rate": 1 / 3, "Sent %": 0.5, "Revenue": 120}])
 
         display_frame = self.app.prepare_stats_team_display_frame(frame)
 
         self.assertAlmostEqual(display_frame.iloc[0]["Success Rate"], 100 / 3)
+        self.assertEqual(display_frame.iloc[0]["Sent %"], 50)
         self.assertIn("Revenue from Successes", display_frame.columns)
         self.assertNotIn("Revenue", display_frame.columns)
         self.assertEqual(display_frame.iloc[0]["Revenue from Successes"], 120)
