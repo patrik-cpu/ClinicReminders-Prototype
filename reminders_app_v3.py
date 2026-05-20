@@ -9827,7 +9827,6 @@ def render_setup_checklist():
 def render_graphs_coming_soon():
     st.markdown("<div id='graphs' class='anchor-offset'></div>", unsafe_allow_html=True)
     st.markdown("## 📈 Graphs")
-    st.error("Coming soon")
     st.markdown(
         """
         <div class="graphs-coming-soon-panel">

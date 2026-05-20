@@ -216,7 +216,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("def graphs_badge_label", source)
         self.assertIn("Graphs coming soon", source)
         self.assertIn("def render_graphs_coming_soon", source)
-        self.assertIn('st.error("Coming soon")', source)
+        self.assertNotIn('st.error("Coming soon")', source)
         self.assertIn("graphs-coming-soon-art", source)
         self.assertIn("Check back soon", source)
 
