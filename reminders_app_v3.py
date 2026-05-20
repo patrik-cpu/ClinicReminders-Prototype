@@ -2732,15 +2732,15 @@ st.markdown(
     .field-label {
         font-size: 0.9rem;
         font-weight: 600;
-        margin-bottom: 0.35rem;
+        margin-bottom: 0.25rem;
     }
     .reminder-control-label {
         align-items: flex-start;
         display: flex;
-        min-height: 2.25rem;
+        min-height: 1.3rem;
     }
     .cr-today-button-spacer {
-        height: 2.6rem;
+        height: 1.55rem;
     }
     .st-key-reminders_jump_to_today button {
         height: 2.5rem;
