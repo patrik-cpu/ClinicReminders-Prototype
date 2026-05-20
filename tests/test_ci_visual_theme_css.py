@@ -85,6 +85,10 @@ class VisualThemeCssTests(unittest.TestCase):
 
     def test_main_section_selected_tab_has_visible_state(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+        main_nav_css = source[
+            source.index('div[data-testid="stHorizontalBlock"]:has([class*="st-key-main_section_nav_"])')
+            : source.index('.st-key-main_section_tab {')
+        ]
 
         for selector in [
             ".cr-main-section-nav-rule",
@@ -111,10 +115,16 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertNotIn('href="?{MAIN_SECTION_TAB_QUERY_PARAM}', source)
         self.assertIn("font-size: 1.18rem", source)
         self.assertIn("min-height: 2.85rem", source)
+        self.assertIn("flex-wrap: wrap !important;", source)
+        self.assertIn("white-space: normal;", source)
+        self.assertIn("max-width: 8.5rem !important;", source)
+        self.assertIn("font-size: 0.92rem !important;", source)
+        self.assertIn("padding: 0.35rem 0.5rem;", source)
+        self.assertNotIn("min-width: fit-content !important;", main_nav_css)
         self.assertIn("box-shadow: 0 0 0 1px var(--cr-primary-dark), 0 1px 0 var(--cr-primary) !important;", source)
         self.assertNotIn("box-shadow: inset 0 4px 0 var(--cr-primary-dark)", source)
         self.assertIn("background: var(--cr-primary) !important;", source)
-        self.assertIn("flex: 0 0 auto !important;", source)
+        self.assertIn("flex: 0 1 auto !important;", source)
 
     def test_outcome_success_window_label_matches_due_date_logic(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")

@@ -11612,12 +11612,14 @@ st.markdown(
       div[data-testid="stHorizontalBlock"]:has([class*="st-key-main_section_nav_"]) {
         align-items: flex-end;
         column-gap: 0.2rem !important;
+        flex-wrap: wrap !important;
         justify-content: flex-start !important;
         margin: 0.35rem 0 0 !important;
+        row-gap: 0.15rem !important;
       }
       div[data-testid="stHorizontalBlock"]:has([class*="st-key-main_section_nav_"]) > div[data-testid="column"] {
-        flex: 0 0 auto !important;
-        min-width: fit-content !important;
+        flex: 0 1 auto !important;
+        min-width: 0 !important;
         width: auto !important;
       }
       .cr-main-section-nav-rule {
@@ -11641,7 +11643,7 @@ st.markdown(
         min-height: 2.85rem;
         padding: 0.52rem 0.9rem;
         text-decoration: none !important;
-        white-space: nowrap;
+        white-space: normal;
       }
       [class*="st-key-main_section_nav_"] button:hover {
         background: var(--cr-primary-soft);
@@ -11659,7 +11661,11 @@ st.markdown(
       [class*="st-key-main_section_nav_"] button p {
         align-items: center !important;
         display: inline-flex !important;
+        flex-wrap: wrap !important;
         gap: 0.35rem !important;
+        justify-content: center !important;
+        text-align: center !important;
+        white-space: normal !important;
       }
       [class*="st-key-main_section_nav_"] button img {
         display: inline-block !important;
@@ -11914,13 +11920,29 @@ st.markdown(
         margin: -1px 0 1rem;
       }
       @media (max-width: 900px) {
+        div[data-testid="stHorizontalBlock"]:has([class*="st-key-main_section_nav_"]) {
+          column-gap: 0.16rem !important;
+          row-gap: 0.12rem !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has([class*="st-key-main_section_nav_"]) > div[data-testid="column"] {
+          flex: 0 1 auto !important;
+          max-width: 8.5rem !important;
+          min-width: 4.35rem !important;
+        }
         [class*="st-key-main_section_nav_"] button {
-          min-height: 2.65rem;
-          padding: 0.45rem 0.65rem;
+          min-height: 2.35rem;
+          padding: 0.35rem 0.5rem;
         }
         [class*="st-key-main_section_nav_"] button p,
         [class*="st-key-main_section_nav_"] button span {
-          font-size: 1.05rem !important;
+          font-size: 0.92rem !important;
+          line-height: 1.08 !important;
+        }
+        [class*="st-key-main_section_nav_"] button p {
+          gap: 0.2rem !important;
+        }
+        [class*="st-key-main_section_nav_"] button img {
+          height: 0.92rem !important;
         }
         .st-key-main_section_tab [role="radio"],
         .st-key-main_section_tab button,
@@ -11954,9 +11976,21 @@ st.markdown(
         }
       }
       @media (max-width: 640px) {
+        div[data-testid="stHorizontalBlock"]:has([class*="st-key-main_section_nav_"]) > div[data-testid="column"] {
+          max-width: 7.4rem !important;
+          min-width: 3.8rem !important;
+        }
+        [class*="st-key-main_section_nav_"] button {
+          min-height: 2.15rem;
+          padding: 0.28rem 0.4rem;
+        }
         [class*="st-key-main_section_nav_"] button p,
         [class*="st-key-main_section_nav_"] button span {
-          font-size: 0.98rem !important;
+          font-size: 0.82rem !important;
+          line-height: 1.05 !important;
+        }
+        [class*="st-key-main_section_nav_"] button img {
+          height: 0.82rem !important;
         }
         .st-key-main_section_tab [role="radio"],
         .st-key-main_section_tab button,
