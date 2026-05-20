@@ -75,6 +75,7 @@ class VisualThemeCssTests(unittest.TestCase):
             "st-key-item_exclusions_list_box",
             "background: transparent !important;",
             "border-color: transparent !important;",
+            "border: 0 !important;",
             ".exclusion-chip",
             "transform: translateY(-0.12rem);",
             "exclusion_chip_html",
@@ -195,8 +196,8 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("row_cols = st.columns([2.7, 5.3], gap=\"small\")", source)
         self.assertIn("chip_cols = st.columns([0.9, 0.1], gap=\"small\")", source)
         self.assertIn('[class*="st-key-auto_death_keyword_row_"]', source)
-        self.assertIn("background: rgba(236, 253, 243, 0.72);", source)
-        self.assertIn("border-color: rgba(41, 210, 114, 0.28);", source)
+        self.assertIn("background: transparent !important;", source)
+        self.assertIn("border-color: transparent !important;", source)
         self.assertIn("align-items: center;\n        display: flex;", source)
         self.assertNotIn("cols = st.columns([1, 0.12], gap=\"small\")", source)
         self.assertNotIn("max-width: min(100%, 42rem);", source)

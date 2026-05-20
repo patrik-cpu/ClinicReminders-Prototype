@@ -2647,15 +2647,15 @@ st.markdown(
     [class*="st-key-auto_patient_exclusion_row_"],
     [class*="st-key-auto_death_keyword_row_"],
     [class*="st-key-exclusion_row_"] {
-        background: rgba(255, 247, 237, 0.34);
-        border: 1px solid rgba(251, 146, 60, 0.18);
-        border-radius: 8px;
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
         margin: 0.22rem 0;
-        padding: 0.2rem 0.35rem;
+        padding: 0;
     }
     [class*="st-key-auto_death_keyword_row_"] {
-        background: rgba(236, 253, 243, 0.72);
-        border-color: rgba(41, 210, 114, 0.28);
+        background: transparent !important;
+        border-color: transparent !important;
     }
     [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stHorizontalBlock"],
     [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"],
