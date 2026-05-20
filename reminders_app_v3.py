@@ -2687,7 +2687,7 @@ st.markdown(
         font-size: 0.92rem;
         font-weight: 700;
         line-height: 1.2;
-        margin-top: 0.32rem;
+        margin-top: 0;
         max-width: 100%;
         overflow-wrap: anywhere;
         padding: 0.38rem 0.62rem;
@@ -2701,10 +2701,14 @@ st.markdown(
         gap: 0.25rem !important;
     }
     [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
+        align-items: center;
+        display: flex;
         min-width: 0 !important;
         width: auto !important;
     }
     [class*="st-key-auto_death_keyword_row_"] [data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {
+        align-items: center;
+        display: flex;
         flex: 0 0 2.4rem !important;
         min-width: 2.4rem !important;
         width: 2.4rem !important;

@@ -173,6 +173,8 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("cols = st.columns([1, 0.12], gap=\"small\")", source)
         self.assertIn('[class*="st-key-auto_death_keyword_row_"]', source)
         self.assertIn("max-width: min(100%, 42rem);", source)
+        self.assertIn("margin-top: 0;", source)
+        self.assertIn("align-items: center;\n        display: flex;", source)
         self.assertNotIn("st.columns([0.58, 0.18, 6.84]", source)
         self.assertNotIn('", ".join(f"`{keyword}`"', source)
 
