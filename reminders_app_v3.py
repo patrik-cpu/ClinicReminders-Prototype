@@ -2445,7 +2445,8 @@ st.markdown(
     }
     .field-examples.use-qty-examples {
         margin-top: 0.95rem;
-        transform: translateY(0.24rem);
+        min-height: 3.15rem;
+        transform: translateY(0.18rem);
     }
     .field-examples[data-field-examples="search-term"],
     .field-examples[data-field-examples="category"] {
