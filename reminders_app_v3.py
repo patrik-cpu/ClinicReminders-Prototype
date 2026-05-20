@@ -13082,6 +13082,21 @@ OUTCOME_SENT_DISPLAY_COLUMNS = [
     "Sender",
     "Outcome",
 ]
+OUTCOME_SUCCESS_DISPLAY_COLUMNS = [
+    "Success Date",
+    "Charge Date",
+    "Reminder Date",
+    "Sent Date",
+    "Due Date",
+    "Window Starts",
+    "Window Ends",
+    "Success Basis",
+    "Client Name",
+    "Animal Name",
+    "Item",
+    "Sender",
+    "Outcome",
+]
 OUTCOME_ITEM_GROUP_COLUMNS = [
     "Item",
     "Sent",
@@ -14738,15 +14753,38 @@ def build_reminder_outcomes(
     return outcomes[OUTCOME_TABLE_COLUMNS]
 
 
-def filter_outcomes_for_period(outcomes_df: pd.DataFrame, period: str, today: date | None = None) -> pd.DataFrame:
+def filter_outcomes_by_date_column_for_period(
+    outcomes_df: pd.DataFrame,
+    period: str,
+    date_column: str,
+    today: date | None = None,
+) -> pd.DataFrame:
     if outcomes_df is None or outcomes_df.empty:
         return empty_outcome_frame()
     today = today or user_today()
     start = statistics_period_start(period, today)
     if start is None:
         return outcomes_df.copy()
-    sent_dates = pd.to_datetime(outcomes_df["Sent Date"], errors="coerce").dt.date
-    return outcomes_df.loc[(sent_dates >= start) & (sent_dates <= today)].copy()
+    filter_dates = pd.to_datetime(outcomes_df[date_column], errors="coerce").dt.date
+    return outcomes_df.loc[(filter_dates >= start) & (filter_dates <= today)].copy()
+
+
+def filter_outcomes_for_period(outcomes_df: pd.DataFrame, period: str, today: date | None = None) -> pd.DataFrame:
+    return filter_outcomes_by_date_column_for_period(outcomes_df, period, "Sent Date", today=today)
+
+
+def filter_outcomes_for_date_range(
+    outcomes_df: pd.DataFrame,
+    date_column: str,
+    custom_range: tuple[date, date],
+) -> pd.DataFrame:
+    if outcomes_df is None or outcomes_df.empty:
+        return empty_outcome_frame()
+    start_date, end_date = custom_range
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+    filter_dates = pd.to_datetime(outcomes_df[date_column], errors="coerce").dt.date
+    return outcomes_df.loc[(filter_dates >= start_date) & (filter_dates <= end_date)].copy()
 
 
 def sent_reminder_outcome_period(period_label: str) -> str:
@@ -14760,13 +14798,7 @@ def filter_sent_outcomes_for_period(
     custom_range: tuple[date, date] | None = None,
 ) -> pd.DataFrame:
     if str(period_label or "").strip() == "Custom" and custom_range is not None:
-        if outcomes_df is None or outcomes_df.empty:
-            return empty_outcome_frame()
-        start_date, end_date = custom_range
-        if end_date < start_date:
-            start_date, end_date = end_date, start_date
-        sent_dates = pd.to_datetime(outcomes_df["Sent Date"], errors="coerce").dt.date
-        return outcomes_df.loc[(sent_dates >= start_date) & (sent_dates <= end_date)].copy()
+        return filter_outcomes_for_date_range(outcomes_df, "Sent Date", custom_range)
     return filter_outcomes_for_period(
         outcomes_df,
         sent_reminder_outcome_period(period_label),
@@ -14780,6 +14812,24 @@ def filter_stats_sent_tab_rows(
     custom_range: tuple[date, date] | None = None,
 ) -> pd.DataFrame:
     return filter_sent_outcomes_for_period(outcomes_df, period_label, today=user_today(), custom_range=custom_range)
+
+
+def filter_stats_success_tab_rows(
+    outcomes_df: pd.DataFrame,
+    period_label: str,
+    custom_range: tuple[date, date] | None = None,
+) -> pd.DataFrame:
+    if outcomes_df is None or outcomes_df.empty:
+        return empty_outcome_frame()
+    success_rows = outcomes_df.loc[outcomes_df["Outcome"].eq("Reminder Success")]
+    if str(period_label or "").strip() == "Custom" and custom_range is not None:
+        return filter_outcomes_for_date_range(success_rows, "Success Date", custom_range)
+    return filter_outcomes_by_date_column_for_period(
+        success_rows,
+        sent_reminder_outcome_period(period_label),
+        "Success Date",
+        today=user_today(),
+    )
 
 
 OUTCOME_SUMMARY_NUMERIC_COLUMNS = (
@@ -15595,6 +15645,10 @@ def reset_stats_sent_reminders_page() -> None:
     st.session_state["outcomes_sent_page"] = 0
 
 
+def reset_stats_successes_page() -> None:
+    st.session_state["outcomes_successes_page"] = 0
+
+
 def normalize_stats_sent_custom_range(value) -> tuple[date, date] | None:
     if isinstance(value, tuple) and len(value) == 2:
         start_date, end_date = value
@@ -15626,6 +15680,12 @@ def stats_sent_period_caption(selected_period: str, custom_range: tuple[date, da
     return f"{selected_period}; filtered by Sent Date."
 
 
+def stats_success_period_caption(selected_period: str, custom_range: tuple[date, date] | None = None) -> str:
+    if selected_period == "Custom" and custom_range is not None:
+        return f"Custom: {format_stats_sent_custom_range(custom_range)}; filtered by Success Date."
+    return f"{selected_period}; filtered by Success Date."
+
+
 def stats_sent_export_period_label(selected_period: str, custom_range: tuple[date, date] | None = None) -> str:
     if selected_period == "Custom" and custom_range is not None:
         start_date, end_date = custom_range
@@ -15634,44 +15694,65 @@ def stats_sent_export_period_label(selected_period: str, custom_range: tuple[dat
 
 
 def render_stats_sent_reminders_period_selector() -> tuple[str, tuple[date, date] | None]:
-    filter_key = "stats_sent_reminders_period"
+    return render_stats_period_selector(
+        label="Sent reminders period",
+        filter_key="stats_sent_reminders_period",
+        range_key="stats_sent_reminders_custom_range",
+        on_change=reset_stats_sent_reminders_page,
+    )
+
+
+def render_stats_successes_period_selector() -> tuple[str, tuple[date, date] | None]:
+    return render_stats_period_selector(
+        label="Successes period",
+        filter_key="stats_successes_period",
+        range_key="stats_successes_custom_range",
+        on_change=reset_stats_successes_page,
+    )
+
+
+def render_stats_period_selector(
+    label: str,
+    filter_key: str,
+    range_key: str,
+    on_change,
+) -> tuple[str, tuple[date, date] | None]:
     current = st.session_state.get(filter_key, "All-time")
     if current not in STATS_SENT_REMINDER_PERIODS:
         current = "All-time"
 
     if hasattr(st, "segmented_control"):
         selected_period = st.segmented_control(
-            "Sent reminders period",
+            label,
             STATS_SENT_REMINDER_PERIODS,
             selection_mode="single",
             default=current,
             key=filter_key,
             label_visibility="collapsed",
-            on_change=reset_stats_sent_reminders_page,
+            on_change=on_change,
         )
     else:
         selected_period = st.radio(
-            "Sent reminders period",
+            label,
             STATS_SENT_REMINDER_PERIODS,
             index=STATS_SENT_REMINDER_PERIODS.index(current),
             horizontal=True,
             key=filter_key,
             label_visibility="collapsed",
-            on_change=reset_stats_sent_reminders_page,
+            on_change=on_change,
         )
     selected_period = selected_period or current
     custom_range = None
     if selected_period == "Custom":
         today_value = user_today()
-        range_key = "stats_sent_reminders_custom_range"
         if range_key not in st.session_state:
             st.session_state[range_key] = (today_value, today_value)
         custom_range_value = st.date_input(
-            "Custom sent date range",
+            "Custom date range",
             value=st.session_state[range_key],
             key=range_key,
             label_visibility="collapsed",
-            on_change=reset_stats_sent_reminders_page,
+            on_change=on_change,
         )
         custom_range = normalize_stats_sent_custom_range(custom_range_value)
     return selected_period, custom_range
@@ -15688,10 +15769,12 @@ def stats_sent_rows_for_render(
     return sent_period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
 
 
-def stats_success_rows_for_render(period_rows: pd.DataFrame) -> pd.DataFrame:
-    if period_rows.empty:
-        return period_rows
-    success_rows = period_rows.loc[period_rows["Outcome"].eq("Reminder Success")]
+def stats_success_rows_for_render(
+    period_rows: pd.DataFrame,
+    selected_period: str = "All-time",
+    custom_range: tuple[date, date] | None = None,
+) -> pd.DataFrame:
+    success_rows = filter_stats_success_tab_rows(period_rows, selected_period, custom_range=custom_range)
     if success_rows.empty:
         return success_rows
     return success_rows.sort_values(["Success Date", "Client Name"], ascending=[False, True])
@@ -15985,19 +16068,24 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         )
 
     with success_tab:
-        st.caption("All time; sent reminders matched to a later sale inside the success window.")
-        success_rows = stats_success_rows_for_render(period_rows)
+        selected_success_period, success_custom_range = render_stats_successes_period_selector()
+        st.caption(stats_success_period_caption(selected_success_period, success_custom_range))
+        success_rows = stats_success_rows_for_render(
+            period_rows,
+            selected_success_period,
+            custom_range=success_custom_range,
+        )
         render_outcome_dataframe(
             success_rows,
-            OUTCOME_SENT_DISPLAY_COLUMNS,
+            OUTCOME_SUCCESS_DISPLAY_COLUMNS,
             table_key="outcomes_successes",
             item_label="success rows",
         )
         render_stats_csv_export(
             success_rows,
-            "stats-successes",
+            f"stats-successes-{stats_sent_export_period_label(selected_success_period, success_custom_range)}",
             "outcomes_successes",
-            columns=OUTCOME_SENT_DISPLAY_COLUMNS,
+            columns=OUTCOME_SUCCESS_DISPLAY_COLUMNS,
             display_preparer=prepare_outcome_dataframe_for_display,
         )
     record_slow_render_performance("stats_tab_render", render_started, rows=len(period_rows), source="stats")

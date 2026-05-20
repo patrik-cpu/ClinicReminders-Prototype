@@ -1258,6 +1258,48 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertEqual(caption, "Custom: 20 Sep 2025 to 25 Sep 2025; filtered by Sent Date.")
 
+    def test_successes_custom_period_filters_success_date_range(self):
+        outcomes = pd.DataFrame(
+            [
+                {
+                    "Success Date": pd.Timestamp("2025-09-30"),
+                    "Outcome": "Reminder Success",
+                    "Client Name": "Later",
+                },
+                {
+                    "Success Date": pd.Timestamp("2025-09-24"),
+                    "Outcome": "Reminder Success",
+                    "Client Name": "Inside",
+                },
+                {
+                    "Success Date": pd.Timestamp("2025-09-24"),
+                    "Outcome": "No Match",
+                    "Client Name": "Not A Success",
+                },
+                {
+                    "Success Date": pd.Timestamp("2025-09-01"),
+                    "Outcome": "Reminder Success",
+                    "Client Name": "Earlier",
+                },
+            ]
+        )
+
+        rows = self.app.filter_stats_success_tab_rows(
+            outcomes,
+            "Custom",
+            custom_range=(date(2025, 9, 20), date(2025, 9, 25)),
+        )
+
+        self.assertEqual(rows["Client Name"].tolist(), ["Inside"])
+
+    def test_stats_success_custom_caption_shows_chosen_range(self):
+        caption = self.app.stats_success_period_caption(
+            "Custom",
+            (date(2025, 9, 20), date(2025, 9, 25)),
+        )
+
+        self.assertEqual(caption, "Custom: 20 Sep 2025 to 25 Sep 2025; filtered by Success Date.")
+
     def test_stats_sent_tab_period_filter_uses_user_today_not_sales_as_of_date(self):
         outcomes = pd.DataFrame(
             [
@@ -1373,6 +1415,21 @@ class StatisticsTests(unittest.TestCase):
                 "Next Purchase Date",
             ],
         )
+
+    def test_outcome_success_display_columns_start_with_success_date(self):
+        self.assertEqual(
+            self.app.OUTCOME_SUCCESS_DISPLAY_COLUMNS[:7],
+            [
+                "Success Date",
+                "Charge Date",
+                "Reminder Date",
+                "Sent Date",
+                "Due Date",
+                "Window Starts",
+                "Window Ends",
+            ],
+        )
+        self.assertNotIn("Next Purchase Date", self.app.OUTCOME_SUCCESS_DISPLAY_COLUMNS)
 
     def test_reminder_outcomes_search_around_due_date_even_before_reminder_date(self):
         actions = [
