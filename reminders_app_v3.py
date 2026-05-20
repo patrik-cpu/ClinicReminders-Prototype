@@ -13009,6 +13009,7 @@ REMINDER_TABLE_PAGE_SIZE = TABLE_PAGE_SIZE
 STATS_TABLE_PAGE_SIZE = TABLE_PAGE_SIZE
 OUTCOME_SENT_PAGE_SIZE = TABLE_PAGE_SIZE
 STATS_TABLE_HEIGHT = 700
+STATS_SUBTABS = ["Items", "Item Activity", "Team", "Sent Reminders", "Successes"]
 OUTCOME_TABLE_COLUMNS = [
     "Charge Date",
     "Reminder Date",
@@ -15770,6 +15771,32 @@ def reset_stats_successes_page() -> None:
     st.session_state["outcomes_successes_page"] = 0
 
 
+def render_stats_subtab_selector() -> str:
+    key = "stats_active_subtab"
+    current = st.session_state.get(key, "Items")
+    if current not in STATS_SUBTABS:
+        current = "Items"
+    if hasattr(st, "segmented_control"):
+        selected_tab = st.segmented_control(
+            "Stats view",
+            STATS_SUBTABS,
+            selection_mode="single",
+            default=current,
+            key=key,
+            label_visibility="collapsed",
+        )
+    else:
+        selected_tab = st.radio(
+            "Stats view",
+            STATS_SUBTABS,
+            index=STATS_SUBTABS.index(current),
+            horizontal=True,
+            key=key,
+            label_visibility="collapsed",
+        )
+    return selected_tab or current
+
+
 def normalize_stats_sent_custom_range(value) -> tuple[date, date] | None:
     if isinstance(value, tuple) and len(value) == 2:
         start_date, end_date = value
@@ -16164,11 +16191,9 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             render_statistics_metric_card(label, value, STATS_SUMMARY_CARD_HELP[label])
     st.markdown("<div class='stats-summary-tab-gap' aria-hidden='true'></div>", unsafe_allow_html=True)
 
-    item_tab, item_actioning_tab, team_tab, sent_tab, success_tab = st.tabs(
-        ["Items", "Item Activity", "Team", "Sent Reminders", "Successes"]
-    )
+    active_stats_subtab = render_stats_subtab_selector()
 
-    with item_tab:
+    if active_stats_subtab == "Items":
         st.caption("All time; matched sent reminders grouped by item.")
         item_frame = stats_item_outcome_frame
         render_outcome_dataframe(
@@ -16188,7 +16213,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             display_preparer=prepare_stats_items_outcome_dataframe_for_display,
         )
 
-    with item_actioning_tab:
+    elif active_stats_subtab == "Item Activity":
         st.caption("All time; generated reminders and saved actions by actual item.")
         item_actioning_frame = build_statistics_item_frame(
             generated_df,
@@ -16220,7 +16245,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 display_preparer=prepare_statistics_display_frame,
             )
 
-    with team_tab:
+    elif active_stats_subtab == "Team":
         st.caption("All time; outcome results by sender plus reminder actions by actioned date.")
         team_frame = build_stats_team_frame(
             stats_sender_outcome_frame,
@@ -16251,7 +16276,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 display_preparer=prepare_stats_team_display_frame,
             )
 
-    with sent_tab:
+    elif active_stats_subtab == "Sent Reminders":
         selected_sent_period, sent_custom_range = render_stats_sent_reminders_period_selector()
         st.caption(stats_sent_period_caption(selected_sent_period, sent_custom_range))
         sent_rows = stats_sent_rows_for_render(period_rows, selected_sent_period, custom_range=sent_custom_range)
@@ -16270,7 +16295,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             display_preparer=prepare_outcome_dataframe_for_display,
         )
 
-    with success_tab:
+    elif active_stats_subtab == "Successes":
         selected_success_period, success_custom_range = render_stats_successes_period_selector()
         st.caption(stats_success_period_caption(selected_success_period, success_custom_range))
         success_rows = stats_success_rows_for_render(
