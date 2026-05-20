@@ -16964,7 +16964,7 @@ def render_search_terms_editor():
     def save_rule_days(rule, key):
         days_raw = str(st.session_state.get(key, "")).strip()
         if not days_raw.isdigit() or int(days_raw) <= 0:
-            st.session_state["_search_terms_autosave_error"] = f"Due after days must be a positive number for: {rule}"
+            st.session_state["_search_terms_autosave_error"] = f"Due date reminder must be a positive number for: {rule}"
             return
         old_value = st.session_state["rules"][rule].get("days", "")
         st.session_state["rules"][rule]["days"] = int(days_raw)
@@ -17038,7 +17038,7 @@ def render_search_terms_editor():
     with header_cols[1]: column_header("Category", "Choose the search term category.")
     with header_cols[2]: column_header("First reminder", "Optional first reminder, in days after the billed date.")
     with header_cols[3]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
-    with header_cols[4]: column_header("Due after days", "The main reminder interval, in days after the billed date.")
+    with header_cols[4]: column_header("Due date reminder (Required)", "The main reminder interval, in days after the billed date.")
     with header_cols[5]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
     with header_cols[6]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
     with header_cols[7]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
@@ -17095,7 +17095,7 @@ def render_search_terms_editor():
         field_examples("357", "50")
     with c5:
         new_rule_days = st.text_input(
-            "Due after days",
+            "Due date reminder",
             key=f"new_rule_days_{row_id}",
             label_visibility="collapsed",
             help="Positive number of days until this item should be due again."
@@ -17167,7 +17167,7 @@ def render_search_terms_editor():
                         invalidate_reminder_rule_cache()
                         st.rerun()
             else:
-                st.error("Enter a name, choose a category, and add a positive number for Due after days")
+                st.error("Enter a name, choose a category, and add a positive number for Due date reminder")
 
 
     st.divider()
@@ -17197,7 +17197,7 @@ def render_search_terms_editor():
     with cols[0]: column_header("Search Term", "The product or service text matched against uploaded item names.")
     with cols[1]: column_header("First reminder", "Optional first reminder, in days after the billed date.")
     with cols[2]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
-    with cols[3]: column_header("Due after days", "The main reminder interval, in days after the billed date.")
+    with cols[3]: column_header("Due date reminder", "The main reminder interval, in days after the billed date.")
     with cols[4]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
     with cols[5]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
     with cols[6]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
@@ -17241,7 +17241,7 @@ def render_search_terms_editor():
                     )
                 with cols[3]:
                     st.text_input(
-                        "Due after days", value=str(settings["days"]),
+                        "Due date reminder", value=str(settings["days"]),
                         key=f"days_{safe_rule}_{ver}", label_visibility="collapsed",
                         on_change=save_rule_days,
                         args=(rule, f"days_{safe_rule}_{ver}",),

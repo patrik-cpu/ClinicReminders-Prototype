@@ -253,6 +253,14 @@ class VisualThemeCssTests(unittest.TestCase):
 
         self.assertIn("current_rule_col_widths = [2.25, 0.9, 0.95", source)
 
+    def test_search_term_due_date_reminder_copy_marks_add_field_required(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn('column_header("Due date reminder (Required)"', source)
+        self.assertIn('column_header("Due date reminder"', source)
+        self.assertIn('"Due date reminder", value=str(settings["days"])', source)
+        self.assertNotIn('column_header("Due after days"', source)
+
 
 if __name__ == "__main__":
     unittest.main()
