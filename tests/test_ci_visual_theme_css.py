@@ -253,6 +253,9 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("justify-content: flex-end !important;", source)
         self.assertIn("align-items: flex-end;", source)
         self.assertIn("min-height: 3.1rem;", source)
+        self.assertIn("flex: 0 0 0.95rem;", source)
+        self.assertIn("flex-shrink: 0;", source)
+        self.assertIn("min-width: 0.95rem;", source)
 
     def test_search_term_categories_render_as_wrapped_button_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")

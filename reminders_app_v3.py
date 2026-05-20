@@ -2765,9 +2765,14 @@ st.markdown(
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        box-sizing: border-box;
+        flex: 0 0 0.95rem;
+        flex-shrink: 0;
         position: relative;
         width: 0.95rem;
+        min-width: 0.95rem;
         height: 0.95rem;
+        min-height: 0.95rem;
         border: 1px solid var(--cr-muted);
         border-radius: 999px;
         font-size: 0.68rem;
