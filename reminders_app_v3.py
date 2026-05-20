@@ -12455,7 +12455,9 @@ def render_table_with_buttons(df, key_prefix, msg_key, hidden_index=None):
                 on_click=mark_all_listed_reminders_sent_action,
                 args=(rows_to_confirm, key_prefix, msg_key),
             ):
+                st.session_state[send_all_confirm_key] = False
                 st.session_state.pop(send_all_rows_key, None)
+                st.rerun()
             if st.button("Cancel", key=f"{key_prefix}_send_all_confirm_no", use_container_width=True):
                 st.session_state[send_all_confirm_key] = False
                 st.session_state.pop(send_all_rows_key, None)
