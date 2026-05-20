@@ -997,6 +997,49 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertEqual(pms_name, "Canonical CSV")
         self.assertEqual(df.loc[0, "ChargeDate"].strftime("%Y-%m-%d"), "2025-09-30")
 
+    def test_process_file_accepts_excel_serial_dates_across_pms_uploads(self):
+        expected_date = "2026-02-21"
+        cases = [
+            (
+                "canonical-serial.csv",
+                "Billed Date,Client Name,Animal Name,Item Name,Qty,Amount\n"
+                "46074,Client A,Pet A,Rabies,1,100\n",
+                "Canonical CSV",
+            ),
+            (
+                "vetport-serial.csv",
+                "Planitem Performed,Client Name,Patient Name,Plan Item Name,Plan Item Quantity,Plan Item Amount\n"
+                "46074,Client A,Pet A,Rabies,1,100\n",
+                "VETport",
+            ),
+            (
+                "xpress-serial.csv",
+                "Date,Client ID,Client Name,SLNo,Doctor,Animal Name,Item Name,Item ID,Qty,Rate,Amount\n"
+                "46074,C1,Client A,1,Dr A,Pet A,Rabies,I1,1,100,100\n",
+                "Xpress",
+            ),
+            (
+                "ezyvet-serial.csv",
+                "Invoice Date,First Name,Last Name,Patient Name,Product Name,Qty,Total Invoiced (excl)\n"
+                "46074,Client,A,Pet A,Rabies,1,100\n",
+                "ezyVet",
+            ),
+            (
+                "merlin-serial.csv",
+                "Itemdate\tDescription\tAnimalName\tQty\tTotal\tSurname\tFirstName\tTreatmentDate\tCodeDescription\n"
+                "46074\tProduct sale\tPet A\t1\t100\tA\tClient\t46074\tRabies\n",
+                "Merlin",
+            ),
+        ]
+
+        for filename, csv_text, expected_pms in cases:
+            with self.subTest(pms=expected_pms):
+                df, pms_name, _amount_col = self.app.process_file(csv_text.encode("utf-8"), filename)
+
+                self.assertEqual(pms_name, expected_pms)
+                self.assertEqual(len(df), 1)
+                self.assertEqual(df.loc[0, "ChargeDate"].strftime("%Y-%m-%d"), expected_date)
+
     def test_process_file_preserves_utf8_bom_international_characters(self):
         csv_bytes = (
             "Billed Date,Client Name,Animal Name,Item Name,Qty,Amount\n"
