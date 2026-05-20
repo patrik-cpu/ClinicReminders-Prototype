@@ -9834,7 +9834,7 @@ def tab_badge_label_text(tab_name: str, badge_text: str, alt_text: str, fill: st
     badge_svg = f"""
     <svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="22" viewBox="0 0 {width} 22">
       <rect x="1" y="2" width="{width - 2}" height="18" rx="9" fill="{fill}"/>
-      <text x="{text_x}" y="15" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle">{html_lib.escape(badge_text)}</text>
+      <text x="{text_x}" y="11" fill="#fff" font-family="Arial, sans-serif" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="middle">{html_lib.escape(badge_text)}</text>
     </svg>
     """
     encoded_badge = base64.b64encode(badge_svg.encode("utf-8")).decode("ascii")
@@ -9868,11 +9868,11 @@ def upload_data_badge_label(count: int | None = None) -> str:
 
 
 def stats_badge_label() -> str:
-    return tab_badge_label_text("Stats", "New", "New Stats tab")
+    return tab_badge_label_text("Stats", "New", "New Stats tab", fill="#23513a")
 
 
 def graphs_badge_label() -> str:
-    return tab_badge_label_text("Graphs", "Soon", "Graphs coming soon")
+    return tab_badge_label_text("Graphs", "Soon", "Graphs coming soon", fill="#23513a")
 
 
 def main_section_tab_label(tab_name: str) -> str:
