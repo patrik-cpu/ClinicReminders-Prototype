@@ -97,6 +97,15 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertIn("1 upload data checks need attention", label)
         self.assertIn("data:image/svg+xml;base64", label)
 
+    def test_upload_data_badge_shows_issue_when_no_csv_is_saved(self):
+        self.assertTrue(self.app.upload_data_needs_initial_upload([]))
+        self.assertEqual(self.app.upload_data_badge_count(rows=[]), 1)
+
+        label = self.app.upload_data_badge_label(count=self.app.upload_data_badge_count(rows=[]))
+
+        self.assertIn("Upload Data", label)
+        self.assertIn("1 upload data checks need attention", label)
+
     def test_dataset_coverage_turns_red_on_day_30_since_last_upload(self):
         rows = [
             {

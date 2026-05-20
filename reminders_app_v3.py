@@ -10069,7 +10069,14 @@ def get_started_badge_label(count: int | None = None) -> str:
 
 def upload_data_badge_count(rows: list[dict] | None = None) -> int:
     rows = get_saved_dataset_summary_rows() if rows is None else rows
+    if upload_data_needs_initial_upload(rows):
+        return 1
     return dataset_summary_issue_count(rows)
+
+
+def upload_data_needs_initial_upload(rows: list[dict] | None = None) -> bool:
+    rows = get_saved_dataset_summary_rows() if rows is None else rows
+    return len(normalize_dataset_upload_history(rows)) == 0
 
 
 def upload_data_badge_label(count: int | None = None) -> str:
@@ -10121,6 +10128,29 @@ def main_section_nav_button_key(tab_name: str) -> str:
 
 def render_main_section_nav(active_tab: str) -> None:
     active_button_key = main_section_nav_button_key(active_tab)
+    upload_data_urgent_css = ""
+    if upload_data_needs_initial_upload():
+        upload_data_urgent_css = """
+          @keyframes cr-upload-tab-pulse {
+            0%, 100% { box-shadow: 0 0 0 1px #b91c1c, 0 0 0 0 rgba(220, 38, 38, 0.42) !important; }
+            50% { box-shadow: 0 0 0 1px #b91c1c, 0 0 0 5px rgba(220, 38, 38, 0.12) !important; }
+          }
+          .st-key-main_section_nav_upload_data button {
+            animation: cr-upload-tab-pulse 1.45s ease-in-out infinite !important;
+            background: #fee2e2 !important;
+            border-color: #ef4444 !important;
+            color: #7f1d1d !important;
+          }
+          .st-key-main_section_nav_upload_data button:hover {
+            background: #fecaca !important;
+            border-color: #dc2626 !important;
+            color: #7f1d1d !important;
+          }
+          .st-key-main_section_nav_upload_data button p,
+          .st-key-main_section_nav_upload_data button span {
+            color: #7f1d1d !important;
+          }
+        """
     st.markdown(
         f"""
         <style>
@@ -10141,6 +10171,7 @@ def render_main_section_nav(active_tab: str) -> None:
           .st-key-{active_button_key} button span {{
             color: #062d19 !important;
           }}
+          {upload_data_urgent_css}
         </style>
         """,
         unsafe_allow_html=True,
