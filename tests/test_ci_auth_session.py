@@ -31,6 +31,14 @@ class AuthSessionTests(unittest.TestCase):
         with patch.object(self.app, "user_timezone_name", return_value="Not/AZone"):
             self.assertEqual(self.app.user_now(utc_midday), utc_midday)
 
+    def test_datepicker_today_ring_css_targets_current_date(self):
+        css = self.app.datepicker_today_ring_css(date(2026, 5, 20))
+
+        self.assertIn("May 20", css)
+        self.assertIn("2026", css)
+        self.assertIn("#dc2626", css)
+        self.assertIn('[data-baseweb="calendar"]', css)
+
     def test_action_tracker_read_converts_utc_timestamp_to_browser_timezone(self):
         row = dict(zip(self.app.ACTION_TRACKER_HEADERS, [
             "2026-05-17 00:30:00",

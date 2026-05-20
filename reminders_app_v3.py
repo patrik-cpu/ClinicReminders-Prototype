@@ -927,6 +927,22 @@ def user_today(now: datetime | None = None) -> date:
     return user_now(now).date()
 
 
+def datepicker_today_ring_css(today: date | None = None) -> str:
+    today = today or user_today()
+    month_day = today.strftime("%B ") + str(today.day)
+    year = str(today.year)
+    return f"""
+    <style>
+      [data-baseweb="calendar"] [aria-label*="{html_lib.escape(month_day)}"][aria-label*="{year}"],
+      [role="grid"] [aria-label*="{html_lib.escape(month_day)}"][aria-label*="{year}"],
+      [aria-label*="{html_lib.escape(month_day)}"][aria-label*="{year}"] {{
+        border-radius: 999px !important;
+        box-shadow: 0 0 0 2px #dc2626, 0 0 0 5px rgba(220, 38, 38, 0.12) !important;
+      }}
+    </style>
+    """.strip()
+
+
 def user_now_iso(now: datetime | None = None) -> str:
     return user_now(now).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -16889,6 +16905,7 @@ if st.session_state.get("logged_in", False):
 
         start_col, today_button_col, lookback_col, window_col, group_col, warning_col = st.columns([2, 0.72, 2, 2, 2, 2])
         with start_col:
+            st.markdown(datepicker_today_ring_css(user_today()), unsafe_allow_html=True)
             render_field_label(
                 st,
                 "Date",
