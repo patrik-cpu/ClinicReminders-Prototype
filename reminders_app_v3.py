@@ -14218,6 +14218,22 @@ STATS_REVENUE_DISPLAY_COLUMNS = [
 ]
 STATS_ITEMS_DISPLAY_COLUMNS = [
     "Item",
+    STATISTICS_SCHEDULED_REMINDERS_LABEL,
+    "Actioned",
+    "Actioned %",
+    "Sent Actions",
+    "Declined Actions",
+    "Sent %",
+    "Sent Reminders",
+    "Successes",
+    "Success Rate",
+    "Revenue from Successes",
+    "Total Purchases",
+    "Total Repeat Purchases",
+    "Repeat Purchase %",
+]
+STATS_ITEMS_OUTCOME_DISPLAY_COLUMNS = [
+    "Item",
     "Sent",
     "Successes",
     "Success Rate",
@@ -16446,6 +16462,58 @@ def prepare_stats_items_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd
     )
 
 
+def build_stats_items_display_frame(item_actioning_frame: pd.DataFrame, item_outcome_frame: pd.DataFrame) -> pd.DataFrame:
+    action_display = prepare_statistics_display_frame(item_actioning_frame)
+    if action_display is None or getattr(action_display, "empty", True):
+        action_display = pd.DataFrame(columns=["Item", STATISTICS_SCHEDULED_REMINDERS_LABEL, "Actioned", "Actioned %", "Sent", "Declined", "Sent %"])
+    action_display = action_display.rename(
+        columns={
+            "Sent": "Sent Actions",
+            "Declined": "Declined Actions",
+        }
+    )
+
+    outcome_display = prepare_stats_items_outcome_dataframe_for_display(
+        item_outcome_frame[[column for column in STATS_ITEMS_OUTCOME_DISPLAY_COLUMNS if column in item_outcome_frame.columns]]
+        if item_outcome_frame is not None and not getattr(item_outcome_frame, "empty", True)
+        else pd.DataFrame(columns=STATS_ITEMS_OUTCOME_DISPLAY_COLUMNS)
+    )
+    if outcome_display is None or getattr(outcome_display, "empty", True):
+        outcome_display = pd.DataFrame(
+            columns=[
+                "Item",
+                "Sent Reminders",
+                "Successes",
+                "Success Rate",
+                "Revenue from Successes",
+                "Total Purchases",
+                "Total Repeat Purchases",
+                "Repeat Purchase %",
+            ]
+        )
+
+    merged = action_display.merge(outcome_display, on="Item", how="outer")
+    if merged.empty:
+        return pd.DataFrame(columns=STATS_ITEMS_DISPLAY_COLUMNS)
+    return merged[[column for column in STATS_ITEMS_DISPLAY_COLUMNS if column in merged.columns]]
+
+
+def stats_items_column_config() -> dict:
+    return {
+        STATISTICS_SCHEDULED_REMINDERS_LABEL: st.column_config.NumberColumn(
+            STATISTICS_SCHEDULED_REMINDERS_LABEL,
+            help=STATS_ITEM_ACTIONING_COLUMN_HELP[STATISTICS_SCHEDULED_REMINDERS_LABEL],
+            format="%d",
+        ),
+        "Actioned": st.column_config.NumberColumn("Actioned", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Actioned"], format="%d"),
+        "Actioned %": st.column_config.NumberColumn("Actioned %", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Actioned %"], format="%.0f%%"),
+        "Sent Actions": st.column_config.NumberColumn("Sent Actions", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Sent"], format="%d"),
+        "Declined Actions": st.column_config.NumberColumn("Declined Actions", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Declined"], format="%d"),
+        "Sent %": st.column_config.NumberColumn("Sent %", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Sent %"], format="%.0f%%"),
+        **outcome_display_column_config(),
+    }
+
+
 def style_outcome_dataframe_for_display(display_frame: pd.DataFrame, highlight_column: str | None = None):
     if not highlight_column or display_frame is None or highlight_column not in display_frame.columns:
         return display_frame
@@ -17293,23 +17361,37 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         )
 
     elif active_stats_subtab == "Items":
-        item_frame = stats_item_outcome_frame
-        render_outcome_dataframe(
-            item_frame,
-            columns=STATS_ITEMS_DISPLAY_COLUMNS,
-            table_key="stats_items_detail",
-            default_sort_column="Sent",
-            default_sort_ascending=False,
-            item_label="item rows",
-            display_column_labels=STATS_ITEMS_DISPLAY_COLUMN_LABELS,
+        item_actioning_frame = build_statistics_item_frame(
+            generated_df,
+            action_records,
+            stats_period,
+            generated_rows=stats_generated_item_rows,
+            action_rows=stats_action_item_rows,
         )
-        render_stats_csv_export(
-            item_frame,
-            "stats-items",
-            "stats_items_detail",
-            columns=STATS_ITEMS_DISPLAY_COLUMNS,
-            display_preparer=prepare_stats_items_outcome_dataframe_for_display,
-        )
+        item_frame = build_stats_items_display_frame(item_actioning_frame, stats_item_outcome_frame)
+        if item_frame.empty:
+            st.info("No item stats yet.")
+        else:
+            item_frame = sort_stats_frame_for_pagination(item_frame, STATISTICS_SCHEDULED_REMINDERS_LABEL, False)
+            paged_item_frame = paginate_dataframe(
+                item_frame,
+                "stats_items_detail",
+                STATS_TABLE_PAGE_SIZE,
+                "item rows",
+            )
+            st.dataframe(
+                paged_item_frame,
+                hide_index=True,
+                use_container_width=True,
+                height=STATS_TABLE_HEIGHT,
+                column_config=stats_items_column_config(),
+            )
+            render_stats_csv_export(
+                item_frame,
+                "stats-items",
+                "stats_items_detail",
+                columns=STATS_ITEMS_DISPLAY_COLUMNS,
+            )
 
     elif active_stats_subtab == "Successes":
         selected_success_period, success_custom_range = render_stats_successes_period_selector()

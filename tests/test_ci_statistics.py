@@ -854,8 +854,17 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Overall Purchases", rendered_frame.columns)
         self.assertAlmostEqual(rendered_frame.iloc[0]["Gap Day %"], (370 / 365) * 100)
 
-    def test_stats_items_display_columns_receive_moved_outcome_metrics(self):
-        frame = pd.DataFrame([
+    def test_stats_items_display_columns_keep_activity_and_receive_moved_outcome_metrics(self):
+        actioning_frame = pd.DataFrame([
+            {
+                "Item": "Rabies",
+                "Generated": 5,
+                "Actioned": 3,
+                "Sent": 2,
+                "Declined": 1,
+            }
+        ])
+        outcome_frame = pd.DataFrame([
             {
                 "Item": "Rabies",
                 "Sent": 4,
@@ -870,25 +879,18 @@ class StatisticsTests(unittest.TestCase):
             }
         ])
 
-        with (
-            mock.patch.object(self.app.st, "caption"),
-            mock.patch.object(self.app.st, "button", return_value=False),
-            mock.patch.object(self.app.st, "dataframe") as dataframe,
-        ):
-            self.app.render_outcome_dataframe(
-                frame,
-                columns=self.app.STATS_ITEMS_DISPLAY_COLUMNS,
-                table_key="stats_items_detail",
-                default_sort_column="Sent",
-                item_label="item rows",
-                display_column_labels=self.app.STATS_ITEMS_DISPLAY_COLUMN_LABELS,
-            )
+        rendered_frame = self.app.build_stats_items_display_frame(actioning_frame, outcome_frame)
 
-        rendered_frame = dataframe.call_args.args[0]
         self.assertEqual(
             rendered_frame.columns.tolist(),
             [
                 "Item",
+                "Scheduled reminders",
+                "Actioned",
+                "Actioned %",
+                "Sent Actions",
+                "Declined Actions",
+                "Sent %",
                 "Sent Reminders",
                 "Successes",
                 "Success Rate",
@@ -900,6 +902,13 @@ class StatisticsTests(unittest.TestCase):
         )
         self.assertNotIn("Calculated Revenue per Year", rendered_frame.columns)
         self.assertNotIn("Capturable Revenue Potential per Year", rendered_frame.columns)
+        self.assertEqual(rendered_frame.iloc[0]["Scheduled reminders"], 5)
+        self.assertEqual(rendered_frame.iloc[0]["Actioned"], 3)
+        self.assertEqual(rendered_frame.iloc[0]["Sent Actions"], 2)
+        self.assertEqual(rendered_frame.iloc[0]["Declined Actions"], 1)
+        self.assertAlmostEqual(rendered_frame.iloc[0]["Actioned %"], 60)
+        self.assertAlmostEqual(rendered_frame.iloc[0]["Sent %"], 2 / 3 * 100)
+        self.assertEqual(rendered_frame.iloc[0]["Sent Reminders"], 4)
         self.assertEqual(rendered_frame.iloc[0]["Success Rate"], 25)
         self.assertEqual(rendered_frame.iloc[0]["Revenue from Successes"], 120)
         self.assertEqual(rendered_frame.iloc[0]["Repeat Purchase %"], 75)
