@@ -13980,6 +13980,8 @@ OUTCOME_TABLE_COLUMNS = [
     "Gap Day % to Desired",
     "Overall Repeat Purchases",
     "Overall Purchases",
+    "Unique Repeat Purchasing Patients",
+    "Unique Purchasing Patients",
     "Repeat Purchase %",
     "Revenue per Item",
     "Revenue",
@@ -14039,13 +14041,15 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Total Repeat Purchases": "Repeat purchases (same client, animal, and item) used to calculate the overall average gap.",
     "Overall Purchases": "Total matching purchases found in uploaded sales data.",
     "Total Purchases": "Total matching purchases found in uploaded sales data.",
+    "Unique Repeat Purchasing Patients": "Unique client-patient pairs with at least two matching purchases for this item.",
+    "Unique Purchasing Patients": "Unique client-patient pairs with at least one matching purchase for this item.",
     "Repeat Purchase %": "Percentage of matching purchases that are repeat purchases.",
     "Success Rate": "Percentage of sent reminders that became successful by either success window.",
     "Revenue per Item": "Average revenue per matching purchase in the uploaded sales data.",
     "Revenue from Successes": "Revenue from repeat purchases that counted as reminder successes.",
-    "Revenue per Year": "Estimated annual revenue from actual repeat purchases.\nFormula: Total Repeat Purchases x (365 / Actual Gap Days) x Revenue per Item.",
-    "Calculated Revenue per Year": "Estimated annual revenue from actual repeat purchases.\nFormula: Total Repeat Purchases x (365 / Actual Gap Days) x Revenue per Item.",
-    "Theoretical Max Revenue": "Estimated annual ceiling from all matching purchases at the desired cadence.\nFormula: Total Purchases x (365 / Desired Gap Days) x Revenue per Item.",
+    "Revenue per Year": "Estimated annual revenue from repeat purchasing patients.\nFormula: Unique Repeat Purchasing Patients x (365 / Actual Gap Days) x Revenue per Item.",
+    "Calculated Revenue per Year": "Estimated annual revenue from repeat purchasing patients.\nFormula: Unique Repeat Purchasing Patients x (365 / Actual Gap Days) x Revenue per Item.",
+    "Theoretical Max Revenue": "Estimated annual ceiling from unique purchasing patients at the faster of the actual or desired cadence.\nFormula: Unique Purchasing Patients x (365 / faster of Actual Gap Days or Desired Gap Days) x Revenue per Item.",
     "Capturable Revenue per Year": "Estimated annual revenue still available.\nFormula: Theoretical Max Revenue - Calculated Revenue per Year.",
     "Capturable Revenue Potential per Year": "Estimated annual revenue still available.\nFormula: Theoretical Max Revenue - Calculated Revenue per Year.",
     "Captured Revenue %": "Calculated revenue per year divided by theoretical max revenue.",
@@ -14074,6 +14078,8 @@ OUTCOME_DISPLAY_COLUMN_TITLES = {
     "Total Repeat Purchases": "Total Repeat\nPurchases",
     "Overall Purchases": "Overall\nPurchases",
     "Total Purchases": "Total\nPurchases",
+    "Unique Repeat Purchasing Patients": "Unique Repeat\nPurchasing Patients",
+    "Unique Purchasing Patients": "Unique Purchasing\nPatients",
     "Repeat Purchase %": "Repeat\nPurchase %",
     "Revenue per Item": "Revenue\nper Item",
     "Revenue from Successes": "Revenue from\nSuccesses",
@@ -14112,6 +14118,8 @@ OUTCOME_DISPLAY_COLUMN_WIDTHS = {
     "Total Repeat Purchases": "small",
     "Overall Purchases": "small",
     "Total Purchases": "small",
+    "Unique Repeat Purchasing Patients": "small",
+    "Unique Purchasing Patients": "small",
     "Repeat Purchase %": "small",
     "Revenue per Item": "small",
     "Revenue from Successes": "small",
@@ -14170,6 +14178,8 @@ OUTCOME_ITEM_GROUP_COLUMNS = [
     "Gap Day % to Desired",
     "Overall Repeat Purchases",
     "Overall Purchases",
+    "Unique Repeat Purchasing Patients",
+    "Unique Purchasing Patients",
     "Repeat Purchase %",
     "Revenue per Item",
     "Revenue",
@@ -14185,6 +14195,8 @@ STATS_ITEMS_DISPLAY_COLUMNS = [
     "Theoretical Max Revenue",
     "Captured Revenue %",
     "Revenue per Item",
+    "Unique Purchasing Patients",
+    "Unique Repeat Purchasing Patients",
     "Sent",
     "Successes",
     "Success Rate",
@@ -15369,7 +15381,15 @@ def build_average_sales_purchase_gap_map(
     gap_key_matches: dict[tuple[str, ...], list[str]],
     item_match_map: pd.DataFrame,
 ) -> dict[tuple[str, ...], dict[str, float | int | None]]:
-    empty_result = {"average": None, "count": 0, "total": 0, "repeat_rate": 0.0, "average_revenue": 0.0}
+    empty_result = {
+        "average": None,
+        "count": 0,
+        "total": 0,
+        "unique_patients": 0,
+        "unique_repeat_patients": 0,
+        "repeat_rate": 0.0,
+        "average_revenue": 0.0,
+    }
     if sales is None or sales.empty or not gap_key_matches:
         return {key: dict(empty_result) for key in gap_key_matches}
 
@@ -15420,6 +15440,13 @@ def build_average_sales_purchase_gap_map(
     matched = matched.sort_values(["_GapID", "OutcomeClientKey", "OutcomePatientKey", "OutcomeChargeDate"])
     total_counts = matched.groupby("_GapID")["OutcomeChargeDate"].count()
     average_revenue = matched.groupby("_GapID")["OutcomeAmount"].mean()
+    patient_purchase_counts = (
+        matched
+        .groupby(["_GapID", "OutcomeClientKey", "OutcomePatientKey"], dropna=False)["OutcomeChargeDate"]
+        .count()
+    )
+    unique_patient_counts = patient_purchase_counts.groupby(level="_GapID").count()
+    unique_repeat_patient_counts = patient_purchase_counts.loc[patient_purchase_counts.ge(2)].groupby(level="_GapID").count()
     matched["_GapDays"] = (
         matched
         .groupby(["_GapID", "OutcomeClientKey", "OutcomePatientKey"], dropna=False)["OutcomeChargeDate"]
@@ -15434,6 +15461,12 @@ def build_average_sales_purchase_gap_map(
             "average": float(gap_means.loc[gap_id]) if gap_id in gap_means.index else None,
             "count": int(gap_counts.loc[gap_id]) if gap_id in gap_counts.index else 0,
             "total": int(total_counts.loc[gap_id]) if gap_id in total_counts.index else 0,
+            "unique_patients": int(unique_patient_counts.loc[gap_id]) if gap_id in unique_patient_counts.index else 0,
+            "unique_repeat_patients": (
+                int(unique_repeat_patient_counts.loc[gap_id])
+                if gap_id in unique_repeat_patient_counts.index
+                else 0
+            ),
             "average_revenue": float(average_revenue.loc[gap_id]) if gap_id in average_revenue.index else 0.0,
             "repeat_rate": (
                 float(gap_counts.loc[gap_id]) / float(total_counts.loc[gap_id])
@@ -15580,6 +15613,8 @@ def build_reminder_outcomes(
             "Gap Day % to Desired": None,
             "Overall Repeat Purchases": 0,
             "Overall Purchases": 0,
+            "Unique Repeat Purchasing Patients": 0,
+            "Unique Purchasing Patients": 0,
             "Repeat Purchase %": 0.0,
             "Revenue per Item": 0.0,
             "Revenue": 0.0,
@@ -15607,6 +15642,12 @@ def build_reminder_outcomes(
         outcomes["Overall Purchases"] = outcomes["_OutcomeGapCacheKey"].map(
             lambda key: (gap_map.get(key) or {}).get("total", 0)
         )
+        outcomes["Unique Repeat Purchasing Patients"] = outcomes["_OutcomeGapCacheKey"].map(
+            lambda key: (gap_map.get(key) or {}).get("unique_repeat_patients", 0)
+        )
+        outcomes["Unique Purchasing Patients"] = outcomes["_OutcomeGapCacheKey"].map(
+            lambda key: (gap_map.get(key) or {}).get("unique_patients", 0)
+        )
         outcomes["Repeat Purchase %"] = outcomes["_OutcomeGapCacheKey"].map(
             lambda key: (gap_map.get(key) or {}).get("repeat_rate", 0.0)
         )
@@ -15618,8 +15659,11 @@ def build_reminder_outcomes(
     desired_gap_values = pd.to_numeric(outcomes["Desired Gap Days"], errors="coerce")
     overall_gap_values = pd.to_numeric(outcomes["Avg Item Purchase Gap Days"], errors="coerce")
     average_item_revenue_values = pd.to_numeric(outcomes["_OutcomeAvgItemRevenue"], errors="coerce").fillna(0.0)
-    overall_repeat_purchase_values = pd.to_numeric(outcomes["Overall Repeat Purchases"], errors="coerce").fillna(0.0)
-    overall_purchase_values = pd.to_numeric(outcomes["Overall Purchases"], errors="coerce").fillna(0.0)
+    unique_repeat_patient_values = pd.to_numeric(
+        outcomes["Unique Repeat Purchasing Patients"],
+        errors="coerce",
+    ).fillna(0.0)
+    unique_patient_values = pd.to_numeric(outcomes["Unique Purchasing Patients"], errors="coerce").fillna(0.0)
     actual_interval_values = np.where(overall_gap_values.gt(0), 365 / overall_gap_values, np.nan)
     desired_interval_values = np.where(desired_gap_values.gt(0), 365 / desired_gap_values, np.nan)
     max_interval_values = np.fmax(actual_interval_values, desired_interval_values)
@@ -15631,12 +15675,12 @@ def build_reminder_outcomes(
     outcomes["Revenue per Item"] = average_item_revenue_values
     outcomes["Revenue per Year"] = np.where(
         overall_gap_values.gt(0),
-        average_item_revenue_values * overall_repeat_purchase_values * (365 / overall_gap_values),
+        average_item_revenue_values * unique_repeat_patient_values * (365 / overall_gap_values),
         None,
     )
     outcomes["Theoretical Max Revenue"] = np.where(
         ~np.isnan(max_interval_values),
-        average_item_revenue_values * overall_purchase_values * max_interval_values,
+        average_item_revenue_values * unique_patient_values * max_interval_values,
         None,
     )
     revenue_per_year_values = pd.to_numeric(outcomes["Revenue per Year"], errors="coerce")
@@ -15901,6 +15945,8 @@ OUTCOME_SUMMARY_NUMERIC_COLUMNS = (
     "Avg Item Purchase Gap Days",
     "Overall Repeat Purchases",
     "Overall Purchases",
+    "Unique Repeat Purchasing Patients",
+    "Unique Purchasing Patients",
     "Revenue per Item",
     "Revenue",
     "Revenue per Year",
@@ -15948,6 +15994,8 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             "gap_day_rate_to_desired": None,
             "overall_repeat_purchases": 0,
             "overall_purchases": 0,
+            "unique_repeat_purchasing_patients": 0,
+            "unique_purchasing_patients": 0,
             "repeat_purchase_rate": 0.0,
             "revenue_per_item": 0.0,
             "revenue": 0.0,
@@ -15971,6 +16019,10 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             gap_columns.append("Overall Repeat Purchases")
         if "Overall Purchases" in outcomes_df.columns:
             gap_columns.append("Overall Purchases")
+        if "Unique Repeat Purchasing Patients" in outcomes_df.columns:
+            gap_columns.append("Unique Repeat Purchasing Patients")
+        if "Unique Purchasing Patients" in outcomes_df.columns:
+            gap_columns.append("Unique Purchasing Patients")
         if "Revenue per Item" in outcomes_df.columns:
             gap_columns.append("Revenue per Item")
         if "Revenue per Year" in outcomes_df.columns:
@@ -15999,6 +16051,18 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         if "Overall Purchases" not in item_purchase_gap_frame.columns:
             item_purchase_gap_frame["Overall Purchases"] = 0
         item_purchase_total_counts = outcome_summary_numeric_series(item_purchase_gap_frame, "Overall Purchases").fillna(0)
+        if "Unique Repeat Purchasing Patients" not in item_purchase_gap_frame.columns:
+            item_purchase_gap_frame["Unique Repeat Purchasing Patients"] = 0
+        unique_repeat_patient_counts = outcome_summary_numeric_series(
+            item_purchase_gap_frame,
+            "Unique Repeat Purchasing Patients",
+        ).fillna(0)
+        if "Unique Purchasing Patients" not in item_purchase_gap_frame.columns:
+            item_purchase_gap_frame["Unique Purchasing Patients"] = 0
+        unique_patient_counts = outcome_summary_numeric_series(
+            item_purchase_gap_frame,
+            "Unique Purchasing Patients",
+        ).fillna(0)
         if "Revenue per Item" not in item_purchase_gap_frame.columns:
             item_purchase_gap_frame["Revenue per Item"] = 0
         revenue_per_item_values = outcome_summary_numeric_series(item_purchase_gap_frame, "Revenue per Item").fillna(0)
@@ -16023,12 +16087,20 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         item_purchase_gap_values = pd.Series(dtype=float)
         item_purchase_gap_counts = pd.Series(dtype=float)
         item_purchase_total_counts = pd.Series(dtype=float)
+        unique_repeat_patient_counts = pd.Series(dtype=float)
+        unique_patient_counts = pd.Series(dtype=float)
         revenue_per_item_values = pd.Series(dtype=float)
         revenue_per_year_values = pd.Series(dtype=float)
         theoretical_max_revenue_values = pd.Series(dtype=float)
         capturable_revenue_per_year_values = pd.Series(dtype=float)
     overall_repeat_purchases = int(item_purchase_gap_counts.sum()) if not item_purchase_gap_counts.empty else 0
     overall_purchases = int(item_purchase_total_counts.sum()) if not item_purchase_total_counts.empty else 0
+    unique_repeat_purchasing_patients = (
+        int(unique_repeat_patient_counts.sum())
+        if not unique_repeat_patient_counts.empty
+        else 0
+    )
+    unique_purchasing_patients = int(unique_patient_counts.sum()) if not unique_patient_counts.empty else 0
     revenue_per_year = float(revenue_per_year_values.sum()) if not revenue_per_year_values.empty else 0.0
     theoretical_max_revenue = (
         float(theoretical_max_revenue_values.sum())
@@ -16064,6 +16136,8 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         "gap_day_rate_to_desired": gap_day_rate_to_desired,
         "overall_repeat_purchases": overall_repeat_purchases,
         "overall_purchases": overall_purchases,
+        "unique_repeat_purchasing_patients": unique_repeat_purchasing_patients,
+        "unique_purchasing_patients": unique_purchasing_patients,
         "repeat_purchase_rate": (overall_repeat_purchases / overall_purchases) if overall_purchases else 0.0,
         "revenue_per_item": revenue_per_item,
         "revenue": float(outcome_summary_numeric_series(success_df, "Revenue").fillna(0).sum()) if successes else 0.0,
@@ -16097,6 +16171,8 @@ def build_outcome_group_frame(
         "Gap Day % to Desired",
         "Overall Repeat Purchases",
         "Overall Purchases",
+        "Unique Repeat Purchasing Patients",
+        "Unique Purchasing Patients",
         "Repeat Purchase %",
         "Revenue per Item",
         "Revenue",
@@ -16129,6 +16205,8 @@ def build_outcome_group_frame(
             "Gap Day % to Desired": summary["gap_day_rate_to_desired"],
             "Overall Repeat Purchases": summary["overall_repeat_purchases"],
             "Overall Purchases": summary["overall_purchases"],
+            "Unique Repeat Purchasing Patients": summary["unique_repeat_purchasing_patients"],
+            "Unique Purchasing Patients": summary["unique_purchasing_patients"],
             "Repeat Purchase %": summary["repeat_purchase_rate"],
             "Revenue per Item": summary["revenue_per_item"],
             "Revenue": summary["revenue"],
@@ -16236,6 +16314,8 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
         "Gap Day % to Desired",
         "Overall Repeat Purchases",
         "Overall Purchases",
+        "Unique Repeat Purchasing Patients",
+        "Unique Purchasing Patients",
         "Repeat Purchase %",
         "Revenue per Item",
         "Revenue",
@@ -16265,6 +16345,8 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
             "Gap Day % to Desired": summary["gap_day_rate_to_desired"],
             "Overall Repeat Purchases": summary["overall_repeat_purchases"],
             "Overall Purchases": summary["overall_purchases"],
+            "Unique Repeat Purchasing Patients": summary["unique_repeat_purchasing_patients"],
+            "Unique Purchasing Patients": summary["unique_purchasing_patients"],
             "Repeat Purchase %": summary["repeat_purchase_rate"],
             "Revenue per Item": summary["revenue_per_item"],
             "Revenue": summary["revenue"],
@@ -16449,6 +16531,8 @@ def outcome_display_column_config() -> dict:
         "Total Repeat Purchases": outcome_display_number_column("Total Repeat Purchases", "%d"),
         "Overall Purchases": outcome_display_number_column("Overall Purchases", "%d"),
         "Total Purchases": outcome_display_number_column("Total Purchases", "%d"),
+        "Unique Repeat Purchasing Patients": outcome_display_number_column("Unique Repeat Purchasing Patients", "%d"),
+        "Unique Purchasing Patients": outcome_display_number_column("Unique Purchasing Patients", "%d"),
         "Repeat Purchase %": outcome_display_number_column("Repeat Purchase %", "%.0f%%"),
         "Revenue per Item": outcome_display_number_column("Revenue per Item", "localized"),
         "Revenue from Successes": outcome_display_number_column("Revenue from Successes", "localized"),
