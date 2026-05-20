@@ -9539,9 +9539,9 @@ def get_setup_checklist_modules() -> list[dict]:
             "tab": "Account",
             "copy": "Confirm clinic details, access, and privacy controls.",
             "items": [
-                item("review_profile", "Review clinic profile"),
-                item("review_privacy", "Review data and privacy information"),
-                item("review_clinic_access", "Review clinic access"),
+                item("review_profile", "Review your clinic profile"),
+                item("review_privacy", "Review Data & Privacy information"),
+                item("review_clinic_access", "Invite a staff member via Clinic Access"),
             ],
         },
     ]
