@@ -109,12 +109,25 @@ class SettingsSaveStateTests(unittest.TestCase):
         normalized = self.app.normalize_search_term_rules({
             "rabies": {"days": 365, "use_qty": False},
             "bravecto": {"days": 90, "use_qty": True},
+            "cardisure": {"days": 30, "use_qty": False},
             "custom local term": {"days": 30, "use_qty": False},
         })
 
         self.assertEqual(normalized["rabies"]["category"], "Vaccinations")
         self.assertEqual(normalized["bravecto"]["category"], "Parasite Control")
+        self.assertEqual(normalized["cardisure"]["category"], "Medications")
         self.assertEqual(normalized["custom local term"]["category"], "Other")
+
+    def test_search_term_category_aliases_migrate_old_saved_names(self):
+        normalized = self.app.normalize_search_term_rules({
+            "librela": {"days": 30, "use_qty": False, "category": "Injection Therapies"},
+            "dental": {"days": 365, "use_qty": False, "category": "Dental Care"},
+            "arthritis": {"days": 30, "use_qty": False, "category": "Mobility & Pain Management"},
+        })
+
+        self.assertEqual(normalized["librela"]["category"], "Injections")
+        self.assertEqual(normalized["dental"]["category"], "Dental")
+        self.assertEqual(normalized["arthritis"]["category"], "Mobility & Pain")
 
     def test_search_term_category_tab_label_hides_zero_counts(self):
         self.assertEqual(

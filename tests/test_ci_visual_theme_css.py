@@ -227,6 +227,18 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("align-items: flex-end;", source)
         self.assertIn("min-height: 3.1rem;", source)
 
+    def test_search_term_categories_render_as_wrapped_button_tabs(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn("def render_search_term_category_selector", source)
+        self.assertIn("SEARCH_TERM_CATEGORIES[:8]", source)
+        self.assertIn("SEARCH_TERM_CATEGORIES[8:]", source)
+        self.assertIn('class="cr-search-term-category-rule"', source)
+        self.assertNotIn("category_tabs = st.tabs", source)
+        self.assertIn("Dental", source)
+        self.assertIn("Medications", source)
+        self.assertIn("Mobility & Pain", source)
+
 
 if __name__ == "__main__":
     unittest.main()
