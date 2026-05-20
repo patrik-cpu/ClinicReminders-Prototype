@@ -19,31 +19,32 @@ class GetStartedBadgeTests(unittest.TestCase):
             del state[key]
 
     def test_badge_count_matches_incomplete_setup_actions(self):
-        self.assertEqual(self.app.get_started_incomplete_count(), 6)
+        self.assertGreater(self.app.get_started_incomplete_count(), 6)
         self.assertIn("setup steps remaining", self.app.get_started_badge_label())
 
         state = self.app.st.session_state
-        state["working_df"] = pd.DataFrame({"ChargeDate": pd.to_datetime(["2026-05-01"])})
-        state["shared_dataset_updated_at"] = "2026-05-01T10:00:00"
-        state["search_term_added"] = True
-        state["search_term_added_at"] = "2026-05-01T10:01:00"
-        state["user_name"] = "Clinic Team"
-        state["user_name_updated_at"] = "2026-05-01T10:02:00"
-        state["wa_template_updated"] = True
-        state["wa_template_updated_at"] = "2026-05-01T10:03:00"
-        state["wa_reminder_log"] = [{"Client Name": "A Client", "RemindedAt": "2026-05-01T10:04:00"}]
-        state["deleted_reminders"] = [{"Action": self.app.REMINDER_ACTION_DECLINED, "ActionedAt": "2026-05-01T10:05:00"}]
+        state[self.app.GET_STARTED_MANUAL_DONE_KEY] = {
+            entry["id"]: True
+            for module in self.app.get_setup_checklist_modules()
+            for entry in module["items"]
+        }
 
         self.assertEqual(self.app.get_started_incomplete_count(), 0)
         self.assertEqual(self.app.get_started_badge_label(), "Get Started")
 
-    def test_get_started_steps_include_template_guidance(self):
-        steps = self.app.get_setup_checklist_steps()
-        step_titles = [step["title"] for step in steps]
-        template_step = next(step for step in steps if step["number"] == 4)
+    def test_get_started_modules_include_tab_feature_guidance(self):
+        modules = self.app.get_setup_checklist_modules()
+        module_titles = [module["tab"] for module in modules]
+        reminder_items = next(module for module in modules if module["tab"] == "Reminders")["items"]
+        exclusion_items = next(module for module in modules if module["tab"] == "Exclusions")["items"]
 
-        self.assertIn("Review message templates", step_titles)
-        self.assertIn("Add extra templates", template_step["copy"])
+        self.assertIn("Upload Data", module_titles)
+        self.assertIn("Search Terms", module_titles)
+        self.assertIn("Reminders", module_titles)
+        self.assertIn("Exclusions", module_titles)
+        self.assertIn("Stats", module_titles)
+        self.assertIn("Create or select another template", [item["label"] for item in reminder_items])
+        self.assertIn("Review automatic death keywords", [item["label"] for item in exclusion_items])
 
     def test_stats_tab_shows_new_badge(self):
         label = self.app.main_section_tab_label("Stats")

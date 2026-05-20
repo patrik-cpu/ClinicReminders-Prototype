@@ -66,6 +66,8 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Stats", "Graphs"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 PENDING_MAIN_SECTION_TAB_KEY = "_pending_main_section_tab"
+GET_STARTED_MANUAL_DONE_KEY = "get_started_manual_done"
+GET_STARTED_VISITED_TABS_KEY = "get_started_visited_tabs"
 MAIN_SECTION_TAB_SLUGS = {
     "reminders": "Reminders",
     "stats": "Stats",
@@ -116,6 +118,9 @@ def canonical_main_section_tab(tab_name: str) -> str:
 def set_main_section_tab(tab_name: str):
     tab_name = canonical_main_section_tab(tab_name)
     if tab_name in MAIN_SECTION_TABS:
+        visited_tabs = list(st.session_state.get(GET_STARTED_VISITED_TABS_KEY, []))
+        if tab_name not in visited_tabs:
+            st.session_state[GET_STARTED_VISITED_TABS_KEY] = [*visited_tabs, tab_name]
         try:
             st.session_state["main_section_tab"] = tab_name
         except st.errors.StreamlitAPIException:
@@ -611,6 +616,8 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "google_email",
     "google_subject",
     "get_started_reset_at",
+    GET_STARTED_MANUAL_DONE_KEY,
+    GET_STARTED_VISITED_TABS_KEY,
     "search_terms_reviewed",
     "search_term_added",
     "search_term_added_at",
@@ -2393,70 +2400,52 @@ st.markdown(
     }
     .setup-grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(180px, 1fr));
-        gap: 0.75rem;
+        grid-template-columns: repeat(2, minmax(260px, 1fr));
+        gap: 0.85rem;
         padding-bottom: 1rem;
     }
-    .setup-step {
+    .setup-module {
         border: 1px solid var(--cr-border);
         border-radius: 8px;
-        padding: 0.8rem;
-        min-height: 150px;
-        display: flex;
-        flex-direction: column;
-        gap: 0.45rem;
-        background: var(--cr-step-bg);
+        padding: 0.85rem;
+        background: var(--cr-surface);
     }
-    .setup-step.complete {
+    .setup-module.complete {
         border-color: var(--cr-step-complete-border);
         background: var(--cr-step-complete-bg);
     }
-    .setup-step.todo {
+    .setup-module.todo {
         border-color: rgba(248, 113, 113, 0.42);
         background: #fff1f2;
     }
-    .setup-step.current {
-        border-color: var(--cr-step-current-border);
-        box-shadow: 0 0 0 1px rgba(41, 210, 114, 0.18), 0 10px 22px rgba(29, 167, 89, 0.10);
-        background: var(--cr-step-current-bg);
-    }
-    .setup-step.optional {
-        border-color: var(--cr-step-optional-border);
-        background: var(--cr-step-optional-bg);
-    }
-    .setup-status {
-        width: fit-content;
-        border-radius: 999px;
-        padding: 0.1rem 0.45rem;
-        font-size: 0.78rem;
+    .setup-module-title {
         font-weight: 700;
-        background: var(--cr-chip-bg);
-        color: var(--cr-text);
+        font-size: 1.02rem;
+        margin-bottom: 0.15rem;
     }
-    .setup-step.current .setup-status {
-        background: var(--cr-primary);
-        color: #062d19;
-    }
-    .setup-step.todo .setup-status {
-        background: #ffe4e6;
-        color: #9f1239;
-    }
-    .setup-title {
-        font-weight: 700;
-        font-size: 1rem;
-    }
-    .setup-copy {
+    .setup-module-copy {
         color: var(--cr-muted);
         font-size: 0.92rem;
         line-height: 1.35;
-        flex: 1;
+        margin-bottom: 0.55rem;
     }
-    .setup-where {
-        color: var(--cr-link);
-        display: inline-block;
-        font-size: 0.9rem;
-        font-weight: 700;
-        margin-top: 0.2rem;
+    .setup-item-label {
+        border: 1px solid rgba(248, 113, 113, 0.32);
+        background: rgba(254, 226, 226, 0.56);
+        border-radius: 8px;
+        padding: 0.48rem 0.58rem;
+        min-height: 2.45rem;
+        display: flex;
+        align-items: center;
+        font-size: 0.92rem;
+        line-height: 1.25;
+    }
+    .setup-item-label.done {
+        border-color: rgba(34, 197, 94, 0.34);
+        background: rgba(220, 252, 231, 0.78);
+    }
+    .setup-item-label.todo {
+        color: #7f1d1d;
     }
     .graphs-coming-soon-panel {
         align-items: center;
@@ -4611,6 +4600,12 @@ def load_settings(load_action_history: bool = True):
         st.session_state["wa_template_reviewed"] = bool(settings.get("wa_template_reviewed", False))
         st.session_state["wa_template_updated"] = bool(settings.get("wa_template_updated", False))
         st.session_state["get_started_reset_at"] = settings.get("get_started_reset_at", "")
+        manual_done = settings.get(GET_STARTED_MANUAL_DONE_KEY, {})
+        visited_tabs = settings.get(GET_STARTED_VISITED_TABS_KEY, [])
+        st.session_state[GET_STARTED_MANUAL_DONE_KEY] = dict(manual_done) if isinstance(manual_done, dict) else {}
+        st.session_state[GET_STARTED_VISITED_TABS_KEY] = [
+            tab for tab in visited_tabs if tab in MAIN_SECTION_TABS
+        ] if isinstance(visited_tabs, list) else []
         st.session_state["search_term_added_at"] = settings.get("search_term_added_at", "")
         st.session_state["user_name_updated_at"] = settings.get("user_name_updated_at", "")
         st.session_state["wa_template_updated_at"] = settings.get("wa_template_updated_at", "")
@@ -4646,6 +4641,8 @@ def load_settings(load_action_history: bool = True):
         st.session_state["wa_template_reviewed"] = False
         st.session_state["wa_template_updated"] = False
         st.session_state["get_started_reset_at"] = ""
+        st.session_state[GET_STARTED_MANUAL_DONE_KEY] = {}
+        st.session_state[GET_STARTED_VISITED_TABS_KEY] = []
         st.session_state["search_term_added_at"] = ""
         st.session_state["user_name_updated_at"] = ""
         st.session_state["wa_template_updated_at"] = ""
@@ -4988,6 +4985,16 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "wa_template_reviewed": bool(setting_for_save("wa_template_reviewed", False)),
         "wa_template_updated": bool(setting_for_save("wa_template_updated", False)),
         "get_started_reset_at": setting_for_save("get_started_reset_at", ""),
+        GET_STARTED_MANUAL_DONE_KEY: (
+            dict(setting_for_save(GET_STARTED_MANUAL_DONE_KEY, {}))
+            if isinstance(setting_for_save(GET_STARTED_MANUAL_DONE_KEY, {}), dict)
+            else {}
+        ),
+        GET_STARTED_VISITED_TABS_KEY: (
+            [tab for tab in setting_for_save(GET_STARTED_VISITED_TABS_KEY, []) if tab in MAIN_SECTION_TABS]
+            if isinstance(setting_for_save(GET_STARTED_VISITED_TABS_KEY, []), list)
+            else []
+        ),
         "search_term_added_at": setting_for_save("search_term_added_at", ""),
         "user_name_updated_at": setting_for_save("user_name_updated_at", ""),
         "wa_template_updated_at": setting_for_save("wa_template_updated_at", ""),
@@ -7658,6 +7665,8 @@ def default_settings_for_country(country: str = "") -> dict:
         "wa_template_reviewed": False,
         "wa_template_updated": False,
         "get_started_reset_at": "",
+        GET_STARTED_MANUAL_DONE_KEY: {},
+        GET_STARTED_VISITED_TABS_KEY: [],
         "search_term_added_at": "",
         "user_name_updated_at": "",
         "wa_template_updated_at": "",
@@ -9232,12 +9241,45 @@ show_pending_settings_sync_warning()
 show_pending_action_sync_warning()
 
 
-def get_setup_checklist_steps() -> list[dict]:
+def get_started_manual_done() -> dict:
+    value = st.session_state.get(GET_STARTED_MANUAL_DONE_KEY, {})
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def get_started_manual_item_done(item_id: str) -> bool:
+    return bool(get_started_manual_done().get(item_id))
+
+
+def update_get_started_manual_item(item_id: str) -> None:
+    manual_done = get_started_manual_done()
+    manual_done[item_id] = bool(st.session_state.get(f"get_started_done_{item_id}", False))
+    st.session_state[GET_STARTED_MANUAL_DONE_KEY] = manual_done
+    save_settings_quietly()
+
+
+def main_section_tab_visited(tab_name: str) -> bool:
+    return tab_name in set(st.session_state.get(GET_STARTED_VISITED_TABS_KEY, []))
+
+
+def get_setup_checklist_modules() -> list[dict]:
     df_w = st.session_state.get("working_df")
     has_data = df_w is not None and not getattr(df_w, "empty", True)
     search_term_added = bool(st.session_state.get("search_term_added", False))
     has_sender_name = bool(str(st.session_state.get("user_name", "")).strip())
     template_updated = bool(st.session_state.get("wa_template_updated", False))
+    templates = normalize_wa_templates(
+        st.session_state.get("wa_templates", {}),
+        st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
+    )
+    has_extra_template = len(templates) > 1
+    has_client_exclusion = bool(st.session_state.get("client_exclusions", []))
+    has_patient_exclusion = bool(combined_patient_exclusions())
+    has_item_exclusion = bool(st.session_state.get("exclusions", []))
+    has_client_item_exclusion = bool(st.session_state.get("client_item_exclusions", []))
+    passaway_keywords = normalize_passaway_keywords(
+        st.session_state.get("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT)
+    )
+    reviewed_passaway_keywords = passaway_keywords != PATIENT_PASSAWAY_KEYWORDS_DEFAULT
     reset_at = _parse_reminder_log_time(st.session_state.get("get_started_reset_at", ""))
 
     def happened_after_reset(timestamp: str) -> bool:
@@ -9260,53 +9302,99 @@ def get_setup_checklist_steps() -> list[dict]:
                 return True
         return action_after_reset(REMINDER_ACTION_SENT)
 
-    steps = [
+    def item(item_id: str, label: str, auto_done: bool = False) -> dict:
+        done = bool(auto_done) or get_started_manual_item_done(item_id)
+        return {
+            "id": item_id,
+            "label": label,
+            "done": done,
+            "auto_done": bool(auto_done),
+            "class_name": "done" if done else "todo",
+        }
+
+    modules = [
         {
-            "number": 1,
-            "done": has_data and happened_after_reset(st.session_state.get("shared_dataset_updated_at", "")),
-            "title": "Upload data",
-            "copy": "Upload a sales export from your practice system. One year of data is ideal so yearly reminders can be found reliably.",
-            "where": "Where: Upload Data tab",
+            "tab": "Upload Data",
+            "copy": "Bring in the clinic sales export and check the saved dataset.",
+            "items": [
+                item("upload_data", "Upload clinic sales data", has_data and happened_after_reset(st.session_state.get("shared_dataset_updated_at", ""))),
+                item("review_upload_checks", "Review upload checks and date range"),
+            ],
         },
         {
-            "number": 2,
-            "done": search_term_added and happened_after_reset(st.session_state.get("search_term_added_at", "")),
-            "title": "Add a search term",
-            "copy": "Add at least one clinic-specific product or service so reminders match your clinic language.",
-            "where": "Where: Search Terms tab",
+            "tab": "Search Terms",
+            "copy": "Tune the item rules that create and match reminders.",
+            "items": [
+                item("review_search_terms", "Review default search terms", bool(st.session_state.get("search_terms_reviewed", False))),
+                item("add_search_term", "Add a clinic-specific search term", search_term_added and happened_after_reset(st.session_state.get("search_term_added_at", ""))),
+                item("check_rule_days", "Check rule intervals and quantities"),
+            ],
         },
         {
-            "number": 3,
-            "done": has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", "")),
-            "title": "Add sender name",
-            "copy": "This fills [Your Name] in WhatsApp messages. Example: Mary from Bob's Test Vet Clinic.",
-            "where": "Where: Reminders tab, above the reminder list",
+            "tab": "Reminders",
+            "copy": "Prepare messages, contact clients, and action reminders.",
+            "items": [
+                item("add_sender_name", "Add the sender name", has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", ""))),
+                item("review_reminder_settings", "Review reminder date and grouping settings"),
+                item("send_whatsapp", "Open a WhatsApp message", sent_after_reset()),
+                item("mark_sent", "Mark a reminder as sent", action_after_reset(REMINDER_ACTION_SENT)),
+                item("decline_reminder", "Decline a reminder", action_after_reset(REMINDER_ACTION_DECLINED)),
+                item("edit_template", "Edit the General template", template_updated and happened_after_reset(st.session_state.get("wa_template_updated_at", ""))),
+                item("create_template", "Create or select another template", has_extra_template),
+            ],
         },
         {
-            "number": 4,
-            "done": template_updated and happened_after_reset(st.session_state.get("wa_template_updated_at", "")),
-            "title": "Review message templates",
-            "copy": "Check the General WhatsApp template. Add extra templates if your clinic uses different wording for different reminder types.",
-            "where": "Where: Template Editor in the Reminders tab",
+            "tab": "Exclusions",
+            "copy": "Hide reminders that should not be contacted.",
+            "items": [
+                item("add_client_exclusion", "Add a client exclusion", has_client_exclusion),
+                item("add_patient_exclusion", "Add a patient exclusion", has_patient_exclusion),
+                item("add_item_exclusion", "Add an item exclusion", has_item_exclusion),
+                item("add_client_item_exclusion", "Add a client-specific item exclusion", has_client_item_exclusion),
+                item("review_death_keywords", "Review automatic death keywords", reviewed_passaway_keywords),
+            ],
         },
         {
-            "number": 5,
-            "done": sent_after_reset(),
-            "title": "Send your first reminder",
-            "copy": "Open Reminders, prepare a WhatsApp message, then mark it Sent once the client has been contacted.",
-            "where": "Where: Reminders tab",
+            "tab": "Stats",
+            "copy": "Check outcomes and learn which reminders are working.",
+            "items": [
+                item("open_stats", "Open the Stats tab", main_section_tab_visited("Stats")),
+                item("review_items_stats", "Review Items and capturable revenue"),
+                item("review_sent_successes", "Review Sent Reminders and Successes"),
+                item("export_stats_csv", "Export a stats CSV"),
+            ],
         },
         {
-            "number": 6,
-            "done": action_after_reset(REMINDER_ACTION_DECLINED),
-            "title": "Try declining a reminder",
-            "copy": "Tick the red X to decline sending this reminder while still marking it actioned.",
-            "where": "Where: Reminders tab",
+            "tab": "Account",
+            "copy": "Confirm clinic details, access, and privacy controls.",
+            "items": [
+                item("review_profile", "Review clinic profile"),
+                item("review_privacy", "Review data and privacy information"),
+                item("review_clinic_access", "Review clinic access"),
+            ],
         },
     ]
-    for step in steps:
-        step["class_name"] = "complete" if step["done"] else "todo"
-        step["status"] = "Done" if step["done"] else "To do"
+    for module in modules:
+        module["done"] = all(entry["done"] for entry in module["items"])
+        module["class_name"] = "complete" if module["done"] else "todo"
+    return modules
+
+
+def get_setup_checklist_steps() -> list[dict]:
+    steps = []
+    for module in get_setup_checklist_modules():
+        for entry in module["items"]:
+            steps.append(
+                {
+                    "number": len(steps) + 1,
+                    "done": entry["done"],
+                    "title": entry["label"],
+                    "copy": module["copy"],
+                    "where": f"Where: {module['tab']} tab",
+                    "class_name": "complete" if entry["done"] else "todo",
+                    "status": "Done" if entry["done"] else "To do",
+                }
+            )
     return steps
 
 
@@ -9782,7 +9870,7 @@ def consume_dataset_upload_removal():
     st.rerun()
 
 def render_setup_checklist():
-    steps = get_setup_checklist_steps()
+    modules = get_setup_checklist_modules()
 
     try:
         setup_panel = st.container(border=True)
@@ -9791,34 +9879,49 @@ def render_setup_checklist():
 
     with setup_panel:
         st.markdown(
-            '<p class="setup-intro">Set up your data, reminder rules, and WhatsApp messages before working through your first reminders.</p>',
+            '<p class="setup-intro">Use these modules as a quick tour of the main Clinic Reminders features. Some items complete automatically; review items can be ticked off manually.</p>',
             unsafe_allow_html=True,
         )
-        step_cards = []
-        for step in steps:
-            step_cards.append(
-                f"""
-            <div class="setup-step {html_lib.escape(step["class_name"])}">
-              <div class="setup-status">{html_lib.escape(step["status"])}</div>
-              <div class="setup-title">{step["number"]}. {html_lib.escape(step["title"])}</div>
-              <div class="setup-copy">{html_lib.escape(step["copy"])}</div>
-              <div class="setup-where">{html_lib.escape(step["where"])}</div>
-            </div>
-            """
-            )
-        st.markdown(
-            f"""
-          <div class="setup-grid">
-            {''.join(step_cards)}
-          </div>
-        """,
-            unsafe_allow_html=True,
-        )
+        module_columns = st.columns(2, gap="medium")
+        for module_index, module in enumerate(modules):
+            with module_columns[module_index % 2]:
+                with st.container(border=True):
+                    st.markdown(
+                        f"""
+                        <div class="setup-module {html_lib.escape(module["class_name"])}">
+                          <div class="setup-module-title">{html_lib.escape(module["tab"])}</div>
+                          <div class="setup-module-copy">{html_lib.escape(module["copy"])}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    for entry in module["items"]:
+                        widget_key = f"get_started_done_{entry['id']}"
+                        if entry["auto_done"] or widget_key not in st.session_state:
+                            st.session_state[widget_key] = bool(entry["done"])
+                        item_cols = st.columns([4.2, 1.1], gap="small")
+                        with item_cols[0]:
+                            st.markdown(
+                                f'<div class="setup-item-label {html_lib.escape(entry["class_name"])}">{html_lib.escape(entry["label"])}</div>',
+                                unsafe_allow_html=True,
+                            )
+                        with item_cols[1]:
+                            st.toggle(
+                                "Done",
+                                key=widget_key,
+                                disabled=bool(entry["auto_done"]),
+                                on_change=update_get_started_manual_item,
+                                args=(entry["id"],),
+                            )
 
     reset_col, _ = st.columns([0.85, 5], gap="small")
     with reset_col:
         if st.button("↻ Reset", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
             st.session_state["get_started_reset_at"] = user_now().isoformat()
+            st.session_state[GET_STARTED_MANUAL_DONE_KEY] = {}
+            for module in modules:
+                for entry in module["items"]:
+                    st.session_state.pop(f"get_started_done_{entry['id']}", None)
             save_settings_quietly()
             st.success("Get Started guide reset.")
             st.rerun()
@@ -9873,6 +9976,8 @@ st.session_state.setdefault("search_term_added", False)
 st.session_state.setdefault("wa_template_reviewed", False)
 st.session_state.setdefault("wa_template_updated", False)
 st.session_state.setdefault("get_started_reset_at", "")
+st.session_state.setdefault(GET_STARTED_MANUAL_DONE_KEY, {})
+st.session_state.setdefault(GET_STARTED_VISITED_TABS_KEY, [])
 st.session_state.setdefault("search_term_added_at", "")
 st.session_state.setdefault("user_name_updated_at", "")
 st.session_state.setdefault("wa_template_updated_at", "")
@@ -11195,6 +11300,9 @@ if default_main_section_tab not in MAIN_SECTION_TABS:
     default_main_section_tab = "Reminders"
 st.session_state["main_section_tab"] = default_main_section_tab
 active_main_section = default_main_section_tab
+visited_main_sections = list(st.session_state.get(GET_STARTED_VISITED_TABS_KEY, []))
+if active_main_section not in visited_main_sections:
+    st.session_state[GET_STARTED_VISITED_TABS_KEY] = [*visited_main_sections, active_main_section]
 if active_main_section in {"Reminders", "Stats"}:
     ensure_action_tracker_loaded_for_current_clinic()
 render_main_section_nav(active_main_section)
