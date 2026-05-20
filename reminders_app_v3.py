@@ -2546,10 +2546,11 @@ st.markdown(
     }
     [class*="st-key-reset_get_started_checklist"] button {
         min-width: 9rem;
+        width: 9rem !important;
     }
     [class*="st-key-get_started_reset_row"] {
         margin-top: 0.55rem;
-        width: 9rem !important;
+        width: 100% !important;
     }
     [class*="st-key-del_client_excl_"] button,
     [class*="st-key-del_patient_excl_"] button,

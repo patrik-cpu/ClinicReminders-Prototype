@@ -331,6 +331,7 @@ class VisualThemeCssTests(unittest.TestCase):
 
         self.assertIn('with st.container(key="get_started_reset_row"):', checklist_source)
         self.assertIn('[class*="st-key-get_started_reset_row"]', source)
+        self.assertIn("width: 100% !important;", source)
         self.assertIn("width: 9rem !important;", source)
         self.assertNotIn("reset_col, _ = st.columns([0.85, 5]", checklist_source)
 
