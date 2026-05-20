@@ -17221,9 +17221,9 @@ if st.session_state.get("logged_in", False):
 
         initialize_reminder_filter_controls(user_today())
 
+        st.markdown(datepicker_today_ring_css(user_today()), unsafe_allow_html=True)
         start_col, today_button_col, lookback_col, window_col, group_col, warning_col = st.columns([2, 0.72, 2, 2, 2, 2])
         with start_col:
-            st.markdown(datepicker_today_ring_css(user_today()), unsafe_allow_html=True)
             render_field_label(
                 st,
                 "Date",
