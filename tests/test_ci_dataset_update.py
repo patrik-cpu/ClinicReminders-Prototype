@@ -997,6 +997,45 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertEqual(pms_name, "Canonical CSV")
         self.assertEqual(df.loc[0, "ChargeDate"].strftime("%Y-%m-%d"), "2025-09-30")
 
+    def test_process_file_preserves_utf8_bom_international_characters(self):
+        csv_bytes = (
+            "Billed Date,Client Name,Animal Name,Item Name,Qty,Amount\n"
+            "20/05/2026,José García,قطرة,Rappel santé,1,100\n"
+        ).encode("utf-8-sig")
+
+        df, pms_name, _amount_col = self.app.process_file(csv_bytes, "international.csv")
+
+        self.assertEqual(pms_name, "Canonical CSV")
+        self.assertEqual(df.loc[0, "Client Name"], "José García")
+        self.assertEqual(df.loc[0, "Animal Name"], "قطرة")
+        self.assertEqual(df.loc[0, "Item Name"], "Rappel santé")
+
+    def test_process_file_accepts_windows_1252_international_characters(self):
+        csv_bytes = (
+            "Billed Date,Client Name,Animal Name,Item Name,Qty,Amount\n"
+            "20/05/2026,Chloë D’Arcy,Renée,Crème fraîche,1,100\n"
+        ).encode("cp1252")
+
+        df, pms_name, _amount_col = self.app.process_file(csv_bytes, "windows-1252.csv")
+
+        self.assertEqual(pms_name, "Canonical CSV")
+        self.assertEqual(df.loc[0, "Client Name"], "Chloë D’Arcy")
+        self.assertEqual(df.loc[0, "Animal Name"], "Renée")
+        self.assertEqual(df.loc[0, "Item Name"], "Crème fraîche")
+
+    def test_dataframe_to_csv_bytes_preserves_international_characters(self):
+        df = pd.DataFrame({
+            "Client Name": ["José García", "ليلى منصور"],
+            "Animal Name": ["Renée", "قطرة"],
+            "Item Name": ["Crème fraîche", "تطعيم"],
+        })
+
+        exported = self.app.dataframe_to_csv_bytes(df).decode("utf-8")
+
+        self.assertIn("José García", exported)
+        self.assertIn("ليلى منصور", exported)
+        self.assertIn("قطرة", exported)
+
     def test_process_file_accepts_merlin_tab_separated_csv(self):
         csv_bytes = (
             "Itemdate\tDescription\tAnimalName\tQty\tTotal\tSurname\tFirstName\tTreatmentDate\tCodeDescription\n"

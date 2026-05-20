@@ -6686,6 +6686,25 @@ def finalize_processed_upload_df(df: pd.DataFrame, filename: str) -> pd.DataFram
 # --------------------------------
 # File processing (decoupled from rules)
 # --------------------------------
+CSV_UPLOAD_ENCODINGS = ("utf-8-sig", "utf-8", "utf-16", "cp1252", "latin1")
+
+
+def _read_csv_upload_with_encoding(file_bytes, read_kwargs: dict, sep=None) -> pd.DataFrame:
+    last_decode_error = None
+    parser_kwargs = dict(read_kwargs)
+    if sep is not None:
+        parser_kwargs["sep"] = sep
+    for encoding in CSV_UPLOAD_ENCODINGS:
+        try:
+            return pd.read_csv(BytesIO(file_bytes), encoding=encoding, **parser_kwargs)
+        except (UnicodeDecodeError, UnicodeError) as exc:
+            last_decode_error = exc
+            continue
+    if last_decode_error is not None:
+        raise last_decode_error
+    return pd.read_csv(BytesIO(file_bytes), **parser_kwargs)
+
+
 def read_csv_upload(file_bytes, filename: str) -> pd.DataFrame:
     read_kwargs = {
         "dtype": str,
@@ -6694,11 +6713,11 @@ def read_csv_upload(file_bytes, filename: str) -> pd.DataFrame:
         "skip_blank_lines": True,
     }
     try:
-        df = pd.read_csv(BytesIO(file_bytes), **read_kwargs)
+        df = _read_csv_upload_with_encoding(file_bytes, read_kwargs)
     except pd.errors.ParserError:
-        df = pd.read_csv(BytesIO(file_bytes), sep="\t", **read_kwargs)
+        df = _read_csv_upload_with_encoding(file_bytes, read_kwargs, sep="\t")
     if len(df.columns) == 1 and "\t" in str(df.columns[0]):
-        df = pd.read_csv(BytesIO(file_bytes), sep="\t", **read_kwargs)
+        df = _read_csv_upload_with_encoding(file_bytes, read_kwargs, sep="\t")
     return df
 
 
