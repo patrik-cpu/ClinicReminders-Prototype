@@ -1298,6 +1298,27 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertEqual(caption, "Custom: 20 Sep 2025 to 25 Sep 2025; filtered by Sent Date.")
 
+    def test_stats_custom_range_selection_detects_half_selected_range(self):
+        self.assertTrue(self.app.stats_custom_range_selection_in_progress((date(2025, 9, 20),)))
+        self.assertFalse(
+            self.app.stats_custom_range_selection_in_progress(
+                (date(2025, 9, 20), date(2025, 9, 25))
+            )
+        )
+
+    def test_stats_date_range_selection_in_progress_checks_custom_widgets(self):
+        self.app.st.session_state["stats_sent_reminders_period"] = "Custom"
+        self.app.st.session_state["stats_sent_reminders_custom_range"] = (date(2025, 9, 20),)
+
+        self.assertTrue(self.app.stats_date_range_selection_in_progress())
+
+        self.app.st.session_state["stats_sent_reminders_custom_range"] = (
+            date(2025, 9, 20),
+            date(2025, 9, 25),
+        )
+
+        self.assertFalse(self.app.stats_date_range_selection_in_progress())
+
     def test_successes_custom_period_filters_success_date_range(self):
         outcomes = pd.DataFrame(
             [

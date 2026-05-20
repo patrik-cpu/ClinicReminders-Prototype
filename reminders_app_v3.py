@@ -15677,6 +15677,22 @@ def normalize_stats_sent_custom_range(value) -> tuple[date, date] | None:
     return start_date, end_date
 
 
+def stats_custom_range_selection_in_progress(value) -> bool:
+    return isinstance(value, (tuple, list)) and len(value) == 1 and isinstance(value[0], date)
+
+
+def stats_date_range_selection_in_progress() -> bool:
+    custom_widgets = (
+        ("stats_sent_reminders_period", "stats_sent_reminders_custom_range"),
+        ("stats_successes_period", "stats_successes_custom_range"),
+    )
+    return any(
+        st.session_state.get(period_key) == "Custom"
+        and stats_custom_range_selection_in_progress(st.session_state.get(range_key))
+        for period_key, range_key in custom_widgets
+    )
+
+
 def format_stats_sent_custom_range(custom_range: tuple[date, date] | None) -> str:
     if custom_range is None:
         return ""
@@ -15835,6 +15851,35 @@ def refresh_outcome_results_action() -> None:
         refresh_outcome_results_state()
 
 
+def stats_action_records_cache_signature(action_records: list[dict]) -> tuple[int, str]:
+    action_dates = [
+        str(record.get("ActionedAt", "") or record.get("DeletedAt", ""))
+        for record in action_records
+        if isinstance(record, dict)
+    ]
+    return len(action_records), max(action_dates, default="")
+
+
+def stats_calculation_cache_signature(
+    statistics_data_version: int,
+    statistics_group_days: int,
+    due_date_window_days: int,
+    post_reminder_window_days: int,
+    rules: dict,
+    action_records: list[dict],
+) -> tuple:
+    return (
+        statistics_data_version,
+        statistics_group_days,
+        due_date_window_days,
+        post_reminder_window_days,
+        user_today().isoformat(),
+        _rules_fp(rules),
+        statistics_exclusion_fp(),
+        stats_action_records_cache_signature(action_records),
+    )
+
+
 def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict):
     render_started = time.perf_counter()
     st.markdown("<div id='stats' class='anchor-offset'></div><div id='outcomes' class='anchor-offset'></div>", unsafe_allow_html=True)
@@ -15912,57 +15957,92 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     except (TypeError, ValueError):
         statistics_data_version = 0
 
-    with busy_overlay("Calculating stats", "Matching sent reminders to later sales and summarising activity."):
-        action_records = statistics_current_action_records()
-        stats_action_item_rows = expand_rows_for_statistics_item_period(action_records, stats_period)
-        stats_actioned_rows = filter_actions_by_actioned_period(
-            action_records,
-            stats_period,
-            include_parsed=True,
-        )
-        stats_expanded_sent_records = expand_grouped_action_records([
-            record for record in action_records
-            if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT
-        ])
-        outcome_rows = build_reminder_outcomes(
-            action_records,
-            sales_df,
-            due_date_window_days=due_date_window_days,
-            post_reminder_window_days=post_reminder_window_days,
-            today=outcomes_as_of_date,
-            rules=rules,
-            action_records_reduced=True,
-            expanded_sent_records=stats_expanded_sent_records,
-        )
-        generated_df = cached_statistics_generated_rows(
-            prepared,
-            rules,
-            group_days=statistics_group_days,
-            period=stats_period,
-            today_iso=user_today().isoformat(),
-            data_version=statistics_data_version,
-            rules_fp=_rules_fp(rules),
-            exclusion_fp=statistics_exclusion_fp(),
-            schema_version=STATISTICS_GENERATED_SCHEMA_VERSION,
-        )
-        stats_generated_item_rows = expand_rows_for_statistics_item_period(
-            generated_df.to_dict("records") if not generated_df.empty else [],
-            stats_period,
-        )
-        period_rows = outcome_rows
-        stats_outcome_rows = outcome_summary_precompute_numeric_columns(period_rows.copy())
-        stats_item_outcome_frame = build_outcome_group_frame(
-            stats_outcome_rows,
-            "Item",
-            OUTCOME_ITEM_GROUP_COLUMNS,
-            numeric_precomputed=True,
-        )
-        stats_sender_outcome_frame = build_outcome_group_frame(
-            stats_outcome_rows,
-            "Sender",
-            OUTCOME_SENDER_GROUP_COLUMNS,
-            numeric_precomputed=True,
-        )
+    action_records = statistics_current_action_records()
+    cache_signature = stats_calculation_cache_signature(
+        statistics_data_version,
+        statistics_group_days,
+        due_date_window_days,
+        post_reminder_window_days,
+        rules,
+        action_records,
+    )
+    stats_cache = st.session_state.get("_stats_calculation_cache")
+    use_cached_stats = (
+        stats_date_range_selection_in_progress()
+        and isinstance(stats_cache, dict)
+        and stats_cache.get("signature") == cache_signature
+    )
+    if use_cached_stats:
+        generated_df = stats_cache["generated_df"]
+        stats_generated_item_rows = stats_cache["stats_generated_item_rows"]
+        stats_action_item_rows = stats_cache["stats_action_item_rows"]
+        stats_actioned_rows = stats_cache["stats_actioned_rows"]
+        period_rows = stats_cache["period_rows"]
+        stats_outcome_rows = stats_cache["stats_outcome_rows"]
+        stats_item_outcome_frame = stats_cache["stats_item_outcome_frame"]
+        stats_sender_outcome_frame = stats_cache["stats_sender_outcome_frame"]
+    else:
+        with busy_overlay("Calculating stats", "Matching sent reminders to later sales and summarising activity."):
+            stats_action_item_rows = expand_rows_for_statistics_item_period(action_records, stats_period)
+            stats_actioned_rows = filter_actions_by_actioned_period(
+                action_records,
+                stats_period,
+                include_parsed=True,
+            )
+            stats_expanded_sent_records = expand_grouped_action_records([
+                record for record in action_records
+                if str(record.get("Action", "")).strip().lower() == REMINDER_ACTION_SENT
+            ])
+            outcome_rows = build_reminder_outcomes(
+                action_records,
+                sales_df,
+                due_date_window_days=due_date_window_days,
+                post_reminder_window_days=post_reminder_window_days,
+                today=outcomes_as_of_date,
+                rules=rules,
+                action_records_reduced=True,
+                expanded_sent_records=stats_expanded_sent_records,
+            )
+            generated_df = cached_statistics_generated_rows(
+                prepared,
+                rules,
+                group_days=statistics_group_days,
+                period=stats_period,
+                today_iso=user_today().isoformat(),
+                data_version=statistics_data_version,
+                rules_fp=_rules_fp(rules),
+                exclusion_fp=statistics_exclusion_fp(),
+                schema_version=STATISTICS_GENERATED_SCHEMA_VERSION,
+            )
+            stats_generated_item_rows = expand_rows_for_statistics_item_period(
+                generated_df.to_dict("records") if not generated_df.empty else [],
+                stats_period,
+            )
+            period_rows = outcome_rows
+            stats_outcome_rows = outcome_summary_precompute_numeric_columns(period_rows.copy())
+            stats_item_outcome_frame = build_outcome_group_frame(
+                stats_outcome_rows,
+                "Item",
+                OUTCOME_ITEM_GROUP_COLUMNS,
+                numeric_precomputed=True,
+            )
+            stats_sender_outcome_frame = build_outcome_group_frame(
+                stats_outcome_rows,
+                "Sender",
+                OUTCOME_SENDER_GROUP_COLUMNS,
+                numeric_precomputed=True,
+            )
+            st.session_state["_stats_calculation_cache"] = {
+                "signature": cache_signature,
+                "generated_df": generated_df,
+                "stats_generated_item_rows": stats_generated_item_rows,
+                "stats_action_item_rows": stats_action_item_rows,
+                "stats_actioned_rows": stats_actioned_rows,
+                "period_rows": period_rows,
+                "stats_outcome_rows": stats_outcome_rows,
+                "stats_item_outcome_frame": stats_item_outcome_frame,
+                "stats_sender_outcome_frame": stats_sender_outcome_frame,
+            }
 
     summary = summarize_outcomes(stats_outcome_rows)
     metric_cols = st.columns(4)
