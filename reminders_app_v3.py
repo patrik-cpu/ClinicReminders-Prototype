@@ -2606,27 +2606,33 @@ st.markdown(
         margin: 0.55rem 0 0.65rem;
         padding: 0.3rem 0.45rem;
     }
-    [class*="st-key-auto_patient_exclusion_row_"] {
+    [class*="st-key-auto_patient_exclusion_row_"],
+    [class*="st-key-exclusion_row_"] {
         background: rgba(255, 247, 237, 0.34);
         border: 1px solid rgba(251, 146, 60, 0.18);
         border-radius: 8px;
         margin: 0.22rem 0;
         padding: 0.2rem 0.35rem;
     }
-    [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stHorizontalBlock"] {
+    [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stHorizontalBlock"],
+    [class*="st-key-exclusion_row_"] [data-testid="stHorizontalBlock"] {
         align-items: center;
         gap: 0.35rem !important;
     }
     [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stMarkdownContainer"],
-    [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stMarkdownContainer"] > div {
+    [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stMarkdownContainer"] > div,
+    [class*="st-key-exclusion_row_"] [data-testid="stMarkdownContainer"],
+    [class*="st-key-exclusion_row_"] [data-testid="stMarkdownContainer"] > div {
         display: flex;
         align-items: center;
         min-height: 2rem;
     }
-    [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stMarkdownContainer"] p {
+    [class*="st-key-auto_patient_exclusion_row_"] [data-testid="stMarkdownContainer"] p,
+    [class*="st-key-exclusion_row_"] [data-testid="stMarkdownContainer"] p {
         margin: 0 !important;
     }
-    [class*="st-key-auto_patient_exclusion_row_"] .exclusion-chip {
+    [class*="st-key-auto_patient_exclusion_row_"] .exclusion-chip,
+    [class*="st-key-exclusion_row_"] .exclusion-chip {
         align-items: center;
         min-height: 2rem;
         line-height: 2rem;
@@ -3016,6 +3022,23 @@ def exclusion_chip_html(value) -> str:
 
 def patient_exclusion_label_html(client_name: str, patient_name: str) -> str:
     return exclusion_chip_html(f"{client_name} - {patient_name}")
+
+
+def render_exclusion_chip_delete_row(
+    row_key: str,
+    label_html: str,
+    delete_button_key: str,
+    delete_help: str,
+) -> bool:
+    row_cols = st.columns([2.7, 5.3], gap="small")
+    with row_cols[0]:
+        with st.container(key=f"exclusion_row_{row_key}"):
+            chip_cols = st.columns([0.9, 0.1], gap="small")
+            with chip_cols[0]:
+                st.markdown(label_html, unsafe_allow_html=True)
+            with chip_cols[1]:
+                return st.button("×", key=delete_button_key, help=delete_help)
+    return False
 
 # --------------------------------
 # Defaults
@@ -17525,15 +17548,16 @@ if st.session_state.get("logged_in", False):
             with st.container(border=True, key="client_exclusions_list_box"):
                 for client_name in sorted(st.session_state["client_exclusions"]):
                     safe_client = re.sub(r'[^a-zA-Z0-9_-]', '_', client_name)
-                    cols = st.columns([4, 0.25, 4], gap="small")
-                    with cols[0]:
-                        st.markdown(exclusion_chip_html(client_name), unsafe_allow_html=True)
-                    with cols[1]:
-                        if st.button("×", key=f"del_client_excl_{safe_client}", help="Remove client exclusion"):
-                            st.session_state["client_exclusions"].remove(client_name)
-                            save_settings_quietly()
-                            record_settings_audit_event("exclusion_deleted", "exclusions", client_name, "client", client_name, "", "exclusions_tab")
-                            st.rerun()
+                    if render_exclusion_chip_delete_row(
+                        f"client_{safe_client}",
+                        exclusion_chip_html(client_name),
+                        f"del_client_excl_{safe_client}",
+                        "Remove client exclusion",
+                    ):
+                        st.session_state["client_exclusions"].remove(client_name)
+                        save_settings_quietly()
+                        record_settings_audit_event("exclusion_deleted", "exclusions", client_name, "client", client_name, "", "exclusions_tab")
+                        st.rerun()
         else:
             st.caption("No client exclusions yet. Add one to hide all reminders for a client.")
 
@@ -17591,15 +17615,16 @@ if st.session_state.get("logged_in", False):
                     if not client_name or not patient_name:
                         continue
                     safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"{client_name}_{patient_name}_{exclusion_idx}")
-                    cols = st.columns([4, 0.25, 4], gap="small")
-                    with cols[0]:
-                        st.markdown(patient_exclusion_label_html(client_name, patient_name), unsafe_allow_html=True)
-                    with cols[1]:
-                        if st.button("×", key=f"del_patient_excl_{safe_pair}", help="Remove patient exclusion"):
-                            st.session_state["patient_exclusions"].remove(exclusion)
-                            save_settings_quietly()
-                            record_settings_audit_event("exclusion_deleted", "exclusions", f"{client_name} - {patient_name}", "patient", exclusion, "", "exclusions_tab")
-                            st.rerun()
+                    if render_exclusion_chip_delete_row(
+                        f"patient_{safe_pair}",
+                        patient_exclusion_label_html(client_name, patient_name),
+                        f"del_patient_excl_{safe_pair}",
+                        "Remove patient exclusion",
+                    ):
+                        st.session_state["patient_exclusions"].remove(exclusion)
+                        save_settings_quietly()
+                        record_settings_audit_event("exclusion_deleted", "exclusions", f"{client_name} - {patient_name}", "patient", exclusion, "", "exclusions_tab")
+                        st.rerun()
         else:
             st.caption("No patient exclusions yet. Add one to hide reminders for one patient.")
 
@@ -17675,15 +17700,16 @@ if st.session_state.get("logged_in", False):
                     if not client_name or not item_name:
                         continue
                     safe_pair = re.sub(r'[^a-zA-Z0-9_-]', '_', f"{client_name}_{item_name}_{exclusion_idx}")
-                    cols = st.columns([4, 0.25, 4], gap="small")
-                    with cols[0]:
-                        st.markdown(patient_exclusion_label_html(client_name, item_name), unsafe_allow_html=True)
-                    with cols[1]:
-                        if st.button("×", key=f"del_client_item_excl_{safe_pair}", help="Remove client-specific item exclusion"):
-                            st.session_state["client_item_exclusions"].remove(exclusion)
-                            save_settings_quietly()
-                            record_settings_audit_event("exclusion_deleted", "exclusions", f"{client_name} - {item_name}", "client_item", exclusion, "", "exclusions_tab")
-                            st.rerun()
+                    if render_exclusion_chip_delete_row(
+                        f"client_item_{safe_pair}",
+                        patient_exclusion_label_html(client_name, item_name),
+                        f"del_client_item_excl_{safe_pair}",
+                        "Remove client-specific item exclusion",
+                    ):
+                        st.session_state["client_item_exclusions"].remove(exclusion)
+                        save_settings_quietly()
+                        record_settings_audit_event("exclusion_deleted", "exclusions", f"{client_name} - {item_name}", "client_item", exclusion, "", "exclusions_tab")
+                        st.rerun()
         else:
             st.caption("No client-specific item exclusions yet. Add one to hide one item for one client.")
 
@@ -17743,15 +17769,16 @@ if st.session_state.get("logged_in", False):
             with st.container(border=True, key="item_exclusions_list_box"):
                 for term in sorted(st.session_state["exclusions"]):
                     safe_term = re.sub(r'[^a-zA-Z0-9_-]', '_', term)
-                    cols = st.columns([4, 0.25, 4], gap="small")
-                    with cols[0]:
-                        st.markdown(exclusion_chip_html(term), unsafe_allow_html=True)
-                    with cols[1]:
-                        if st.button("×", key=f"del_excl_{safe_term}", help="Remove item exclusion"):
-                            st.session_state["exclusions"].remove(term)
-                            save_settings_quietly()
-                            record_settings_audit_event("exclusion_deleted", "exclusions", term, "item", term, "", "exclusions_tab")
-                            st.rerun()
+                    if render_exclusion_chip_delete_row(
+                        f"item_{safe_term}",
+                        exclusion_chip_html(term),
+                        f"del_excl_{safe_term}",
+                        "Remove item exclusion",
+                    ):
+                        st.session_state["exclusions"].remove(term)
+                        save_settings_quietly()
+                        record_settings_audit_event("exclusion_deleted", "exclusions", term, "item", term, "", "exclusions_tab")
+                        st.rerun()
         else:
             st.caption("No item exclusions yet. Add one to hide an item across all clients.")
 
