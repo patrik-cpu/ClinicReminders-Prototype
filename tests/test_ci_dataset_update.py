@@ -974,6 +974,20 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertEqual(df.loc[0, "Qty"], 2)
         self.assertEqual(df.loc[0, "Amount"], 123.45)
 
+    def test_process_file_drops_pre_2000_artifact_dates(self):
+        csv_bytes = (
+            "ChargeDate,Client Name,Animal Name,Item Name,Qty,Amount\n"
+            "30/12/1899,Artifact Client,Artifact Pet,Artifact Item,1,0\n"
+            "22/01/2026,Client A,Pet A,Rabies,1,100\n"
+        ).encode("utf-8")
+
+        df, pms_name, _amount_col = self.app.process_file(csv_bytes, "artifact-date.csv")
+
+        self.assertEqual(pms_name, "Canonical CSV")
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.loc[0, "Client Name"], "Client A")
+        self.assertEqual(df.loc[0, "ChargeDate"].strftime("%Y-%m-%d"), "2026-01-22")
+
     def test_upload_validation_reports_billed_date_label(self):
         df = pd.DataFrame(
             {

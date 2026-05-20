@@ -55,6 +55,7 @@ STATISTICS_GENERATED_SCHEMA_VERSION = 1
 PRECOMPUTE_ANALYTICS_BUNDLE = False
 UPLOAD_SUMMARY_SCHEMA_VERSION = 2
 DEFAULT_REMINDER_LOOKBACK_DAYS = 2
+MIN_VALID_CHARGE_DATE = pd.Timestamp("2000-01-01")
 DRIVE_SCOPE = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
@@ -3283,6 +3284,7 @@ def sanitize_working_df(df: pd.DataFrame) -> pd.DataFrame:
 
     if "ChargeDate" in df.columns:
         df["ChargeDate"] = parse_dates(df["ChargeDate"])
+        df = df.loc[df["ChargeDate"].isna() | (df["ChargeDate"] >= MIN_VALID_CHARGE_DATE)].copy().reset_index(drop=True)
 
     if "Qty" in df.columns:
         df["Qty"] = pd.to_numeric(df["Qty"], errors="coerce").fillna(1).astype(int)
