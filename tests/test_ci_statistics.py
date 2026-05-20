@@ -858,8 +858,8 @@ class StatisticsTests(unittest.TestCase):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
         selector_start = source.index("def render_stats_sent_reminders_period_selector")
         selector_end = source.index("def render_stats_successes_period_selector", selector_start)
-        sent_tab_start = source.index('elif active_stats_subtab == "Sent Reminders":')
-        sent_tab_end = source.index('elif active_stats_subtab == "Successes":', sent_tab_start)
+        sent_tab_start = source.index('elif active_stats_subtab == "Reminders":')
+        sent_tab_end = source.index('elif active_stats_subtab == "Team":', sent_tab_start)
 
         self.assertIn('default_period="Today"', source[selector_start:selector_end])
         self.assertNotIn("stats_sent_period_caption", source[sent_tab_start:sent_tab_end])
@@ -1332,6 +1332,19 @@ class StatisticsTests(unittest.TestCase):
         )
 
         self.assertFalse(self.app.stats_date_range_selection_in_progress())
+
+    def test_stats_custom_range_uses_separate_stored_completed_range(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        selector_start = source.index("def render_stats_period_selector")
+        selector_end = source.index("def stats_sent_rows_for_render", selector_start)
+
+        self.assertIn("stats_custom_range_storage_key(range_key)", source[selector_start:selector_end])
+        self.assertIn("stored_range or (today_value, today_value)", source[selector_start:selector_end])
+        self.assertIn("st.session_state[storage_key] = custom_range", source[selector_start:selector_end])
+
+    def test_stats_custom_range_storage_keys_are_account_scoped(self):
+        self.assertIn("stats_sent_reminders_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
+        self.assertIn("stats_successes_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
 
     def test_successes_custom_period_filters_success_date_range(self):
         outcomes = pd.DataFrame(

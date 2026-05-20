@@ -666,6 +666,12 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_user_tracker_row_cache",
     "_active_reminder_badge_cache",
     "_stats_export_csv_cache",
+    "stats_sent_reminders_period",
+    "stats_sent_reminders_custom_range",
+    "stats_sent_reminders_custom_range_last_complete",
+    "stats_successes_period",
+    "stats_successes_custom_range",
+    "stats_successes_custom_range_last_complete",
     "_hidden_reminders_index_cache",
     "pending_google_signup",
     "google_onboarding_mode",
@@ -9944,9 +9950,9 @@ def get_setup_checklist_modules() -> list[dict]:
         "test_due_date_window": "Try changing the success window around the due date to see how outcome matching changes.",
         "test_sent_date_window": "Try changing the success window after the sent date to see recent reminder outcomes fairly.",
         "review_primary_stats_metrics": "Review the headline stats to understand total reminders, successes, rate, and revenue.",
-        "review_items_capturable_revenue": "Use the Items subtab to spot high-value reminders with the most remaining revenue potential.",
+        "review_items_capturable_revenue": "Use the Revenue subtab to spot high-value reminders with the most remaining revenue potential.",
         "review_team_metrics": "Use the Team subtab to compare reminder actions and outcomes by sender.",
-        "review_stats_date_filters": "Filter Sent Reminders or Successes by date range to review a specific period.",
+        "review_stats_date_filters": "Filter Reminders or Successes by date range to review a specific period.",
         "review_profile": "Check the clinic profile details used for account identity and access.",
         "review_privacy": "Review what data Clinic Reminders stores and how deletion works.",
         "review_clinic_access": "Create staff access when another team member should use the clinic account.",
@@ -10047,9 +10053,9 @@ def get_setup_checklist_modules() -> list[dict]:
                     str(st.session_state.get("outcome_post_reminder_window_days", "")),
                 ),
                 item("review_primary_stats_metrics", "Review primary metrics in the Stats tab"),
-                item("review_items_capturable_revenue", "Review Capturable Revenue per Year column in the Items subtab"),
+                item("review_items_capturable_revenue", "Review Capturable Revenue per Year column in the Revenue subtab"),
                 item("review_team_metrics", "Review Team metrics in the Team subtab"),
-                item("review_stats_date_filters", "Review date filters in the Sent Reminders or Success subtabs"),
+                item("review_stats_date_filters", "Review date filters in the Reminders or Successes subtabs"),
             ],
         },
         {
@@ -13863,7 +13869,7 @@ REMINDER_TABLE_PAGE_SIZE = TABLE_PAGE_SIZE
 STATS_TABLE_PAGE_SIZE = TABLE_PAGE_SIZE
 OUTCOME_SENT_PAGE_SIZE = TABLE_PAGE_SIZE
 STATS_TABLE_HEIGHT = 700
-STATS_SUBTABS = ["Items", "Item Activity", "Team", "Sent Reminders", "Successes"]
+STATS_SUBTABS = ["Revenue", "Items", "Successes", "Reminders", "Team"]
 OUTCOME_TABLE_COLUMNS = [
     "Charge Date",
     "Reminder Date",
@@ -16643,14 +16649,19 @@ def stats_subtab_button_key(tab_name: str) -> str:
 
 
 def set_active_stats_subtab(tab_name: str) -> None:
-    st.session_state["stats_active_subtab"] = tab_name if tab_name in STATS_SUBTABS else "Items"
+    st.session_state["stats_active_subtab"] = tab_name if tab_name in STATS_SUBTABS else "Revenue"
 
 
 def render_stats_subtab_selector() -> str:
     key = "stats_active_subtab"
-    current = st.session_state.get(key, "Items")
+    legacy_subtab_map = {
+        "Item Activity": "Items",
+        "Sent Reminders": "Reminders",
+    }
+    requested = st.session_state.get(key, "Revenue")
+    current = legacy_subtab_map.get(requested, requested)
     if current not in STATS_SUBTABS:
-        current = "Items"
+        current = "Revenue"
     st.session_state[key] = current
     active_button_key = stats_subtab_button_key(current)
     st.markdown(
@@ -16700,6 +16711,10 @@ def normalize_stats_sent_custom_range(value) -> tuple[date, date] | None:
     if end_date < start_date:
         start_date, end_date = end_date, start_date
     return start_date, end_date
+
+
+def stats_custom_range_storage_key(range_key: str) -> str:
+    return f"{range_key}_last_complete"
 
 
 def stats_custom_range_selection_in_progress(value) -> bool:
@@ -16802,8 +16817,10 @@ def render_stats_period_selector(
     custom_range = None
     if selected_period == "Custom":
         today_value = user_today()
+        storage_key = stats_custom_range_storage_key(range_key)
+        stored_range = normalize_stats_sent_custom_range(st.session_state.get(storage_key))
         if range_key not in st.session_state:
-            st.session_state[range_key] = (today_value, today_value)
+            st.session_state[range_key] = stored_range or (today_value, today_value)
         custom_range_value = st.date_input(
             "Custom date range",
             value=st.session_state[range_key],
@@ -16812,6 +16829,8 @@ def render_stats_period_selector(
             on_change=on_change,
         )
         custom_range = normalize_stats_sent_custom_range(custom_range_value)
+        if custom_range is not None:
+            st.session_state[storage_key] = custom_range
     return selected_period, custom_range
 
 
@@ -17075,7 +17094,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     active_stats_subtab = render_stats_subtab_selector()
 
-    if active_stats_subtab == "Items":
+    if active_stats_subtab == "Revenue":
         st.caption("All time; matched sent reminders grouped by item.")
         item_frame = stats_item_outcome_frame
         render_outcome_dataframe(
@@ -17095,7 +17114,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             display_preparer=prepare_stats_items_outcome_dataframe_for_display,
         )
 
-    elif active_stats_subtab == "Item Activity":
+    elif active_stats_subtab == "Items":
         st.caption("All time; generated reminders and saved actions by actual item.")
         item_actioning_frame = build_statistics_item_frame(
             generated_df,
@@ -17127,6 +17146,46 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 display_preparer=prepare_statistics_display_frame,
             )
 
+    elif active_stats_subtab == "Successes":
+        selected_success_period, success_custom_range = render_stats_successes_period_selector()
+        st.caption(stats_success_period_caption(selected_success_period, success_custom_range))
+        success_rows = stats_success_rows_for_render(
+            period_rows,
+            selected_success_period,
+            custom_range=success_custom_range,
+        )
+        render_outcome_dataframe(
+            success_rows,
+            OUTCOME_SUCCESS_DISPLAY_COLUMNS,
+            table_key="outcomes_successes",
+            item_label="success rows",
+        )
+        render_stats_csv_export(
+            success_rows,
+            f"stats-successes-{stats_sent_export_period_label(selected_success_period, success_custom_range)}",
+            "outcomes_successes",
+            columns=OUTCOME_SUCCESS_DISPLAY_COLUMNS,
+            display_preparer=prepare_outcome_dataframe_for_display,
+        )
+
+    elif active_stats_subtab == "Reminders":
+        selected_sent_period, sent_custom_range = render_stats_sent_reminders_period_selector()
+        sent_rows = stats_sent_rows_for_render(period_rows, selected_sent_period, custom_range=sent_custom_range)
+        render_outcome_dataframe(
+            sent_rows,
+            OUTCOME_SENT_DISPLAY_COLUMNS,
+            table_key="outcomes_sent",
+            page_size=OUTCOME_SENT_PAGE_SIZE,
+            item_label="sent outcome rows",
+        )
+        render_stats_csv_export(
+            sent_rows,
+            f"stats-sent-reminders-{stats_sent_export_period_label(selected_sent_period, sent_custom_range)}",
+            "outcomes_sent",
+            columns=OUTCOME_SENT_DISPLAY_COLUMNS,
+            display_preparer=prepare_outcome_dataframe_for_display,
+        )
+
     elif active_stats_subtab == "Team":
         st.caption("All time; outcome results by sender plus reminder actions by actioned date.")
         team_frame = build_stats_team_frame(
@@ -17157,46 +17216,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 "stats_team",
                 display_preparer=prepare_stats_team_display_frame,
             )
-
-    elif active_stats_subtab == "Sent Reminders":
-        selected_sent_period, sent_custom_range = render_stats_sent_reminders_period_selector()
-        sent_rows = stats_sent_rows_for_render(period_rows, selected_sent_period, custom_range=sent_custom_range)
-        render_outcome_dataframe(
-            sent_rows,
-            OUTCOME_SENT_DISPLAY_COLUMNS,
-            table_key="outcomes_sent",
-            page_size=OUTCOME_SENT_PAGE_SIZE,
-            item_label="sent outcome rows",
-        )
-        render_stats_csv_export(
-            sent_rows,
-            f"stats-sent-reminders-{stats_sent_export_period_label(selected_sent_period, sent_custom_range)}",
-            "outcomes_sent",
-            columns=OUTCOME_SENT_DISPLAY_COLUMNS,
-            display_preparer=prepare_outcome_dataframe_for_display,
-        )
-
-    elif active_stats_subtab == "Successes":
-        selected_success_period, success_custom_range = render_stats_successes_period_selector()
-        st.caption(stats_success_period_caption(selected_success_period, success_custom_range))
-        success_rows = stats_success_rows_for_render(
-            period_rows,
-            selected_success_period,
-            custom_range=success_custom_range,
-        )
-        render_outcome_dataframe(
-            success_rows,
-            OUTCOME_SUCCESS_DISPLAY_COLUMNS,
-            table_key="outcomes_successes",
-            item_label="success rows",
-        )
-        render_stats_csv_export(
-            success_rows,
-            f"stats-successes-{stats_sent_export_period_label(selected_success_period, success_custom_range)}",
-            "outcomes_successes",
-            columns=OUTCOME_SUCCESS_DISPLAY_COLUMNS,
-            display_preparer=prepare_outcome_dataframe_for_display,
-        )
     record_slow_render_performance("stats_tab_render", render_started, rows=len(period_rows), source="stats")
 
 
