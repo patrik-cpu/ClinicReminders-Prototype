@@ -67,6 +67,7 @@ MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", 
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 PENDING_MAIN_SECTION_TAB_KEY = "_pending_main_section_tab"
 GET_STARTED_MANUAL_DONE_KEY = "get_started_manual_done"
+GET_STARTED_MANUAL_OFF_KEY = "get_started_manual_off"
 GET_STARTED_VISITED_TABS_KEY = "get_started_visited_tabs"
 MAIN_SECTION_TAB_SLUGS = {
     "reminders": "Reminders",
@@ -617,6 +618,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "google_subject",
     "get_started_reset_at",
     GET_STARTED_MANUAL_DONE_KEY,
+    GET_STARTED_MANUAL_OFF_KEY,
     GET_STARTED_VISITED_TABS_KEY,
     "search_terms_reviewed",
     "search_term_added",
@@ -2395,7 +2397,7 @@ st.markdown(
         color: var(--cr-muted);
     }
     .setup-intro {
-        margin: 0 0 0.65rem !important;
+        margin: 0 0 0.8rem !important;
         color: var(--cr-muted);
     }
     .setup-grid {
@@ -2407,7 +2409,7 @@ st.markdown(
     .setup-module {
         border: 1px solid var(--cr-border);
         border-radius: 8px;
-        padding: 0.85rem;
+        padding: 0.65rem;
         background: var(--cr-surface);
     }
     .setup-module.complete {
@@ -2420,21 +2422,24 @@ st.markdown(
     }
     .setup-module-title {
         font-weight: 700;
-        font-size: 1.02rem;
-        margin-bottom: 0.15rem;
+        font-size: 1.08rem;
+        color: #06351f;
+        margin-bottom: 0.2rem;
+        padding-bottom: 0.3rem;
+        border-bottom: 1px solid rgba(34, 197, 94, 0.22);
     }
     .setup-module-copy {
         color: var(--cr-muted);
         font-size: 0.92rem;
         line-height: 1.35;
-        margin-bottom: 0.55rem;
+        margin-bottom: 0.35rem;
     }
     .setup-item-label {
         border: 1px solid rgba(248, 113, 113, 0.32);
         background: rgba(254, 226, 226, 0.56);
         border-radius: 8px;
         padding: 0.48rem 0.58rem;
-        min-height: 2.45rem;
+        min-height: 2.2rem;
         display: flex;
         align-items: center;
         font-size: 0.92rem;
@@ -4601,8 +4606,10 @@ def load_settings(load_action_history: bool = True):
         st.session_state["wa_template_updated"] = bool(settings.get("wa_template_updated", False))
         st.session_state["get_started_reset_at"] = settings.get("get_started_reset_at", "")
         manual_done = settings.get(GET_STARTED_MANUAL_DONE_KEY, {})
+        manual_off = settings.get(GET_STARTED_MANUAL_OFF_KEY, {})
         visited_tabs = settings.get(GET_STARTED_VISITED_TABS_KEY, [])
         st.session_state[GET_STARTED_MANUAL_DONE_KEY] = dict(manual_done) if isinstance(manual_done, dict) else {}
+        st.session_state[GET_STARTED_MANUAL_OFF_KEY] = dict(manual_off) if isinstance(manual_off, dict) else {}
         st.session_state[GET_STARTED_VISITED_TABS_KEY] = [
             tab for tab in visited_tabs if tab in MAIN_SECTION_TABS
         ] if isinstance(visited_tabs, list) else []
@@ -4642,6 +4649,7 @@ def load_settings(load_action_history: bool = True):
         st.session_state["wa_template_updated"] = False
         st.session_state["get_started_reset_at"] = ""
         st.session_state[GET_STARTED_MANUAL_DONE_KEY] = {}
+        st.session_state[GET_STARTED_MANUAL_OFF_KEY] = {}
         st.session_state[GET_STARTED_VISITED_TABS_KEY] = []
         st.session_state["search_term_added_at"] = ""
         st.session_state["user_name_updated_at"] = ""
@@ -4988,6 +4996,11 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         GET_STARTED_MANUAL_DONE_KEY: (
             dict(setting_for_save(GET_STARTED_MANUAL_DONE_KEY, {}))
             if isinstance(setting_for_save(GET_STARTED_MANUAL_DONE_KEY, {}), dict)
+            else {}
+        ),
+        GET_STARTED_MANUAL_OFF_KEY: (
+            dict(setting_for_save(GET_STARTED_MANUAL_OFF_KEY, {}))
+            if isinstance(setting_for_save(GET_STARTED_MANUAL_OFF_KEY, {}), dict)
             else {}
         ),
         GET_STARTED_VISITED_TABS_KEY: (
@@ -7666,6 +7679,7 @@ def default_settings_for_country(country: str = "") -> dict:
         "wa_template_updated": False,
         "get_started_reset_at": "",
         GET_STARTED_MANUAL_DONE_KEY: {},
+        GET_STARTED_MANUAL_OFF_KEY: {},
         GET_STARTED_VISITED_TABS_KEY: [],
         "search_term_added_at": "",
         "user_name_updated_at": "",
@@ -9246,19 +9260,54 @@ def get_started_manual_done() -> dict:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def get_started_manual_off() -> dict:
+    value = st.session_state.get(GET_STARTED_MANUAL_OFF_KEY, {})
+    return dict(value) if isinstance(value, dict) else {}
+
+
 def get_started_manual_item_done(item_id: str) -> bool:
     return bool(get_started_manual_done().get(item_id))
 
 
-def update_get_started_manual_item(item_id: str) -> None:
+def update_get_started_manual_item(item_id: str, auto_done: bool = False) -> None:
+    widget_value = bool(st.session_state.get(f"get_started_done_{item_id}", False))
     manual_done = get_started_manual_done()
-    manual_done[item_id] = bool(st.session_state.get(f"get_started_done_{item_id}", False))
+    manual_off = get_started_manual_off()
+    if auto_done and not widget_value:
+        manual_off[item_id] = str(st.session_state.get(f"get_started_auto_token_{item_id}", "") or "")
+        manual_done.pop(item_id, None)
+    else:
+        manual_off.pop(item_id, None)
+        manual_done[item_id] = widget_value
     st.session_state[GET_STARTED_MANUAL_DONE_KEY] = manual_done
+    st.session_state[GET_STARTED_MANUAL_OFF_KEY] = manual_off
     save_settings_quietly()
 
 
 def main_section_tab_visited(tab_name: str) -> bool:
     return tab_name in set(st.session_state.get(GET_STARTED_VISITED_TABS_KEY, []))
+
+
+def get_started_latest_action_token(action_name: str) -> str:
+    timestamps = []
+    for entry in st.session_state.get("deleted_reminders", []):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("Action", "")).strip().lower() == action_name:
+            timestamps.append(str(entry.get("ActionedAt", "") or entry.get("DeletedAt", "")))
+    return max(timestamps, default="")
+
+
+def get_started_latest_sent_token() -> str:
+    timestamps = [
+        str(entry.get("RemindedAt", ""))
+        for entry in st.session_state.get("wa_reminder_log", [])
+        if isinstance(entry, dict)
+    ]
+    action_token = get_started_latest_action_token(REMINDER_ACTION_SENT)
+    if action_token:
+        timestamps.append(action_token)
+    return max(timestamps, default="")
 
 
 def get_setup_checklist_modules() -> list[dict]:
@@ -9302,8 +9351,15 @@ def get_setup_checklist_modules() -> list[dict]:
                 return True
         return action_after_reset(REMINDER_ACTION_SENT)
 
-    def item(item_id: str, label: str, auto_done: bool = False) -> dict:
-        done = bool(auto_done) or get_started_manual_item_done(item_id)
+    manual_off = get_started_manual_off()
+
+    def item(item_id: str, label: str, auto_done: bool = False, auto_token: str = "") -> dict:
+        auto_token = str(auto_token or "")
+        st.session_state[f"get_started_auto_token_{item_id}"] = auto_token
+        if auto_done and manual_off.get(item_id) != auto_token:
+            done = True
+        else:
+            done = get_started_manual_item_done(item_id)
         return {
             "id": item_id,
             "label": label,
@@ -9317,7 +9373,12 @@ def get_setup_checklist_modules() -> list[dict]:
             "tab": "Upload Data",
             "copy": "Bring in the clinic sales export and check the saved dataset.",
             "items": [
-                item("upload_data", "Upload clinic sales data", has_data and happened_after_reset(st.session_state.get("shared_dataset_updated_at", ""))),
+                item(
+                    "upload_data",
+                    "Upload clinic sales data",
+                    has_data and happened_after_reset(st.session_state.get("shared_dataset_updated_at", "")),
+                    st.session_state.get("shared_dataset_updated_at", ""),
+                ),
                 item("review_upload_checks", "Review upload checks and date range"),
             ],
         },
@@ -9326,7 +9387,12 @@ def get_setup_checklist_modules() -> list[dict]:
             "copy": "Tune the item rules that create and match reminders.",
             "items": [
                 item("review_search_terms", "Review default search terms", bool(st.session_state.get("search_terms_reviewed", False))),
-                item("add_search_term", "Add a clinic-specific search term", search_term_added and happened_after_reset(st.session_state.get("search_term_added_at", ""))),
+                item(
+                    "add_search_term",
+                    "Add a clinic-specific search term",
+                    search_term_added and happened_after_reset(st.session_state.get("search_term_added_at", "")),
+                    st.session_state.get("search_term_added_at", ""),
+                ),
                 item("check_rule_days", "Check rule intervals and quantities"),
             ],
         },
@@ -9334,31 +9400,41 @@ def get_setup_checklist_modules() -> list[dict]:
             "tab": "Reminders",
             "copy": "Prepare messages, contact clients, and action reminders.",
             "items": [
-                item("add_sender_name", "Add the sender name", has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", ""))),
+                item(
+                    "add_sender_name",
+                    "Add the sender name",
+                    has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", "")),
+                    st.session_state.get("user_name_updated_at", ""),
+                ),
                 item("review_reminder_settings", "Review reminder date and grouping settings"),
-                item("send_whatsapp", "Open a WhatsApp message", sent_after_reset()),
-                item("mark_sent", "Mark a reminder as sent", action_after_reset(REMINDER_ACTION_SENT)),
-                item("decline_reminder", "Decline a reminder", action_after_reset(REMINDER_ACTION_DECLINED)),
-                item("edit_template", "Edit the General template", template_updated and happened_after_reset(st.session_state.get("wa_template_updated_at", ""))),
-                item("create_template", "Create or select another template", has_extra_template),
+                item("send_whatsapp", "Open a WhatsApp message", sent_after_reset(), get_started_latest_sent_token()),
+                item("mark_sent", "Mark a reminder as sent", action_after_reset(REMINDER_ACTION_SENT), get_started_latest_action_token(REMINDER_ACTION_SENT)),
+                item("decline_reminder", "Decline a reminder", action_after_reset(REMINDER_ACTION_DECLINED), get_started_latest_action_token(REMINDER_ACTION_DECLINED)),
+                item(
+                    "edit_template",
+                    "Edit the General template",
+                    template_updated and happened_after_reset(st.session_state.get("wa_template_updated_at", "")),
+                    st.session_state.get("wa_template_updated_at", ""),
+                ),
+                item("create_template", "Create or select another template", has_extra_template, str(sorted(templates.keys()))),
             ],
         },
         {
             "tab": "Exclusions",
             "copy": "Hide reminders that should not be contacted.",
             "items": [
-                item("add_client_exclusion", "Add a client exclusion", has_client_exclusion),
-                item("add_patient_exclusion", "Add a patient exclusion", has_patient_exclusion),
-                item("add_item_exclusion", "Add an item exclusion", has_item_exclusion),
-                item("add_client_item_exclusion", "Add a client-specific item exclusion", has_client_item_exclusion),
-                item("review_death_keywords", "Review automatic death keywords", reviewed_passaway_keywords),
+                item("add_client_exclusion", "Add a client exclusion", has_client_exclusion, str(st.session_state.get("client_exclusions", []))),
+                item("add_patient_exclusion", "Add a patient exclusion", has_patient_exclusion, str(combined_patient_exclusions())),
+                item("add_item_exclusion", "Add an item exclusion", has_item_exclusion, str(st.session_state.get("exclusions", []))),
+                item("add_client_item_exclusion", "Add a client-specific item exclusion", has_client_item_exclusion, str(st.session_state.get("client_item_exclusions", []))),
+                item("review_death_keywords", "Review automatic death keywords", reviewed_passaway_keywords, str(passaway_keywords)),
             ],
         },
         {
             "tab": "Stats",
             "copy": "Check outcomes and learn which reminders are working.",
             "items": [
-                item("open_stats", "Open the Stats tab", main_section_tab_visited("Stats")),
+                item("open_stats", "Open the Stats tab", main_section_tab_visited("Stats"), str(st.session_state.get(GET_STARTED_VISITED_TABS_KEY, []))),
                 item("review_items_stats", "Review Items and capturable revenue"),
                 item("review_sent_successes", "Review Sent Reminders and Successes"),
                 item("export_stats_csv", "Export a stats CSV"),
@@ -9897,7 +9973,7 @@ def render_setup_checklist():
                     )
                     for entry in module["items"]:
                         widget_key = f"get_started_done_{entry['id']}"
-                        if entry["auto_done"] or widget_key not in st.session_state:
+                        if widget_key not in st.session_state:
                             st.session_state[widget_key] = bool(entry["done"])
                         item_cols = st.columns([4.2, 1.1], gap="small")
                         with item_cols[0]:
@@ -9909,9 +9985,8 @@ def render_setup_checklist():
                             st.toggle(
                                 "Done",
                                 key=widget_key,
-                                disabled=bool(entry["auto_done"]),
                                 on_change=update_get_started_manual_item,
-                                args=(entry["id"],),
+                                args=(entry["id"], entry["auto_done"]),
                             )
 
     reset_col, _ = st.columns([0.85, 5], gap="small")
@@ -9919,6 +9994,7 @@ def render_setup_checklist():
         if st.button("↻ Reset", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
             st.session_state["get_started_reset_at"] = user_now().isoformat()
             st.session_state[GET_STARTED_MANUAL_DONE_KEY] = {}
+            st.session_state[GET_STARTED_MANUAL_OFF_KEY] = {}
             for module in modules:
                 for entry in module["items"]:
                     st.session_state.pop(f"get_started_done_{entry['id']}", None)
@@ -9977,6 +10053,7 @@ st.session_state.setdefault("wa_template_reviewed", False)
 st.session_state.setdefault("wa_template_updated", False)
 st.session_state.setdefault("get_started_reset_at", "")
 st.session_state.setdefault(GET_STARTED_MANUAL_DONE_KEY, {})
+st.session_state.setdefault(GET_STARTED_MANUAL_OFF_KEY, {})
 st.session_state.setdefault(GET_STARTED_VISITED_TABS_KEY, [])
 st.session_state.setdefault("search_term_added_at", "")
 st.session_state.setdefault("user_name_updated_at", "")

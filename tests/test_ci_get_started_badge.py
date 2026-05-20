@@ -46,6 +46,41 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertIn("Create or select another template", [item["label"] for item in reminder_items])
         self.assertIn("Review automatic death keywords", [item["label"] for item in exclusion_items])
 
+    def test_auto_completed_get_started_item_can_be_manually_turned_off(self):
+        state = self.app.st.session_state
+        state["working_df"] = pd.DataFrame({"ChargeDate": pd.to_datetime(["2026-05-01"])})
+        state["shared_dataset_updated_at"] = "2026-05-01T10:00:00"
+        self.assertTrue(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "upload_data"
+            )["done"]
+        )
+
+        state["get_started_done_upload_data"] = False
+        self.app.update_get_started_manual_item("upload_data", auto_done=True)
+
+        self.assertFalse(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "upload_data"
+            )["done"]
+        )
+
+        state[self.app.GET_STARTED_MANUAL_OFF_KEY] = {}
+        self.assertTrue(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "upload_data"
+            )["done"]
+        )
+
     def test_stats_tab_shows_new_badge(self):
         label = self.app.main_section_tab_label("Stats")
 
