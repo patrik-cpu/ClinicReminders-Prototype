@@ -2407,21 +2407,19 @@ st.markdown(
         padding-bottom: 1rem;
     }
     .setup-module {
-        border: 1px solid var(--cr-border);
-        border-radius: 8px;
-        padding: 0.65rem;
-        background: var(--cr-surface);
+        background: transparent;
+        border: 0;
+        margin: 0;
+        padding: 0 0 0.6rem;
     }
     [class*="st-key-get_started_module_"] [data-testid="stVerticalBlock"] {
-        gap: 0.35rem !important;
+        gap: 0.55rem !important;
     }
     .setup-module.complete {
-        border-color: var(--cr-step-complete-border);
-        background: var(--cr-step-complete-bg);
+        background: transparent;
     }
     .setup-module.todo {
-        border-color: rgba(248, 113, 113, 0.42);
-        background: #fff1f2;
+        background: transparent;
     }
     .setup-module-title {
         font-weight: 700;
@@ -2431,11 +2429,15 @@ st.markdown(
         padding-bottom: 0.3rem;
         border-bottom: 1px solid rgba(34, 197, 94, 0.22);
     }
+    .setup-module.todo .setup-module-title {
+        border-bottom-color: rgba(248, 113, 113, 0.28);
+        color: #7f1d1d;
+    }
     .setup-module-copy {
         color: var(--cr-muted);
         font-size: 0.92rem;
         line-height: 1.35;
-        margin-bottom: 0.35rem;
+        margin: 0.25rem 0 0;
     }
     .setup-item-label {
         border: 1px solid rgba(248, 113, 113, 0.32);
