@@ -9053,7 +9053,6 @@ else:
     with top_account_slot.container():
         with st.popover("Account", use_container_width=False):
             signed_in_with_staff_access = st.session_state.get("auth_provider") == CLINIC_ACCESS_AUTH_PROVIDER
-            st.caption("Clinic")
             if not signed_in_with_staff_access:
                 if st.button("Profile", key="top_account_profile", use_container_width=True):
                     open_account_dialog("profile")
@@ -9062,8 +9061,6 @@ else:
                 open_account_dialog("privacy")
 
             if not signed_in_with_staff_access:
-                st.divider()
-                st.caption("Access")
                 if st.button("Clinic access", key="top_account_clinic_access", use_container_width=True):
                     open_account_dialog("clinic_access")
 
@@ -9071,8 +9068,10 @@ else:
                 if st.button("Change password", key="top_account_show_change_password", use_container_width=True):
                     st.session_state["show_top_change_password"] = not st.session_state.get("show_top_change_password", False)
 
-            st.divider()
-            st.caption("Session")
+            if not signed_in_with_staff_access:
+                if st.button("Delete account and data", key="top_account_delete", use_container_width=True):
+                    open_account_dialog("delete")
+
             if st.button("Logout", key="top_account_logout", use_container_width=True):
                 google_session_active = get_google_user_info().get("is_logged_in", False)
                 clear_remember_login_token()
@@ -9082,12 +9081,6 @@ else:
                     st.logout()
                 else:
                     st.rerun()
-
-            if not signed_in_with_staff_access:
-                st.divider()
-                st.caption("Danger zone")
-                if st.button("Delete account and data", key="top_account_delete", use_container_width=True):
-                    open_account_dialog("delete")
 
             if st.session_state.get("show_top_change_password", False):
                 st.markdown("#### Change password")
