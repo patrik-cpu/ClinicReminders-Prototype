@@ -2771,15 +2771,29 @@ st.markdown(
         position: relative;
         width: 0.95rem;
         min-width: 0.95rem;
+        max-width: 0.95rem;
         height: 0.95rem;
         min-height: 0.95rem;
+        max-height: 0.95rem;
+        inline-size: 0.95rem;
+        min-inline-size: 0.95rem;
+        max-inline-size: 0.95rem;
+        block-size: 0.95rem;
+        min-block-size: 0.95rem;
+        max-block-size: 0.95rem;
+        aspect-ratio: 1 / 1;
         border: 1px solid var(--cr-muted);
         border-radius: 999px;
-        font-size: 0.68rem;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 0.72rem;
         font-weight: 700;
+        font-style: normal;
         line-height: 1;
         margin-left: 0.25rem;
+        padding: 0;
+        text-align: center;
         vertical-align: 0.05rem;
+        white-space: nowrap;
     }
     .column-help::after {
         background: #ffffff;
@@ -3014,7 +3028,7 @@ def render_field_label(container, label: str, help_text: str, class_name: str = 
     safe_class = html_lib.escape(str(class_name or ""))
     classes = "field-label" + (f" {safe_class}" if safe_class else "")
     container.markdown(
-        f"<div class='{classes}'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
+        f"<div class='{classes}'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>i</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -4376,7 +4390,7 @@ def dataset_summary_checks_html(rows: list[dict]) -> str:
         icon = "✅" if check.get("good") else "⚠️"
         text = html_lib.escape(str(check.get("text", "")))
         help_text = html_lib.escape(str(check.get("help", "")))
-        help_icon = f" <span class='column-help' data-tooltip='{help_text}'>?</span>" if help_text else ""
+        help_icon = f" <span class='column-help' data-tooltip='{help_text}'>i</span>" if help_text else ""
         check_items.append(
             f"<div class='dataset-check {status_class}'>{icon} {text}{help_icon}</div>"
         )
@@ -10521,7 +10535,7 @@ def render_setup_checklist():
                                 f"""
                                 <div class="setup-item-label {html_lib.escape(entry["class_name"])}">
                                   <span>{safe_label}</span>
-                                  <span class="column-help" data-tooltip="{safe_help}">?</span>
+                                  <span class="column-help" data-tooltip="{safe_help}">i</span>
                                 </div>
                                 """,
                                 unsafe_allow_html=True,
@@ -12778,7 +12792,7 @@ def reminder_header_help(column: str) -> str:
 def render_column_help_icon(container, help_text: str, align: str = "left"):
     safe_help = html_lib.escape(help_text)
     container.markdown(
-        f"<div style='text-align:{align}; line-height:1.6rem;'><span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
+        f"<div style='text-align:{align}; line-height:1.6rem;'><span class='column-help' data-tooltip='{safe_help}'>i</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -12797,7 +12811,7 @@ def render_reminder_header_label(container, label: str, column: str, align: str 
     safe_label = html_lib.escape(label)
     safe_help = html_lib.escape(reminder_header_help(column))
     container.markdown(
-        f"<div style='text-align:{align}; font-weight:600;'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
+        f"<div style='text-align:{align}; font-weight:600;'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>i</span></div>",
         unsafe_allow_html=True,
     )
 
@@ -14551,7 +14565,7 @@ def render_statistics_metric_card(label: str, value: str, help_text: str = ""):
     safe_value = html_lib.escape(str(value or "0"))
     safe_help = html_lib.escape(str(help_text or ""))
     help_html = (
-        f" <span class='column-help' data-tooltip='{safe_help}'>?</span>"
+        f" <span class='column-help' data-tooltip='{safe_help}'>i</span>"
         if safe_help
         else ""
     )
@@ -17098,7 +17112,7 @@ def render_search_terms_editor():
         safe_label = html_lib.escape(label)
         safe_help = html_lib.escape(help_text)
         st.markdown(
-            f"<div class='search-term-column-header'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>?</span></div>",
+            f"<div class='search-term-column-header'>{safe_label} <span class='column-help' data-tooltip='{safe_help}'>i</span></div>",
             unsafe_allow_html=True,
         )
 
