@@ -12889,12 +12889,13 @@ STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
 STATISTICS_GENERATED_COLUMNS = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
 STATISTICS_SCHEDULED_REMINDERS_LABEL = "Scheduled reminders"
 OUTCOME_PERIODS = ["Today", "7 days", "30 days", "All time"]
-STATS_SENT_REMINDER_PERIODS = ["Today", "Previous 7 days", "Previous 30 days", "All-time"]
+STATS_SENT_REMINDER_PERIODS = ["Today", "Previous 7 days", "Previous 30 days", "All-time", "Custom"]
 STATS_SENT_REMINDER_PERIOD_MAP = {
     "Today": "Today",
     "Previous 7 days": "7 days",
     "Previous 30 days": "30 days",
     "All-time": "All time",
+    "Custom": "Custom",
 }
 TABLE_PAGE_SIZE = 50
 REMINDER_TABLE_PAGE_SIZE = TABLE_PAGE_SIZE
@@ -14756,7 +14757,16 @@ def filter_sent_outcomes_for_period(
     outcomes_df: pd.DataFrame,
     period_label: str,
     today: date | None = None,
+    custom_range: tuple[date, date] | None = None,
 ) -> pd.DataFrame:
+    if str(period_label or "").strip() == "Custom" and custom_range is not None:
+        if outcomes_df is None or outcomes_df.empty:
+            return empty_outcome_frame()
+        start_date, end_date = custom_range
+        if end_date < start_date:
+            start_date, end_date = end_date, start_date
+        sent_dates = pd.to_datetime(outcomes_df["Sent Date"], errors="coerce").dt.date
+        return outcomes_df.loc[(sent_dates >= start_date) & (sent_dates <= end_date)].copy()
     return filter_outcomes_for_period(
         outcomes_df,
         sent_reminder_outcome_period(period_label),
@@ -14764,8 +14774,12 @@ def filter_sent_outcomes_for_period(
     )
 
 
-def filter_stats_sent_tab_rows(outcomes_df: pd.DataFrame, period_label: str) -> pd.DataFrame:
-    return filter_sent_outcomes_for_period(outcomes_df, period_label, today=user_today())
+def filter_stats_sent_tab_rows(
+    outcomes_df: pd.DataFrame,
+    period_label: str,
+    custom_range: tuple[date, date] | None = None,
+) -> pd.DataFrame:
+    return filter_sent_outcomes_for_period(outcomes_df, period_label, today=user_today(), custom_range=custom_range)
 
 
 OUTCOME_SUMMARY_NUMERIC_COLUMNS = (
@@ -15581,7 +15595,45 @@ def reset_stats_sent_reminders_page() -> None:
     st.session_state["outcomes_sent_page"] = 0
 
 
-def render_stats_sent_reminders_period_selector() -> str:
+def normalize_stats_sent_custom_range(value) -> tuple[date, date] | None:
+    if isinstance(value, tuple) and len(value) == 2:
+        start_date, end_date = value
+    elif isinstance(value, list) and len(value) == 2:
+        start_date, end_date = value
+    else:
+        return None
+    if not isinstance(start_date, date) or not isinstance(end_date, date):
+        return None
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+    return start_date, end_date
+
+
+def format_stats_sent_custom_range(custom_range: tuple[date, date] | None) -> str:
+    if custom_range is None:
+        return ""
+    start_date, end_date = custom_range
+    start_label = start_date.strftime("%d %b %Y")
+    end_label = end_date.strftime("%d %b %Y")
+    if start_date == end_date:
+        return start_label
+    return f"{start_label} to {end_label}"
+
+
+def stats_sent_period_caption(selected_period: str, custom_range: tuple[date, date] | None = None) -> str:
+    if selected_period == "Custom" and custom_range is not None:
+        return f"Custom: {format_stats_sent_custom_range(custom_range)}; filtered by Sent Date."
+    return f"{selected_period}; filtered by Sent Date."
+
+
+def stats_sent_export_period_label(selected_period: str, custom_range: tuple[date, date] | None = None) -> str:
+    if selected_period == "Custom" and custom_range is not None:
+        start_date, end_date = custom_range
+        return f"custom-{start_date.isoformat()}-to-{end_date.isoformat()}"
+    return selected_period
+
+
+def render_stats_sent_reminders_period_selector() -> tuple[str, tuple[date, date] | None]:
     filter_key = "stats_sent_reminders_period"
     current = st.session_state.get(filter_key, "All-time")
     if current not in STATS_SENT_REMINDER_PERIODS:
@@ -15607,11 +15659,30 @@ def render_stats_sent_reminders_period_selector() -> str:
             label_visibility="collapsed",
             on_change=reset_stats_sent_reminders_page,
         )
-    return selected_period or current
+    selected_period = selected_period or current
+    custom_range = None
+    if selected_period == "Custom":
+        today_value = user_today()
+        range_key = "stats_sent_reminders_custom_range"
+        if range_key not in st.session_state:
+            st.session_state[range_key] = (today_value, today_value)
+        custom_range_value = st.date_input(
+            "Custom sent date range",
+            value=st.session_state[range_key],
+            key=range_key,
+            label_visibility="collapsed",
+            on_change=reset_stats_sent_reminders_page,
+        )
+        custom_range = normalize_stats_sent_custom_range(custom_range_value)
+    return selected_period, custom_range
 
 
-def stats_sent_rows_for_render(period_rows: pd.DataFrame, selected_period: str) -> pd.DataFrame:
-    sent_period_rows = filter_stats_sent_tab_rows(period_rows, selected_period)
+def stats_sent_rows_for_render(
+    period_rows: pd.DataFrame,
+    selected_period: str,
+    custom_range: tuple[date, date] | None = None,
+) -> pd.DataFrame:
+    sent_period_rows = filter_stats_sent_tab_rows(period_rows, selected_period, custom_range=custom_range)
     if sent_period_rows.empty:
         return sent_period_rows
     return sent_period_rows.sort_values(["Sent Date", "Client Name"], ascending=[False, True])
@@ -15895,9 +15966,9 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             )
 
     with sent_tab:
-        selected_sent_period = render_stats_sent_reminders_period_selector()
-        st.caption(f"{selected_sent_period}; filtered by Sent Date.")
-        sent_rows = stats_sent_rows_for_render(period_rows, selected_sent_period)
+        selected_sent_period, sent_custom_range = render_stats_sent_reminders_period_selector()
+        st.caption(stats_sent_period_caption(selected_sent_period, sent_custom_range))
+        sent_rows = stats_sent_rows_for_render(period_rows, selected_sent_period, custom_range=sent_custom_range)
         render_outcome_dataframe(
             sent_rows,
             OUTCOME_SENT_DISPLAY_COLUMNS,
@@ -15907,7 +15978,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         )
         render_stats_csv_export(
             sent_rows,
-            f"stats-sent-reminders-{selected_sent_period}",
+            f"stats-sent-reminders-{stats_sent_export_period_label(selected_sent_period, sent_custom_range)}",
             "outcomes_sent",
             columns=OUTCOME_SENT_DISPLAY_COLUMNS,
             display_preparer=prepare_outcome_dataframe_for_display,

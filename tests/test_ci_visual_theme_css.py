@@ -190,7 +190,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('st.markdown("## 📊 Stats")', source)
         self.assertIn("See which reminders were sent, which ones led to repeat purchases", source)
         self.assertIn('["Items", "Item Activity", "Team", "Sent Reminders", "Successes"]', source)
-        self.assertIn('STATS_SENT_REMINDER_PERIODS = ["Today", "Previous 7 days", "Previous 30 days", "All-time"]', source)
+        self.assertIn('STATS_SENT_REMINDER_PERIODS = ["Today", "Previous 7 days", "Previous 30 days", "All-time", "Custom"]', source)
         self.assertIn('"Sent reminders period"', source)
         self.assertIn("filtered by Sent Date", source)
         self.assertIn(".stats-summary-card", source)

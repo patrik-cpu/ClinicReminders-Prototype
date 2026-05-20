@@ -1232,6 +1232,32 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(thirty_day_rows["Client Name"].tolist(), ["Today", "Seven Days", "Thirty Days"])
         self.assertEqual(len(all_time_rows), 4)
 
+    def test_sent_reminders_custom_period_filters_sent_date_range(self):
+        outcomes = pd.DataFrame(
+            [
+                {"Sent Date": pd.Timestamp("2025-09-30"), "Outcome": "No Match", "Client Name": "Later"},
+                {"Sent Date": pd.Timestamp("2025-09-24"), "Outcome": "No Match", "Client Name": "Inside"},
+                {"Sent Date": pd.Timestamp("2025-09-01"), "Outcome": "No Match", "Client Name": "Earlier"},
+            ]
+        )
+
+        rows = self.app.filter_sent_outcomes_for_period(
+            outcomes,
+            "Custom",
+            today=date(2025, 9, 30),
+            custom_range=(date(2025, 9, 20), date(2025, 9, 25)),
+        )
+
+        self.assertEqual(rows["Client Name"].tolist(), ["Inside"])
+
+    def test_stats_sent_custom_caption_shows_chosen_range(self):
+        caption = self.app.stats_sent_period_caption(
+            "Custom",
+            (date(2025, 9, 20), date(2025, 9, 25)),
+        )
+
+        self.assertEqual(caption, "Custom: 20 Sep 2025 to 25 Sep 2025; filtered by Sent Date.")
+
     def test_stats_sent_tab_period_filter_uses_user_today_not_sales_as_of_date(self):
         outcomes = pd.DataFrame(
             [
