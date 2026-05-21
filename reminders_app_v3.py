@@ -9979,6 +9979,33 @@ if not st.session_state["logged_in"]:
             )
             login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
 
+        if login_submitted:
+            st.session_state["show_staff_access_login"] = False
+            st.session_state["show_create_account"] = False
+            login_allowed, retry_after = login_attempt_allowed(
+                username,
+            )
+            if not login_allowed:
+                st.error(auth_retry_message("login", retry_after))
+            else:
+                user_row = authenticate_user(username, password)
+                if user_row:
+                    record_successful_login_attempt(username)
+                    finish_authenticated_session(
+                        username,
+                        event="login",
+                        auth_provider="password",
+                        remember_session=bool(keep_logged_in),
+                        remember_url_fallback=bool(keep_logged_in),
+                        user_row=user_row,
+                    )
+
+                    st.success(f"✅ Welcome, {username}!")
+                    st.rerun()
+                else:
+                    record_failed_login_attempt(username)
+                    st.error("❌ Invalid username or password.")
+
         google_auth_ready = authlib_available()
         google_signup_error = st.session_state.pop("google_signup_error", "")
         if google_signup_error:
@@ -10020,31 +10047,6 @@ if not st.session_state["logged_in"]:
                 "Google sign-up needs the Authlib package. Run `pip install -r requirements.txt` "
                 "and restart Streamlit."
             )
-
-        if login_submitted:
-            login_allowed, retry_after = login_attempt_allowed(
-                username,
-            )
-            if not login_allowed:
-                st.error(auth_retry_message("login", retry_after))
-            else:
-                user_row = authenticate_user(username, password)
-                if user_row:
-                    record_successful_login_attempt(username)
-                    finish_authenticated_session(
-                        username,
-                        event="login",
-                        auth_provider="password",
-                        remember_session=bool(keep_logged_in),
-                        remember_url_fallback=bool(keep_logged_in),
-                        user_row=user_row,
-                    )
-
-                    st.success(f"✅ Welcome, {username}!")
-                    st.rerun()
-                else:
-                    record_failed_login_attempt(username)
-                    st.error("❌ Invalid username or password.")
 
         if st.session_state.get("show_staff_access_login", False):
             st.markdown("### Staff Access")

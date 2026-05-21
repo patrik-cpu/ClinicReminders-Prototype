@@ -718,6 +718,22 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn('key="signup_confirm_password"', signup_form)
         self.assertIn('key="signup_country"', signup_form)
 
+    def test_password_login_submit_is_handled_before_signup_can_render(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        login_form_start = source.index('with st.form("clinic_login_form")')
+        login_submit_start = source.index("if login_submitted:", login_form_start)
+        google_button_start = source.index("google_signup_col = st.columns(1)[0]", login_form_start)
+        staff_toggle_start = source.index('key="toggle_staff_access"', login_form_start)
+        signup_form_start = source.index('with st.form("create_account_form")', login_form_start)
+        login_submit_block = source[login_submit_start:google_button_start]
+
+        self.assertLess(login_submit_start, google_button_start)
+        self.assertLess(login_submit_start, staff_toggle_start)
+        self.assertLess(login_submit_start, signup_form_start)
+        self.assertIn('st.session_state["show_staff_access_login"] = False', login_submit_block)
+        self.assertIn('st.session_state["show_create_account"] = False', login_submit_block)
+        self.assertIn("finish_authenticated_session(", login_submit_block)
+
     def test_google_user_info_normalizes_identity_fields(self):
         user = {
             "is_logged_in": True,
