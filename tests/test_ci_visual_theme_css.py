@@ -321,8 +321,8 @@ class VisualThemeCssTests(unittest.TestCase):
     def test_search_term_current_columns_keep_second_reminder_help_inline(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
-        self.assertIn("add_rule_col_widths = [2.2, 1.35, 0.9, 0.9, 1.1, 1.1, 0.45, 1.95, 0.65]", source)
-        self.assertIn("current_rule_col_widths = [2.25, 0.9, 0.95, 1.05, 1.05, 0.45, 1.75", source)
+        self.assertIn("add_rule_col_widths = [2.2, 1.35, 0.9, 0.9, 1.1, 1.1, 1.95, 0.45, 0.65]", source)
+        self.assertIn("current_rule_col_widths = [2.25, 0.9, 0.95, 1.05, 1.05, 1.75, 0.45", source)
 
     def test_search_term_due_date_reminder_copy_marks_add_field_required(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")

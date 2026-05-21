@@ -18145,7 +18145,7 @@ def render_search_terms_editor():
 
     st.markdown("### Add New Search Term")
     row_id = st.session_state['new_rule_counter']
-    add_rule_col_widths = [2.2, 1.35, 0.9, 0.9, 1.1, 1.1, 0.45, 1.95, 0.65]
+    add_rule_col_widths = [2.2, 1.35, 0.9, 0.9, 1.1, 1.1, 1.95, 0.45, 0.65]
     header_cols = st.columns(add_rule_col_widths, gap="small")
     with header_cols[0]: column_header("Search Term", "The product or service text to match in uploaded item names, such as bravecto, rabies, or librela.")
     with header_cols[1]: column_header("Category", "Choose the search term category.")
@@ -18153,8 +18153,8 @@ def render_search_terms_editor():
     with header_cols[3]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
     with header_cols[4]: column_header("Due date reminder (Required)", "The main reminder interval, in days after the billed date.")
     with header_cols[5]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
-    with header_cols[6]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
-    with header_cols[7]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
+    with header_cols[6]: column_header("Message Text (optional)", "The friendly item name clients will see in WhatsApp messages.")
+    with header_cols[7]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
 
     def field_examples(first_example: str, second_example: str, extra_class: str = "", example_key: str = ""):
         classes = f"field-examples {extra_class}".strip()
@@ -18229,6 +18229,18 @@ def render_search_terms_editor():
         )
         field_examples("375", "70", example_key="overdue")
     with c7:
+        new_rule_visible = st.text_input(
+            "Message Text (optional)",
+            key=f"new_rule_vis_{row_id}",
+            label_visibility="collapsed",
+            help="Friendly wording to show users and clients, such as Bravecto Tablet."
+        )
+        field_examples(
+            "Annual vaccination and check-up",
+            "Stride joint health supplement",
+            example_key="message-text",
+        )
+    with c8:
         new_rule_use_qty = st.checkbox(
             "Use Qty",
             key=f"new_rule_useqty_{row_id}",
@@ -18240,18 +18252,6 @@ def render_search_terms_editor():
             "",
             "use-qty-examples",
             example_key="use-qty",
-        )
-    with c8:
-        new_rule_visible = st.text_input(
-            "Message Text (optional)",
-            key=f"new_rule_vis_{row_id}",
-            label_visibility="collapsed",
-            help="Friendly wording to show users and clients, such as Bravecto Tablet."
-        )
-        field_examples(
-            "Annual vaccination and check-up",
-            "Stride joint health supplement",
-            example_key="message-text",
         )
     with c9:
         if st.button("➕ Add", key=f"add_{row_id}"):
@@ -18300,7 +18300,7 @@ def render_search_terms_editor():
     if autosave_error:
         st.error(autosave_error)
 
-    current_rule_col_widths = [2.25, 0.9, 0.95, 1.05, 1.05, 0.45, 1.75, 1.25, 0.55]
+    current_rule_col_widths = [2.25, 0.9, 0.95, 1.05, 1.05, 1.75, 0.45, 1.25, 0.55]
     rule_items_by_category = {
         category: sorted(
             [
@@ -18320,8 +18320,8 @@ def render_search_terms_editor():
     with cols[2]: column_header("Second reminder", "Optional second reminder, in days after the billed date.")
     with cols[3]: column_header("Due date reminder", "The main reminder interval, in days after the billed date.")
     with cols[4]: column_header("Overdue after days", "Optional overdue reminder, in days after the billed date.")
-    with cols[5]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
-    with cols[6]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
+    with cols[5]: column_header("Message Text", "The friendly item name shown in tables and WhatsApp messages.")
+    with cols[6]: column_header("Use Qty", "Use quantity to extend the due date, for example 2 x 30 days becomes 60 days.")
     with cols[7]: column_header("Move", "Move this search term to another category.")
     with cols[8]: column_header("Delete", "Remove this search term from matching.")
 
@@ -18377,20 +18377,20 @@ def render_search_terms_editor():
                         help="Optional overdue reminder, in days after the billed date."
                     )
                 with cols[5]:
-                    st.checkbox(
-                        "Use Qty", value=settings["use_qty"],
-                        key=f"useqty_{safe_rule}_{ver}",
-                        label_visibility="collapsed",
-                        on_change=toggle_use_qty,
-                        args=(rule, f"useqty_{safe_rule}_{ver}",),
-                    )
-                with cols[6]:
                     st.text_input(
                         "Message Text", value=settings.get("visible_text",""),
                         key=f"vis_{safe_rule}_{ver}", label_visibility="collapsed",
                         on_change=save_rule_visible_text,
                         args=(rule, f"vis_{safe_rule}_{ver}",),
                         help="Optional friendly wording shown in tables and WhatsApp messages."
+                    )
+                with cols[6]:
+                    st.checkbox(
+                        "Use Qty", value=settings["use_qty"],
+                        key=f"useqty_{safe_rule}_{ver}",
+                        label_visibility="collapsed",
+                        on_change=toggle_use_qty,
+                        args=(rule, f"useqty_{safe_rule}_{ver}",),
                     )
                 with cols[7]:
                     category_key = f"category_{safe_rule}_{ver}"
