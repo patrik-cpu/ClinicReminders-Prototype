@@ -218,16 +218,6 @@ class VisualThemeCssTests(unittest.TestCase):
     def test_login_google_button_sits_above_staff_and_signup_buttons(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
-        self.assertIn('login_col, marketing_col = st.columns([0.36, 0.64], gap="large")', source)
-        self.assertIn("with marketing_col:", source)
-        self.assertIn("login_marketing_image_html()", source)
-        self.assertIn("cr-login-marketing-visual", source)
-        self.assertIn("cr-login-workflow-svg", source)
-        self.assertIn("From Reminders to Results", source)
-        self.assertIn("def login_marketing_image_svg", source)
-        self.assertIn("base64.b64encode(login_marketing_image_svg()", source)
-        self.assertIn('src="data:image/svg+xml;base64,{encoded_svg}"', source)
-        self.assertIn("mask-image: radial-gradient", source)
         self.assertIn("google_signup_col = st.columns(1)[0]", source)
         self.assertIn("staff_access_col, manual_signup_col = st.columns(2, gap=\"small\")", source)
         self.assertIn(

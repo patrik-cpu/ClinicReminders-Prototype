@@ -734,15 +734,6 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn('st.session_state["show_create_account"] = False', login_submit_block)
         self.assertIn("finish_authenticated_session(", login_submit_block)
 
-    def test_login_marketing_html_embeds_svg_as_image(self):
-        html = self.app.login_marketing_image_html()
-
-        self.assertIn('<img class="cr-login-workflow-svg"', html)
-        self.assertIn('src="data:image/svg+xml;base64,', html)
-        self.assertIn("From Reminders to Results", self.app.login_marketing_image_svg())
-        self.assertNotIn("<svg", html)
-        self.assertNotIn("<rect", html)
-
     def test_google_user_info_normalizes_identity_fields(self):
         user = {
             "is_logged_in": True,

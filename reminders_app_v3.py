@@ -2217,28 +2217,6 @@ st.markdown(
     .login-form-marker {
         display: none;
     }
-    div[data-testid="stHorizontalBlock"]:has(.cr-login-marketing-visual) {
-        align-items: flex-start;
-    }
-    .cr-login-marketing-visual {
-        margin: -1.35rem 0 0 clamp(1rem, 2vw, 2rem);
-        max-width: 64rem;
-        pointer-events: none;
-        width: 100%;
-    }
-    .cr-login-workflow-svg {
-        display: block;
-        height: auto;
-        max-height: min(78vh, 64rem);
-        width: 100%;
-        -webkit-mask-image: radial-gradient(ellipse at center, #000 74%, transparent 100%);
-        mask-image: radial-gradient(ellipse at center, #000 74%, transparent 100%);
-    }
-    @media (max-width: 980px) {
-        .cr-login-marketing-visual {
-            display: none;
-        }
-    }
     div[data-testid="stHorizontalBlock"]:has(.st-key-google_signup_button),
     div[data-testid="stHorizontalBlock"]:has(.st-key-toggle_staff_access):has(.st-key-toggle_create_account) {
         padding-left: 15px !important;
@@ -8742,153 +8720,6 @@ def render_google_onboarding_dialog(google_user: dict):
             _render_dialog_body()
 
 
-def login_marketing_image_svg() -> str:
-    return """
-      <svg viewBox="0 0 1120 1320" role="img" aria-labelledby="login-workflow-title login-workflow-desc" xmlns="http://www.w3.org/2000/svg">
-        <title id="login-workflow-title">From Reminders to Results</title>
-        <desc id="login-workflow-desc">A four step Clinic Reminders workflow showing revenue identification, reminder configuration, WhatsApp messaging, and tracking.</desc>
-        <defs>
-          <linearGradient id="workflow-bg" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#ffffff"/>
-            <stop offset="0.55" stop-color="#fbfefc"/>
-            <stop offset="1" stop-color="#f6faf7"/>
-          </linearGradient>
-          <radialGradient id="workflow-soft-glow" cx="50%" cy="42%" r="64%">
-            <stop offset="0" stop-color="#ffffff" stop-opacity="0.98"/>
-            <stop offset="0.72" stop-color="#ffffff" stop-opacity="0.84"/>
-            <stop offset="1" stop-color="#f6faf7" stop-opacity="0"/>
-          </radialGradient>
-          <filter id="workflow-card-shadow" x="-18%" y="-18%" width="136%" height="140%">
-            <feDropShadow dx="0" dy="14" stdDeviation="15" flood-color="#0f172a" flood-opacity="0.12"/>
-          </filter>
-          <filter id="workflow-line-shadow" x="-35%" y="-10%" width="170%" height="120%">
-            <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#0fbf57" flood-opacity="0.18"/>
-          </filter>
-          <style>
-            .wf-title { fill: #101828; font-family: Nunito, "Source Sans Pro", Arial, sans-serif; font-size: 74px; font-weight: 900; letter-spacing: 0; }
-            .wf-subtitle { fill: #344054; font-family: "Source Sans Pro", Arial, sans-serif; font-size: 32px; font-weight: 500; letter-spacing: 0; }
-            .wf-card-title { fill: #101828; font-family: Nunito, "Source Sans Pro", Arial, sans-serif; font-size: 31px; font-weight: 900; letter-spacing: 0; }
-            .wf-copy { fill: #344054; font-family: "Source Sans Pro", Arial, sans-serif; font-size: 21px; font-weight: 500; letter-spacing: 0; }
-            .wf-step-number { fill: #18bf5d; font-family: Nunito, "Source Sans Pro", Arial, sans-serif; font-size: 54px; font-weight: 900; letter-spacing: 0; }
-            .wf-faint { opacity: 0.16; }
-          </style>
-        </defs>
-
-        <rect width="1120" height="1320" rx="34" fill="url(#workflow-bg)"/>
-        <rect width="1120" height="1320" rx="34" fill="url(#workflow-soft-glow)"/>
-
-        <g class="wf-faint" fill="none" stroke="#18bf5d" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M88 126c16-30 56-24 58 11 2 33-36 46-58 25m13-9h35m-17 0v-36"/>
-          <path d="M238 72c-30 0-52 19-52 43 0 14 8 27 21 35l-5 24 24-13c6 2 12 3 18 3 30 0 52-19 52-43s-22-49-58-49z"/>
-          <path d="M735 48h80v70h-80zM754 35v28M795 35v28M735 76h80M755 94h8M779 94h8M802 94h8"/>
-          <path d="M989 64c14 0 18 23 3 26-10 2-18-7-17-18 1-5 5-8 14-8zm-47 0c-14 0-18 23-3 26 10 2 18-7 17-18-1-5-5-8-14-8zm23 31c24 0 43 22 36 42-6 17-26 8-36 8s-30 9-36-8c-7-20 12-42 36-42z"/>
-          <path d="M819 402a40 40 0 1 0 0 80 40 40 0 0 0 0-80zm0 16v48m-24-24h48"/>
-          <path d="M1016 260h76v66h-76zM1034 247v27M1073 247v27M1016 288h76M1036 306h8M1061 306h8M1083 306h8"/>
-          <path d="M982 496c21 0 37 17 37 38v29l14 21h-102l14-21v-29c0-21 16-38 37-38zM970 603c3 10 21 10 24 0"/>
-          <path d="M172 654a38 38 0 1 0 0 76 38 38 0 0 0 0-76zm0 15v46m-23-23h46"/>
-          <path d="M992 904c-28 0-49 18-49 41 0 13 7 25 18 33l-5 22 22-12c5 1 10 2 16 2 28 0 49-18 49-41s-21-45-51-45z"/>
-          <path d="M86 1112h80v70H86zM105 1099v28M145 1099v28M86 1140h80M106 1158h8M130 1158h8M153 1158h8"/>
-          <path d="M248 1134c20 0 36 16 36 36v28l14 21h-100l14-21v-28c0-20 16-36 36-36zM236 1238c4 10 20 10 24 0"/>
-        </g>
-
-        <text x="560" y="150" text-anchor="middle" class="wf-title">From Reminders to Results</text>
-        <line x1="424" y1="202" x2="518" y2="202" stroke="#18bf5d" stroke-width="4" stroke-linecap="round"/>
-        <path d="M551 188c6-17 25-17 31 0 17-1 22 19 8 29-12 9-44 9-56 0-14-10-8-30 17-29z" fill="#18bf5d"/>
-        <line x1="602" y1="202" x2="696" y2="202" stroke="#18bf5d" stroke-width="4" stroke-linecap="round"/>
-        <text x="560" y="266" text-anchor="middle" class="wf-subtitle">The 4-step Clinic Reminders workflow.</text>
-
-        <path d="M523 306 C654 326 661 465 532 544 C406 622 437 726 570 789 C702 851 677 970 535 1038 C446 1082 468 1178 535 1214" fill="none" stroke="#18bf5d" stroke-width="6" stroke-linecap="round" filter="url(#workflow-line-shadow)"/>
-
-        <g transform="translate(58 318)" filter="url(#workflow-card-shadow)">
-          <rect width="418" height="260" rx="20" fill="#ffffff" stroke="#d9efe2"/>
-          <circle cx="82" cy="130" r="52" fill="#e8f8ee"/>
-          <path d="M58 143h59M65 143v-37h12v37M87 143v-58h12v58M109 143v-82h12v82" fill="none" stroke="#18bf5d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-          <circle cx="93" cy="110" r="46" fill="none" stroke="#18bf5d" stroke-width="4"/>
-          <path d="M125 144l31 31" stroke="#18bf5d" stroke-width="7" stroke-linecap="round"/>
-          <line x1="178" y1="28" x2="178" y2="232" stroke="#ccebd8" stroke-width="2"/>
-          <text x="208" y="70" class="wf-card-title">Identify lost</text>
-          <text x="208" y="108" class="wf-card-title">repeat revenue</text>
-          <line x1="208" y1="136" x2="248" y2="136" stroke="#18bf5d" stroke-width="4"/>
-          <text x="208" y="176" class="wf-copy">See where late or missed</text>
-          <text x="208" y="207" class="wf-copy">repeat purchases are</text>
-          <text x="208" y="238" class="wf-copy">impacting the clinic.</text>
-        </g>
-        <line x1="476" y1="448" x2="550" y2="448" stroke="#18bf5d" stroke-width="3" stroke-dasharray="8 9"/>
-        <circle cx="486" cy="448" r="7" fill="#18bf5d"/>
-        <circle cx="560" cy="448" r="47" fill="#ffffff" stroke="#18bf5d" stroke-width="7"/>
-        <text x="560" y="466" text-anchor="middle" class="wf-step-number">1</text>
-
-        <g transform="translate(676 548)" filter="url(#workflow-card-shadow)">
-          <rect width="386" height="288" rx="20" fill="#ffffff" stroke="#d9efe2"/>
-          <text x="40" y="72" class="wf-card-title">Precise</text>
-          <text x="40" y="110" class="wf-card-title">configurations</text>
-          <line x1="40" y1="138" x2="80" y2="138" stroke="#18bf5d" stroke-width="4"/>
-          <text x="40" y="178" class="wf-copy">Customise reminders</text>
-          <text x="40" y="209" class="wf-copy">by product, service,</text>
-          <text x="40" y="240" class="wf-copy">number of reminders,</text>
-          <text x="40" y="271" class="wf-copy">due date and timing.</text>
-          <line x1="238" y1="34" x2="238" y2="254" stroke="#ccebd8" stroke-width="2"/>
-          <circle cx="308" cy="144" r="60" fill="#e8f8ee"/>
-          <path d="M278 109h66v70h-66zM294 130h34M294 157h34M336 123a18 18 0 1 1 0 36 18 18 0 0 1 0-36zM284 130h-10M284 157h-10M352 147h14M352 165h10" fill="none" stroke="#18bf5d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-        </g>
-        <line x1="574" y1="684" x2="670" y2="684" stroke="#18bf5d" stroke-width="3" stroke-dasharray="8 9"/>
-        <circle cx="670" cy="684" r="7" fill="#18bf5d"/>
-        <circle cx="560" cy="684" r="47" fill="#ffffff" stroke="#18bf5d" stroke-width="7"/>
-        <text x="560" y="702" text-anchor="middle" class="wf-step-number">2</text>
-
-        <g transform="translate(58 800)" filter="url(#workflow-card-shadow)">
-          <rect width="392" height="270" rx="20" fill="#ffffff" stroke="#d9efe2"/>
-          <circle cx="76" cy="135" r="54" fill="#e8f8ee"/>
-          <path d="M76 82a52 52 0 0 0-45 78l-11 40 40-11a52 52 0 1 0 16-107z" fill="#ffffff" stroke="#18bf5d" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M59 113c9 26 23 40 48 49" fill="none" stroke="#18bf5d" stroke-width="10" stroke-linecap="round"/>
-          <line x1="166" y1="24" x2="166" y2="246" stroke="#ccebd8" stroke-width="2"/>
-          <text x="194" y="67" class="wf-card-title">Effortless</text>
-          <text x="194" y="105" class="wf-card-title">WhatsApp</text>
-          <text x="194" y="143" class="wf-card-title">messages</text>
-          <line x1="194" y1="170" x2="234" y2="170" stroke="#18bf5d" stroke-width="4"/>
-          <text x="194" y="209" class="wf-copy">Deliver reminders to</text>
-          <text x="194" y="240" class="wf-copy">clients with fast,</text>
-          <text x="194" y="271" class="wf-copy">low-friction messaging.</text>
-        </g>
-        <line x1="450" y1="930" x2="520" y2="930" stroke="#18bf5d" stroke-width="3" stroke-dasharray="8 9"/>
-        <circle cx="450" cy="930" r="7" fill="#18bf5d"/>
-        <circle cx="560" cy="930" r="47" fill="#ffffff" stroke="#18bf5d" stroke-width="7"/>
-        <text x="560" y="948" text-anchor="middle" class="wf-step-number">3</text>
-
-        <g transform="translate(668 982)" filter="url(#workflow-card-shadow)">
-          <rect width="390" height="270" rx="20" fill="#ffffff" stroke="#d9efe2"/>
-          <text x="40" y="70" class="wf-card-title">Clear tracking</text>
-          <line x1="40" y1="98" x2="80" y2="98" stroke="#18bf5d" stroke-width="4"/>
-          <text x="40" y="140" class="wf-copy">Monitor outcomes,</text>
-          <text x="40" y="171" class="wf-copy">success rates, revenue</text>
-          <text x="40" y="202" class="wf-copy">boost and team usage</text>
-          <text x="40" y="233" class="wf-copy">over time.</text>
-          <line x1="248" y1="32" x2="248" y2="238" stroke="#ccebd8" stroke-width="2"/>
-          <circle cx="318" cy="135" r="58" fill="#e8f8ee"/>
-          <path d="M284 168h70M292 168v-35h12v35M314 168v-55h12v55M336 168v-80h12v80M286 112l28-29 25 22 33-47M352 58h20v20" fill="none" stroke="#18bf5d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-        </g>
-        <line x1="575" y1="1132" x2="666" y2="1132" stroke="#18bf5d" stroke-width="3" stroke-dasharray="8 9"/>
-        <circle cx="666" cy="1132" r="7" fill="#18bf5d"/>
-        <circle cx="560" cy="1132" r="47" fill="#ffffff" stroke="#18bf5d" stroke-width="7"/>
-        <text x="560" y="1150" text-anchor="middle" class="wf-step-number">4</text>
-
-        <path d="M340 1260c58 36 360 36 438 0" fill="none" stroke="#18bf5d" stroke-width="3"/>
-        <path d="M438 1252c-26-70 12-96 38-83 20 10 22 35 10 66m22 22v-56c0-31 35-40 55-18 19-26 57-12 57 20v54" fill="none" stroke="#18bf5d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M535 1210c18 0 28 14 28 29 0 20-28 36-28 36s-28-16-28-36c0-15 10-29 28-29z" fill="#ffffff" stroke="#18bf5d" stroke-width="3"/>
-        <path d="M334 1260c-30-18-54-44-48-67 32 6 45 37 48 67zm452 0c30-18 54-44 48-67-32 6-45 37-48 67z" fill="#ffffff" stroke="#18bf5d" stroke-width="3"/>
-      </svg>
-    """
-
-
-def login_marketing_image_html() -> str:
-    encoded_svg = base64.b64encode(login_marketing_image_svg().strip().encode("utf-8")).decode("ascii")
-    return f"""
-    <div class="cr-login-marketing-visual" aria-label="From Reminders to Results workflow">
-      <img class="cr-login-workflow-svg" src="data:image/svg+xml;base64,{encoded_svg}" alt="From Reminders to Results workflow" />
-    </div>
-    """
-
-
 def get_clinic_profile(clinic_id: str) -> dict:
     row = get_cached_clinic_profile_row(clinic_id)
     if row is None:
@@ -9969,7 +9800,7 @@ if pending_google_signup and not st.session_state["logged_in"]:
     st.stop()
 
 if not st.session_state["logged_in"]:
-    login_col, marketing_col = st.columns([0.36, 0.64], gap="large")
+    login_col, _ = st.columns([0.36, 0.64])
     with login_col:
         st.markdown("<div class='login-title'>Clinic Login</div>", unsafe_allow_html=True)
         logout_notice = st.session_state.pop("logout_notice", "")
@@ -10142,8 +9973,6 @@ if not st.session_state["logged_in"]:
                             st.error(str(e))
                         except Exception:
                             st.error("Could not create account. Please try again or contact support.")
-    with marketing_col:
-        st.markdown(login_marketing_image_html(), unsafe_allow_html=True)
 else:
     clinic_id = st.session_state.get("clinic_id", "")
     with top_account_slot.container():
