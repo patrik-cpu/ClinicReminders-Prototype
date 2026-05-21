@@ -277,7 +277,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("def render_graphs_coming_soon", source)
         self.assertNotIn('st.error("Coming soon")', source)
         self.assertIn("graphs-coming-soon-art", source)
-        self.assertIn("Check back soon", source)
+        self.assertIn("Coming Soon", source)
 
     def test_search_term_headers_bottom_align_wrapped_labels(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")

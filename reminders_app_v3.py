@@ -11085,7 +11085,7 @@ def render_graphs_coming_soon():
             <rect x="280" y="96" width="34" height="114" rx="5" class="graphs-bar graphs-bar-b"/>
             <rect x="334" y="138" width="34" height="72" rx="5" class="graphs-bar graphs-bar-a"/>
           </svg>
-          <div class="graphs-coming-soon-copy">Check back soon</div>
+          <div class="graphs-coming-soon-copy">Coming Soon</div>
         </div>
         """,
         unsafe_allow_html=True,
