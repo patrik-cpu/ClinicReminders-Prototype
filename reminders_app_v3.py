@@ -26,6 +26,18 @@ import random
 import html as html_lib
 import textwrap
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+import auth_password_utils as _auth_password_utils
+
+COMMON_PASSWORD_KEYS = _auth_password_utils.COMMON_PASSWORD_KEYS
+PASSWORD_HASH_ALGORITHM = _auth_password_utils.PASSWORD_HASH_ALGORITHM
+PASSWORD_HASH_ITERATIONS = _auth_password_utils.PASSWORD_HASH_ITERATIONS
+PASSWORD_MIN_LENGTH = _auth_password_utils.PASSWORD_MIN_LENGTH
+PASSWORD_SALT_BYTES = _auth_password_utils.PASSWORD_SALT_BYTES
+password_hash_for_storage = _auth_password_utils.password_hash_for_storage
+password_policy_error = _auth_password_utils.password_policy_error
+password_policy_key = _auth_password_utils.password_policy_key
+validate_password_policy = _auth_password_utils.validate_password_policy
+verify_password = _auth_password_utils.verify_password
 
 try:
     from streamlit.runtime.scriptrunner import RerunException
@@ -3504,24 +3516,6 @@ REMEMBER_LOGIN_COOKIE_MAX_AGE_SECONDS = REMEMBER_LOGIN_DAYS * 24 * 60 * 60
 REMEMBER_LOGIN_COOKIE_UPDATE_KEY = "_remember_login_cookie_update"
 REMEMBER_LOGIN_RESTORE_BLOCKED_KEY = "_remember_login_restore_blocked"
 POST_LOGIN_STARTUP_OVERLAY_KEY = "_post_login_startup_overlay_pending"
-PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
-PASSWORD_HASH_ITERATIONS = 260_000
-PASSWORD_SALT_BYTES = 16
-PASSWORD_MIN_LENGTH = 12
-COMMON_PASSWORD_KEYS = {
-    "123456789012",
-    "admin123456",
-    "changeme123456",
-    "clinicreminders",
-    "letmein123456",
-    "password",
-    "password123",
-    "password1234",
-    "password12345",
-    "password123456",
-    "qwerty123456",
-    "welcome123456",
-}
 LOGIN_TRACKER_EVENTS = {"login", "google_login", "clinic_access_login", "remembered_login"}
 AUTH_ABUSE_STATE_KEY = "_auth_abuse_controls"
 LOGIN_FAILURE_LIMIT = 5
@@ -7916,44 +7910,6 @@ def ensure_tracking_sheets():
         return
 
 
-def password_hash_for_storage(password: str) -> str:
-    """Return a salted password hash for new/changed clinic passwords."""
-    salt = base64.urlsafe_b64encode(os.urandom(PASSWORD_SALT_BYTES)).decode("ascii").rstrip("=")
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        str(password or "").encode("utf-8"),
-        salt.encode("utf-8"),
-        PASSWORD_HASH_ITERATIONS,
-    )
-    digest_b64 = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
-    return f"{PASSWORD_HASH_ALGORITHM}${PASSWORD_HASH_ITERATIONS}${salt}${digest_b64}"
-
-
-def verify_password(password: str, stored_hash: str) -> bool:
-    stored_hash = str(stored_hash or "").strip()
-    if not stored_hash:
-        return False
-
-    parts = stored_hash.split("$")
-    if len(parts) == 4 and parts[0] == PASSWORD_HASH_ALGORITHM:
-        try:
-            iterations = int(parts[1])
-            salt = parts[2]
-            expected = parts[3]
-        except (TypeError, ValueError):
-            return False
-        digest = hashlib.pbkdf2_hmac(
-            "sha256",
-            str(password or "").encode("utf-8"),
-            salt.encode("utf-8"),
-            iterations,
-        )
-        digest_b64 = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
-        return hmac.compare_digest(digest_b64, expected)
-
-    return False
-
-
 def normalize_clinic_access_code(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
@@ -7976,36 +7932,6 @@ def clinic_access_code_hash_for_storage(access_code: str) -> str:
 def verify_clinic_access_code(access_code: str, stored_hash: str) -> bool:
     normalized = normalize_clinic_access_code(access_code)
     return bool(normalized and verify_password(normalized, stored_hash))
-
-
-def password_policy_key(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
-
-
-def password_policy_error(password: str, clinic_id: str = "") -> str:
-    password_text = str(password or "")
-    if len(password_text) < PASSWORD_MIN_LENGTH:
-        return f"Password must be at least {PASSWORD_MIN_LENGTH} characters."
-
-    password_key = password_policy_key(password_text)
-    if not password_key:
-        return "Password must include letters or numbers."
-
-    for common_key in COMMON_PASSWORD_KEYS:
-        if password_key == common_key or password_key.startswith(common_key):
-            return "Choose a less common password."
-
-    clinic_key = password_policy_key(clinic_id)
-    if len(clinic_key) >= 4 and clinic_key in password_key:
-        return "Password cannot include the clinic name."
-
-    return ""
-
-
-def validate_password_policy(password: str, clinic_id: str = "") -> None:
-    error = password_policy_error(password, clinic_id)
-    if error:
-        raise ValueError(error)
 
 
 def normalize_email(value: str) -> str:
