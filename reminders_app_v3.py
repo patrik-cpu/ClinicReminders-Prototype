@@ -18685,9 +18685,21 @@ def render_top_unreminded_items_table(title: str, rows: pd.DataFrame, value_colu
         st.caption("No unreminded items found.")
         return
 
+    value_help = {
+        "Count": "The number of items this item was purchased across the entire date range of the uploaded data.",
+        "Revenue": "The total revenue from this item across the entire date range of the uploaded data",
+    }.get(value_column, "")
+    value_help_icon = (
+        f" <span class='column-help' data-tooltip='{html_lib.escape(value_help, quote=True)}'>{HELP_ICON_HTML}</span>"
+        if value_help
+        else ""
+    )
     header_cols = st.columns([4.5, 1.35, 0.45], gap="small")
     header_cols[0].markdown("<div class='search-term-column-header'>Item Name</div>", unsafe_allow_html=True)
-    header_cols[1].markdown(f"<div class='search-term-column-header'>{html_lib.escape(value_column)}</div>", unsafe_allow_html=True)
+    header_cols[1].markdown(
+        f"<div class='search-term-column-header'>{html_lib.escape(value_column)}{value_help_icon}</div>",
+        unsafe_allow_html=True,
+    )
     header_cols[2].markdown("<div class='search-term-column-header'></div>", unsafe_allow_html=True)
 
     for idx, row in rows.iterrows():
