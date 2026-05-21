@@ -271,6 +271,40 @@ class AuthSessionTests(unittest.TestCase):
         self.assertFalse(restored)
         clear_token.assert_called_once()
 
+    def test_restore_remembered_login_is_blocked_while_cookie_deletion_is_pending(self):
+        state = self.app.st.session_state
+        state["logged_in"] = False
+        state[self.app.REMEMBER_LOGIN_RESTORE_BLOCKED_KEY] = True
+        self.addCleanup(state.pop, self.app.REMEMBER_LOGIN_RESTORE_BLOCKED_KEY, None)
+
+        with (
+            patch.object(self.app, "get_remember_login_cookie", return_value="stale-token"),
+            patch.object(self.app, "get_query_param", return_value=""),
+            patch.object(self.app, "validate_remember_login_session") as validate_session,
+            patch.object(self.app, "finish_authenticated_session") as finish_session,
+        ):
+            restored = self.app.restore_remembered_login_session()
+
+        self.assertFalse(restored)
+        self.assertFalse(state["logged_in"])
+        self.assertTrue(state[self.app.REMEMBER_LOGIN_RESTORE_BLOCKED_KEY])
+        validate_session.assert_not_called()
+        finish_session.assert_not_called()
+
+    def test_restore_block_clears_after_cookie_is_absent(self):
+        state = self.app.st.session_state
+        state["logged_in"] = False
+        state[self.app.REMEMBER_LOGIN_RESTORE_BLOCKED_KEY] = True
+
+        with (
+            patch.object(self.app, "get_remember_login_cookie", return_value=""),
+            patch.object(self.app, "get_query_param", return_value=""),
+        ):
+            restored = self.app.restore_remembered_login_session()
+
+        self.assertFalse(restored)
+        self.assertNotIn(self.app.REMEMBER_LOGIN_RESTORE_BLOCKED_KEY, state)
+
     def test_discard_remember_login_query_param_clears_without_validation(self):
         with (
             patch.object(self.app, "get_query_param", return_value="unsafe-token"),
@@ -501,6 +535,7 @@ class AuthSessionTests(unittest.TestCase):
                 "clinic_id": "Clinic A",
                 "auth_provider": self.app.CLINIC_ACCESS_AUTH_PROVIDER,
                 "session_user_name": "Nurse A",
+                "user_row": row,
             },
         )
         self.assertEqual(token_clinic, "Clinic A")
@@ -735,6 +770,71 @@ class AuthSessionTests(unittest.TestCase):
         )
         self.assertEqual(state[self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY], "fresh-token")
         state.pop(self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY, None)
+
+    def test_finish_authenticated_session_can_clear_existing_remember_cookie(self):
+        state = self.app.st.session_state
+        state.pop(self.app.REMEMBER_LOGIN_RESTORE_BLOCKED_KEY, None)
+
+        with (
+            patch.object(self.app, "close_account_dialogs"),
+            patch.object(self.app, "reset_uploaded_data_state"),
+            patch.object(self.app, "load_settings"),
+            patch.object(self.app, "load_shared_dataset_for_clinic"),
+            patch.object(self.app, "busy_overlay", return_value=contextlib.nullcontext()),
+            patch.object(self.app, "record_settings_account_event"),
+            patch.object(self.app, "upsert_user_tracker"),
+            patch.object(self.app, "clear_remember_login_token") as clear_token,
+        ):
+            self.app.finish_authenticated_session(
+                "Clinic B",
+                event="login",
+                auth_provider="password",
+                clear_existing_remember_session=True,
+            )
+
+        clear_token.assert_called_once_with(block_restore=True)
+
+    def test_finish_authenticated_session_keeps_restore_refresh_path_without_clear(self):
+        with (
+            patch.object(self.app, "close_account_dialogs"),
+            patch.object(self.app, "reset_uploaded_data_state"),
+            patch.object(self.app, "load_settings"),
+            patch.object(self.app, "load_shared_dataset_for_clinic"),
+            patch.object(self.app, "busy_overlay", return_value=contextlib.nullcontext()),
+            patch.object(self.app, "record_settings_account_event"),
+            patch.object(self.app, "upsert_user_tracker"),
+            patch.object(self.app, "clear_remember_login_token") as clear_token,
+        ):
+            self.app.finish_authenticated_session(
+                "Clinic A",
+                event="remembered_login",
+                auth_provider="password",
+            )
+
+        clear_token.assert_not_called()
+
+    def test_login_paths_clear_stale_remember_token_when_persistence_is_not_selected(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+
+        login_form_start = source.index('with st.form("clinic_login_form")')
+        login_form_end = source.index('google_auth_ready = authlib_available()', login_form_start)
+        login_block = source[login_form_start:login_form_end]
+
+        self.assertIn("remember_session=bool(keep_logged_in)", login_block)
+        self.assertIn("clear_existing_remember_session=not bool(keep_logged_in)", login_block)
+
+        google_auto_start = source.index('if google_user.get("is_logged_in")')
+        google_auto_end = source.index("elif st.session_state.get", google_auto_start)
+        google_auto_block = source[google_auto_start:google_auto_end]
+        self.assertIn("clear_existing_remember_session=True", google_auto_block)
+
+        google_onboarding_source = inspect.getsource(self.app.render_google_onboarding_dialog)
+        self.assertIn("clear_existing_remember_session=True", google_onboarding_source)
+
+        staff_form_start = source.index('with st.form("staff_access_login_form")')
+        staff_form_end = source.index('if st.session_state["show_create_account"]', staff_form_start)
+        staff_block = source[staff_form_start:staff_form_end]
+        self.assertIn("clear_remember_login_token(block_restore=True)", staff_block)
 
     def test_finish_authenticated_session_shows_clinic_data_loading_overlay(self):
         state = self.app.st.session_state
@@ -1032,7 +1132,12 @@ class AuthSessionTests(unittest.TestCase):
 
     def test_clinic_row_lookup_handles_non_string_sheet_values(self):
         class FakeSheet:
+            def __init__(self):
+                self.get_all_values_calls = 0
+                self.get_all_records_calls = 0
+
             def get_all_values(self):
+                self.get_all_values_calls += 1
                 return [
                     [self_app.SHEET_COL_CLINIC_ID, self_app.SHEET_COL_PASSWORD_HASH],
                     [12345, ""],
@@ -1040,6 +1145,7 @@ class AuthSessionTests(unittest.TestCase):
                 ]
 
             def get_all_records(self):
+                self.get_all_records_calls += 1
                 return [
                     {"ClinicID": 12345, "PasswordHash": ""},
                     {"ClinicID": "Clinic A", "PasswordHash": self_hash},
@@ -1047,12 +1153,15 @@ class AuthSessionTests(unittest.TestCase):
 
         self_hash = self.app.password_hash_for_storage("secret-password")
         self_app = self.app
-        with patch.object(self.app, "get_settings_sheet", return_value=FakeSheet()):
+        sheet = FakeSheet()
+        with patch.object(self.app, "get_settings_sheet", return_value=sheet):
             row = self.app.get_clinic_row(" clinic a ")
             authenticated = self.app.authenticate_user("CLINIC A", "secret-password")
 
         self.assertEqual(row["ClinicID"], "Clinic A")
         self.assertEqual(authenticated["ClinicID"], "Clinic A")
+        self.assertEqual(sheet.get_all_values_calls, 2)
+        self.assertEqual(sheet.get_all_records_calls, 0)
 
     def test_successful_authentication_seeds_settings_row_cache(self):
         headers = [
@@ -1089,6 +1198,117 @@ class AuthSessionTests(unittest.TestCase):
         self.assertEqual(row_idx, 3)
         self.assertEqual(sheet.get_all_values_calls, 1)
         self.assertEqual(sheet.get_all_records_calls, 0)
+
+    def test_get_clinic_row_seeds_settings_row_cache(self):
+        self.app.st.session_state.pop("_settings_row_cache", None)
+        headers = [
+            self.app.SHEET_COL_CLINIC_ID,
+            self.app.SHEET_COL_PASSWORD_HASH,
+            self.app.SHEET_COL_SETTINGS_JSON,
+        ]
+        values_row = ["Clinic A", "hash-a", '{"rules": {}}']
+
+        class FakeSheet:
+            def __init__(self):
+                self.get_all_values_calls = 0
+                self.get_all_records_calls = 0
+
+            def get_all_values(self):
+                self.get_all_values_calls += 1
+                return [headers, values_row]
+
+            def get_all_records(self):
+                self.get_all_records_calls += 1
+                return []
+
+        sheet = FakeSheet()
+
+        with patch.object(self.app, "get_settings_sheet", return_value=sheet):
+            row = self.app.get_clinic_row(" clinic a ")
+            _sheet, cached_headers, row_idx = self.app._get_settings_row_for_clinic("Clinic A")
+
+        self.assertEqual(row[self.app.SHEET_COL_CLINIC_ID], "Clinic A")
+        self.assertEqual(row[self.app.SHEET_COL_PASSWORD_HASH], "hash-a")
+        self.assertEqual(cached_headers, headers)
+        self.assertEqual(row_idx, 2)
+        self.assertEqual(sheet.get_all_values_calls, 1)
+        self.assertEqual(sheet.get_all_records_calls, 0)
+
+    def test_restore_remembered_password_login_reuses_validated_row_for_token_refresh(self):
+        state = self.app.st.session_state
+        state["logged_in"] = False
+        state.pop(self.app.REMEMBER_LOGIN_RESTORE_BLOCKED_KEY, None)
+        password_hash = self.app.password_hash_for_storage("secret-password")
+        row = {
+            self.app.SHEET_COL_CLINIC_ID: "Clinic A",
+            self.app.SHEET_COL_PASSWORD_HASH: password_hash,
+        }
+
+        with patch.object(self.app.time, "time", return_value=1_000):
+            token = self.app.create_remember_login_token("Clinic A", user_row=row, days=1)
+
+        with (
+            patch.object(self.app, "get_remember_login_cookie", return_value=token),
+            patch.object(self.app, "get_query_param", return_value=""),
+            patch.object(self.app, "get_clinic_row", return_value=row) as get_clinic_row,
+            patch.object(self.app, "finish_authenticated_session") as finish_session,
+            patch.object(self.app, "clear_query_param"),
+            patch.object(self.app.time, "time", return_value=1_100),
+        ):
+            restored = self.app.restore_remembered_login_session()
+
+        self.assertTrue(restored)
+        get_clinic_row.assert_called_once_with("Clinic A")
+        finish_session.assert_called_once_with(
+            "Clinic A",
+            event="remembered_login",
+            auth_provider="password",
+        )
+        refreshed_token = state[self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY]
+        self.assertTrue(refreshed_token)
+        self.assertNotEqual(refreshed_token, token)
+        state.pop(self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY, None)
+
+    def test_restore_remembered_staff_login_reuses_validated_row_for_token_refresh(self):
+        state = self.app.st.session_state
+        state["logged_in"] = False
+        state.pop(self.app.REMEMBER_LOGIN_RESTORE_BLOCKED_KEY, None)
+        access_hash = self.app.clinic_access_code_hash_for_storage("123456")
+        row = {
+            self.app.SHEET_COL_CLINIC_ID: "Clinic A",
+            self.app.SHEET_COL_SETTINGS_JSON: json.dumps({"clinic_access_code_hash": access_hash}),
+        }
+
+        with patch.object(self.app.time, "time", return_value=1_000):
+            token = self.app.create_clinic_access_remember_token(
+                "Clinic A",
+                user_row=row,
+                session_user_name="Nurse A",
+                days=1,
+            )
+
+        with (
+            patch.object(self.app, "get_remember_login_cookie", return_value=token),
+            patch.object(self.app, "get_query_param", return_value=""),
+            patch.object(self.app, "get_clinic_row", return_value=row) as get_clinic_row,
+            patch.object(self.app, "finish_authenticated_session") as finish_session,
+            patch.object(self.app, "clear_query_param"),
+            patch.object(self.app.time, "time", return_value=1_100),
+        ):
+            restored = self.app.restore_remembered_login_session()
+
+        self.assertTrue(restored)
+        get_clinic_row.assert_called_once_with("Clinic A")
+        finish_session.assert_called_once_with(
+            "Clinic A",
+            event="remembered_login",
+            auth_provider=self.app.CLINIC_ACCESS_AUTH_PROVIDER,
+            session_user_name="Nurse A",
+        )
+        refreshed_token = state[self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY]
+        self.assertTrue(refreshed_token)
+        self.assertNotEqual(refreshed_token, token)
+        state.pop(self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY, None)
 
     def test_settings_row_values_writes_google_columns_when_present(self):
         headers = [

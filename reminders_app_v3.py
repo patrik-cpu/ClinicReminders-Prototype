@@ -3500,6 +3500,7 @@ REMEMBER_LOGIN_QUERY_PARAM = "remember"
 REMEMBER_LOGIN_COOKIE_NAME = "clinic_reminders_session"
 REMEMBER_LOGIN_COOKIE_MAX_AGE_SECONDS = REMEMBER_LOGIN_DAYS * 24 * 60 * 60
 REMEMBER_LOGIN_COOKIE_UPDATE_KEY = "_remember_login_cookie_update"
+REMEMBER_LOGIN_RESTORE_BLOCKED_KEY = "_remember_login_restore_blocked"
 POST_LOGIN_STARTUP_OVERLAY_KEY = "_post_login_startup_overlay_pending"
 PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 260_000
@@ -8095,11 +8096,41 @@ def authenticate_clinic_access(clinic_id: str, access_code: str) -> dict | None:
 def get_clinic_row(username):
     """Return a clinic row by ClinicID without checking password."""
     sheet = get_settings_sheet()
-    records = sheet.get_all_records()
     username_key = normalize_clinic_id_key(username)
-    for r in records:
-        if normalize_clinic_id_key(r.get("ClinicID", "")) == username_key:
-            return r
+    if not callable(getattr(sheet, "get_all_values", None)):
+        records = _gspread_retry(sheet.get_all_records)
+        for row_idx, row in enumerate(records or [], start=2):
+            if normalize_clinic_id_key(row.get(SHEET_COL_CLINIC_ID, "")) == username_key:
+                headers = list(row.keys())
+                st.session_state["_settings_row_cache"] = {
+                    "clinic_key": username_key,
+                    "headers": headers,
+                    "row_idx": row_idx,
+                    "row_values": [row.get(header, "") for header in headers],
+                }
+                return row
+        return None
+
+    values = _gspread_retry(sheet.get_all_values) or []
+    if not values:
+        return None
+    headers = list(values[0])
+    if SHEET_COL_CLINIC_ID not in headers:
+        return None
+    clinic_ix = headers.index(SHEET_COL_CLINIC_ID)
+    for row_idx, values_row in enumerate(values[1:], start=2):
+        clinic_id = values_row[clinic_ix] if len(values_row) > clinic_ix else ""
+        if normalize_clinic_id_key(clinic_id) == username_key:
+            st.session_state["_settings_row_cache"] = {
+                "clinic_key": username_key,
+                "headers": list(headers),
+                "row_idx": row_idx,
+                "row_values": list(values_row),
+            }
+            return {
+                header: values_row[idx] if idx < len(values_row) else ""
+                for idx, header in enumerate(headers)
+            }
     return None
 
 
@@ -8246,6 +8277,7 @@ def validate_remember_login_session(token: str) -> dict | None:
                 "clinic_id": clinic_id,
                 "auth_provider": CLINIC_ACCESS_AUTH_PROVIDER,
                 "session_user_name": session_user_name,
+                "user_row": user_row,
             }
         return None
 
@@ -8263,6 +8295,7 @@ def validate_remember_login_session(token: str) -> dict | None:
             "clinic_id": clinic_id,
             "auth_provider": "password",
             "session_user_name": "",
+            "user_row": user_row,
         }
     return None
 
@@ -8409,9 +8442,11 @@ def set_remember_login_token(token: str, use_url_fallback: bool = False):
     queue_remember_login_cookie_update(token)
 
 
-def clear_remember_login_token():
+def clear_remember_login_token(block_restore: bool = False):
     clear_query_param(REMEMBER_LOGIN_QUERY_PARAM)
     queue_remember_login_cookie_update("")
+    if block_restore:
+        st.session_state[REMEMBER_LOGIN_RESTORE_BLOCKED_KEY] = True
 
 
 def discard_remember_login_query_param() -> bool:
@@ -8457,6 +8492,11 @@ def restore_remembered_login_session() -> bool:
     cookie_token = get_remember_login_cookie()
     query_token = get_query_param(REMEMBER_LOGIN_QUERY_PARAM)
     token = cookie_token or query_token
+    if st.session_state.get(REMEMBER_LOGIN_RESTORE_BLOCKED_KEY):
+        if token:
+            clear_remember_login_token(block_restore=True)
+            return False
+        st.session_state.pop(REMEMBER_LOGIN_RESTORE_BLOCKED_KEY, None)
     if not token:
         return False
     use_url_fallback = bool(query_token and token == query_token and not cookie_token)
@@ -8469,6 +8509,7 @@ def restore_remembered_login_session() -> bool:
     clinic_id = str(remembered_session.get("clinic_id", "")).strip()
     auth_provider = str(remembered_session.get("auth_provider", "password") or "password").strip()
     session_user_name = str(remembered_session.get("session_user_name", "") or "").strip()
+    user_row = remembered_session.get("user_row")
 
     try:
         session_kwargs = {
@@ -8479,13 +8520,18 @@ def restore_remembered_login_session() -> bool:
             session_kwargs["session_user_name"] = session_user_name
         finish_authenticated_session(clinic_id, **session_kwargs)
         if auth_provider == CLINIC_ACCESS_AUTH_PROVIDER:
-            remember_clinic_access_session(
-                clinic_id,
-                session_user_name=session_user_name,
-                use_url_fallback=use_url_fallback,
-            )
+            remember_kwargs = {
+                "session_user_name": session_user_name,
+                "use_url_fallback": use_url_fallback,
+            }
+            if user_row is not None:
+                remember_kwargs["user_row"] = user_row
+            remember_clinic_access_session(clinic_id, **remember_kwargs)
         else:
-            remember_authenticated_session(clinic_id, use_url_fallback=use_url_fallback)
+            remember_kwargs = {"use_url_fallback": use_url_fallback}
+            if user_row is not None:
+                remember_kwargs["user_row"] = user_row
+            remember_authenticated_session(clinic_id, **remember_kwargs)
         return True
     except Exception as e:
         record_error_tracker_event(
@@ -8820,6 +8866,7 @@ def render_google_onboarding_dialog(google_user: dict):
                         event="google_login",
                         auth_provider=GOOGLE_AUTH_PROVIDER,
                         google_user=google_user,
+                        clear_existing_remember_session=True,
                     )
                     mark_new_account_welcome_pending()
                     st.rerun()
@@ -9649,6 +9696,7 @@ def finish_authenticated_session(
     session_user_name: str = "",
     remember_session: bool = False,
     remember_url_fallback: bool = False,
+    clear_existing_remember_session: bool = False,
     user_row: dict | None = None,
 ):
     clinic_id = str(clinic_id or "").strip()
@@ -9667,6 +9715,8 @@ def finish_authenticated_session(
             user_row=user_row,
             use_url_fallback=remember_url_fallback,
         )
+    elif clear_existing_remember_session:
+        clear_remember_login_token(block_restore=True)
 
     with busy_overlay("Loading clinic saved data", "Preparing saved settings, data, and reminders for this clinic."):
         reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
@@ -9864,6 +9914,7 @@ if google_user.get("is_logged_in") and not st.session_state["logged_in"] and not
             event="google_login",
             auth_provider=GOOGLE_AUTH_PROVIDER,
             google_user=google_user,
+            clear_existing_remember_session=True,
         )
         rerun_app()
     else:
@@ -9966,6 +10017,7 @@ if not st.session_state["logged_in"]:
                         auth_provider="password",
                         remember_session=bool(keep_logged_in),
                         remember_url_fallback=bool(keep_logged_in),
+                        clear_existing_remember_session=not bool(keep_logged_in),
                         user_row=user_row,
                     )
 
@@ -10048,7 +10100,7 @@ if not st.session_state["logged_in"]:
                             record_successful_login_attempt(staff_clinic)
                             signed_clinic_id = str(access_row.get("ClinicID", staff_clinic)).strip()
                             if not staff_keep_logged_in:
-                                clear_remember_login_token()
+                                clear_remember_login_token(block_restore=True)
                             finish_authenticated_session(
                                 signed_clinic_id,
                                 event="clinic_access_login",
@@ -10149,7 +10201,7 @@ else:
 
             if st.button("Logout", key="top_account_logout", use_container_width=True):
                 google_session_active = get_google_user_info().get("is_logged_in", False)
-                clear_remember_login_token()
+                clear_remember_login_token(block_restore=True)
                 clear_account_session_state()
                 st.session_state["logout_notice"] = "You have been logged out."
                 if google_session_active and callable(getattr(st, "logout", None)):
