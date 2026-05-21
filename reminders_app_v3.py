@@ -18084,44 +18084,45 @@ if st.session_state.get("logged_in", False):
                 label_visibility="collapsed",
             )
 
-        reminder_source_df = filter_sales_as_of_date(df, start_date)
-        prepared = build_prepared_reminder_rows(reminder_source_df, applied_rules)
+        with busy_overlay("Loading reminders", "Preparing the reminder list for this clinic."):
+            reminder_source_df = filter_sales_as_of_date(df, start_date)
+            prepared = build_prepared_reminder_rows(reminder_source_df, applied_rules)
 
-        # ✅ safety: if schema changed but cache is stale, rebuild
-        if "BaseIntervalDays" not in prepared.columns:
-            st.error("Reminders need to refresh. Rebuilding now...")
-            st.session_state.pop("prepared_df", None)
-            st.session_state.pop("prepared_key", None)
-            # optional big hammer:
-            # st.cache_data.clear()
-            st.rerun()
+            # ✅ safety: if schema changed but cache is stale, rebuild
+            if "BaseIntervalDays" not in prepared.columns:
+                st.error("Reminders need to refresh. Rebuilding now...")
+                st.session_state.pop("prepared_df", None)
+                st.session_state.pop("prepared_key", None)
+                # optional big hammer:
+                # st.cache_data.clear()
+                st.rerun()
 
-        active_reminder_count = get_active_reminder_badge_count(today=user_today())
-        render_reminders_caught_up_banner(
-            active_count=active_reminder_count,
-            lookback_days=reminder_lookback_days,
-        )
-    
-        render_search_criteria_refresh_notice()
-    
-        lookback_start_date = start_date - timedelta(days=reminder_lookback_days)
-        end_date = start_date + timedelta(days=reminder_window_days)
-    
-        grouped, reminders_before_exclusions = build_active_reminder_window(
-            prepared,
-            applied_rules,
-            lookback_start_date,
-            end_date,
-            group_days,
-        )
+            active_reminder_count = get_active_reminder_badge_count(today=user_today())
+            render_reminders_caught_up_banner(
+                active_count=active_reminder_count,
+                lookback_days=reminder_lookback_days,
+            )
 
-        if not grouped.empty:
-            render_table(grouped, f"{lookback_start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
-        else:
-            if reminders_before_exclusions:
-                st.info("All reminders in the selected date range are hidden by exclusions. Review Exclusions if this looks wrong.")
-            elif should_show_no_reminders_info(reminders_before_exclusions, active_reminder_count):
-                st.info("No reminders in the selected date range. Try Today, widen the date window, or check Search Terms.")
+            render_search_criteria_refresh_notice()
+
+            lookback_start_date = start_date - timedelta(days=reminder_lookback_days)
+            end_date = start_date + timedelta(days=reminder_window_days)
+
+            grouped, reminders_before_exclusions = build_active_reminder_window(
+                prepared,
+                applied_rules,
+                lookback_start_date,
+                end_date,
+                group_days,
+            )
+
+            if not grouped.empty:
+                render_table(grouped, f"{lookback_start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
+            else:
+                if reminders_before_exclusions:
+                    st.info("All reminders in the selected date range are hidden by exclusions. Review Exclusions if this looks wrong.")
+                elif should_show_no_reminders_info(reminders_before_exclusions, active_reminder_count):
+                    st.info("No reminders in the selected date range. Try Today, widen the date window, or check Search Terms.")
 
     if active_main_section == "Stats":
         render_stats_tab(df, prepared, applied_rules)
