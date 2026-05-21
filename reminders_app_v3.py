@@ -10719,8 +10719,6 @@ def render_dataset_status(saved_rows: list[dict] | None = None):
             st.warning(f"⚠️ {error_text}")
         else:
             st.warning("⚠️ Could not load clinic data. Please try again or contact support.")
-    elif not saved_rows and not has_working_dataset() and not st.session_state.get("shared_dataset_loaded"):
-        st.caption("No clinic data saved yet. Upload a sales export to start.")
 
 
 def format_dataset_saved_summary(row_count: int, start_date, end_date) -> str:
