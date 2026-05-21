@@ -1621,6 +1621,33 @@ class StatisticsTests(unittest.TestCase):
         self.app.reset_stats_shared_period_pages()
         self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
 
+    def test_stats_render_reuses_matching_calculation_cache_without_custom_range_partial(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        render_start = source.index("def render_stats_tab")
+        render_end = source.index("def render_search_terms_editor", render_start)
+        render_stats_source = source[render_start:render_end]
+
+        self.assertIn(
+            "use_cached_stats = isinstance(stats_cache, dict) and stats_cache.get(\"signature\") == cache_signature",
+            render_stats_source,
+        )
+        self.assertNotIn("stats_date_range_selection_in_progress()\n        and isinstance(stats_cache, dict)", render_stats_source)
+
+    def test_refresh_stats_clears_session_calculation_cache(self):
+        state = self.app.st.session_state
+        state["_stats_calculation_cache"] = {"signature": "old"}
+        state["_stats_export_csv_cache"] = {"entries": {}}
+
+        with (
+            mock.patch.object(self.app.build_reminder_outcomes, "clear"),
+            mock.patch.object(self.app.cached_statistics_generated_rows, "clear"),
+            mock.patch.object(self.app, "search_criteria_have_pending_changes", return_value=False),
+        ):
+            self.app.refresh_outcome_results_state(sync_remote=False)
+
+        self.assertNotIn("_stats_calculation_cache", state)
+        self.assertNotIn("_stats_export_csv_cache", state)
+
     def test_stats_header_sections_are_visually_separated(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
         render_start = source.index("def render_stats_tab")

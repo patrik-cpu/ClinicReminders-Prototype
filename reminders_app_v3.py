@@ -760,6 +760,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_action_tracker_pending_load_for",
     "_user_tracker_row_cache",
     "_active_reminder_badge_cache",
+    "_stats_calculation_cache",
     "_stats_export_csv_cache",
     "stats_period",
     "stats_custom_range",
@@ -17752,6 +17753,8 @@ def refresh_outcome_results_state(sync_remote: bool = False) -> None:
         cached_statistics_generated_rows.clear()
     except Exception:
         pass
+    st.session_state.pop("_stats_calculation_cache", None)
+    st.session_state.pop("_stats_export_csv_cache", None)
     if search_criteria_have_pending_changes():
         apply_search_criteria_changes(show_notice=False)
     clinic_id = str(st.session_state.get("clinic_id", "") or "").strip()
@@ -17886,11 +17889,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         action_records,
     )
     stats_cache = st.session_state.get("_stats_calculation_cache")
-    use_cached_stats = (
-        stats_date_range_selection_in_progress()
-        and isinstance(stats_cache, dict)
-        and stats_cache.get("signature") == cache_signature
-    )
+    use_cached_stats = isinstance(stats_cache, dict) and stats_cache.get("signature") == cache_signature
     if use_cached_stats:
         generated_df = stats_cache["generated_df"]
         stats_generated_item_rows = stats_cache["stats_generated_item_rows"]
