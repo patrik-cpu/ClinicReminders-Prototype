@@ -788,8 +788,7 @@ class StatisticsTests(unittest.TestCase):
                 "Success Rate": 0.25,
                 "Desired Gap Days": 365,
                 "Avg Item Purchase Gap Days": 370,
-                "Max Annual Repeats": 1,
-                "Median Annual Repeats": 365 / 120,
+                "Median Item Purchase Gap Days": 120,
                 "Gap Day % to Desired": 370 / 365,
                 "Overall Repeat Purchases": 3,
                 "Overall Purchases": 4,
@@ -831,9 +830,9 @@ class StatisticsTests(unittest.TestCase):
                 "Revenue per Item",
                 "Unique Purchasing Patients",
                 "Unique Repeat Purchasing Patients",
-                "Max Annual Repeats",
-                "Median Annual Repeats",
-                "Gap Day %",
+                "Desired Gap Days",
+                "Actual Median Gap Days",
+                "Annual Repeat Difference",
             ],
         )
         self.assertNotIn("Sent Reminders", rendered_frame.columns)
@@ -843,9 +842,9 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Total Purchases", rendered_frame.columns)
         self.assertNotIn("Total Repeat Purchases", rendered_frame.columns)
         self.assertNotIn("Repeat Purchase %", rendered_frame.columns)
-        self.assertIn("Max Annual Repeats", rendered_frame.columns)
-        self.assertIn("Median Annual Repeats", rendered_frame.columns)
-        self.assertIn("Gap Day %", rendered_frame.columns)
+        self.assertIn("Desired Gap Days", rendered_frame.columns)
+        self.assertIn("Actual Median Gap Days", rendered_frame.columns)
+        self.assertIn("Annual Repeat Difference", rendered_frame.columns)
         self.assertIn("Unique Purchasing Patients", rendered_frame.columns)
         self.assertIn("Unique Repeat Purchasing Patients", rendered_frame.columns)
         self.assertNotIn("Sent", rendered_frame.columns)
@@ -855,9 +854,9 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Gap Day % to Desired", rendered_frame.columns)
         self.assertNotIn("Overall Repeat Purchases", rendered_frame.columns)
         self.assertNotIn("Overall Purchases", rendered_frame.columns)
-        self.assertEqual(rendered_frame.iloc[0]["Max Annual Repeats"], "1")
-        self.assertEqual(rendered_frame.iloc[0]["Median Annual Repeats"], "3")
-        self.assertAlmostEqual(rendered_frame.iloc[0]["Gap Day %"], (370 / 365) * 100)
+        self.assertEqual(rendered_frame.iloc[0]["Desired Gap Days"], 365)
+        self.assertEqual(rendered_frame.iloc[0]["Actual Median Gap Days"], 120)
+        self.assertAlmostEqual(rendered_frame.iloc[0]["Annual Repeat Difference"], (370 / 365) * 100)
 
     def test_stats_items_display_columns_keep_activity_and_receive_moved_outcome_metrics(self):
         actioning_frame = pd.DataFrame([
@@ -1946,7 +1945,7 @@ class StatisticsTests(unittest.TestCase):
             (85 * 1 * (365 / 91)) / (85 * 1 * (365 / 90)),
         )
 
-    def test_stats_revenue_annual_repeats_use_desired_gap_and_median_actual_gap(self):
+    def test_stats_revenue_uses_desired_gap_and_actual_median_gap_days(self):
         actions = [
             {
                 "Reminder Date": "18 Mar 2025",
@@ -1984,8 +1983,8 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertEqual(int(outcomes.iloc[0]["Avg Item Purchase Gap Days"]), 130)
         self.assertEqual(int(outcomes.iloc[0]["Median Item Purchase Gap Days"]), 60)
-        self.assertEqual(display_frame.iloc[0]["Max Annual Repeats"], "4.1")
-        self.assertEqual(display_frame.iloc[0]["Median Annual Repeats"], "6.1")
+        self.assertEqual(display_frame.iloc[0]["Desired Gap Days"], 90)
+        self.assertEqual(display_frame.iloc[0]["Actual Median Gap Days"], 60)
 
     def test_reminder_outcomes_exact_variant_matches_sales_with_spaced_units(self):
         actions = [

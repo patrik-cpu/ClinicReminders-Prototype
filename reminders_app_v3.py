@@ -14052,9 +14052,11 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Avg Success Gap Days": "Average successful repeat-purchase gap in this view.",
     "Overall Avg Purchase Gap Days": "Average gap between repeat purchases across all uploaded sales for this item.",
     "Actual Gap Days": "Average gap between repeat purchases across all uploaded sales for this item.",
+    "Actual Median Gap Days": "Median gap between repeat purchases across all uploaded sales for this item.",
     "Median Annual Repeats": "Typical repeat purchases per year, using the median repeat gap.\nFormula: 365 / Median Actual Gap Days.",
     "Gap Day % to Desired": "Overall average purchase gap compared with the desired gap. 100% means they match.",
     "Gap Day %": "Overall average purchase gap compared with the desired gap. 100% means they match.",
+    "Annual Repeat Difference": "Median annual repeats compared with the expected annual repeats. 100% means they match.",
     "Overall Repeat Purchases": "Repeat purchases (same client, animal, and item) used to calculate the overall average gap.",
     "Total Repeat Purchases": "Repeat purchases (same client, animal, and item) used to calculate the overall average gap.",
     "Overall Purchases": "Total matching purchases found in uploaded sales data.",
@@ -14091,9 +14093,11 @@ OUTCOME_DISPLAY_COLUMN_TITLES = {
     "Avg Success Gap Days": "Avg Success\nGap Days",
     "Overall Avg Purchase Gap Days": "Overall Avg\nPurchase Gap\nDays",
     "Actual Gap Days": "Actual Gap\nDays",
+    "Actual Median Gap Days": "Actual Median\nGap Days",
     "Median Annual Repeats": "Median Annual\nRepeats",
     "Gap Day % to Desired": "Gap Day %\nto Desired",
     "Gap Day %": "Gap Day\n%",
+    "Annual Repeat Difference": "Annual Repeat\nDifference",
     "Overall Repeat Purchases": "Overall Repeat\nPurchases",
     "Total Repeat Purchases": "Total Repeat\nPurchases",
     "Overall Purchases": "Overall\nPurchases",
@@ -14133,9 +14137,11 @@ OUTCOME_DISPLAY_COLUMN_WIDTHS = {
     "Avg Success Gap Days": "small",
     "Overall Avg Purchase Gap Days": "small",
     "Actual Gap Days": "small",
+    "Actual Median Gap Days": "small",
     "Median Annual Repeats": "small",
     "Gap Day % to Desired": "small",
     "Gap Day %": "small",
+    "Annual Repeat Difference": "small",
     "Overall Repeat Purchases": "small",
     "Total Repeat Purchases": "small",
     "Overall Purchases": "small",
@@ -14221,8 +14227,8 @@ STATS_REVENUE_DISPLAY_COLUMNS = [
     "Revenue per Item",
     "Unique Purchasing Patients",
     "Unique Repeat Purchasing Patients",
-    "Max Annual Repeats",
-    "Median Annual Repeats",
+    "Desired Gap Days",
+    "Median Item Purchase Gap Days",
     "Gap Day % to Desired",
 ]
 STATS_ITEMS_DISPLAY_COLUMNS = [
@@ -14254,7 +14260,8 @@ STATS_ITEMS_OUTCOME_DISPLAY_COLUMNS = [
 STATS_ITEMS_DISPLAY_COLUMN_LABELS = {
     "Sent": "Sent Reminders",
     "Avg Item Purchase Gap Days": "Actual Gap Days",
-    "Gap Day % to Desired": "Gap Day %",
+    "Median Item Purchase Gap Days": "Actual Median Gap Days",
+    "Gap Day % to Desired": "Annual Repeat Difference",
     "Overall Repeat Purchases": "Total Repeat Purchases",
     "Overall Purchases": "Total Purchases",
     "Revenue per Year": "Calculated Revenue per Year",
@@ -16511,7 +16518,6 @@ def prepare_outcome_dataframe_for_display(
     for column in ["Max Annual Repeats", "Median Annual Repeats"]:
         if column in display_frame.columns:
             display_frame[column] = display_frame[column].map(format_annual_repeats_value)
-    display_frame = display_frame.drop(columns=[column for column in ["Median Item Purchase Gap Days"] if column in display_frame.columns])
     for column in OUTCOME_DISPLAY_CURRENCY_COLUMNS:
         if column in display_frame.columns:
             display_frame[column] = (
@@ -16682,10 +16688,12 @@ def outcome_display_column_config() -> dict:
         "Avg Success Gap Days": outcome_display_number_column("Avg Success Gap Days", "%.1f"),
         "Overall Avg Purchase Gap Days": outcome_display_number_column("Overall Avg Purchase Gap Days", "%.0f"),
         "Actual Gap Days": outcome_display_number_column("Actual Gap Days", "%.0f"),
+        "Actual Median Gap Days": outcome_display_number_column("Actual Median Gap Days", "%.0f"),
         "Max Annual Repeats": outcome_display_text_column("Max Annual Repeats"),
         "Median Annual Repeats": outcome_display_text_column("Median Annual Repeats"),
         "Gap Day % to Desired": outcome_display_number_column("Gap Day % to Desired", "%.0f%%"),
         "Gap Day %": outcome_display_number_column("Gap Day %", "%.0f%%"),
+        "Annual Repeat Difference": outcome_display_number_column("Annual Repeat Difference", "%.0f%%"),
         "Overall Repeat Purchases": outcome_display_number_column("Overall Repeat Purchases", "%d"),
         "Total Repeat Purchases": outcome_display_number_column("Total Repeat Purchases", "%d"),
         "Overall Purchases": outcome_display_number_column("Overall Purchases", "%d"),
