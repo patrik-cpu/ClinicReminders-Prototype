@@ -824,8 +824,8 @@ class StatisticsTests(unittest.TestCase):
             [
                 "Item",
                 "Capturable Revenue Potential per Year",
-                "Calculated Revenue per Year",
                 "Theoretical Max Revenue",
+                "Calculated Revenue per Year",
                 "Captured Revenue %",
                 "Revenue per Item",
                 "Unique Purchasing Patients",

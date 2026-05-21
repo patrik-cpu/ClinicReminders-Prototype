@@ -14221,8 +14221,8 @@ OUTCOME_ITEM_GROUP_COLUMNS = [
 STATS_REVENUE_DISPLAY_COLUMNS = [
     "Item",
     "Capturable Revenue per Year",
-    "Revenue per Year",
     "Theoretical Max Revenue",
+    "Revenue per Year",
     "Captured Revenue %",
     "Revenue per Item",
     "Unique Purchasing Patients",
