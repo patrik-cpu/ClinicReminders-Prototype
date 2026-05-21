@@ -133,7 +133,15 @@ class AuthSessionTests(unittest.TestCase):
 
         with (
             patch.object(self.app, "get_remember_login_cookie", return_value=token),
-            patch.object(self.app, "validate_remember_login_token", return_value="Clinic Login") as validate_token,
+            patch.object(
+                self.app,
+                "validate_remember_login_session",
+                return_value={
+                    "clinic_id": "Clinic Login",
+                    "auth_provider": "password",
+                    "session_user_name": "",
+                },
+            ) as validate_session,
             patch.object(self.app, "finish_authenticated_session") as finish_session,
             patch.object(self.app, "get_query_param", return_value=""),
             patch.object(self.app, "remember_authenticated_session") as remember_session,
@@ -141,7 +149,7 @@ class AuthSessionTests(unittest.TestCase):
             restored = self.app.restore_remembered_login_session()
 
         self.assertTrue(restored)
-        validate_token.assert_called_once_with(token)
+        validate_session.assert_called_once_with(token)
         finish_session.assert_called_once_with(
             "Clinic Login",
             event="remembered_login",
@@ -156,20 +164,65 @@ class AuthSessionTests(unittest.TestCase):
         with (
             patch.object(self.app, "get_remember_login_cookie", return_value=""),
             patch.object(self.app, "get_query_param", return_value=token),
-            patch.object(self.app, "validate_remember_login_token", return_value="Clinic Login") as validate_token,
+            patch.object(
+                self.app,
+                "validate_remember_login_session",
+                return_value={
+                    "clinic_id": "Clinic Login",
+                    "auth_provider": "password",
+                    "session_user_name": "",
+                },
+            ) as validate_session,
             patch.object(self.app, "finish_authenticated_session") as finish_session,
             patch.object(self.app, "remember_authenticated_session") as remember_session,
         ):
             restored = self.app.restore_remembered_login_session()
 
         self.assertTrue(restored)
-        validate_token.assert_called_once_with(token)
+        validate_session.assert_called_once_with(token)
         finish_session.assert_called_once_with(
             "Clinic Login",
             event="remembered_login",
             auth_provider="password",
         )
         remember_session.assert_called_once_with("Clinic Login", use_url_fallback=True)
+
+    def test_restore_remembered_staff_access_preserves_staff_provider_and_name(self):
+        self.app.st.session_state["logged_in"] = False
+        token = "signed-staff-token"
+
+        with (
+            patch.object(self.app, "get_remember_login_cookie", return_value=token),
+            patch.object(self.app, "get_query_param", return_value=""),
+            patch.object(
+                self.app,
+                "validate_remember_login_session",
+                return_value={
+                    "clinic_id": "Clinic A",
+                    "auth_provider": self.app.CLINIC_ACCESS_AUTH_PROVIDER,
+                    "session_user_name": "Nurse A",
+                },
+            ) as validate_session,
+            patch.object(self.app, "finish_authenticated_session") as finish_session,
+            patch.object(self.app, "remember_clinic_access_session") as remember_staff_session,
+            patch.object(self.app, "remember_authenticated_session") as remember_password_session,
+        ):
+            restored = self.app.restore_remembered_login_session()
+
+        self.assertTrue(restored)
+        validate_session.assert_called_once_with(token)
+        finish_session.assert_called_once_with(
+            "Clinic A",
+            event="remembered_login",
+            auth_provider=self.app.CLINIC_ACCESS_AUTH_PROVIDER,
+            session_user_name="Nurse A",
+        )
+        remember_staff_session.assert_called_once_with(
+            "Clinic A",
+            session_user_name="Nurse A",
+            use_url_fallback=False,
+        )
+        remember_password_session.assert_not_called()
 
     def test_remember_login_cookie_value_decodes_url_encoded_value(self):
         token = "signed-cookie-token=="
@@ -210,7 +263,7 @@ class AuthSessionTests(unittest.TestCase):
         self.app.st.session_state["logged_in"] = False
         with (
             patch.object(self.app, "get_remember_login_cookie", return_value="bad-token"),
-            patch.object(self.app, "validate_remember_login_token", return_value=None),
+            patch.object(self.app, "validate_remember_login_session", return_value=None),
             patch.object(self.app, "clear_remember_login_token") as clear_token,
         ):
             restored = self.app.restore_remembered_login_session()
@@ -416,6 +469,54 @@ class AuthSessionTests(unittest.TestCase):
         self.assertNotEqual(first_hash, second_hash)
         self.assertNotEqual(first_signature, second_signature)
 
+    def test_clinic_access_remember_token_restores_staff_session_only(self):
+        access_hash = self.app.clinic_access_code_hash_for_storage("123456")
+        row = {
+            self.app.SHEET_COL_CLINIC_ID: "Clinic A",
+            self.app.SHEET_COL_SETTINGS_JSON: json.dumps({"clinic_access_code_hash": access_hash}),
+        }
+
+        with patch.object(self.app.time, "time", return_value=1_000):
+            token = self.app.create_clinic_access_remember_token(
+                "Clinic A",
+                user_row=row,
+                session_user_name="Nurse A",
+                days=1,
+            )
+
+        payload = json.loads(base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8"))
+        self.assertEqual(payload["auth_provider"], self.app.CLINIC_ACCESS_AUTH_PROVIDER)
+        self.assertEqual(payload["session_user_name"], "Nurse A")
+
+        with (
+            patch.object(self.app, "get_clinic_row", return_value=row),
+            patch.object(self.app.time, "time", return_value=1_100),
+        ):
+            session = self.app.validate_remember_login_session(token)
+            token_clinic = self.app.validate_remember_login_token(token)
+
+        self.assertEqual(
+            session,
+            {
+                "clinic_id": "Clinic A",
+                "auth_provider": self.app.CLINIC_ACCESS_AUTH_PROVIDER,
+                "session_user_name": "Nurse A",
+            },
+        )
+        self.assertEqual(token_clinic, "Clinic A")
+
+        rotated_row = {
+            self.app.SHEET_COL_CLINIC_ID: "Clinic A",
+            self.app.SHEET_COL_SETTINGS_JSON: json.dumps({
+                "clinic_access_code_hash": self.app.clinic_access_code_hash_for_storage("654321"),
+            }),
+        }
+        with (
+            patch.object(self.app, "get_clinic_row", return_value=rotated_row),
+            patch.object(self.app.time, "time", return_value=1_100),
+        ):
+            self.assertIsNone(self.app.validate_remember_login_session(token))
+
     def test_login_tracker_events_include_google_and_remembered_login(self):
         self.assertIn("login", self.app.LOGIN_TRACKER_EVENTS)
         self.assertIn("google_login", self.app.LOGIN_TRACKER_EVENTS)
@@ -443,6 +544,16 @@ class AuthSessionTests(unittest.TestCase):
             "123456",
         )
 
+        self.assertEqual(
+            share_text.splitlines()[:5],
+            [
+                "Clinic Reminders staff access",
+                "",
+                "Login URL: https://clinic-reminders.streamlit.app?staff_access=1",
+                "Clinic name: Clinic A",
+                "Access code: 123456",
+            ],
+        )
         self.assertIn("Clinic name: Clinic A", share_text)
         self.assertIn("Login URL: https://clinic-reminders.streamlit.app?staff_access=1", share_text)
         self.assertIn("Access code: 123456", share_text)
@@ -542,11 +653,28 @@ class AuthSessionTests(unittest.TestCase):
 
         self.assertIn('st.session_state.get("clinic_access_code_plain", "")', source)
         self.assertIn("clinic_access_share_text(clinic_id, clinic_access_app_url(), current_code)", source)
+        self.assertNotIn("Copy this message into WhatsApp or email for the team member.", source)
 
     def test_clinic_access_dialog_close_keeps_generated_code_available(self):
         source = inspect.getsource(self.app.close_clinic_access_dialog)
 
         self.assertNotIn("_clinic_access_generated_code", source)
+
+    def test_staff_access_login_orders_access_fields_before_name(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        form_start = source.index('with st.form("staff_access_login_form")')
+        form_end = source.index('staff_submitted = st.form_submit_button("Access clinic"', form_start)
+        staff_form = source[form_start:form_end]
+
+        clinic_pos = staff_form.index('"Clinic name"')
+        code_pos = staff_form.index('"Clinic access code"')
+        name_pos = staff_form.index('"Your name"')
+        remember_pos = staff_form.index('"Keep me logged in on this browser"')
+
+        self.assertLess(clinic_pos, code_pos)
+        self.assertLess(code_pos, name_pos)
+        self.assertLess(name_pos, remember_pos)
+        self.assertIn('key="staff_access_keep_logged_in"', staff_form)
 
     def test_finish_staff_access_session_sets_display_name_without_google_identity(self):
         state = self.app.st.session_state

@@ -8133,6 +8133,25 @@ def _legacy_remember_login_signature(clinic_id: str, expires_at: int, password_h
     ).hexdigest()
 
 
+def _remember_clinic_access_signature(
+    clinic_id: str,
+    expires_at: int,
+    access_code_hash: str,
+    session_user_name: str = "",
+) -> str:
+    payload = "|".join([
+        clinic_id.strip().lower(),
+        str(expires_at),
+        CLINIC_ACCESS_AUTH_PROVIDER,
+        str(session_user_name or "").strip(),
+    ])
+    return hmac.new(
+        str(access_code_hash or "").encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 def create_remember_login_token(clinic_id: str, user_row: dict | None = None, days: int = REMEMBER_LOGIN_DAYS) -> str:
     clinic_id = str(clinic_id or "").strip()
     user_row = user_row or get_clinic_row(clinic_id)
@@ -8146,7 +8165,41 @@ def create_remember_login_token(clinic_id: str, user_row: dict | None = None, da
     return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
 
 
-def validate_remember_login_token(token: str) -> str | None:
+def create_clinic_access_remember_token(
+    clinic_id: str,
+    user_row: dict | None = None,
+    session_user_name: str = "",
+    days: int = REMEMBER_LOGIN_DAYS,
+) -> str:
+    clinic_id = str(clinic_id or "").strip()
+    user_row = user_row or get_clinic_row(clinic_id)
+    settings = settings_json_from_row(user_row or {})
+    access_code_hash = str(settings.get("clinic_access_code_hash", "") or "").strip()
+    if not clinic_id or not access_code_hash:
+        return ""
+
+    session_user_name = str(session_user_name or "").strip()
+    expires_at = int(time.time() + days * 24 * 60 * 60)
+    signature = _remember_clinic_access_signature(
+        clinic_id,
+        expires_at,
+        access_code_hash,
+        session_user_name,
+    )
+    raw = json.dumps(
+        {
+            "clinic_id": clinic_id,
+            "expires_at": expires_at,
+            "signature": signature,
+            "auth_provider": CLINIC_ACCESS_AUTH_PROVIDER,
+            "session_user_name": session_user_name,
+        },
+        separators=(",", ":"),
+    )
+    return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
+
+
+def validate_remember_login_session(token: str) -> dict | None:
     try:
         raw = base64.urlsafe_b64decode(str(token or "").encode("ascii")).decode("utf-8")
         payload = json.loads(raw)
@@ -8159,7 +8212,32 @@ def validate_remember_login_token(token: str) -> str | None:
     if not clinic_id or not signature or expires_at < int(time.time()):
         return None
 
+    auth_provider = str(payload.get("auth_provider", "password") or "password").strip()
     user_row = get_clinic_row(clinic_id)
+
+    if auth_provider == CLINIC_ACCESS_AUTH_PROVIDER:
+        settings = settings_json_from_row(user_row or {})
+        access_code_hash = str(settings.get("clinic_access_code_hash", "") or "").strip()
+        if not access_code_hash:
+            return None
+        session_user_name = str(payload.get("session_user_name", "") or "").strip()
+        expected = _remember_clinic_access_signature(
+            clinic_id,
+            expires_at,
+            access_code_hash,
+            session_user_name,
+        )
+        if hmac.compare_digest(signature, expected):
+            return {
+                "clinic_id": clinic_id,
+                "auth_provider": CLINIC_ACCESS_AUTH_PROVIDER,
+                "session_user_name": session_user_name,
+            }
+        return None
+
+    if auth_provider != "password":
+        return None
+
     password_hash = str((user_row or {}).get("PasswordHash", "")).strip()
     if not password_hash:
         return None
@@ -8167,8 +8245,17 @@ def validate_remember_login_token(token: str) -> str | None:
     expected = _remember_login_signature(clinic_id, expires_at, password_hash)
     legacy_expected = _legacy_remember_login_signature(clinic_id, expires_at, password_hash)
     if hmac.compare_digest(signature, expected) or hmac.compare_digest(signature, legacy_expected):
-        return clinic_id
+        return {
+            "clinic_id": clinic_id,
+            "auth_provider": "password",
+            "session_user_name": "",
+        }
     return None
+
+
+def validate_remember_login_token(token: str) -> str | None:
+    session = validate_remember_login_session(token)
+    return str(session.get("clinic_id", "")).strip() if session else None
 
 
 def get_query_param(name: str) -> str:
@@ -8332,6 +8419,23 @@ def remember_authenticated_session(
         clear_remember_login_token()
 
 
+def remember_clinic_access_session(
+    clinic_id: str,
+    user_row: dict | None = None,
+    session_user_name: str = "",
+    use_url_fallback: bool = False,
+) -> None:
+    token = create_clinic_access_remember_token(
+        clinic_id,
+        user_row=user_row,
+        session_user_name=session_user_name,
+    )
+    if token:
+        set_remember_login_token(token, use_url_fallback=use_url_fallback)
+    else:
+        clear_remember_login_token()
+
+
 def restore_remembered_login_session() -> bool:
     if st.session_state.get("logged_in"):
         return False
@@ -8343,18 +8447,31 @@ def restore_remembered_login_session() -> bool:
         return False
     use_url_fallback = bool(query_token and token == query_token and not cookie_token)
 
-    clinic_id = validate_remember_login_token(token)
-    if not clinic_id:
+    remembered_session = validate_remember_login_session(token)
+    if not remembered_session:
         clear_remember_login_token()
         return False
 
+    clinic_id = str(remembered_session.get("clinic_id", "")).strip()
+    auth_provider = str(remembered_session.get("auth_provider", "password") or "password").strip()
+    session_user_name = str(remembered_session.get("session_user_name", "") or "").strip()
+
     try:
-        finish_authenticated_session(
-            clinic_id,
-            event="remembered_login",
-            auth_provider="password",
-        )
-        remember_authenticated_session(clinic_id, use_url_fallback=use_url_fallback)
+        session_kwargs = {
+            "event": "remembered_login",
+            "auth_provider": auth_provider,
+        }
+        if session_user_name:
+            session_kwargs["session_user_name"] = session_user_name
+        finish_authenticated_session(clinic_id, **session_kwargs)
+        if auth_provider == CLINIC_ACCESS_AUTH_PROVIDER:
+            remember_clinic_access_session(
+                clinic_id,
+                session_user_name=session_user_name,
+                use_url_fallback=use_url_fallback,
+            )
+        else:
+            remember_authenticated_session(clinic_id, use_url_fallback=use_url_fallback)
         return True
     except Exception as e:
         record_error_tracker_event(
@@ -9012,8 +9129,8 @@ def clinic_access_share_text(clinic_id: str, app_url: str, access_code: str) -> 
     return "\n".join([
         "Clinic Reminders staff access",
         "",
-        f"Clinic name: {clinic}",
         f"Login URL: {url}",
+        f"Clinic name: {clinic}",
         f"Access code: {code}",
         "",
         "Open the link, choose Staff Access, then enter the clinic name and access code.",
@@ -9101,7 +9218,6 @@ def render_clinic_access_dialog():
             share_text = clinic_access_share_text(clinic_id, clinic_access_app_url(), current_code)
             with st.container(border=True):
                 st.markdown("**Staff access details**")
-                st.caption("Copy this message into WhatsApp or email for the team member.")
                 st.text_area(
                     "Staff access details",
                     value=share_text,
@@ -9890,12 +10006,17 @@ if not st.session_state["logged_in"]:
             st.markdown("### Staff Access")
             with st.form("staff_access_login_form"):
                 staff_clinic = st.text_input("Clinic name", key="staff_access_clinic_input").strip()
-                staff_name = st.text_input("Your name", key="staff_access_name_input").strip()
                 staff_code = st.text_input(
                     "Clinic access code",
                     key="staff_access_code_input",
                     placeholder="123456",
                     help="Enter the 6-digit staff access code.",
+                )
+                staff_name = st.text_input("Your name", key="staff_access_name_input").strip()
+                staff_keep_logged_in = st.checkbox(
+                    "Keep me logged in on this browser",
+                    value=True,
+                    key="staff_access_keep_logged_in",
                 )
                 staff_submitted = st.form_submit_button("Access clinic", type="primary", use_container_width=True)
 
@@ -9910,13 +10031,22 @@ if not st.session_state["logged_in"]:
                         access_row = authenticate_clinic_access(staff_clinic, staff_code)
                         if access_row:
                             record_successful_login_attempt(staff_clinic)
-                            clear_remember_login_token()
+                            signed_clinic_id = str(access_row.get("ClinicID", staff_clinic)).strip()
+                            if not staff_keep_logged_in:
+                                clear_remember_login_token()
                             finish_authenticated_session(
-                                str(access_row.get("ClinicID", staff_clinic)).strip(),
+                                signed_clinic_id,
                                 event="clinic_access_login",
                                 auth_provider=CLINIC_ACCESS_AUTH_PROVIDER,
                                 session_user_name=staff_name,
                             )
+                            if staff_keep_logged_in:
+                                remember_clinic_access_session(
+                                    signed_clinic_id,
+                                    user_row=access_row,
+                                    session_user_name=staff_name,
+                                    use_url_fallback=True,
+                                )
                             st.success(f"✅ Welcome, {staff_name}!")
                             st.rerun()
                         else:
