@@ -78,7 +78,7 @@ class AuthSessionTests(unittest.TestCase):
 
         token = self.app.create_remember_login_token(
             "Clinic Login",
-            {"PasswordHash": self.app.hash_pw("secret-password")},
+            {"PasswordHash": self.app.password_hash_for_storage("secret-password")},
         )
 
         payload = json.loads(base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8"))
@@ -343,14 +343,15 @@ class AuthSessionTests(unittest.TestCase):
         remove_upload.assert_not_called()
         rerun.assert_called_once()
 
-    def test_password_storage_uses_salted_hash_and_keeps_legacy_md5_login(self):
+    def test_password_storage_uses_salted_hash_and_rejects_legacy_md5_login(self):
         stored_hash = self.app.password_hash_for_storage("secret-password")
+        legacy_md5_hash = "5ebe2294ecd0e0f08eab7690d2a6ee69"
 
         self.assertTrue(stored_hash.startswith(f"{self.app.PASSWORD_HASH_ALGORITHM}$"))
-        self.assertNotEqual(stored_hash, self.app.hash_pw("secret-password"))
+        self.assertNotEqual(stored_hash, legacy_md5_hash)
         self.assertTrue(self.app.verify_password("secret-password", stored_hash))
         self.assertFalse(self.app.verify_password("wrong-password", stored_hash))
-        self.assertTrue(self.app.verify_password("secret-password", self.app.hash_pw("secret-password")))
+        self.assertFalse(self.app.verify_password("secret-password", legacy_md5_hash))
 
     def test_password_policy_rejects_short_common_and_clinic_derived_passwords(self):
         self.assertEqual(

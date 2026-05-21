@@ -7916,12 +7916,6 @@ def ensure_tracking_sheets():
         return
 
 
-# === LOGIN HELPER FUNCTIONS ===
-def hash_pw(pw: str):
-    """Return the legacy MD5 hash used by older clinic rows."""
-    return hashlib.md5(str(pw or "").encode("utf-8")).hexdigest()
-
-
 def password_hash_for_storage(password: str) -> str:
     """Return a salted password hash for new/changed clinic passwords."""
     salt = base64.urlsafe_b64encode(os.urandom(PASSWORD_SALT_BYTES)).decode("ascii").rstrip("=")
@@ -7957,7 +7951,7 @@ def verify_password(password: str, stored_hash: str) -> bool:
         digest_b64 = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
         return hmac.compare_digest(digest_b64, expected)
 
-    return hmac.compare_digest(stored_hash, hash_pw(password))
+    return False
 
 
 def normalize_clinic_access_code(value: str) -> str:
