@@ -318,12 +318,16 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("textwrap.dedent", source)
         self.assertIn("support_link_html = (", source)
         self.assertIn("cr-whatsapp-support", source)
+        self.assertIn('<svg viewBox="0 0 32 32"', source)
+        self.assertIn(".cr-whatsapp-support-icon svg", source)
+        self.assertIn(".cr-whatsapp-support-icon path", source)
         self.assertIn('target="_blank"', source)
         self.assertIn('rel="noopener noreferrer"', source)
         self.assertIn("WhatsApp support", source)
         self.assertIn("render_floating_whatsapp_support_widget()", source)
         self.assertIn("bottom: 4.75rem;", source)
         self.assertIn("right: 1.25rem;", source)
+        self.assertNotIn('aria-hidden="true">WA</span>', source)
 
     def test_search_term_headers_bottom_align_wrapped_labels(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")

@@ -8428,7 +8428,12 @@ def render_floating_whatsapp_support_widget() -> None:
         f'<a class="cr-whatsapp-support" href="{safe_url}" target="_blank" '
         f'rel="noopener noreferrer" aria-label="WhatsApp support on {safe_number}" '
         f'title="WhatsApp support: {safe_number}">'
-        '<span class="cr-whatsapp-support-icon" aria-hidden="true">WA</span>'
+        '<span class="cr-whatsapp-support-icon" aria-hidden="true">'
+        '<svg viewBox="0 0 32 32" focusable="false">'
+        '<path d="M16 4.5c-6.1 0-11 4.6-11 10.3 0 2.1.7 4.1 1.9 5.7L5.8 27l6.8-2.1c1.1.3 2.2.5 3.4.5 6.1 0 11-4.6 11-10.3S22.1 4.5 16 4.5Z" />'
+        '<path d="M11.2 10.5c.3-.6.6-.6.9-.6h.7c.2 0 .5.1.7.5l1 2.3c.1.3.1.5-.1.7l-.7.8c.7 1.3 1.8 2.4 3.2 3.1l.9-.8c.2-.2.5-.2.8-.1l2.1.9c.4.2.5.4.5.7 0 .7-.5 1.7-1.2 2.1-.6.4-1.5.5-2.8.1-3.2-1-6.2-3.8-7.2-7-.4-1.2-.2-2.1.2-2.8Z" />'
+        '</svg>'
+        '</span>'
         '<span class="cr-whatsapp-support-text">'
         '<strong>WhatsApp support</strong>'
         f'<span>{safe_number}</span>'
@@ -8469,12 +8474,21 @@ def render_floating_whatsapp_support_widget() -> None:
             background: rgba(255, 255, 255, 0.18);
             border-radius: 999px;
             display: inline-flex;
-            font-size: 0.84rem;
-            font-weight: 800;
             height: 1.8rem;
             justify-content: center;
-            letter-spacing: 0;
             width: 1.8rem;
+          }}
+          .cr-whatsapp-support-icon svg {{
+            display: block;
+            height: 1.22rem;
+            width: 1.22rem;
+          }}
+          .cr-whatsapp-support-icon path {{
+            fill: none;
+            stroke: #ffffff;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-width: 2.15;
           }}
           .cr-whatsapp-support-text {{
             display: flex;
