@@ -295,8 +295,19 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("min-width: 18rem;", reset_block)
         self.assertNotIn("use_container_width=True", reset_block)
         self.assertIn(".st-key-reset_all_configurations button", reset_block)
+        self.assertIn('st.session_state["show_reset_configurations_dialog"] = True', reset_block)
+        self.assertIn("render_reset_configurations_dialog()", reset_block)
         self.assertNotIn('"Reset defaults"', reset_block)
         self.assertIn("Coming Soon", source)
+
+        dialog_start = source.index("def render_reset_configurations_dialog")
+        dialog_end = source.index("def save_rule_category", dialog_start)
+        dialog_block = source[dialog_start:dialog_end]
+
+        self.assertIn('@st.dialog("Reset all Configurations")', dialog_block)
+        self.assertIn("This will remove all added search terms and settings.", dialog_block)
+        self.assertIn('"Yes, reset everything"', dialog_block)
+        self.assertIn("reset_all_configurations()", dialog_block)
 
     def test_floating_whatsapp_support_widget_is_available(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
@@ -305,6 +316,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('SUPPORT_WHATSAPP_URL = "https://wa.me/97142416777"', source)
         self.assertIn("def render_floating_whatsapp_support_widget", source)
         self.assertIn("textwrap.dedent", source)
+        self.assertIn("support_link_html = (", source)
         self.assertIn("cr-whatsapp-support", source)
         self.assertIn('target="_blank"', source)
         self.assertIn('rel="noopener noreferrer"', source)

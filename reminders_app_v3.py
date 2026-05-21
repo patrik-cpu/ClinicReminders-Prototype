@@ -8424,6 +8424,17 @@ def render_pending_page_top_scroll() -> None:
 def render_floating_whatsapp_support_widget() -> None:
     safe_url = html_lib.escape(SUPPORT_WHATSAPP_URL, quote=True)
     safe_number = html_lib.escape(SUPPORT_WHATSAPP_NUMBER)
+    support_link_html = (
+        f'<a class="cr-whatsapp-support" href="{safe_url}" target="_blank" '
+        f'rel="noopener noreferrer" aria-label="WhatsApp support on {safe_number}" '
+        f'title="WhatsApp support: {safe_number}">'
+        '<span class="cr-whatsapp-support-icon" aria-hidden="true">WA</span>'
+        '<span class="cr-whatsapp-support-text">'
+        '<strong>WhatsApp support</strong>'
+        f'<span>{safe_number}</span>'
+        '</span>'
+        '</a>'
+    )
     st.markdown(
         textwrap.dedent(f"""
         <style>
@@ -8489,20 +8500,7 @@ def render_floating_whatsapp_support_widget() -> None:
             }}
           }}
         </style>
-        <a
-          class="cr-whatsapp-support"
-          href="{safe_url}"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="WhatsApp support on {safe_number}"
-          title="WhatsApp support: {safe_number}"
-        >
-          <span class="cr-whatsapp-support-icon" aria-hidden="true">WA</span>
-          <span class="cr-whatsapp-support-text">
-            <strong>WhatsApp support</strong>
-            <span>{safe_number}</span>
-          </span>
-        </a>
+        {support_link_html}
         """).strip(),
         unsafe_allow_html=True,
     )
@@ -18570,6 +18568,45 @@ def render_search_terms_editor():
             record_settings_audit_event("search_term_changed", "search_terms", rule, "use_qty", old_value, st.session_state[key], "search_terms_tab")
         invalidate_reminder_rule_cache()
 
+    def reset_all_configurations():
+        st.session_state["rules"] = normalize_search_term_rules(DEFAULT_RULES.copy())
+        st.session_state["exclusions"] = []
+        st.session_state["client_exclusions"] = []
+        st.session_state["patient_exclusions"] = []
+        st.session_state["client_item_exclusions"] = []
+        st.session_state["search_terms_reviewed"] = False
+        st.session_state["search_term_added"] = False
+        st.session_state["search_term_added_at"] = ""
+        st.session_state["form_version"] += 1
+        st.session_state["_replace_search_settings_once"] = True
+        save_settings_quietly()
+        record_settings_audit_event("search_terms_reset_defaults", "search_terms", "all", "rules", "custom", "default", "search_terms_tab")
+        invalidate_reminder_rule_cache()
+
+    def close_reset_configurations_dialog():
+        st.session_state["show_reset_configurations_dialog"] = False
+
+    def render_reset_configurations_dialog():
+        if not st.session_state.get("show_reset_configurations_dialog", False):
+            return
+
+        @st.dialog("Reset all Configurations")
+        def _dialog():
+            st.error("This will remove all added search terms and settings.")
+            st.write("This cannot be undone from this screen. Continue only if you want to restore the default search terms and clear saved exclusions.")
+            cancel_col, confirm_col = st.columns([1, 1], gap="small")
+            with cancel_col:
+                if st.button("Cancel", key="cancel_reset_all_configurations", use_container_width=True):
+                    close_reset_configurations_dialog()
+                    st.rerun()
+            with confirm_col:
+                if st.button("Yes, reset everything", key="confirm_reset_all_configurations", type="primary", use_container_width=True):
+                    close_reset_configurations_dialog()
+                    reset_all_configurations()
+                    st.rerun()
+
+        _dialog()
+
     def save_rule_category(rule, key):
         category = normalize_search_term_category(st.session_state.get(key, ""))
         if not category:
@@ -18888,20 +18925,9 @@ def render_search_terms_editor():
         key="reset_all_configurations",
         help="Restore the default search terms and clear exclusions.",
     ):
-        st.session_state["rules"] = normalize_search_term_rules(DEFAULT_RULES.copy())
-        st.session_state["exclusions"] = []
-        st.session_state["client_exclusions"] = []
-        st.session_state["patient_exclusions"] = []
-        st.session_state["client_item_exclusions"] = []
-        st.session_state["search_terms_reviewed"] = False
-        st.session_state["search_term_added"] = False
-        st.session_state["search_term_added_at"] = ""
-        st.session_state["form_version"] += 1
-        st.session_state["_replace_search_settings_once"] = True
-        save_settings_quietly()
-        record_settings_audit_event("search_terms_reset_defaults", "search_terms", "all", "rules", "custom", "default", "search_terms_tab")
-        invalidate_reminder_rule_cache()
+        st.session_state["show_reset_configurations_dialog"] = True
         st.rerun()
+    render_reset_configurations_dialog()
 
     # --------------------------------
 
