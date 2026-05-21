@@ -18228,8 +18228,8 @@ def render_search_terms_editor():
             help="Use when quantity should extend the reminder interval."
         )
         field_examples(
-            "Unticked",
-            "Ticked",
+            "",
+            "",
             "use-qty-examples",
             example_key="use-qty",
         )
