@@ -17306,9 +17306,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             help="Apply the latest search terms and recalculate stats.",
             on_click=refresh_outcome_results_action,
         )
-    st.caption(
-        "See which reminders were sent, which ones led to repeat purchases, and how items and team members are performing over time."
-    )
     st.session_state.pop("_outcomes_refresh_success", None)
     if search_criteria_have_pending_changes():
         st.warning("Search terms have changed. Click Refresh Stats to apply the latest rules here.")
@@ -17348,10 +17345,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             label_visibility="collapsed",
         )
         post_reminder_window_days = normalized_outcome_post_reminder_window_days(post_reminder_window_days)
-    st.caption(
-        "A success is one matching repeat purchase either near the due date or soon after the reminder was sent. "
-        "Multiple reminder steps for the same purchase cycle still count once."
-    )
     outcomes_as_of_date = stats_outcome_as_of_date(sales_df)
     stats_period = "All time"
     try:
