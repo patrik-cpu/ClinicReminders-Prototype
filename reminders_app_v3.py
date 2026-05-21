@@ -760,6 +760,8 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_action_tracker_pending_load_for",
     "_user_tracker_row_cache",
     "_active_reminder_badge_cache",
+    "_top_unreminded_items_cache",
+    "_top_unreminded_items_refresh_version",
     "_stats_calculation_cache",
     "_stats_export_csv_cache",
     "stats_period",
@@ -2714,6 +2716,7 @@ st.markdown(
     [class*="st-key-del_patient_excl_"] button,
     [class*="st-key-del_client_item_excl_"] button,
     [class*="st-key-del_excl_"] button,
+    [class*="st-key-top_unreminded_"] button,
     [class*="st-key-del_auto_patient_excl_"] button,
     [class*="st-key-del_passaway_keyword_"] button {
         background: transparent !important;
@@ -2728,6 +2731,7 @@ st.markdown(
     [class*="st-key-del_patient_excl_"] button:hover,
     [class*="st-key-del_client_item_excl_"] button:hover,
     [class*="st-key-del_excl_"] button:hover,
+    [class*="st-key-top_unreminded_"] button:hover,
     [class*="st-key-del_auto_patient_excl_"] button:hover,
     [class*="st-key-del_passaway_keyword_"] button:hover {
         background: rgba(217, 45, 32, 0.08) !important;
@@ -2737,6 +2741,7 @@ st.markdown(
     [class*="st-key-del_patient_excl_"] button p,
     [class*="st-key-del_client_item_excl_"] button p,
     [class*="st-key-del_excl_"] button p,
+    [class*="st-key-top_unreminded_"] button p,
     [class*="st-key-del_auto_patient_excl_"] button p,
     [class*="st-key-del_passaway_keyword_"] button p {
         color: #d92d20 !important;
@@ -10732,6 +10737,129 @@ def apply_search_criteria_changes(show_notice: bool = True):
         st.session_state["_search_criteria_refreshed"] = True
 
 
+def top_unreminded_items_cache_key(working_df: pd.DataFrame, rules: dict) -> tuple:
+    exclusions = tuple(sorted(
+        str(term or "").strip().lower()
+        for term in st.session_state.get("exclusions", [])
+        if str(term or "").strip()
+    ))
+    return (
+        str(st.session_state.get("clinic_id", "") or "").strip().lower(),
+        int(st.session_state.get("data_version", 0) or 0),
+        len(working_df.index) if isinstance(working_df, pd.DataFrame) else 0,
+        tuple(working_df.columns) if isinstance(working_df, pd.DataFrame) else (),
+        _rules_fp(rules),
+        exclusions,
+        int(st.session_state.get("_top_unreminded_items_refresh_version", 0) or 0),
+        PREPARED_SCHEMA_VERSION,
+    )
+
+
+def top_unreminded_items_empty_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=["Item Name", "Count", "Revenue"])
+
+
+def build_top_unreminded_items(working_df: pd.DataFrame, rules: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if working_df is None or getattr(working_df, "empty", True) or "Item Name" not in working_df.columns:
+        empty = top_unreminded_items_empty_frame()
+        return empty.copy(), empty.copy()
+
+    source = working_df.copy()
+    for col, default in [("Item Name", ""), ("Qty", 1), ("Amount", 0)]:
+        if col not in source.columns:
+            source[col] = default
+
+    mapped = map_intervals_vec(source[["Item Name", "Qty", "Amount"]].copy(), normalize_search_term_rules(rules))
+    unmatched_mask = mapped["MatchedSearchTerms"].apply(lambda value: not bool(value))
+    unmatched = mapped.loc[unmatched_mask].copy()
+    unmatched["Item Name"] = unmatched["Item Name"].astype(str).map(lambda value: _SPACE_RX.sub(" ", value).strip())
+    unmatched = unmatched[unmatched["Item Name"].astype(bool)]
+
+    item_exclusions = [
+        str(term or "").strip().lower()
+        for term in st.session_state.get("exclusions", [])
+        if str(term or "").strip()
+    ]
+    if item_exclusions and not unmatched.empty:
+        item_text = unmatched["Item Name"].astype(str).str.lower()
+        exclusion_pattern = "|".join(map(re.escape, item_exclusions))
+        unmatched = unmatched[~item_text.str.contains(exclusion_pattern, regex=True, na=False)]
+
+    if unmatched.empty:
+        empty = top_unreminded_items_empty_frame()
+        return empty.copy(), empty.copy()
+
+    unmatched["_ItemKey"] = unmatched["Item Name"].map(normalize_item_name)
+    unmatched = unmatched[unmatched["_ItemKey"].astype(bool)]
+    unmatched["_Amount"] = pd.to_numeric(unmatched["Amount"], errors="coerce").fillna(0.0)
+
+    grouped = (
+        unmatched.groupby("_ItemKey", dropna=False)
+        .agg(
+            **{
+                "Item Name": ("Item Name", lambda values: values.value_counts().index[0]),
+                "Count": ("Item Name", "size"),
+                "Revenue": ("_Amount", "sum"),
+            }
+        )
+        .reset_index(drop=True)
+    )
+    by_count = grouped.sort_values(["Count", "Revenue", "Item Name"], ascending=[False, False, True]).head(10).reset_index(drop=True)
+    by_revenue = grouped.sort_values(["Revenue", "Count", "Item Name"], ascending=[False, False, True]).head(10).reset_index(drop=True)
+    return by_count, by_revenue
+
+
+def get_top_unreminded_items(working_df: pd.DataFrame, rules: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
+    cache_key = top_unreminded_items_cache_key(working_df, rules)
+    cached = st.session_state.get("_top_unreminded_items_cache")
+    if isinstance(cached, dict) and cached.get("key") == cache_key:
+        by_count = cached.get("by_count")
+        by_revenue = cached.get("by_revenue")
+        if isinstance(by_count, pd.DataFrame) and isinstance(by_revenue, pd.DataFrame):
+            return by_count.copy(), by_revenue.copy()
+
+    by_count, by_revenue = build_top_unreminded_items(working_df, rules)
+    st.session_state["_top_unreminded_items_cache"] = {
+        "key": cache_key,
+        "by_count": by_count,
+        "by_revenue": by_revenue,
+    }
+    return by_count.copy(), by_revenue.copy()
+
+
+def refresh_top_unreminded_items():
+    st.session_state["_top_unreminded_items_refresh_version"] = int(
+        st.session_state.get("_top_unreminded_items_refresh_version", 0) or 0
+    ) + 1
+    st.session_state.pop("_top_unreminded_items_cache", None)
+
+
+def exclude_top_unreminded_item(item_name: str):
+    safe_item = _SPACE_RX.sub(" ", str(item_name or "").strip())
+    if not safe_item:
+        return
+    safe_item_key = safe_item.lower()
+    st.session_state.setdefault("exclusions", [])
+    existing = {
+        str(term or "").strip().lower()
+        for term in st.session_state["exclusions"]
+        if str(term or "").strip()
+    }
+    if safe_item_key not in existing:
+        st.session_state["exclusions"].append(safe_item_key)
+        save_settings_quietly()
+        record_settings_audit_event(
+            "exclusion_added",
+            "exclusions",
+            safe_item_key,
+            "item",
+            "",
+            safe_item_key,
+            "top_unreminded_items",
+        )
+    refresh_top_unreminded_items()
+
+
 # === Optional analytics bundle creation ===
 bundle_key = (st.session_state.get("data_version", 0), SESSION_BUNDLE_SCHEMA_VERSION)
 
@@ -18538,6 +18666,9 @@ def render_search_terms_editor():
         invalidate_reminder_rule_cache()
         st.rerun()
 
+    st.divider()
+    render_top_unreminded_items_section()
+
     # --------------------------------
 
 
@@ -18546,6 +18677,56 @@ def set_reminders_start_date_to_today():
     st.session_state["_reminders_start_date_today_requested"] = True
     st.session_state["reminders_start_date"] = today
     st.session_state[REMINDERS_START_DATE_INPUT_KEY] = today
+
+
+def render_top_unreminded_items_table(title: str, rows: pd.DataFrame, value_column: str, key_prefix: str):
+    st.markdown(f"#### {html_lib.escape(title)}")
+    if rows is None or rows.empty:
+        st.caption("No unreminded items found.")
+        return
+
+    header_cols = st.columns([4.5, 1.35, 0.45], gap="small")
+    header_cols[0].markdown("<div class='search-term-column-header'>Item Name</div>", unsafe_allow_html=True)
+    header_cols[1].markdown(f"<div class='search-term-column-header'>{html_lib.escape(value_column)}</div>", unsafe_allow_html=True)
+    header_cols[2].markdown("<div class='search-term-column-header'></div>", unsafe_allow_html=True)
+
+    for idx, row in rows.iterrows():
+        item_name = str(row.get("Item Name", "") or "").strip()
+        if not item_name:
+            continue
+        row_cols = st.columns([4.5, 1.35, 0.45], gap="small")
+        row_cols[0].markdown(padded_html_text(item_name), unsafe_allow_html=True)
+        if value_column == "Revenue":
+            value_text = format_outcome_currency(row.get("Revenue", 0))
+        else:
+            value_text = f"{int(row.get('Count', 0) or 0):,}"
+        row_cols[1].markdown(padded_html_text(value_text), unsafe_allow_html=True)
+        safe_key = hashlib.md5(item_name.lower().encode("utf-8")).hexdigest()[:10]
+        if row_cols[2].button("×", key=f"{key_prefix}_exclude_{idx}_{safe_key}", help="Add this item to General Item Exclusions"):
+            exclude_top_unreminded_item(item_name)
+            st.rerun()
+
+
+def render_top_unreminded_items_section():
+    st.markdown("### Top Unreminded Items")
+    working_df = st.session_state.get("working_df")
+    if working_df is None or getattr(working_df, "empty", True):
+        st.caption("Upload clinic sales data to see unreminded items.")
+        return
+
+    section_cols = st.columns([5, 1], gap="small")
+    with section_cols[1]:
+        if st.button("Refresh", key="refresh_top_unreminded_items", use_container_width=True):
+            refresh_top_unreminded_items()
+            st.rerun()
+
+    rules = normalize_search_term_rules(st.session_state.get("rules", DEFAULT_RULES.copy()))
+    by_count, by_revenue = get_top_unreminded_items(working_df, rules)
+    table_cols = st.columns(2, gap="large")
+    with table_cols[0]:
+        render_top_unreminded_items_table("Top 10 Unreminded Items by Count", by_count, "Count", "top_unreminded_count")
+    with table_cols[1]:
+        render_top_unreminded_items_table("Top 10 Unreminded Items by Revenue", by_revenue, "Revenue", "top_unreminded_revenue")
 
 
 # --------------------------------

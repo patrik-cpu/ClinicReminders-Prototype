@@ -31,6 +31,53 @@ class ReminderGroupingTests(unittest.TestCase):
             }
         )
 
+    def test_top_unreminded_items_rank_uncovered_items(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        state["exclusions"] = ["food"]
+        sales = pd.DataFrame(
+            {
+                "Item Name": [
+                    "Rabies Vaccine",
+                    "Nail Clip",
+                    "Nail Clip",
+                    "Dental Scale",
+                    "Food Bag",
+                    "Food Bag",
+                    "Food Bag",
+                ],
+                "Qty": [1, 1, 1, 1, 1, 1, 1],
+                "Amount": [40, 12, 15, 220, 30, 35, 40],
+            }
+        )
+        rules = {"rabies": {"days": 365, "use_qty": False}}
+
+        by_count, by_revenue = self.app.build_top_unreminded_items(sales, rules)
+
+        self.assertEqual(by_count.iloc[0]["Item Name"], "Nail Clip")
+        self.assertEqual(int(by_count.iloc[0]["Count"]), 2)
+        self.assertNotIn("Rabies Vaccine", set(by_count["Item Name"]))
+        self.assertNotIn("Food Bag", set(by_count["Item Name"]))
+        self.assertEqual(by_revenue.iloc[0]["Item Name"], "Dental Scale")
+        self.assertEqual(float(by_revenue.iloc[0]["Revenue"]), 220.0)
+
+    def test_excluding_top_unreminded_item_adds_general_item_exclusion(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        state["exclusions"] = []
+        state["_top_unreminded_items_cache"] = {"key": ("old",)}
+
+        with (
+            patch.object(self.app, "save_settings_quietly", return_value=True),
+            patch.object(self.app, "record_settings_audit_event"),
+        ):
+            self.app.exclude_top_unreminded_item("Nail Clip")
+
+        self.assertEqual(state["exclusions"], ["nail clip"])
+        self.assertNotIn("_top_unreminded_items_cache", state)
+
     def test_zero_disables_grouping(self):
         grouped = self.app.bundle_client_reminders_by_window(self.make_due_df(), window_days=0)
         self.assertEqual(len(grouped), 3)

@@ -63,6 +63,7 @@ class VisualThemeCssTests(unittest.TestCase):
             "st-key-del_patient_excl_",
             "st-key-del_client_item_excl_",
             "st-key-del_excl_",
+            "st-key-top_unreminded_",
             "st-key-del_passaway_keyword_",
             "st-key-del_auto_patient_excl_",
         ]:
