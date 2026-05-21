@@ -8354,10 +8354,6 @@ def render_floating_whatsapp_support_widget() -> None:
         '<path d="M11.2 10.5c.3-.6.6-.6.9-.6h.7c.2 0 .5.1.7.5l1 2.3c.1.3.1.5-.1.7l-.7.8c.7 1.3 1.8 2.4 3.2 3.1l.9-.8c.2-.2.5-.2.8-.1l2.1.9c.4.2.5.4.5.7 0 .7-.5 1.7-1.2 2.1-.6.4-1.5.5-2.8.1-3.2-1-6.2-3.8-7.2-7-.4-1.2-.2-2.1.2-2.8Z" />'
         '</svg>'
         '</span>'
-        '<span class="cr-whatsapp-support-text">'
-        '<strong>WhatsApp support</strong>'
-        f'<span>{safe_number}</span>'
-        '</span>'
         '</a>'
     )
     st.markdown(
@@ -8372,12 +8368,13 @@ def render_floating_whatsapp_support_widget() -> None:
             box-shadow: 0 10px 26px rgba(16, 24, 40, 0.18);
             color: #ffffff !important;
             display: inline-flex;
-            gap: 0.55rem;
-            min-height: 3rem;
-            padding: 0.72rem 1rem;
+            height: 3rem;
+            justify-content: center;
+            padding: 0;
             position: fixed;
             right: 1.25rem;
             text-decoration: none !important;
+            width: 3rem;
             z-index: 1000;
           }}
           .cr-whatsapp-support:hover {{
@@ -8391,17 +8388,15 @@ def render_floating_whatsapp_support_widget() -> None:
           }}
           .cr-whatsapp-support-icon {{
             align-items: center;
-            background: rgba(255, 255, 255, 0.18);
-            border-radius: 999px;
             display: inline-flex;
-            height: 1.8rem;
+            height: 100%;
             justify-content: center;
-            width: 1.8rem;
+            width: 100%;
           }}
           .cr-whatsapp-support-icon svg {{
             display: block;
-            height: 1.22rem;
-            width: 1.22rem;
+            height: 1.55rem;
+            width: 1.55rem;
           }}
           .cr-whatsapp-support-icon path {{
             fill: none;
@@ -8410,27 +8405,12 @@ def render_floating_whatsapp_support_widget() -> None:
             stroke-linejoin: round;
             stroke-width: 2.15;
           }}
-          .cr-whatsapp-support-text {{
-            display: flex;
-            flex-direction: column;
-            font-size: 0.78rem;
-            font-weight: 700;
-            line-height: 1.08;
-          }}
-          .cr-whatsapp-support-text strong {{
-            color: #ffffff;
-            font-size: 0.96rem;
-            font-weight: 800;
-          }}
           @media (max-width: 640px) {{
             .cr-whatsapp-support {{
               bottom: 4.25rem;
-              min-height: 2.75rem;
-              padding: 0.62rem 0.78rem;
+              height: 2.85rem;
               right: 0.85rem;
-            }}
-            .cr-whatsapp-support-text span {{
-              display: none;
+              width: 2.85rem;
             }}
           }}
         </style>

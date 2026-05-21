@@ -327,7 +327,12 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("render_floating_whatsapp_support_widget()", source)
         self.assertIn("bottom: 4.75rem;", source)
         self.assertIn("right: 1.25rem;", source)
+        self.assertIn("height: 3rem;", source)
+        self.assertIn("width: 3rem;", source)
+        self.assertIn("height: 2.85rem;", source)
+        self.assertIn("width: 2.85rem;", source)
         self.assertNotIn('aria-hidden="true">WA</span>', source)
+        self.assertNotIn("cr-whatsapp-support-text", source)
 
     def test_search_term_headers_bottom_align_wrapped_labels(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
