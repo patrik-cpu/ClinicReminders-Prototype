@@ -1607,6 +1607,35 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertFalse(self.app.stats_date_range_selection_in_progress())
 
+    def test_stats_period_reset_callbacks_keep_stats_main_tab_active(self):
+        self.app.st.session_state["main_section_tab"] = "Reminders"
+
+        self.app.reset_stats_sent_reminders_page()
+        self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
+
+        self.app.st.session_state["main_section_tab"] = "Reminders"
+        self.app.reset_stats_successes_page()
+        self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
+
+        self.app.st.session_state["main_section_tab"] = "Reminders"
+        self.app.reset_stats_shared_period_pages()
+        self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
+
+    def test_stats_header_sections_are_visually_separated(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        render_start = source.index("def render_stats_tab")
+        render_end = source.index("def render_search_terms_editor", render_start)
+        render_stats_source = source[render_start:render_end]
+
+        self.assertIn(".stats-section-divider", source)
+        self.assertIn("border-top: 1px solid var(--cr-border);", source)
+        self.assertIn(
+            "st.markdown(\"<div class='stats-section-divider' aria-hidden='true'></div>\", unsafe_allow_html=True)\n"
+            "    selected_stats_period, stats_custom_range = render_shared_stats_period_selector()\n"
+            "    st.markdown(\"<div class='stats-section-divider' aria-hidden='true'></div>\", unsafe_allow_html=True)",
+            render_stats_source,
+        )
+
     def test_stats_items_shared_custom_filter_uses_scheduled_reminder_date(self):
         generated = pd.DataFrame(
             [

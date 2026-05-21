@@ -699,6 +699,25 @@ class AuthSessionTests(unittest.TestCase):
         self.assertFalse(allowed)
         self.assertGreater(retry_after, 0)
 
+    def test_password_signup_keeps_country_after_password_fields(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        signup_start = source.index('with st.form("create_account_form")')
+        signup_end = source.index("create_submitted = st.form_submit_button", signup_start)
+        signup_form = source[signup_start:signup_end]
+
+        clinic_pos = signup_form.index('"Clinic Name (username)"')
+        password_pos = signup_form.index('"Set password"')
+        confirm_pos = signup_form.index('"Confirm password"')
+        country_pos = signup_form.index('"Country"')
+
+        self.assertLess(clinic_pos, password_pos)
+        self.assertLess(password_pos, confirm_pos)
+        self.assertLess(confirm_pos, country_pos)
+        self.assertIn('key="signup_clinic_name"', signup_form)
+        self.assertIn('key="signup_password"', signup_form)
+        self.assertIn('key="signup_confirm_password"', signup_form)
+        self.assertIn('key="signup_country"', signup_form)
+
     def test_google_user_info_normalizes_identity_fields(self):
         user = {
             "is_logged_in": True,
