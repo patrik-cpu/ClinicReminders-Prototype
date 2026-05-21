@@ -3487,6 +3487,7 @@ REMEMBER_LOGIN_QUERY_PARAM = "remember"
 REMEMBER_LOGIN_COOKIE_NAME = "clinic_reminders_session"
 REMEMBER_LOGIN_COOKIE_MAX_AGE_SECONDS = REMEMBER_LOGIN_DAYS * 24 * 60 * 60
 REMEMBER_LOGIN_COOKIE_UPDATE_KEY = "_remember_login_cookie_update"
+POST_LOGIN_STARTUP_OVERLAY_KEY = "_post_login_startup_overlay_pending"
 PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 260_000
 PASSWORD_SALT_BYTES = 16
@@ -9641,6 +9642,7 @@ def finish_authenticated_session(
     close_account_dialogs()
     st.session_state["clinic_id"] = clinic_id
     st.session_state["logged_in"] = True
+    st.session_state[POST_LOGIN_STARTUP_OVERLAY_KEY] = True
     st.session_state["show_top_change_password"] = False
     st.session_state["auth_provider"] = auth_provider
     if google_user:
@@ -9653,7 +9655,7 @@ def finish_authenticated_session(
             use_url_fallback=remember_url_fallback,
         )
 
-    with busy_overlay("Loading clinic data", "Preparing saved settings, data, and reminders for this clinic."):
+    with busy_overlay("Loading clinic saved data", "Preparing saved settings, data, and reminders for this clinic."):
         reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
         load_settings(load_action_history=False)
         session_user_name = str(session_user_name or "").strip()
@@ -10191,13 +10193,31 @@ elif st.session_state.get("show_upload_sales_data_help_dialog", False):
 if not st.session_state["logged_in"]:
     st.stop()
 
-if "rules" not in st.session_state:
-    load_settings()
-if not E2E_SEARCH_TERMS_LAYOUT_MODE:
-    ensure_tracking_sheets()
-    ensure_shared_dataset_loaded_for_session()
-    show_pending_settings_sync_warning()
-    show_pending_action_sync_warning()
+def ensure_logged_in_startup_loaded():
+    def _load_logged_in_startup():
+        if "rules" not in st.session_state:
+            load_settings()
+        if not E2E_SEARCH_TERMS_LAYOUT_MODE:
+            ensure_tracking_sheets()
+            ensure_shared_dataset_loaded_for_session()
+            show_pending_settings_sync_warning()
+            show_pending_action_sync_warning()
+
+    show_startup_overlay = bool(
+        st.session_state.pop(POST_LOGIN_STARTUP_OVERLAY_KEY, False)
+        or "rules" not in st.session_state
+    )
+    if show_startup_overlay:
+        with busy_overlay(
+            "Loading clinic saved data",
+            "Getting saved settings, data, and reminders ready.",
+        ):
+            _load_logged_in_startup()
+    else:
+        _load_logged_in_startup()
+
+
+ensure_logged_in_startup_loaded()
 
 
 def get_started_manual_done() -> dict:

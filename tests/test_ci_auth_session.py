@@ -737,6 +737,9 @@ class AuthSessionTests(unittest.TestCase):
         state.pop(self.app.REMEMBER_LOGIN_COOKIE_UPDATE_KEY, None)
 
     def test_finish_authenticated_session_shows_clinic_data_loading_overlay(self):
+        state = self.app.st.session_state
+        state.pop(self.app.POST_LOGIN_STARTUP_OVERLAY_KEY, None)
+
         with (
             patch.object(self.app, "close_account_dialogs"),
             patch.object(self.app, "reset_uploaded_data_state"),
@@ -749,9 +752,25 @@ class AuthSessionTests(unittest.TestCase):
             self.app.finish_authenticated_session("Clinic A", event="login")
 
         overlay.assert_called_once_with(
-            "Loading clinic data",
+            "Loading clinic saved data",
             "Preparing saved settings, data, and reminders for this clinic.",
         )
+        self.assertTrue(state[self.app.POST_LOGIN_STARTUP_OVERLAY_KEY])
+
+    def test_logged_in_startup_keeps_saved_data_overlay_until_bootstrap_finishes(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        startup_start = source.index("def ensure_logged_in_startup_loaded")
+        startup_fn = source[
+            startup_start
+            : source.index("ensure_logged_in_startup_loaded()", startup_start + len("def ensure_logged_in_startup_loaded"))
+        ]
+
+        self.assertIn("POST_LOGIN_STARTUP_OVERLAY_KEY", startup_fn)
+        self.assertIn("Loading clinic saved data", startup_fn)
+        self.assertLess(startup_fn.index("load_settings()"), startup_fn.index("ensure_tracking_sheets()"))
+        self.assertLess(startup_fn.index("ensure_tracking_sheets()"), startup_fn.index("ensure_shared_dataset_loaded_for_session()"))
+        self.assertIn("show_pending_settings_sync_warning()", startup_fn)
+        self.assertIn("show_pending_action_sync_warning()", startup_fn)
 
     def test_failed_login_attempts_lock_username_temporarily(self):
         state = {}
