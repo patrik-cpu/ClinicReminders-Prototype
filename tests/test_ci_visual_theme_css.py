@@ -125,7 +125,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("render_main_section_nav(active_main_section)", source)
         self.assertIn("nav_spacer_width = 6.8", source)
         self.assertIn("[*widths, nav_spacer_width]", source)
-        self.assertIn("min(2.9, len(tab_name) / 7", source)
+        self.assertIn("min(2.9, len(display_tab_name) / 7", source)
         self.assertIn("display: inline-flex !important;", source)
         self.assertIn("align-items: center !important;", source)
         self.assertIn("vertical-align: middle !important;", source)
@@ -228,7 +228,10 @@ class VisualThemeCssTests(unittest.TestCase):
     def test_stats_page_folds_outcomes_and_actioning_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
-        self.assertIn('MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Stats", "Graphs"]', source)
+        self.assertIn('MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Upload Data", "Stats", "Graphs", "Get Started"]', source)
+        self.assertIn('"Reminders": "Send Reminders"', source)
+        self.assertIn('"Search Terms": "Configure Reminders"', source)
+        self.assertIn('"Stats": "Tracking"', source)
         self.assertIn('"outcomes": "Stats"', source)
         self.assertIn('"statistics": "Stats"', source)
         self.assertIn('st.markdown("## 📊 Stats")', source)

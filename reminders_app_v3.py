@@ -69,7 +69,7 @@ DRIVE_SCOPE = [
 
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
-MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", "Exclusions", "Stats", "Graphs"]
+MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Upload Data", "Stats", "Graphs", "Get Started"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 STAFF_ACCESS_QUERY_PARAM = "staff_access"
 PENDING_MAIN_SECTION_TAB_KEY = "_pending_main_section_tab"
@@ -96,6 +96,11 @@ MAIN_SECTION_TAB_TO_SLUG = {
     "Exclusions": "exclusions",
     "Stats": "stats",
     "Graphs": "graphs",
+}
+MAIN_SECTION_TAB_DISPLAY_LABELS = {
+    "Reminders": "Send Reminders",
+    "Search Terms": "Configure Reminders",
+    "Stats": "Tracking",
 }
 REMINDERS_START_DATE_INPUT_KEY = "reminders_start_date_input"
 DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14
@@ -10491,9 +10496,10 @@ def tab_badge_label_text(
     fill: str = "#dc2626",
     font_weight: str = "700",
 ) -> str:
+    display_tab_name = MAIN_SECTION_TAB_DISPLAY_LABELS.get(tab_name, tab_name)
     badge_text = str(badge_text or "").strip()
     if not badge_text:
-        return tab_name
+        return display_tab_name
     width = max(26, 18 + (len(badge_text) * 8))
     text_x = width / 2
     badge_svg = f"""
@@ -10503,13 +10509,14 @@ def tab_badge_label_text(
     </svg>
     """
     encoded_badge = base64.b64encode(badge_svg.encode("utf-8")).decode("ascii")
-    return f"{tab_name} ![{alt_text}](data:image/svg+xml;base64,{encoded_badge})"
+    return f"{display_tab_name} ![{alt_text}](data:image/svg+xml;base64,{encoded_badge})"
 
 
 def tab_badge_label(tab_name: str, count: int, alt_text: str) -> str:
     count = int(count or 0)
+    display_tab_name = MAIN_SECTION_TAB_DISPLAY_LABELS.get(tab_name, tab_name)
     if count <= 0:
-        return tab_name
+        return display_tab_name
     return tab_badge_label_text(tab_name, str(count), alt_text)
 
 
@@ -10540,7 +10547,7 @@ def upload_data_badge_label(count: int | None = None) -> str:
 
 
 def stats_badge_label() -> str:
-    return tab_badge_label_text("Stats", "New", "New Stats tab", fill="#23513a", font_weight="400")
+    return MAIN_SECTION_TAB_DISPLAY_LABELS["Stats"]
 
 
 def graphs_badge_label() -> str:
@@ -10558,7 +10565,7 @@ def main_section_tab_label(tab_name: str) -> str:
         return stats_badge_label()
     if tab_name == "Graphs":
         return graphs_badge_label()
-    return tab_name
+    return MAIN_SECTION_TAB_DISPLAY_LABELS.get(tab_name, tab_name)
 
 
 def main_section_tab_badge_count(tab_name: str) -> int:
@@ -10632,8 +10639,9 @@ def render_main_section_nav(active_tab: str) -> None:
     widths = []
     for tab_name in MAIN_SECTION_TABS:
         count = main_section_tab_badge_count(tab_name)
+        display_tab_name = MAIN_SECTION_TAB_DISPLAY_LABELS.get(tab_name, tab_name)
         extra_width = 0.7 if tab_name == "Graphs" else 0.38 if count > 0 else 0
-        widths.append(max(1.35, min(2.9, len(tab_name) / 7 + extra_width)))
+        widths.append(max(1.35, min(2.9, len(display_tab_name) / 7 + extra_width)))
     nav_spacer_width = 6.8
     columns = st.columns([*widths, nav_spacer_width], gap="small")[:len(MAIN_SECTION_TABS)]
     for column, tab_name in zip(columns, MAIN_SECTION_TABS):

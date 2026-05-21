@@ -86,12 +86,12 @@ class GetStartedBadgeTests(unittest.TestCase):
             )["done"]
         )
 
-    def test_stats_tab_shows_new_badge(self):
+    def test_stats_tab_shows_tracking_without_new_badge(self):
         label = self.app.main_section_tab_label("Stats")
 
-        self.assertIn("Stats", label)
-        self.assertIn("New Stats tab", label)
-        self.assertIn("data:image/svg+xml;base64", label)
+        self.assertEqual(label, "Tracking")
+        self.assertNotIn("New Stats tab", label)
+        self.assertNotIn("data:image/svg+xml;base64", label)
 
     def test_graphs_tab_shows_coming_soon_badge(self):
         label = self.app.main_section_tab_label("Graphs")
@@ -109,7 +109,7 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertIn('alignment-baseline="middle"', svg)
 
     def test_new_and_soon_badges_use_normal_text_weight(self):
-        for label in (self.app.stats_badge_label(), self.app.graphs_badge_label()):
+        for label in (self.app.graphs_badge_label(),):
             encoded = re.search(r"base64,([A-Za-z0-9+/=]+)", label).group(1)
             svg = base64.b64decode(encoded).decode("utf-8")
 
