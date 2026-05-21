@@ -668,6 +668,7 @@ def reset_uploaded_data_state(clear_cache: bool = True, reset_uploader: bool = F
         "bundle",
         "bundle_key",
         "prepared_key",
+        "_reminders_prepared_for_date_cache",
         "shared_dataset_loaded",
         "shared_dataset_name",
         "shared_dataset_updated_at",
@@ -10686,6 +10687,9 @@ def apply_search_criteria_changes(show_notice: bool = True):
     st.session_state["applied_rules"] = clone_reminder_rules(st.session_state["rules"])
     st.session_state.pop("prepared_df", None)
     st.session_state.pop("prepared_key", None)
+    st.session_state.pop("_reminders_prepared_for_date_cache", None)
+    st.session_state.pop("_active_reminder_window_cache", None)
+    st.session_state.pop("_active_reminder_badge_cache", None)
     if show_notice:
         st.session_state["_search_criteria_refreshed"] = True
 
@@ -11737,6 +11741,53 @@ def filter_sales_as_of_date(working_df: pd.DataFrame, as_of_date: date | None) -
     return working_df.loc[keep_mask].copy()
 
 
+def reminder_prepared_rows_for_date_cache_key(
+    working_df: pd.DataFrame,
+    rules: dict,
+    as_of_date: date | None,
+) -> tuple:
+    return (
+        int(st.session_state.get("data_version", 0) or 0),
+        _rules_fp(rules),
+        as_of_date.isoformat() if isinstance(as_of_date, date) else "",
+        len(working_df.index) if isinstance(working_df, pd.DataFrame) else 0,
+        tuple(working_df.columns) if isinstance(working_df, pd.DataFrame) else (),
+        PREPARED_SCHEMA_VERSION,
+    )
+
+
+def get_cached_prepared_reminder_rows_for_date(
+    working_df: pd.DataFrame,
+    rules: dict,
+    as_of_date: date | None,
+) -> pd.DataFrame | None:
+    cache_key = reminder_prepared_rows_for_date_cache_key(working_df, rules, as_of_date)
+    cached = st.session_state.get("_reminders_prepared_for_date_cache")
+    if isinstance(cached, dict) and cached.get("key") == cache_key:
+        prepared = cached.get("prepared")
+        if isinstance(prepared, pd.DataFrame):
+            return prepared
+    return None
+
+
+def get_prepared_reminder_rows_for_date(
+    working_df: pd.DataFrame,
+    rules: dict,
+    as_of_date: date | None,
+) -> pd.DataFrame:
+    cached = get_cached_prepared_reminder_rows_for_date(working_df, rules, as_of_date)
+    if cached is not None:
+        return cached
+
+    reminder_source_df = filter_sales_as_of_date(working_df, as_of_date)
+    prepared = build_prepared_reminder_rows(reminder_source_df, rules)
+    st.session_state["_reminders_prepared_for_date_cache"] = {
+        "key": reminder_prepared_rows_for_date_cache_key(working_df, rules, as_of_date),
+        "prepared": prepared,
+    }
+    return prepared
+
+
 def empty_grouped_reminders_frame() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
@@ -11814,6 +11865,24 @@ def build_active_reminder_window(
         "reminders_before_exclusions": reminders_before_exclusions,
     }
     return grouped, reminders_before_exclusions
+
+
+def active_reminder_window_is_cached(
+    prepared: pd.DataFrame,
+    rules: dict,
+    start_date: date,
+    end_date: date,
+    group_days: int,
+) -> bool:
+    if prepared is None or prepared.empty:
+        return True
+    cache_key = active_reminder_window_cache_key(prepared, rules, start_date, end_date, group_days)
+    cached = st.session_state.get("_active_reminder_window_cache")
+    return (
+        isinstance(cached, dict)
+        and cached.get("key") == cache_key
+        and isinstance(cached.get("grouped"), pd.DataFrame)
+    )
 
 
 def get_prepared_df(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
@@ -18555,15 +18624,30 @@ if st.session_state.get("logged_in", False):
                 label_visibility="collapsed",
             )
 
-        with busy_overlay("Loading reminders", "Preparing the reminder list for this clinic."):
-            reminder_source_df = filter_sales_as_of_date(df, start_date)
-            prepared = build_prepared_reminder_rows(reminder_source_df, applied_rules)
+        lookback_start_date = start_date - timedelta(days=reminder_lookback_days)
+        end_date = start_date + timedelta(days=reminder_window_days)
+        cached_prepared = get_cached_prepared_reminder_rows_for_date(df, applied_rules, start_date)
+        reminders_need_loading = (
+            cached_prepared is None
+            or not active_reminder_window_is_cached(
+                cached_prepared,
+                applied_rules,
+                lookback_start_date,
+                end_date,
+                group_days,
+            )
+        )
+
+        def render_reminders_body():
+            prepared = get_prepared_reminder_rows_for_date(df, applied_rules, start_date)
 
             # ✅ safety: if schema changed but cache is stale, rebuild
             if "BaseIntervalDays" not in prepared.columns:
                 st.error("Reminders need to refresh. Rebuilding now...")
                 st.session_state.pop("prepared_df", None)
                 st.session_state.pop("prepared_key", None)
+                st.session_state.pop("_reminders_prepared_for_date_cache", None)
+                st.session_state.pop("_active_reminder_window_cache", None)
                 # optional big hammer:
                 # st.cache_data.clear()
                 st.rerun()
@@ -18575,9 +18659,6 @@ if st.session_state.get("logged_in", False):
             )
 
             render_search_criteria_refresh_notice()
-
-            lookback_start_date = start_date - timedelta(days=reminder_lookback_days)
-            end_date = start_date + timedelta(days=reminder_window_days)
 
             grouped, reminders_before_exclusions = build_active_reminder_window(
                 prepared,
@@ -18594,6 +18675,12 @@ if st.session_state.get("logged_in", False):
                     st.info("All reminders in the selected date range are hidden by exclusions. Review Exclusions if this looks wrong.")
                 elif should_show_no_reminders_info(reminders_before_exclusions, active_reminder_count):
                     st.info("No reminders in the selected date range. Try Today, widen the date window, or check Search Terms.")
+
+        if reminders_need_loading:
+            with busy_overlay("Loading reminders", "Preparing the reminder list for this clinic."):
+                render_reminders_body()
+        else:
+            render_reminders_body()
 
     if active_main_section == "Stats":
         render_stats_tab(df, prepared, applied_rules)

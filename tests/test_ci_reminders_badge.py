@@ -163,6 +163,79 @@ class RemindersBadgeTests(unittest.TestCase):
         self.assertEqual(third_count, 0)
         self.assertEqual(mock_bundle.call_count, 1)
 
+    def test_send_reminders_prepared_rows_are_cached_by_selected_date(self):
+        state = self.app.st.session_state
+        state["data_version"] = 1
+        sales = pd.DataFrame({
+            "ChargeDate": pd.to_datetime(["2026-05-15", "2026-05-17"]),
+            "Item Name": ["Rabies", "Dental"],
+        })
+        rules = {"rabies": {"days": 365}}
+        built_frames = []
+
+        def build_side_effect(frame, _rules):
+            built_frames.append(frame.copy())
+            return pd.DataFrame({
+                "ReminderDateTs": pd.to_datetime(["2026-05-16"]),
+                "NextDueDate": pd.to_datetime(["2026-05-16"]),
+                "BaseIntervalDays": [365],
+            })
+
+        with mock.patch.object(self.app, "build_prepared_reminder_rows", side_effect=build_side_effect) as build:
+            first = self.app.get_prepared_reminder_rows_for_date(sales, rules, date(2026, 5, 16))
+            second = self.app.get_prepared_reminder_rows_for_date(sales, rules, date(2026, 5, 16))
+
+        self.assertIs(first, second)
+        self.assertEqual(build.call_count, 1)
+        self.assertEqual(list(built_frames[0]["Item Name"]), ["Rabies"])
+        self.assertIs(self.app.get_cached_prepared_reminder_rows_for_date(sales, rules, date(2026, 5, 16)), first)
+
+    def test_active_reminder_window_cache_probe_matches_build_cache(self):
+        prepared = pd.DataFrame({
+            "ReminderDateTs": pd.to_datetime(["2026-05-16"]),
+            "NextDueDate": pd.to_datetime(["2026-05-16"]),
+            "Client Name": ["Client A"],
+            "Animal Name": ["Pet A"],
+            "Item Name": ["Rabies"],
+            "MatchedItems": [["rabies"]],
+        })
+        grouped = pd.DataFrame([{
+            "Reminder Date": "16 May 2026",
+            "Due Date": "16 May 2026",
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies",
+        }])
+        rules = {"rabies": {"days": 365}}
+
+        self.assertFalse(
+            self.app.active_reminder_window_is_cached(
+                prepared,
+                rules,
+                date(2026, 5, 16),
+                date(2026, 5, 16),
+                1,
+            )
+        )
+        with mock.patch.object(self.app, "bundle_client_reminders_by_window", return_value=grouped):
+            self.app.build_active_reminder_window(
+                prepared,
+                rules,
+                date(2026, 5, 16),
+                date(2026, 5, 16),
+                1,
+            )
+
+        self.assertTrue(
+            self.app.active_reminder_window_is_cached(
+                prepared,
+                rules,
+                date(2026, 5, 16),
+                date(2026, 5, 16),
+                1,
+            )
+        )
+
     def test_badge_count_without_rules_skips_prepared_dataframe_work(self):
         state = self.app.st.session_state
         state["working_df"] = pd.DataFrame({"row": [1]})
