@@ -15,9 +15,9 @@ if python -c "import ruff" >/dev/null 2>&1; then
 else
   echo "Skipping bug-only lint check: install dev requirements with python -m pip install -r requirements-dev.txt."
 fi
-python -m unittest discover -s tests -p "test_ci_*.py"
-python -m unittest tests.test_ci_streamlit_startup
-python -m unittest tests.test_settings_pointer_helpers tests.test_reminders_pointer_wrapper
+env -u WORKSHEET_NAME_SUFFIX python -m unittest discover -s tests -p "test_ci_*.py"
+env -u WORKSHEET_NAME_SUFFIX python -m unittest tests.test_ci_streamlit_startup
+env -u WORKSHEET_NAME_SUFFIX python -m unittest tests.test_settings_pointer_helpers tests.test_reminders_pointer_wrapper
 git diff --check
 
 echo "== Live Google smoke =="

@@ -21,6 +21,7 @@ class PilotReleaseScriptTests(unittest.TestCase):
         self.assertIn("auth_legacy_audit.py", content)
         self.assertIn("--fail-on-risk", content)
         self.assertIn("PILOT_TEST_CLINIC_ID", content)
+        self.assertIn("env -u WORKSHEET_NAME_SUFFIX python -m unittest", content)
 
     def test_dependency_security_audit_command_is_repo_owned(self):
         script = REPO_ROOT / "scripts" / "dependency_security_audit.sh"
