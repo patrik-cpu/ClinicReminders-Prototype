@@ -753,6 +753,9 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_user_tracker_row_cache",
     "_active_reminder_badge_cache",
     "_stats_export_csv_cache",
+    "stats_period",
+    "stats_custom_range",
+    "stats_custom_range_last_complete",
     "stats_sent_reminders_period",
     "stats_sent_reminders_custom_range",
     "stats_sent_reminders_custom_range_last_complete",
@@ -14053,7 +14056,13 @@ REMINDER_TABLE_PAGE_SIZE = TABLE_PAGE_SIZE
 STATS_TABLE_PAGE_SIZE = TABLE_PAGE_SIZE
 OUTCOME_SENT_PAGE_SIZE = TABLE_PAGE_SIZE
 STATS_TABLE_HEIGHT = 700
-STATS_SUBTABS = ["Revenue", "Items", "Successes", "Reminders", "Team"]
+STATS_REVENUE_SUBTAB = "Revenue"
+STATS_REVENUE_SUBTAB_LABEL = "Revenue (All-time only)"
+STATS_PERIOD_FILTERED_SUBTABS = ["Items", "Successes", "Reminders", "Team"]
+STATS_SUBTABS = [STATS_REVENUE_SUBTAB, *STATS_PERIOD_FILTERED_SUBTABS]
+STATS_SUBTAB_LABELS = {
+    STATS_REVENUE_SUBTAB: STATS_REVENUE_SUBTAB_LABEL,
+}
 OUTCOME_TABLE_COLUMNS = [
     "Charge Date",
     "Reminder Date",
@@ -16094,6 +16103,81 @@ def filter_stats_success_tab_rows(
     )
 
 
+def statistics_row_in_custom_range(row: dict, custom_range: tuple[date, date] | None) -> bool:
+    if custom_range is None:
+        return True
+    start_date, end_date = custom_range
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+    return any(start_date <= value_date <= end_date for value_date in statistics_row_dates(row))
+
+
+def statistics_records_in_custom_range(
+    records: list[dict],
+    custom_range: tuple[date, date] | None,
+) -> list[dict]:
+    if custom_range is None:
+        return [dict(record) for record in records or [] if isinstance(record, dict)]
+    return [
+        dict(record) for record in records or []
+        if isinstance(record, dict) and statistics_row_in_custom_range(record, custom_range)
+    ]
+
+
+def statistics_generated_records_for_period_filter(
+    generated_df: pd.DataFrame,
+    period_label: str,
+    custom_range: tuple[date, date] | None = None,
+) -> list[dict]:
+    if generated_df is None or getattr(generated_df, "empty", True):
+        return []
+    records = expand_grouped_action_records(generated_df.to_dict("records"))
+    if str(period_label or "").strip() == "Custom":
+        return statistics_records_in_custom_range(records, custom_range)
+    return statistics_records_in_reminder_period(records, sent_reminder_outcome_period(period_label), user_today())
+
+
+def statistics_action_records_for_scheduled_period_filter(
+    action_records: list[dict],
+    period_label: str,
+    custom_range: tuple[date, date] | None = None,
+) -> list[dict]:
+    expanded_records = expand_grouped_action_records(action_records)
+    if str(period_label or "").strip() == "Custom":
+        return statistics_records_in_custom_range(expanded_records, custom_range)
+    return statistics_records_in_reminder_period(expanded_records, sent_reminder_outcome_period(period_label), user_today())
+
+
+def statistics_action_records_for_actioned_period_filter(
+    action_records: list[dict],
+    period_label: str,
+    custom_range: tuple[date, date] | None = None,
+) -> list[dict]:
+    if str(period_label or "").strip() != "Custom":
+        return filter_actions_by_actioned_period(
+            action_records,
+            sent_reminder_outcome_period(period_label),
+            user_today(),
+            include_parsed=True,
+        )
+    if custom_range is None:
+        return []
+    start_date, end_date = custom_range
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+    rows = []
+    for record in action_records or []:
+        if not isinstance(record, dict):
+            continue
+        actioned_dt = statistics_actioned_datetime(record)
+        if actioned_dt is None or not (start_date <= actioned_dt.date() <= end_date):
+            continue
+        row = dict(record)
+        row[STATISTICS_ACTIONED_DATETIME_KEY] = actioned_dt
+        rows.append(row)
+    return rows
+
+
 OUTCOME_SUMMARY_NUMERIC_COLUMNS = (
     "Desired Gap Days",
     "Success Gap Days",
@@ -17160,6 +17244,10 @@ def stats_subtab_button_key(tab_name: str) -> str:
     return f"stats_subtab_{slug or 'items'}"
 
 
+def stats_subtab_display_label(tab_name: str) -> str:
+    return STATS_SUBTAB_LABELS.get(tab_name, tab_name)
+
+
 def set_active_stats_subtab(tab_name: str) -> None:
     st.session_state["stats_active_subtab"] = tab_name if tab_name in STATS_SUBTABS else "Revenue"
 
@@ -17195,18 +17283,21 @@ def render_stats_subtab_selector() -> str:
         """,
         unsafe_allow_html=True,
     )
-    widths = [max(1.1, min(2.4, len(tab_name) / 8)) for tab_name in STATS_SUBTABS]
-    columns = st.columns([*widths, 7.2], gap="small")[:len(STATS_SUBTABS)]
-    for column, tab_name in zip(columns, STATS_SUBTABS):
-        with column:
-            st.button(
-                tab_name,
-                key=stats_subtab_button_key(tab_name),
-                on_click=set_active_stats_subtab,
-                args=(tab_name,),
-                type="secondary",
-                use_container_width=True,
-            )
+    first_row_tabs = [STATS_REVENUE_SUBTAB]
+    second_row_tabs = STATS_PERIOD_FILTERED_SUBTABS
+    for row_tabs, filler_width in ((first_row_tabs, 8.8), (second_row_tabs, 6.8)):
+        widths = [max(1.35, min(2.7, len(stats_subtab_display_label(tab_name)) / 9)) for tab_name in row_tabs]
+        columns = st.columns([*widths, filler_width], gap="small")[:len(row_tabs)]
+        for column, tab_name in zip(columns, row_tabs):
+            with column:
+                st.button(
+                    stats_subtab_display_label(tab_name),
+                    key=stats_subtab_button_key(tab_name),
+                    on_click=set_active_stats_subtab,
+                    args=(tab_name,),
+                    type="secondary",
+                    use_container_width=True,
+                )
     st.markdown('<div class="cr-stats-subtab-rule" aria-hidden="true"></div>', unsafe_allow_html=True)
     return current
 
@@ -17235,6 +17326,7 @@ def stats_custom_range_selection_in_progress(value) -> bool:
 
 def stats_date_range_selection_in_progress() -> bool:
     custom_widgets = (
+        ("stats_period", "stats_custom_range"),
         ("stats_sent_reminders_period", "stats_sent_reminders_custom_range"),
         ("stats_successes_period", "stats_successes_custom_range"),
     )
@@ -17279,6 +17371,23 @@ def render_stats_successes_period_selector() -> tuple[str, tuple[date, date] | N
         filter_key="stats_successes_period",
         range_key="stats_successes_custom_range",
         on_change=reset_stats_successes_page,
+    )
+
+
+def reset_stats_shared_period_pages() -> None:
+    reset_stats_sent_reminders_page()
+    reset_stats_successes_page()
+    st.session_state["stats_items_detail_page"] = 0
+    st.session_state["stats_team_page"] = 0
+
+
+def render_shared_stats_period_selector() -> tuple[str, tuple[date, date] | None]:
+    return render_stats_period_selector(
+        label="Stats period",
+        filter_key="stats_period",
+        range_key="stats_custom_range",
+        on_change=reset_stats_shared_period_pages,
+        default_period="All-time",
     )
 
 
@@ -17480,6 +17589,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             label_visibility="collapsed",
         )
         post_reminder_window_days = normalized_outcome_post_reminder_window_days(post_reminder_window_days)
+    selected_stats_period, stats_custom_range = render_shared_stats_period_selector()
     outcomes_as_of_date = stats_outcome_as_of_date(sales_df)
     stats_period = "All time"
     try:
@@ -17578,13 +17688,24 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
                 "stats_sender_outcome_frame": stats_sender_outcome_frame,
             }
 
-    summary = summarize_outcomes(stats_outcome_rows)
+    stats_summary_rows = filter_stats_sent_tab_rows(
+        stats_outcome_rows,
+        selected_stats_period,
+        custom_range=stats_custom_range,
+    )
+    stats_sender_period_frame = build_outcome_group_frame(
+        stats_summary_rows,
+        "Sender",
+        OUTCOME_SENDER_GROUP_COLUMNS,
+        numeric_precomputed=True,
+    )
+    summary = summarize_outcomes(stats_summary_rows)
     metrics = [
         ("Total Reminded Items", f"{summary['sent']:,}"),
         ("Total Reminder Successes", f"{summary['successes']:,}"),
         ("Total Success Rate", f"{summary['success_rate']:.0%}"),
         ("Total Revenue from Successes", format_outcome_currency(summary["revenue"])),
-        ("Top Team Member", format_top_team_member_metric(stats_sender_outcome_frame)),
+        ("Top Team Member", format_top_team_member_metric(stats_sender_period_frame)),
     ]
     metric_cols = st.columns(len(metrics))
     for col, (label, value) in zip(metric_cols, metrics):
@@ -17595,6 +17716,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     active_stats_subtab = render_stats_subtab_selector()
 
     if active_stats_subtab == "Revenue":
+        st.caption("Annual estimates use all uploaded sales data.")
         item_frame = ensure_stats_revenue_display_columns(stats_item_outcome_frame)
         render_outcome_dataframe(
             item_frame,
@@ -17615,12 +17737,22 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         )
 
     elif active_stats_subtab == "Items":
+        selected_item_generated_rows = statistics_generated_records_for_period_filter(
+            generated_df,
+            selected_stats_period,
+            stats_custom_range,
+        )
+        selected_item_action_rows = statistics_action_records_for_scheduled_period_filter(
+            action_records,
+            selected_stats_period,
+            stats_custom_range,
+        )
         item_actioning_frame = build_statistics_item_frame(
             generated_df,
             action_records,
-            stats_period,
-            generated_rows=stats_generated_item_rows,
-            action_rows=stats_action_item_rows,
+            "All time",
+            generated_rows=selected_item_generated_rows,
+            action_rows=selected_item_action_rows,
         )
         item_frame = build_stats_items_display_frame(item_actioning_frame, stats_item_outcome_frame)
         if item_frame.empty:
@@ -17648,11 +17780,10 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             )
 
     elif active_stats_subtab == "Successes":
-        selected_success_period, success_custom_range = render_stats_successes_period_selector()
         success_rows = stats_success_rows_for_render(
             period_rows,
-            selected_success_period,
-            custom_range=success_custom_range,
+            selected_stats_period,
+            custom_range=stats_custom_range,
         )
         render_outcome_dataframe(
             success_rows,
@@ -17662,15 +17793,14 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         )
         render_stats_csv_export(
             success_rows,
-            f"stats-successes-{stats_sent_export_period_label(selected_success_period, success_custom_range)}",
+            f"stats-successes-{stats_sent_export_period_label(selected_stats_period, stats_custom_range)}",
             "outcomes_successes",
             columns=OUTCOME_SUCCESS_DISPLAY_COLUMNS,
             display_preparer=prepare_outcome_dataframe_for_display,
         )
 
     elif active_stats_subtab == "Reminders":
-        selected_sent_period, sent_custom_range = render_stats_sent_reminders_period_selector()
-        sent_rows = stats_sent_rows_for_render(period_rows, selected_sent_period, custom_range=sent_custom_range)
+        sent_rows = stats_sent_rows_for_render(period_rows, selected_stats_period, custom_range=stats_custom_range)
         render_outcome_dataframe(
             sent_rows,
             OUTCOME_SENT_DISPLAY_COLUMNS,
@@ -17680,18 +17810,23 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         )
         render_stats_csv_export(
             sent_rows,
-            f"stats-sent-reminders-{stats_sent_export_period_label(selected_sent_period, sent_custom_range)}",
+            f"stats-sent-reminders-{stats_sent_export_period_label(selected_stats_period, stats_custom_range)}",
             "outcomes_sent",
             columns=OUTCOME_SENT_DISPLAY_COLUMNS,
             display_preparer=prepare_outcome_dataframe_for_display,
         )
 
     elif active_stats_subtab == "Team":
-        team_frame = build_stats_team_frame(
-            stats_sender_outcome_frame,
+        selected_team_action_rows = statistics_action_records_for_actioned_period_filter(
             action_records,
-            stats_period,
-            action_rows=stats_actioned_rows,
+            selected_stats_period,
+            stats_custom_range,
+        )
+        team_frame = build_stats_team_frame(
+            stats_sender_period_frame,
+            action_records,
+            "All time",
+            action_rows=selected_team_action_rows,
         )
         if team_frame.empty:
             st.info("No team stats yet.")

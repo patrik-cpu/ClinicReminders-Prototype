@@ -1002,6 +1002,12 @@ class StatisticsTests(unittest.TestCase):
     def test_stats_sent_reminders_display_puts_sent_date_first(self):
         self.assertEqual(self.app.OUTCOME_SENT_DISPLAY_COLUMNS[0], "Sent Date")
 
+    def test_stats_tabs_separate_all_time_revenue_from_period_tabs(self):
+        self.assertEqual(self.app.STATS_REVENUE_SUBTAB, "Revenue")
+        self.assertEqual(self.app.stats_subtab_display_label("Revenue"), "Revenue (All-time only)")
+        self.assertEqual(self.app.STATS_PERIOD_FILTERED_SUBTABS, ["Items", "Successes", "Reminders", "Team"])
+        self.assertEqual(self.app.STATS_SUBTABS, ["Revenue", "Items", "Successes", "Reminders", "Team"])
+
     def test_stats_sent_reminders_defaults_to_today_without_caption(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
         selector_start = source.index("def render_stats_sent_reminders_period_selector")
@@ -1584,9 +1590,52 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(date_input.call_args.kwargs["value"], saved_range)
 
     def test_stats_custom_range_storage_keys_are_account_scoped(self):
+        self.assertIn("stats_period", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
+        self.assertIn("stats_custom_range", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
+        self.assertIn("stats_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
         self.assertIn("stats_sent_reminders_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
         self.assertIn("stats_successes_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
         self.assertIn("reminders_actioned_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
+
+    def test_stats_shared_custom_range_selection_in_progress(self):
+        self.app.st.session_state["stats_period"] = "Custom"
+        self.app.st.session_state["stats_custom_range"] = (date(2026, 5, 20),)
+
+        self.assertTrue(self.app.stats_date_range_selection_in_progress())
+
+        self.app.st.session_state["stats_custom_range"] = (date(2026, 5, 20), date(2026, 5, 21))
+
+        self.assertFalse(self.app.stats_date_range_selection_in_progress())
+
+    def test_stats_items_shared_custom_filter_uses_scheduled_reminder_date(self):
+        generated = pd.DataFrame(
+            [
+                {"Reminder Date": "20 May 2026", "Plan Item": "Inside"},
+                {"Reminder Date": "24 May 2026", "Plan Item": "Outside"},
+            ]
+        )
+
+        rows = self.app.statistics_generated_records_for_period_filter(
+            generated,
+            "Custom",
+            (date(2026, 5, 20), date(2026, 5, 21)),
+        )
+
+        self.assertEqual([row["Plan Item"] for row in rows], ["Inside"])
+
+    def test_stats_team_shared_custom_filter_uses_actioned_date(self):
+        actions = [
+            {"ActionedAt": "2026-05-20T09:00:00", "Action": self.app.REMINDER_ACTION_SENT, "Plan Item": "Inside"},
+            {"ActionedAt": "2026-05-24T09:00:00", "Action": self.app.REMINDER_ACTION_SENT, "Plan Item": "Outside"},
+        ]
+
+        rows = self.app.statistics_action_records_for_actioned_period_filter(
+            actions,
+            "Custom",
+            (date(2026, 5, 20), date(2026, 5, 21)),
+        )
+
+        self.assertEqual([row["Plan Item"] for row in rows], ["Inside"])
 
     def test_successes_custom_period_filters_success_date_range(self):
         outcomes = pd.DataFrame(
