@@ -117,6 +117,22 @@ class GetStartedBadgeTests(unittest.TestCase):
         with mock.patch.object(self.app, "get_active_reminder_badge_count", side_effect=AssertionError("expensive badge count")):
             self.assertEqual(self.app.main_section_tab_badge_count("Reminders", allow_expensive_counts=False), 0)
 
+    def test_inactive_upload_data_badge_uses_session_only_count(self):
+        state = self.app.st.session_state
+        state["dataset_upload_history"] = [
+            {
+                "file_name": "recent.csv",
+                "pms": "Test",
+                "rows": 10,
+                "from": "2026-05-01",
+                "to": "2026-05-10",
+                "status": "Saved",
+            }
+        ]
+
+        with mock.patch.object(self.app, "get_saved_dataset_summary_rows", side_effect=AssertionError("expensive upload badge")):
+            self.assertEqual(self.app.main_section_tab_badge_count("Upload Data", allow_expensive_counts=False), 1)
+
     def test_main_tab_badge_svg_has_optical_vertical_centering(self):
         label = self.app.tab_badge_label_text("Stats", "New", "New Stats tab", fill="#23513a")
         encoded = re.search(r"base64,([A-Za-z0-9+/=]+)", label).group(1)

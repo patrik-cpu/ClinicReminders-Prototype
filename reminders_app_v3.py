@@ -10537,6 +10537,19 @@ def upload_data_badge_count(rows: list[dict] | None = None) -> int:
     return dataset_summary_issue_count(rows)
 
 
+def cached_upload_data_badge_count() -> int:
+    history_rows = normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", []))
+    if history_rows:
+        return dataset_summary_issue_count(history_rows)
+    if has_working_dataset():
+        return 0
+    return 1
+
+
+def cached_upload_data_needs_initial_upload() -> bool:
+    return not normalize_dataset_upload_history(st.session_state.get("dataset_upload_history", [])) and not has_working_dataset()
+
+
 def upload_data_needs_initial_upload(rows: list[dict] | None = None) -> bool:
     rows = get_saved_dataset_summary_rows() if rows is None else rows
     return len(normalize_dataset_upload_history(rows)) == 0
@@ -10595,6 +10608,8 @@ def main_section_tab_badge_count(tab_name: str, allow_expensive_counts: bool = T
         if tab_name == "Get Started":
             return max(0, int(get_started_incomplete_count()))
         if tab_name == "Upload Data":
+            if not allow_expensive_counts:
+                return max(0, int(cached_upload_data_badge_count()))
             return max(0, int(upload_data_badge_count()))
     except Exception:
         return 0
@@ -10609,7 +10624,7 @@ def main_section_nav_button_key(tab_name: str) -> str:
 def render_main_section_nav(active_tab: str) -> None:
     active_button_key = main_section_nav_button_key(active_tab)
     upload_data_urgent_css = ""
-    if upload_data_needs_initial_upload():
+    if cached_upload_data_needs_initial_upload():
         upload_data_urgent_css = """
           @keyframes cr-upload-tab-pulse {
             0%, 100% { box-shadow: 0 0 0 1px #b91c1c, 0 0 0 0 rgba(220, 38, 38, 0.42) !important; }
