@@ -8425,7 +8425,7 @@ def render_floating_whatsapp_support_widget() -> None:
     safe_url = html_lib.escape(SUPPORT_WHATSAPP_URL, quote=True)
     safe_number = html_lib.escape(SUPPORT_WHATSAPP_NUMBER)
     st.markdown(
-        f"""
+        textwrap.dedent(f"""
         <style>
           .cr-whatsapp-support {{
             align-items: center;
@@ -8503,7 +8503,7 @@ def render_floating_whatsapp_support_widget() -> None:
             <span>{safe_number}</span>
           </span>
         </a>
-        """,
+        """).strip(),
         unsafe_allow_html=True,
     )
 
@@ -18859,6 +18859,8 @@ def render_search_terms_editor():
         invalidate_reminder_rule_cache()
         st.rerun()
 
+    render_top_unreminded_items_section()
+
     st.divider()
     st.markdown(
         """
@@ -18870,6 +18872,7 @@ def render_search_terms_editor():
           }
           .st-key-reset_all_configurations button {
             min-height: 3rem;
+            min-width: 18rem;
             font-size: 1rem;
             font-weight: 800;
           }
@@ -18884,7 +18887,6 @@ def render_search_terms_editor():
         "Reset all Configurations",
         key="reset_all_configurations",
         help="Restore the default search terms and clear exclusions.",
-        use_container_width=True,
     ):
         st.session_state["rules"] = normalize_search_term_rules(DEFAULT_RULES.copy())
         st.session_state["exclusions"] = []
@@ -18900,8 +18902,6 @@ def render_search_terms_editor():
         record_settings_audit_event("search_terms_reset_defaults", "search_terms", "all", "rules", "custom", "default", "search_terms_tab")
         invalidate_reminder_rule_cache()
         st.rerun()
-
-    render_top_unreminded_items_section()
 
     # --------------------------------
 

@@ -282,15 +282,18 @@ class VisualThemeCssTests(unittest.TestCase):
     def test_search_terms_reset_configurations_is_separated_and_warned(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
-        reset_block_start = source.index("reset-config-warning")
         top_unreminded_start = source.index("render_top_unreminded_items_section()")
-        reset_block = source[reset_block_start:top_unreminded_start]
+        reset_block_start = source.index("reset-config-warning")
+        section_end = source.index("# --------------------------------", reset_block_start)
+        reset_block = source[reset_block_start:section_end]
 
+        self.assertLess(top_unreminded_start, reset_block_start)
         self.assertIn("st.divider()", source[reset_block_start - 80:reset_block_start])
         self.assertIn("Warning: resetting will remove all added search terms and settings.", reset_block)
         self.assertIn('"Reset all Configurations"', reset_block)
         self.assertIn('key="reset_all_configurations"', reset_block)
-        self.assertIn("use_container_width=True", reset_block)
+        self.assertIn("min-width: 18rem;", reset_block)
+        self.assertNotIn("use_container_width=True", reset_block)
         self.assertIn(".st-key-reset_all_configurations button", reset_block)
         self.assertNotIn('"Reset defaults"', reset_block)
         self.assertIn("Coming Soon", source)
@@ -301,6 +304,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('SUPPORT_WHATSAPP_NUMBER = "+97142416777"', source)
         self.assertIn('SUPPORT_WHATSAPP_URL = "https://wa.me/97142416777"', source)
         self.assertIn("def render_floating_whatsapp_support_widget", source)
+        self.assertIn("textwrap.dedent", source)
         self.assertIn("cr-whatsapp-support", source)
         self.assertIn('target="_blank"', source)
         self.assertIn('rel="noopener noreferrer"', source)
