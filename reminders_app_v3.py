@@ -349,7 +349,7 @@ with title_col:
                 <div class="cr-brand-word reminders">Reminders</div>
             </div>
         </div>
-        <p class="cr-brand-subtitle">Turn sales data into clear follow-up reminders and prepare WhatsApp messages in a few clicks.</p>
+        <p class="cr-brand-subtitle">Identify lost repeat revenue - Customise everything - Send effortless reminders - Track improvements</p>
         """,
         unsafe_allow_html=True,
     )
