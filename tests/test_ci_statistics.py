@@ -788,6 +788,8 @@ class StatisticsTests(unittest.TestCase):
                 "Success Rate": 0.25,
                 "Desired Gap Days": 365,
                 "Avg Item Purchase Gap Days": 370,
+                "Max Annual Repeats": 1,
+                "Median Annual Repeats": 365 / 120,
                 "Gap Day % to Desired": 370 / 365,
                 "Overall Repeat Purchases": 3,
                 "Overall Purchases": 4,
@@ -829,8 +831,8 @@ class StatisticsTests(unittest.TestCase):
                 "Revenue per Item",
                 "Unique Purchasing Patients",
                 "Unique Repeat Purchasing Patients",
-                "Desired Gap Days",
-                "Actual Gap Days",
+                "Max Annual Repeats",
+                "Median Annual Repeats",
                 "Gap Day %",
             ],
         )
@@ -841,7 +843,8 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Total Purchases", rendered_frame.columns)
         self.assertNotIn("Total Repeat Purchases", rendered_frame.columns)
         self.assertNotIn("Repeat Purchase %", rendered_frame.columns)
-        self.assertIn("Actual Gap Days", rendered_frame.columns)
+        self.assertIn("Max Annual Repeats", rendered_frame.columns)
+        self.assertIn("Median Annual Repeats", rendered_frame.columns)
         self.assertIn("Gap Day %", rendered_frame.columns)
         self.assertIn("Unique Purchasing Patients", rendered_frame.columns)
         self.assertIn("Unique Repeat Purchasing Patients", rendered_frame.columns)
@@ -852,6 +855,8 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Gap Day % to Desired", rendered_frame.columns)
         self.assertNotIn("Overall Repeat Purchases", rendered_frame.columns)
         self.assertNotIn("Overall Purchases", rendered_frame.columns)
+        self.assertEqual(rendered_frame.iloc[0]["Max Annual Repeats"], "1")
+        self.assertEqual(rendered_frame.iloc[0]["Median Annual Repeats"], "3")
         self.assertAlmostEqual(rendered_frame.iloc[0]["Gap Day %"], (370 / 365) * 100)
 
     def test_stats_items_display_columns_keep_activity_and_receive_moved_outcome_metrics(self):
@@ -1940,6 +1945,47 @@ class StatisticsTests(unittest.TestCase):
             float(outcomes.iloc[0]["Captured Revenue %"]),
             (85 * 1 * (365 / 91)) / (85 * 1 * (365 / 90)),
         )
+
+    def test_stats_revenue_annual_repeats_use_desired_gap_and_median_actual_gap(self):
+        actions = [
+            {
+                "Reminder Date": "18 Mar 2025",
+                "Due Date": "01 Apr 2025",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2026-05-18T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {"ChargeDate": "2025-01-01", "Client Name": "Client A", "Animal Name": "Pet A", "Item Name": "Bravecto", "Amount": 80},
+                {"ChargeDate": "2025-01-31", "Client Name": "Client A", "Animal Name": "Pet A", "Item Name": "Bravecto", "Amount": 80},
+                {"ChargeDate": "2025-04-01", "Client Name": "Client A", "Animal Name": "Pet A", "Item Name": "Bravecto", "Amount": 80},
+                {"ChargeDate": "2026-01-26", "Client Name": "Client A", "Animal Name": "Pet A", "Item Name": "Bravecto", "Amount": 80},
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            today=date(2026, 6, 1),
+            rules={"bravecto": {"days": 90, "visible_text": "Bravecto"}},
+        )
+        grouped = self.app.build_outcome_group_frame(outcomes, "Item")
+        display_frame = self.app.prepare_outcome_dataframe_for_display(
+            grouped[self.app.STATS_REVENUE_DISPLAY_COLUMNS],
+            column_labels=self.app.STATS_ITEMS_DISPLAY_COLUMN_LABELS,
+        )
+
+        self.assertEqual(int(outcomes.iloc[0]["Avg Item Purchase Gap Days"]), 130)
+        self.assertEqual(int(outcomes.iloc[0]["Median Item Purchase Gap Days"]), 60)
+        self.assertEqual(display_frame.iloc[0]["Max Annual Repeats"], "4.1")
+        self.assertEqual(display_frame.iloc[0]["Median Annual Repeats"], "6.1")
 
     def test_reminder_outcomes_exact_variant_matches_sales_with_spaced_units(self):
         actions = [

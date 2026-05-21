@@ -13992,6 +13992,7 @@ OUTCOME_TABLE_COLUMNS = [
     "Success Gap Days",
     "Next Purchase Gap Days",
     "Avg Item Purchase Gap Days",
+    "Median Item Purchase Gap Days",
     "Gap Day % to Desired",
     "Overall Repeat Purchases",
     "Overall Purchases",
@@ -14045,11 +14046,13 @@ OUTCOME_DISPLAY_COLUMN_HELP = {
     "Pending": "Sent reminders where at least one success window is still open.",
     "No Match": "Sent reminders with no matching repeat purchase after all success windows closed.",
     "Desired Gap Days": "Expected days between purchases for this item.",
+    "Max Annual Repeats": "Maximum expected repeat purchases per year.\nFormula: 365 / Desired Gap Days.",
     "Success Gap Days": "Days from the billed date to the successful repeat purchase.",
     "Next Purchase Gap Days": "Days from the billed date to the next matching purchase.",
     "Avg Success Gap Days": "Average successful repeat-purchase gap in this view.",
     "Overall Avg Purchase Gap Days": "Average gap between repeat purchases across all uploaded sales for this item.",
     "Actual Gap Days": "Average gap between repeat purchases across all uploaded sales for this item.",
+    "Median Annual Repeats": "Typical repeat purchases per year, using the median repeat gap.\nFormula: 365 / Median Actual Gap Days.",
     "Gap Day % to Desired": "Overall average purchase gap compared with the desired gap. 100% means they match.",
     "Gap Day %": "Overall average purchase gap compared with the desired gap. 100% means they match.",
     "Overall Repeat Purchases": "Repeat purchases (same client, animal, and item) used to calculate the overall average gap.",
@@ -14082,11 +14085,13 @@ OUTCOME_DISPLAY_COLUMN_TITLES = {
     "No Match": "No\nMatch",
     "Success Rate": "Success\nRate",
     "Desired Gap Days": "Desired\nGap Days",
+    "Max Annual Repeats": "Max Annual\nRepeats",
     "Success Gap Days": "Success\nGap Days",
     "Next Purchase Gap Days": "Next Purchase\nGap Days",
     "Avg Success Gap Days": "Avg Success\nGap Days",
     "Overall Avg Purchase Gap Days": "Overall Avg\nPurchase Gap\nDays",
     "Actual Gap Days": "Actual Gap\nDays",
+    "Median Annual Repeats": "Median Annual\nRepeats",
     "Gap Day % to Desired": "Gap Day %\nto Desired",
     "Gap Day %": "Gap Day\n%",
     "Overall Repeat Purchases": "Overall Repeat\nPurchases",
@@ -14122,11 +14127,13 @@ OUTCOME_DISPLAY_COLUMN_WIDTHS = {
     "No Match": "small",
     "Success Rate": "small",
     "Desired Gap Days": "small",
+    "Max Annual Repeats": "small",
     "Success Gap Days": "small",
     "Next Purchase Gap Days": "small",
     "Avg Success Gap Days": "small",
     "Overall Avg Purchase Gap Days": "small",
     "Actual Gap Days": "small",
+    "Median Annual Repeats": "small",
     "Gap Day % to Desired": "small",
     "Gap Day %": "small",
     "Overall Repeat Purchases": "small",
@@ -14190,6 +14197,8 @@ OUTCOME_ITEM_GROUP_COLUMNS = [
     "Success Rate",
     "Desired Gap Days",
     "Avg Item Purchase Gap Days",
+    "Max Annual Repeats",
+    "Median Annual Repeats",
     "Gap Day % to Desired",
     "Overall Repeat Purchases",
     "Overall Purchases",
@@ -14212,8 +14221,8 @@ STATS_REVENUE_DISPLAY_COLUMNS = [
     "Revenue per Item",
     "Unique Purchasing Patients",
     "Unique Repeat Purchasing Patients",
-    "Desired Gap Days",
-    "Avg Item Purchase Gap Days",
+    "Max Annual Repeats",
+    "Median Annual Repeats",
     "Gap Day % to Desired",
 ]
 STATS_ITEMS_DISPLAY_COLUMNS = [
@@ -15423,6 +15432,7 @@ def build_average_sales_purchase_gap_map(
         "unique_repeat_patients": 0,
         "repeat_rate": 0.0,
         "average_revenue": 0.0,
+        "median": None,
     }
     if sales is None or sales.empty or not gap_key_matches:
         return {key: dict(empty_result) for key in gap_key_matches}
@@ -15489,10 +15499,12 @@ def build_average_sales_purchase_gap_map(
     )
     positive_gaps = matched.loc[matched["_GapDays"].gt(0)]
     gap_means = positive_gaps.groupby("_GapID")["_GapDays"].mean()
+    gap_medians = positive_gaps.groupby("_GapID")["_GapDays"].median()
     gap_counts = positive_gaps.groupby("_GapID")["_GapDays"].count()
     return {
         gap_key: {
             "average": float(gap_means.loc[gap_id]) if gap_id in gap_means.index else None,
+            "median": float(gap_medians.loc[gap_id]) if gap_id in gap_medians.index else None,
             "count": int(gap_counts.loc[gap_id]) if gap_id in gap_counts.index else 0,
             "total": int(total_counts.loc[gap_id]) if gap_id in total_counts.index else 0,
             "unique_patients": int(unique_patient_counts.loc[gap_id]) if gap_id in unique_patient_counts.index else 0,
@@ -15644,6 +15656,7 @@ def build_reminder_outcomes(
             "Success Gap Days": None,
             "Next Purchase Gap Days": None,
             "Avg Item Purchase Gap Days": None,
+            "Median Item Purchase Gap Days": None,
             "Gap Day % to Desired": None,
             "Overall Repeat Purchases": 0,
             "Overall Purchases": 0,
@@ -15669,6 +15682,9 @@ def build_reminder_outcomes(
         gap_map = build_average_sales_purchase_gap_map(sales, gap_key_matches, item_match_map)
         outcomes["Avg Item Purchase Gap Days"] = outcomes["_OutcomeGapCacheKey"].map(
             lambda key: (gap_map.get(key) or {}).get("average")
+        )
+        outcomes["Median Item Purchase Gap Days"] = outcomes["_OutcomeGapCacheKey"].map(
+            lambda key: (gap_map.get(key) or {}).get("median")
         )
         outcomes["Overall Repeat Purchases"] = outcomes["_OutcomeGapCacheKey"].map(
             lambda key: (gap_map.get(key) or {}).get("count", 0)
@@ -15977,6 +15993,7 @@ OUTCOME_SUMMARY_NUMERIC_COLUMNS = (
     "Desired Gap Days",
     "Success Gap Days",
     "Avg Item Purchase Gap Days",
+    "Median Item Purchase Gap Days",
     "Overall Repeat Purchases",
     "Overall Purchases",
     "Unique Repeat Purchasing Patients",
@@ -16025,6 +16042,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
             "avg_success_gap_days": None,
             "avg_desired_gap_days": None,
             "avg_item_purchase_gap_days": None,
+            "median_item_purchase_gap_days": None,
             "gap_day_rate_to_desired": None,
             "overall_repeat_purchases": 0,
             "overall_purchases": 0,
@@ -16047,6 +16065,8 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
     success_gap_values = outcome_summary_numeric_series(success_df, "Success Gap Days")
     if "Item" in outcomes_df.columns and "Avg Item Purchase Gap Days" in outcomes_df.columns:
         gap_columns = ["Item", "Avg Item Purchase Gap Days"]
+        if "Median Item Purchase Gap Days" in outcomes_df.columns:
+            gap_columns.append("Median Item Purchase Gap Days")
         if "Desired Gap Days" in outcomes_df.columns:
             gap_columns.append("Desired Gap Days")
         if "Overall Repeat Purchases" in outcomes_df.columns:
@@ -16078,6 +16098,10 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         if "Overall Repeat Purchases" not in item_purchase_gap_frame.columns:
             item_purchase_gap_frame["Overall Repeat Purchases"] = 0
         item_purchase_gap_values = outcome_summary_numeric_series(item_purchase_gap_frame, "Avg Item Purchase Gap Days")
+        item_purchase_median_gap_values = outcome_summary_numeric_series(
+            item_purchase_gap_frame,
+            "Median Item Purchase Gap Days",
+        )
         item_purchase_gap_counts = outcome_summary_numeric_series(
             item_purchase_gap_frame,
             "Overall Repeat Purchases",
@@ -16119,6 +16143,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         ).fillna(0)
     else:
         item_purchase_gap_values = pd.Series(dtype=float)
+        item_purchase_median_gap_values = pd.Series(dtype=float)
         item_purchase_gap_counts = pd.Series(dtype=float)
         item_purchase_total_counts = pd.Series(dtype=float)
         unique_repeat_patient_counts = pd.Series(dtype=float)
@@ -16153,6 +16178,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
     else:
         revenue_per_item = float(revenue_per_item_values.mean()) if not revenue_per_item_values.empty else 0.0
     avg_item_purchase_gap_days = item_purchase_gap_values.mean()
+    median_item_purchase_gap_days = item_purchase_median_gap_values.median()
     avg_desired_gap_days = desired_gap_values.mean()
     if pd.notna(avg_item_purchase_gap_days) and pd.notna(avg_desired_gap_days) and float(avg_desired_gap_days) > 0:
         gap_day_rate_to_desired = float(avg_item_purchase_gap_days) / float(avg_desired_gap_days)
@@ -16167,6 +16193,7 @@ def summarize_outcomes(outcomes_df: pd.DataFrame) -> dict:
         "avg_success_gap_days": success_gap_values.mean() if successes else None,
         "avg_desired_gap_days": avg_desired_gap_days,
         "avg_item_purchase_gap_days": avg_item_purchase_gap_days,
+        "median_item_purchase_gap_days": median_item_purchase_gap_days,
         "gap_day_rate_to_desired": gap_day_rate_to_desired,
         "overall_repeat_purchases": overall_repeat_purchases,
         "overall_purchases": overall_purchases,
@@ -16200,8 +16227,11 @@ def build_outcome_group_frame(
         "No Match",
         "Success Rate",
         "Desired Gap Days",
+        "Max Annual Repeats",
         "Avg Success Gap Days",
         "Avg Item Purchase Gap Days",
+        "Median Item Purchase Gap Days",
+        "Median Annual Repeats",
         "Gap Day % to Desired",
         "Overall Repeat Purchases",
         "Overall Purchases",
@@ -16234,8 +16264,11 @@ def build_outcome_group_frame(
             "No Match": summary["no_match"],
             "Success Rate": summary["success_rate"],
             "Desired Gap Days": summary["avg_desired_gap_days"],
+            "Max Annual Repeats": annual_repeats_from_gap(summary["avg_desired_gap_days"]),
             "Avg Success Gap Days": summary["avg_success_gap_days"],
             "Avg Item Purchase Gap Days": summary["avg_item_purchase_gap_days"],
+            "Median Item Purchase Gap Days": summary["median_item_purchase_gap_days"],
+            "Median Annual Repeats": annual_repeats_from_gap(summary["median_item_purchase_gap_days"]),
             "Gap Day % to Desired": summary["gap_day_rate_to_desired"],
             "Overall Repeat Purchases": summary["overall_repeat_purchases"],
             "Overall Purchases": summary["overall_purchases"],
@@ -16343,8 +16376,11 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
         "No Match",
         "Success Rate",
         "Desired Gap Days",
+        "Max Annual Repeats",
         "Avg Success Gap Days",
         "Avg Item Purchase Gap Days",
+        "Median Item Purchase Gap Days",
+        "Median Annual Repeats",
         "Gap Day % to Desired",
         "Overall Repeat Purchases",
         "Overall Purchases",
@@ -16374,8 +16410,11 @@ def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
             "No Match": summary["no_match"],
             "Success Rate": summary["success_rate"],
             "Desired Gap Days": summary["avg_desired_gap_days"],
+            "Max Annual Repeats": annual_repeats_from_gap(summary["avg_desired_gap_days"]),
             "Avg Success Gap Days": summary["avg_success_gap_days"],
             "Avg Item Purchase Gap Days": summary["avg_item_purchase_gap_days"],
+            "Median Item Purchase Gap Days": summary["median_item_purchase_gap_days"],
+            "Median Annual Repeats": annual_repeats_from_gap(summary["median_item_purchase_gap_days"]),
             "Gap Day % to Desired": summary["gap_day_rate_to_desired"],
             "Overall Repeat Purchases": summary["overall_repeat_purchases"],
             "Overall Purchases": summary["overall_purchases"],
@@ -16415,6 +16454,36 @@ def format_outcome_display_date(value) -> str:
         return str(value)
 
 
+def format_annual_repeats_from_gap(value) -> str:
+    annual_repeats = annual_repeats_from_gap(value)
+    return format_annual_repeats_value(annual_repeats)
+
+
+def format_annual_repeats_value(value) -> str:
+    try:
+        annual_repeats = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if annual_repeats is None:
+        return ""
+    if pd.isna(annual_repeats):
+        return ""
+    rounded = round(float(annual_repeats), 1)
+    if float(rounded).is_integer():
+        return str(int(rounded))
+    return f"{rounded:.1f}"
+
+
+def annual_repeats_from_gap(value) -> float | None:
+    try:
+        gap_days = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(gap_days) or gap_days <= 0:
+        return None
+    return 365 / gap_days
+
+
 def prepare_outcome_dataframe_for_display(
     frame: pd.DataFrame,
     column_labels: dict[str, str] | None = None,
@@ -16439,6 +16508,10 @@ def prepare_outcome_dataframe_for_display(
         display_frame["Captured Revenue %"] = (
             pd.to_numeric(display_frame["Captured Revenue %"], errors="coerce") * 100
         )
+    for column in ["Max Annual Repeats", "Median Annual Repeats"]:
+        if column in display_frame.columns:
+            display_frame[column] = display_frame[column].map(format_annual_repeats_value)
+    display_frame = display_frame.drop(columns=[column for column in ["Median Item Purchase Gap Days"] if column in display_frame.columns])
     for column in OUTCOME_DISPLAY_CURRENCY_COLUMNS:
         if column in display_frame.columns:
             display_frame[column] = (
@@ -16609,6 +16682,8 @@ def outcome_display_column_config() -> dict:
         "Avg Success Gap Days": outcome_display_number_column("Avg Success Gap Days", "%.1f"),
         "Overall Avg Purchase Gap Days": outcome_display_number_column("Overall Avg Purchase Gap Days", "%.0f"),
         "Actual Gap Days": outcome_display_number_column("Actual Gap Days", "%.0f"),
+        "Max Annual Repeats": outcome_display_text_column("Max Annual Repeats"),
+        "Median Annual Repeats": outcome_display_text_column("Median Annual Repeats"),
         "Gap Day % to Desired": outcome_display_number_column("Gap Day % to Desired", "%.0f%%"),
         "Gap Day %": outcome_display_number_column("Gap Day %", "%.0f%%"),
         "Overall Repeat Purchases": outcome_display_number_column("Overall Repeat Purchases", "%d"),
