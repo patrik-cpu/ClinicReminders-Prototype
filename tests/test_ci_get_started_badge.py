@@ -40,16 +40,75 @@ class GetStartedBadgeTests(unittest.TestCase):
     def test_get_started_modules_include_tab_feature_guidance(self):
         modules = self.app.get_setup_checklist_modules()
         module_titles = [module["tab"] for module in modules]
-        reminder_items = next(module for module in modules if module["tab"] == "Reminders")["items"]
+        reminder_items = next(module for module in modules if module["tab"] == "Send Reminders")["items"]
+        configure_items = next(module for module in modules if module["tab"] == "Configure Reminders")["items"]
         exclusion_items = next(module for module in modules if module["tab"] == "Exclusions")["items"]
 
-        self.assertIn("Upload Data", module_titles)
-        self.assertIn("Search Terms", module_titles)
-        self.assertIn("Reminders", module_titles)
-        self.assertIn("Exclusions", module_titles)
-        self.assertIn("Stats", module_titles)
-        self.assertIn("Create a new WhatsApp template", [item["label"] for item in reminder_items])
+        self.assertEqual(
+            module_titles,
+            [
+                "Send Reminders",
+                "Configure Reminders",
+                "Exclusions",
+                "Identify & Track",
+                "Upload Data",
+                "Graphs",
+            ],
+        )
+        self.assertIn("Review the General WhatsApp template", [item["label"] for item in reminder_items])
+        self.assertNotIn("Action a reminder as declined", [item["label"] for item in reminder_items])
+        self.assertIn("Add first, second, or overdue reminder timing", [item["label"] for item in configure_items])
+        self.assertIn("Review Top Unreminded Items", [item["label"] for item in configure_items])
         self.assertIn("Review automatic death keywords", [item["label"] for item in exclusion_items])
+        self.assertNotIn("Account", module_titles)
+
+    def test_get_started_reminder_timing_auto_completes_from_rules(self):
+        state = self.app.st.session_state
+        state["rules"] = self.app.normalize_search_term_rules(
+            {
+                "bravecto": {
+                    "category": "Medications",
+                    "days": 90,
+                    "use_qty": False,
+                },
+            }
+        )
+
+        timing_item = next(
+            item
+            for module in self.app.get_setup_checklist_modules()
+            for item in module["items"]
+            if item["id"] == "check_rule_days"
+        )
+        self.assertFalse(timing_item["done"])
+
+        state["rules"]["bravecto"]["reminder_1"] = 80
+        timing_item = next(
+            item
+            for module in self.app.get_setup_checklist_modules()
+            for item in module["items"]
+            if item["id"] == "check_rule_days"
+        )
+        self.assertTrue(timing_item["done"])
+
+        state["get_started_done_check_rule_days"] = False
+        self.app.update_get_started_manual_item("check_rule_days", auto_done=True)
+        timing_item = next(
+            item
+            for module in self.app.get_setup_checklist_modules()
+            for item in module["items"]
+            if item["id"] == "check_rule_days"
+        )
+        self.assertFalse(timing_item["done"])
+
+        state["rules"]["bravecto"]["overdue_reminder"] = 100
+        timing_item = next(
+            item
+            for module in self.app.get_setup_checklist_modules()
+            for item in module["items"]
+            if item["id"] == "check_rule_days"
+        )
+        self.assertTrue(timing_item["done"])
 
     def test_auto_completed_get_started_item_can_be_manually_turned_off(self):
         state = self.app.st.session_state

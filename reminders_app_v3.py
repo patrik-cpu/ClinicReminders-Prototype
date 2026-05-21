@@ -10340,17 +10340,35 @@ def get_started_latest_sent_token() -> str:
     return max(timestamps, default="")
 
 
+def get_started_rule_reminder_timing_token(rules: dict | None = None) -> str:
+    normalized_rules = normalize_search_term_rules(
+        rules if rules is not None else st.session_state.get("rules", DEFAULT_RULES.copy())
+    )
+    timing_rows = []
+    for rule, settings in sorted(normalized_rules.items()):
+        values = []
+        for field in ("reminder_1", "reminder_2", "overdue_reminder"):
+            raw_value = settings.get(field, "")
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError):
+                value = 0
+            if value > 0:
+                values.append((field, value))
+        if values:
+            timing_rows.append((rule, tuple(values)))
+    return json.dumps(timing_rows, sort_keys=True)
+
+
+def has_get_started_rule_reminder_timing(rules: dict | None = None) -> bool:
+    return get_started_rule_reminder_timing_token(rules) != "[]"
+
+
 def get_setup_checklist_modules() -> list[dict]:
     df_w = st.session_state.get("working_df")
     has_data = df_w is not None and not getattr(df_w, "empty", True)
     search_term_added = bool(st.session_state.get("search_term_added", False))
     has_sender_name = bool(str(st.session_state.get("user_name", "")).strip())
-    template_updated = bool(st.session_state.get("wa_template_updated", False))
-    templates = normalize_wa_templates(
-        st.session_state.get("wa_templates", {}),
-        st.session_state.get("user_template", DEFAULT_WA_TEMPLATE),
-    )
-    has_extra_template = len(templates) > 1
     has_client_exclusion = bool(st.session_state.get("client_exclusions", []))
     has_patient_exclusion = bool(combined_patient_exclusions())
     has_item_exclusion = bool(st.session_state.get("exclusions", []))
@@ -10360,6 +10378,8 @@ def get_setup_checklist_modules() -> list[dict]:
     )
     reviewed_passaway_keywords = passaway_keywords != PATIENT_PASSAWAY_KEYWORDS_DEFAULT
     reset_at = _parse_reminder_log_time(st.session_state.get("get_started_reset_at", ""))
+    reminder_timing_token = get_started_rule_reminder_timing_token()
+    has_reminder_timing = has_get_started_rule_reminder_timing()
 
     def happened_after_reset(timestamp: str) -> bool:
         if not reset_at:
@@ -10385,30 +10405,24 @@ def get_setup_checklist_modules() -> list[dict]:
     item_help = {
         "upload_data": "Upload a recent PMS sales export so Clinic Reminders can build reminder dates from real clinic activity.",
         "review_upload_checks": "Check that the saved upload has the right PMS, enough date coverage, and no large gaps.",
-        "review_search_terms": "Look through the default item rules so you know which products and services create reminders.",
+        "review_search_terms": "Look through Current Search Terms so you know which products and services create reminders.",
         "add_search_term": "Add a clinic-specific item rule for a product or service your clinic wants to remind clients about.",
-        "check_rule_days": "Set optional first, second, or overdue reminder timing for an item rule.",
+        "check_rule_days": "Set First reminder, Second reminder, or Overdue after days for any current search term.",
+        "review_top_unreminded_items": "Use Top Unreminded Items to spot common or high-value sales that are not covered by current search terms.",
         "add_sender_name": "Add the clinic or team member name that should appear as the reminder sender.",
         "review_reminder_settings": "Review the reminder date, look-back, grouping, and warning settings before sending messages.",
         "send_whatsapp": "Open a prepared WhatsApp message from a reminder row and review it before contacting the client.",
         "mark_sent": "Use the sent action after contacting a client so the reminder moves into action history.",
-        "decline_reminder": "Use the declined action when a reminder should not be sent, while keeping an audit trail.",
-        "edit_template": "Adjust the General WhatsApp template so routine reminders match your clinic voice.",
-        "create_template": "Create another WhatsApp template for a different message style or reminder type.",
+        "review_template": "Review or save the General WhatsApp template so routine reminders match your clinic voice.",
         "add_client_exclusion": "Hide every reminder for a specific client who should not be contacted.",
         "add_patient_exclusion": "Hide reminders for one patient under one specific client.",
         "add_item_exclusion": "Hide an item or phrase across all clients when it should never create reminders.",
         "add_client_item_exclusion": "Hide one item only for one client, while keeping the item active for everyone else.",
         "review_death_keywords": "Review the words that automatically exclude patients when uploads suggest a pet has passed away.",
-        "test_due_date_window": "Try changing the success window around the due date to see how outcome matching changes.",
-        "test_sent_date_window": "Try changing the success window after the sent date to see recent reminder outcomes fairly.",
-        "review_primary_stats_metrics": "Review the headline stats to understand total reminders, successes, rate, and revenue.",
-        "review_items_capturable_revenue": "Use the Revenue subtab to spot high-value reminders with the most remaining revenue potential.",
-        "review_team_metrics": "Use the Team subtab to compare reminder actions and outcomes by sender.",
-        "review_stats_date_filters": "Filter Reminders or Successes by date range to review a specific period.",
-        "review_profile": "Check the clinic profile details used for account identity and access.",
-        "review_privacy": "Review what data Clinic Reminders stores and how deletion works.",
-        "review_clinic_access": "Create staff access when another team member should use the clinic account.",
+        "test_success_windows": "Try changing either success window to see how outcome matching changes.",
+        "review_tracking_metrics": "Review the headline tracking metrics to understand reminders, successes, rate, and revenue.",
+        "review_tracking_filters": "Filter Identify & Track by date range to review a specific period.",
+        "graphs_coming_soon": "Graphs are coming soon, so there is nothing to configure here yet.",
     }
 
     def item(item_id: str, label: str, auto_done: bool = False, auto_token: str = "") -> dict:
@@ -10429,53 +10443,34 @@ def get_setup_checklist_modules() -> list[dict]:
 
     modules = [
         {
-            "tab": "Upload Data",
-            "copy": "Bring in the clinic sales export and check the saved dataset.",
+            "tab": MAIN_SECTION_TAB_DISPLAY_LABELS["Reminders"],
+            "copy": "Prepare messages, contact clients, and action reminders.",
             "items": [
                 item(
-                    "upload_data",
-                    "Upload clinic sales data",
-                    has_data and happened_after_reset(st.session_state.get("shared_dataset_updated_at", "")),
-                    st.session_state.get("shared_dataset_updated_at", ""),
+                    "add_sender_name",
+                    "Add your sender name",
+                    has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", "")),
+                    st.session_state.get("user_name_updated_at", ""),
                 ),
-                item("review_upload_checks", "Review upload checks and date range"),
+                item("review_reminder_settings", "Review reminder dates, grouping, and alert settings", main_section_tab_visited("Reminders"), str(main_section_tab_visited("Reminders"))),
+                item("review_template", "Review the General WhatsApp template", bool(st.session_state.get("wa_template_reviewed", False)), str(st.session_state.get("wa_template_reviewed", False))),
+                item("send_whatsapp", "Create a WhatsApp message", sent_after_reset(), get_started_latest_sent_token()),
+                item("mark_sent", "Action a reminder as sent", action_after_reset(REMINDER_ACTION_SENT), get_started_latest_action_token(REMINDER_ACTION_SENT)),
             ],
         },
         {
-            "tab": "Search Terms",
+            "tab": MAIN_SECTION_TAB_DISPLAY_LABELS["Search Terms"],
             "copy": "Tune the item rules that create and match reminders.",
             "items": [
-                item("review_search_terms", "Review default search terms", bool(st.session_state.get("search_terms_reviewed", False))),
+                item("review_search_terms", "Review current search terms", bool(st.session_state.get("search_terms_reviewed", False)) or main_section_tab_visited("Search Terms"), str(main_section_tab_visited("Search Terms"))),
                 item(
                     "add_search_term",
                     "Add a search term",
                     search_term_added and happened_after_reset(st.session_state.get("search_term_added_at", "")),
                     st.session_state.get("search_term_added_at", ""),
                 ),
-                item("check_rule_days", "Add a Reminder 1, Reminder 2, or Overdue reminder."),
-            ],
-        },
-        {
-            "tab": "Reminders",
-            "copy": "Prepare messages, contact clients, and action reminders.",
-            "items": [
-                item(
-                    "add_sender_name",
-                    "Add your name as Sender",
-                    has_sender_name and happened_after_reset(st.session_state.get("user_name_updated_at", "")),
-                    st.session_state.get("user_name_updated_at", ""),
-                ),
-                item("review_reminder_settings", "Review reminder dates, grouping, and alert settings"),
-                item("send_whatsapp", "Create a WhatsApp message", sent_after_reset(), get_started_latest_sent_token()),
-                item("mark_sent", "Action a reminder as sent", action_after_reset(REMINDER_ACTION_SENT), get_started_latest_action_token(REMINDER_ACTION_SENT)),
-                item("decline_reminder", "Action a reminder as declined", action_after_reset(REMINDER_ACTION_DECLINED), get_started_latest_action_token(REMINDER_ACTION_DECLINED)),
-                item(
-                    "edit_template",
-                    "Edit the General template",
-                    template_updated and happened_after_reset(st.session_state.get("wa_template_updated_at", "")),
-                    st.session_state.get("wa_template_updated_at", ""),
-                ),
-                item("create_template", "Create a new WhatsApp template", has_extra_template, str(sorted(templates.keys()))),
+                item("check_rule_days", "Add first, second, or overdue reminder timing", has_reminder_timing, reminder_timing_token),
+                item("review_top_unreminded_items", "Review Top Unreminded Items", has_data and main_section_tab_visited("Search Terms"), str(has_data and main_section_tab_visited("Search Terms"))),
             ],
         },
         {
@@ -10490,34 +10485,40 @@ def get_setup_checklist_modules() -> list[dict]:
             ],
         },
         {
-            "tab": "Stats",
+            "tab": MAIN_SECTION_TAB_DISPLAY_LABELS["Stats"],
             "copy": "Check outcomes and learn which reminders are working.",
             "items": [
                 item(
-                    "test_due_date_window",
-                    "Test setting new window around Due Date",
-                    st.session_state.get("outcome_due_date_window_days") != DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
-                    str(st.session_state.get("outcome_due_date_window_days", "")),
+                    "test_success_windows",
+                    "Adjust a success window",
+                    (
+                        st.session_state.get("outcome_due_date_window_days") != DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+                        or st.session_state.get("outcome_post_reminder_window_days") != DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS
+                    ),
+                    f"{st.session_state.get('outcome_due_date_window_days', '')}|{st.session_state.get('outcome_post_reminder_window_days', '')}",
                 ),
-                item(
-                    "test_sent_date_window",
-                    "Test setting new window after Sent Date",
-                    st.session_state.get("outcome_post_reminder_window_days") != DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
-                    str(st.session_state.get("outcome_post_reminder_window_days", "")),
-                ),
-                item("review_primary_stats_metrics", "Review primary metrics in the Stats tab"),
-                item("review_items_capturable_revenue", "Review Capturable Revenue per Year column in the Revenue subtab"),
-                item("review_team_metrics", "Review Team metrics in the Team subtab"),
-                item("review_stats_date_filters", "Review date filters in the Reminders or Successes subtabs"),
+                item("review_tracking_metrics", "Review headline tracking metrics", main_section_tab_visited("Stats"), str(main_section_tab_visited("Stats"))),
+                item("review_tracking_filters", "Review date filters", main_section_tab_visited("Stats"), str(main_section_tab_visited("Stats"))),
             ],
         },
         {
-            "tab": "Account",
-            "copy": "Confirm clinic details, access, and privacy controls.",
+            "tab": "Upload Data",
+            "copy": "Bring in the clinic sales export and check the saved dataset.",
             "items": [
-                item("review_profile", "Review your clinic profile"),
-                item("review_privacy", "Review Data & Privacy information"),
-                item("review_clinic_access", "Invite a staff member via Clinic Access"),
+                item(
+                    "upload_data",
+                    "Upload clinic sales data",
+                    has_data and happened_after_reset(st.session_state.get("shared_dataset_updated_at", "")),
+                    st.session_state.get("shared_dataset_updated_at", ""),
+                ),
+                item("review_upload_checks", "Review upload checks and date range", has_data and main_section_tab_visited("Upload Data"), str(has_data and main_section_tab_visited("Upload Data"))),
+            ],
+        },
+        {
+            "tab": "Graphs",
+            "copy": "Graphs are planned but not available yet.",
+            "items": [
+                item("graphs_coming_soon", "No setup needed yet", True, "coming-soon"),
             ],
         },
     ]
