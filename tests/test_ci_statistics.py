@@ -663,6 +663,35 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(self.app.clinic_currency_number_format(), "$%,.0f")
         self.assertEqual(self.app.format_outcome_currency(13051), "$13,051")
 
+    def test_top_team_member_metric_uses_highest_success_revenue(self):
+        self.app.st.session_state["user_country"] = "United Arab Emirates"
+        sender_frame = pd.DataFrame(
+            [
+                {"Sender": "Nurse B", "Revenue": 2500, "Successes": 2},
+                {"Sender": "Nurse A", "Revenue": 5000, "Successes": 1},
+                {"Sender": "Nurse C", "Revenue": 0, "Successes": 8},
+            ]
+        )
+
+        self.assertEqual(
+            self.app.top_team_member_summary(sender_frame),
+            ("Nurse A", 5000.0),
+        )
+        self.assertEqual(
+            self.app.format_top_team_member_metric(sender_frame),
+            "❤️ Nurse A · AED 5,000",
+        )
+
+    def test_top_team_member_metric_handles_no_success_revenue(self):
+        sender_frame = pd.DataFrame(
+            [
+                {"Sender": "Nurse A", "Revenue": 0, "Successes": 0},
+            ]
+        )
+
+        self.assertIsNone(self.app.top_team_member_summary(sender_frame))
+        self.assertEqual(self.app.format_top_team_member_metric(sender_frame), "❤️ No successes yet")
+
     def test_all_paged_tables_use_50_rows(self):
         self.assertEqual(self.app.TABLE_PAGE_SIZE, 50)
         self.assertEqual(self.app.REMINDER_TABLE_PAGE_SIZE, 50)
@@ -1042,6 +1071,7 @@ class StatisticsTests(unittest.TestCase):
             "Total Reminder Successes",
             "Total Success Rate",
             "Total Revenue from Successes",
+            "Top Team Member",
         ]
 
         for label in expected_labels:

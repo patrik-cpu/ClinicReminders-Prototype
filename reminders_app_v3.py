@@ -14257,6 +14257,7 @@ STATS_SUMMARY_CARD_HELP = {
     "Total Reminder Successes": "Reminded items with a matching repeat purchase in either success window.",
     "Total Success Rate": "Reminder successes divided by total reminded items.",
     "Total Revenue from Successes": "Revenue from matching repeat purchases that counted as reminder successes.",
+    "Top Team Member": "Team member with the highest revenue from successful reminders.",
 }
 OUTCOME_SENT_DISPLAY_COLUMNS = [
     "Sent Date",
@@ -16471,6 +16472,43 @@ def build_stats_team_frame(
     )
 
 
+def top_team_member_summary(outcome_sender_frame: pd.DataFrame) -> tuple[str, float] | None:
+    if outcome_sender_frame is None or outcome_sender_frame.empty:
+        return None
+    required_columns = {"Sender", "Revenue"}
+    if not required_columns.issubset(outcome_sender_frame.columns):
+        return None
+    team_frame = outcome_sender_frame.copy()
+    team_frame["__revenue"] = pd.to_numeric(team_frame["Revenue"], errors="coerce").fillna(0)
+    if "Successes" in team_frame.columns:
+        team_frame["__successes"] = pd.to_numeric(team_frame["Successes"], errors="coerce").fillna(0)
+    elif "Sent" in team_frame.columns:
+        team_frame["__successes"] = pd.to_numeric(team_frame["Sent"], errors="coerce").fillna(0)
+    else:
+        team_frame["__successes"] = 0
+    team_frame["__sender"] = team_frame["Sender"].fillna("").astype(str).str.strip().replace("", "Unknown")
+    team_frame = team_frame.sort_values(
+        ["__revenue", "__successes", "__sender"],
+        ascending=[False, False, True],
+        kind="mergesort",
+    )
+    if team_frame.empty:
+        return None
+    top_row = team_frame.iloc[0]
+    revenue = float(top_row["__revenue"] or 0)
+    if revenue <= 0:
+        return None
+    return str(top_row["__sender"]), revenue
+
+
+def format_top_team_member_metric(outcome_sender_frame: pd.DataFrame) -> str:
+    top_team = top_team_member_summary(outcome_sender_frame)
+    if top_team is None:
+        return "❤️ No successes yet"
+    name, revenue = top_team
+    return f"❤️ {name} · {format_outcome_currency(revenue)}"
+
+
 def build_outcome_time_frame(outcomes_df: pd.DataFrame) -> pd.DataFrame:
     columns = [
         "Sent Date",
@@ -17541,13 +17579,14 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             }
 
     summary = summarize_outcomes(stats_outcome_rows)
-    metric_cols = st.columns(4)
     metrics = [
         ("Total Reminded Items", f"{summary['sent']:,}"),
         ("Total Reminder Successes", f"{summary['successes']:,}"),
         ("Total Success Rate", f"{summary['success_rate']:.0%}"),
         ("Total Revenue from Successes", format_outcome_currency(summary["revenue"])),
+        ("Top Team Member", format_top_team_member_metric(stats_sender_outcome_frame)),
     ]
+    metric_cols = st.columns(len(metrics))
     for col, (label, value) in zip(metric_cols, metrics):
         with col:
             render_statistics_metric_card(label, value, STATS_SUMMARY_CARD_HELP[label])
