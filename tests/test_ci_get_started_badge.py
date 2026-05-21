@@ -100,6 +100,23 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertIn("Graphs coming soon", label)
         self.assertIn("data:image/svg+xml;base64", label)
 
+    def test_inactive_reminders_badge_uses_cached_count_only(self):
+        state = self.app.st.session_state
+        state["working_df"] = pd.DataFrame({"ChargeDate": pd.to_datetime(["2026-05-01"])})
+        state["applied_rules"] = self.app.clone_reminder_rules(self.app.DEFAULT_RULES)
+        cache_key = self.app.active_reminder_badge_cache_key(
+            self.app.user_today(),
+            state["applied_rules"],
+        )
+        state["_active_reminder_badge_cache"] = {"key": cache_key, "count": 7}
+
+        with mock.patch.object(self.app, "get_active_reminder_badge_count", side_effect=AssertionError("expensive badge count")):
+            self.assertEqual(self.app.main_section_tab_badge_count("Reminders", allow_expensive_counts=False), 7)
+
+        state["_active_reminder_badge_cache"] = {"key": ("stale",), "count": 7}
+        with mock.patch.object(self.app, "get_active_reminder_badge_count", side_effect=AssertionError("expensive badge count")):
+            self.assertEqual(self.app.main_section_tab_badge_count("Reminders", allow_expensive_counts=False), 0)
+
     def test_main_tab_badge_svg_has_optical_vertical_centering(self):
         label = self.app.tab_badge_label_text("Stats", "New", "New Stats tab", fill="#23513a")
         encoded = re.search(r"base64,([A-Za-z0-9+/=]+)", label).group(1)

@@ -10557,13 +10557,13 @@ def graphs_badge_label() -> str:
     return tab_badge_label_text("Graphs", "Soon", "Graphs coming soon", fill="#23513a", font_weight="400")
 
 
-def main_section_tab_label(tab_name: str) -> str:
+def main_section_tab_label(tab_name: str, count: int | None = None) -> str:
     if tab_name == "Reminders":
-        return reminders_badge_label()
+        return reminders_badge_label(count=count)
     if tab_name == "Get Started":
-        return get_started_badge_label()
+        return get_started_badge_label(count=count)
     if tab_name == "Upload Data":
-        return upload_data_badge_label()
+        return upload_data_badge_label(count=count)
     if tab_name == "Stats":
         return stats_badge_label()
     if tab_name == "Graphs":
@@ -10571,9 +10571,26 @@ def main_section_tab_label(tab_name: str) -> str:
     return MAIN_SECTION_TAB_DISPLAY_LABELS.get(tab_name, tab_name)
 
 
-def main_section_tab_badge_count(tab_name: str) -> int:
+def get_cached_active_reminder_badge_count(today: date | None = None) -> int | None:
+    working_df = st.session_state.get("working_df")
+    if working_df is None or getattr(working_df, "empty", True):
+        return 0
+    today = today or user_today()
+    rules = get_applied_reminder_rules()
+    if not rules:
+        return 0
+    cached = st.session_state.get("_active_reminder_badge_cache")
+    if isinstance(cached, dict) and cached.get("key") == active_reminder_badge_cache_key(today, rules):
+        return int(cached.get("count", 0) or 0)
+    return None
+
+
+def main_section_tab_badge_count(tab_name: str, allow_expensive_counts: bool = True) -> int:
     try:
         if tab_name == "Reminders":
+            if not allow_expensive_counts:
+                cached_count = get_cached_active_reminder_badge_count()
+                return 0 if cached_count is None else max(0, int(cached_count))
             return max(0, int(get_active_reminder_badge_count()))
         if tab_name == "Get Started":
             return max(0, int(get_started_incomplete_count()))
@@ -10640,8 +10657,13 @@ def render_main_section_nav(active_tab: str) -> None:
         unsafe_allow_html=True,
     )
     widths = []
+    tab_badge_counts = {}
     for tab_name in MAIN_SECTION_TABS:
-        count = main_section_tab_badge_count(tab_name)
+        count = main_section_tab_badge_count(
+            tab_name,
+            allow_expensive_counts=(tab_name == active_tab),
+        )
+        tab_badge_counts[tab_name] = count
         display_tab_name = MAIN_SECTION_TAB_DISPLAY_LABELS.get(tab_name, tab_name)
         extra_width = 0.7 if tab_name == "Graphs" else 0.38 if count > 0 else 0
         widths.append(max(1.35, min(2.9, len(display_tab_name) / 7 + extra_width)))
@@ -10650,7 +10672,7 @@ def render_main_section_nav(active_tab: str) -> None:
     for column, tab_name in zip(columns, MAIN_SECTION_TABS):
         with column:
             st.button(
-                main_section_tab_label(tab_name),
+                main_section_tab_label(tab_name, count=tab_badge_counts.get(tab_name, 0)),
                 key=main_section_nav_button_key(tab_name),
                 on_click=set_main_section_tab,
                 args=(tab_name,),
