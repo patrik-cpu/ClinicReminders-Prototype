@@ -100,7 +100,7 @@ MAIN_SECTION_TAB_TO_SLUG = {
 MAIN_SECTION_TAB_DISPLAY_LABELS = {
     "Reminders": "Send Reminders",
     "Search Terms": "Configure Reminders",
-    "Stats": "Tracking",
+    "Stats": "Identify & Track",
 }
 REMINDERS_START_DATE_INPUT_KEY = "reminders_start_date_input"
 DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14

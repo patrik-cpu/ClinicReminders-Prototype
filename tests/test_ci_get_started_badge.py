@@ -86,10 +86,10 @@ class GetStartedBadgeTests(unittest.TestCase):
             )["done"]
         )
 
-    def test_stats_tab_shows_tracking_without_new_badge(self):
+    def test_stats_tab_shows_identify_and_track_without_new_badge(self):
         label = self.app.main_section_tab_label("Stats")
 
-        self.assertEqual(label, "Tracking")
+        self.assertEqual(label, "Identify & Track")
         self.assertNotIn("New Stats tab", label)
         self.assertNotIn("data:image/svg+xml;base64", label)
 

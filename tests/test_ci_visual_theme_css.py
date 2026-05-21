@@ -232,7 +232,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Stats", "Upload Data", "Get Started", "Graphs"]', source)
         self.assertIn('"Reminders": "Send Reminders"', source)
         self.assertIn('"Search Terms": "Configure Reminders"', source)
-        self.assertIn('"Stats": "Tracking"', source)
+        self.assertIn('"Stats": "Identify & Track"', source)
         self.assertIn('"outcomes": "Stats"', source)
         self.assertIn('"statistics": "Stats"', source)
         self.assertIn('st.markdown("## 📊 Stats")', source)
