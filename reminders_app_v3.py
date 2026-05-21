@@ -4020,7 +4020,7 @@ def shared_dataset_load_attempt_token(clinic_id: str) -> str:
             )
     except Exception:
         pointer_blob = ""
-    token = hashlib.md5(f"{history_blob}|{pointer_blob}".encode("utf-8")).hexdigest()
+    token = hashlib.sha256(f"{history_blob}|{pointer_blob}".encode("utf-8")).hexdigest()
     return f"{clinic_id}:{token}"
 
 
@@ -10911,7 +10911,7 @@ def clone_reminder_rules(rules: dict | None) -> dict:
 
 
 def _rules_fp(rules: dict) -> str:
-    return hashlib.md5(json.dumps(rules or {}, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(rules or {}, sort_keys=True).encode()).hexdigest()
 
 
 def get_applied_reminder_rules() -> dict:
@@ -11184,7 +11184,7 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
             row_cols[1].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(row.get('pms', '-'))}</div>", unsafe_allow_html=True)
             row_cols[2].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(row_count)}</div>", unsafe_allow_html=True)
             row_cols[3].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(formatted_history_range(row))}</div>", unsafe_allow_html=True)
-            row_key = hashlib.md5(json.dumps(row, sort_keys=True).encode("utf-8")).hexdigest()[:10]
+            row_key = hashlib.sha256(json.dumps(row, sort_keys=True).encode("utf-8")).hexdigest()[:10]
             if row_cols[4].button(
                 "Remove",
                 key=f"remove_dataset_upload_button_{idx}_{row_key}",
@@ -11234,7 +11234,7 @@ def get_saved_dataset_summary_rows() -> list[dict]:
             df_w is None or getattr(df_w, "empty", True)
         ):
             clinic_id = st.session_state.get("clinic_id", "")
-            attempt_key = f"{clinic_id}:{hashlib.md5(json.dumps(history, sort_keys=True).encode('utf-8')).hexdigest()}"
+            attempt_key = f"{clinic_id}:{hashlib.sha256(json.dumps(history, sort_keys=True).encode('utf-8')).hexdigest()}"
             if st.session_state.get("_row_count_repair_load_attempted_for") != attempt_key:
                 st.session_state["_row_count_repair_load_attempted_for"] = attempt_key
                 load_shared_dataset_for_clinic()
@@ -15114,7 +15114,7 @@ def statistics_exclusion_fp() -> str:
         ),
         "patient_passaway_keywords": normalized_text_list(st.session_state.get("patient_passaway_keywords", [])),
     }
-    return hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
 def empty_statistics_generated_frame() -> pd.DataFrame:
@@ -17740,9 +17740,9 @@ def stats_export_frame_fingerprint(frame: pd.DataFrame) -> tuple:
         return (0, (), "")
     try:
         hashed = pd.util.hash_pandas_object(frame, index=True).to_numpy(dtype="uint64", copy=False)
-        digest = hashlib.md5(hashed.tobytes()).hexdigest()
+        digest = hashlib.sha256(hashed.tobytes()).hexdigest()
     except Exception:
-        digest = hashlib.md5(frame.to_csv(index=True).encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(frame.to_csv(index=True).encode("utf-8")).hexdigest()
     return (len(frame.index), tuple(map(str, frame.columns)), digest)
 
 
@@ -19004,7 +19004,7 @@ def render_top_unreminded_items_table(title: str, rows: pd.DataFrame, value_colu
         else:
             value_text = f"{int(row.get('Count', 0) or 0):,}"
         row_cols[1].markdown(padded_html_text(value_text), unsafe_allow_html=True)
-        safe_key = hashlib.md5(item_name.lower().encode("utf-8")).hexdigest()[:10]
+        safe_key = hashlib.sha256(item_name.lower().encode("utf-8")).hexdigest()[:10]
         if row_cols[2].button("×", key=f"{key_prefix}_exclude_{idx}_{safe_key}", help="Add this item to General Item Exclusions"):
             exclude_top_unreminded_item(item_name)
             st.rerun()
