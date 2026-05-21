@@ -826,7 +826,7 @@ class StatisticsTests(unittest.TestCase):
                 "Potential Annual Revenue Lift",
                 "Max Annual Revenue",
                 "Current Annual Revenue",
-                "Captured Revenue %",
+                "Current Revenue Capture %",
                 "Revenue per Item",
                 "Desired Gap Days",
                 "Actual Median Gap Days",
@@ -841,6 +841,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Revenue from Successes", rendered_frame.columns)
         self.assertNotIn("Calculated Revenue per Year", rendered_frame.columns)
         self.assertNotIn("Capturable Revenue Potential per Year", rendered_frame.columns)
+        self.assertNotIn("Captured Revenue %", rendered_frame.columns)
         self.assertNotIn("Total Purchases", rendered_frame.columns)
         self.assertNotIn("Total Repeat Purchases", rendered_frame.columns)
         self.assertNotIn("Repeat Purchase %", rendered_frame.columns)
@@ -3406,18 +3407,30 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(column_config["Overall Avg Purchase Gap Days"]["type_config"]["format"], "%.0f")
         self.assertEqual(column_config["Gap Day % to Desired"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Repeat Purchase %"]["type_config"]["format"], "%.0f%%")
+        self.assertEqual(column_config["Current Revenue Capture %"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Captured Revenue %"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Revenue per Item"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Revenue from Successes"]["type_config"]["format"], "localized")
+        self.assertEqual(column_config["Current Annual Revenue"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Calculated Revenue per Year"]["type_config"]["format"], "localized")
+        self.assertEqual(column_config["Max Annual Revenue"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Theoretical Max Revenue"]["type_config"]["format"], "localized")
+        self.assertEqual(column_config["Potential Annual Revenue Lift"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Capturable Revenue Potential per Year"]["type_config"]["format"], "localized")
         self.assertEqual(column_config["Revenue from Successes"]["label"], "Revenue from\nSuccesses")
         self.assertEqual(column_config["Revenue per Item"]["label"], "Revenue\nper Item")
+        self.assertEqual(column_config["Current Annual Revenue"]["label"], "Current Annual\nRevenue")
+        self.assertEqual(column_config["Max Annual Revenue"]["label"], "Max Annual\nRevenue")
+        self.assertEqual(column_config["Potential Annual Revenue Lift"]["label"], "Potential Annual\nRevenue Lift")
+        self.assertEqual(column_config["Current Revenue Capture %"]["label"], "Current Revenue\nCapture %")
         self.assertEqual(column_config["Calculated Revenue per Year"]["label"], "Calculated Revenue\nper Year")
         self.assertEqual(column_config["Capturable Revenue Potential per Year"]["label"], "Capturable Revenue\nPotential per Year")
+        self.assertEqual(column_config["Potential Annual Revenue Lift"]["width"], "small")
         self.assertEqual(column_config["Capturable Revenue Potential per Year"]["width"], "small")
+        self.assertEqual(column_config["Current Annual Revenue"]["width"], "small")
+        self.assertEqual(column_config["Current Revenue Capture %"]["width"], "small")
         self.assertEqual(column_config["Calculated Revenue per Year"]["width"], "small")
+        self.assertEqual(column_config["Max Annual Revenue"]["width"], "small")
         self.assertEqual(column_config["Theoretical Max Revenue"]["width"], "small")
         self.assertEqual(column_config["Total Repeat Purchases"]["width"], "small")
         self.assertEqual(column_config["Unique Purchasing Patients"]["width"], "small")
@@ -3437,10 +3450,10 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Percentage of matching purchases", column_config["Repeat Purchase %"]["help"])
         self.assertIn("Average revenue per matching purchase", column_config["Revenue per Item"]["help"])
         self.assertIn("Revenue from repeat purchases", column_config["Revenue from Successes"]["help"])
-        self.assertIn("Unique Repeat Purchasing Patients x (365 / Actual Gap Days) x Revenue per Item", column_config["Calculated Revenue per Year"]["help"])
-        self.assertIn("Unique Purchasing Patients x (365 / faster of Actual Gap Days or Desired Gap Days) x Revenue per Item", column_config["Theoretical Max Revenue"]["help"])
-        self.assertIn("Theoretical Max Revenue - Calculated Revenue per Year", column_config["Capturable Revenue Potential per Year"]["help"])
-        self.assertIn("Calculated revenue per year divided", column_config["Captured Revenue %"]["help"])
+        self.assertIn("Unique Repeat Purchasing Patients x (365 / Actual Median Gap Days) x Revenue per Item", column_config["Current Annual Revenue"]["help"])
+        self.assertIn("Unique Purchasing Patients x (365 / Desired Gap Days) x Revenue per Item", column_config["Max Annual Revenue"]["help"])
+        self.assertIn("Max Annual Revenue - Current Annual Revenue", column_config["Potential Annual Revenue Lift"]["help"])
+        self.assertIn("Current Annual Revenue divided by Max Annual Revenue", column_config["Current Revenue Capture %"]["help"])
         self.assertIn("Current result", column_config["Outcome"]["help"])
         self.assertNotIn("Avg Item Purchase Gap Days", rendered_frame.columns)
         self.assertNotIn("Revenue", rendered_frame.columns)
