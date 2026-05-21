@@ -3,7 +3,7 @@ set -euo pipefail
 
 echo "== Pilot release local gates =="
 python -m pip install --dry-run -r requirements.txt >/tmp/clinic_pilot_pip_dry_run.log
-python -m py_compile reminders_app_v3.py settings_pointer_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py
+python -m py_compile reminders_app_v3.py settings_pointer_utils.py auth_password_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py
 python -m pip check
 if python -c "import pip_audit" >/dev/null 2>&1; then
   bash scripts/dependency_security_audit.sh
