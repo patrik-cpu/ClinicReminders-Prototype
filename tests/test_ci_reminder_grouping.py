@@ -78,6 +78,31 @@ class ReminderGroupingTests(unittest.TestCase):
         self.assertEqual(state["exclusions"], ["nail clip"])
         self.assertNotIn("_top_unreminded_items_cache", state)
 
+    def test_excluding_multiple_top_unreminded_items_saves_once_and_dedupes(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        state["exclusions"] = ["existing item"]
+        state["_top_unreminded_items_cache"] = {"key": ("old",)}
+
+        with (
+            patch.object(self.app, "save_settings_quietly", return_value=True) as save_settings,
+            patch.object(self.app, "record_settings_audit_event") as audit_event,
+        ):
+            added = self.app.exclude_top_unreminded_items([
+                "Nail Clip",
+                " existing item ",
+                "Dental Scale",
+                "Nail   Clip",
+                "",
+            ])
+
+        self.assertEqual(added, 2)
+        self.assertEqual(state["exclusions"], ["existing item", "nail clip", "dental scale"])
+        save_settings.assert_called_once()
+        self.assertEqual(audit_event.call_count, 2)
+        self.assertNotIn("_top_unreminded_items_cache", state)
+
     def test_zero_disables_grouping(self):
         grouped = self.app.bundle_client_reminders_by_window(self.make_due_df(), window_days=0)
         self.assertEqual(len(grouped), 3)

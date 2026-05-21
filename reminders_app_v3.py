@@ -10887,30 +10887,44 @@ def refresh_top_unreminded_items():
     st.session_state.pop("_top_unreminded_items_cache", None)
 
 
-def exclude_top_unreminded_item(item_name: str):
-    safe_item = _SPACE_RX.sub(" ", str(item_name or "").strip())
-    if not safe_item:
-        return
-    safe_item_key = safe_item.lower()
+def exclude_top_unreminded_items(item_names) -> int:
     st.session_state.setdefault("exclusions", [])
     existing = {
         str(term or "").strip().lower()
         for term in st.session_state["exclusions"]
         if str(term or "").strip()
     }
-    if safe_item_key not in existing:
+
+    added = []
+    for item_name in item_names or []:
+        safe_item = _SPACE_RX.sub(" ", str(item_name or "").strip())
+        if not safe_item:
+            continue
+        safe_item_key = safe_item.lower()
+        if safe_item_key in existing:
+            continue
         st.session_state["exclusions"].append(safe_item_key)
+        existing.add(safe_item_key)
+        added.append(safe_item_key)
+
+    if added:
         save_settings_quietly()
-        record_settings_audit_event(
-            "exclusion_added",
-            "exclusions",
-            safe_item_key,
-            "item",
-            "",
-            safe_item_key,
-            "top_unreminded_items",
-        )
-    refresh_top_unreminded_items()
+        for safe_item_key in added:
+            record_settings_audit_event(
+                "exclusion_added",
+                "exclusions",
+                safe_item_key,
+                "item",
+                "",
+                safe_item_key,
+                "top_unreminded_items",
+            )
+        refresh_top_unreminded_items()
+    return len(added)
+
+
+def exclude_top_unreminded_item(item_name: str):
+    exclude_top_unreminded_items([item_name])
 
 
 # === Optional analytics bundle creation ===
@@ -18733,10 +18747,27 @@ def set_reminders_start_date_to_today():
 
 
 def render_top_unreminded_items_table(title: str, rows: pd.DataFrame, value_column: str, key_prefix: str):
-    st.markdown(f"#### {html_lib.escape(title)}")
+    title_cols = st.columns([3.4, 1.05], gap="small")
+    title_cols[0].markdown(f"#### {html_lib.escape(title)}")
     if rows is None or rows.empty:
         st.caption("No unreminded items found.")
         return
+
+    visible_item_names = [
+        str(row.get("Item Name", "") or "").strip()
+        for _, row in rows.iterrows()
+        if str(row.get("Item Name", "") or "").strip()
+    ]
+    with title_cols[1]:
+        if st.button(
+            "Exclude all 10",
+            key=f"{key_prefix}_exclude_all",
+            help="Add every item currently shown in this table to General Item Exclusions.",
+            use_container_width=True,
+            disabled=not visible_item_names,
+        ):
+            exclude_top_unreminded_items(visible_item_names)
+            st.rerun()
 
     value_help = {
         "Count": "The number of items this item was purchased across the entire date range of the uploaded data.",
