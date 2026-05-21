@@ -14225,11 +14225,11 @@ STATS_REVENUE_DISPLAY_COLUMNS = [
     "Revenue per Year",
     "Captured Revenue %",
     "Revenue per Item",
-    "Unique Purchasing Patients",
-    "Unique Repeat Purchasing Patients",
     "Desired Gap Days",
     "Median Item Purchase Gap Days",
     "Gap Day % to Desired",
+    "Unique Purchasing Patients",
+    "Unique Repeat Purchasing Patients",
 ]
 STATS_ITEMS_DISPLAY_COLUMNS = [
     "Item",
@@ -14265,6 +14265,7 @@ STATS_ITEMS_DISPLAY_COLUMN_LABELS = {
     "Overall Repeat Purchases": "Total Repeat Purchases",
     "Overall Purchases": "Total Purchases",
     "Revenue per Year": "Calculated Revenue per Year",
+    "Theoretical Max Revenue": "Max Annual Revenue",
     "Capturable Revenue per Year": "Capturable Revenue Potential per Year",
 }
 OUTCOME_SENDER_GROUP_COLUMNS = [

@@ -824,15 +824,15 @@ class StatisticsTests(unittest.TestCase):
             [
                 "Item",
                 "Capturable Revenue Potential per Year",
-                "Theoretical Max Revenue",
+                "Max Annual Revenue",
                 "Calculated Revenue per Year",
                 "Captured Revenue %",
                 "Revenue per Item",
-                "Unique Purchasing Patients",
-                "Unique Repeat Purchasing Patients",
                 "Desired Gap Days",
                 "Actual Median Gap Days",
                 "Annual Repeat Difference",
+                "Unique Purchasing Patients",
+                "Unique Repeat Purchasing Patients",
             ],
         )
         self.assertNotIn("Sent Reminders", rendered_frame.columns)
@@ -854,6 +854,8 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Gap Day % to Desired", rendered_frame.columns)
         self.assertNotIn("Overall Repeat Purchases", rendered_frame.columns)
         self.assertNotIn("Overall Purchases", rendered_frame.columns)
+        self.assertIn("Max Annual Revenue", rendered_frame.columns)
+        self.assertNotIn("Theoretical Max Revenue", rendered_frame.columns)
         self.assertEqual(rendered_frame.iloc[0]["Desired Gap Days"], 365)
         self.assertEqual(rendered_frame.iloc[0]["Actual Median Gap Days"], 120)
         self.assertAlmostEqual(rendered_frame.iloc[0]["Annual Repeat Difference"], (370 / 365) * 100)
