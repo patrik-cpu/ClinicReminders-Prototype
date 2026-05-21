@@ -102,12 +102,43 @@ class LogicEdgeCaseTests(unittest.TestCase):
             patch.object(self.app, "drive_file_owner_key", return_value=""),
             patch.object(self.app, "get_settings_spreadsheet", return_value=FakeSpreadsheet()),
             patch.object(self.app, "drive_trash_file") as trash_file,
+            patch.object(self.app, "record_account_lifecycle_event") as lifecycle_event,
             patch.object(self.app, "_gspread_retry", side_effect=lambda fn, *a, **k: fn(*a, **k)),
         ):
             with self.assertRaisesRegex(RuntimeError, "sheet write failed"):
                 self.app.delete_clinic_account_and_data("Clinic A")
 
         trash_file.assert_not_called()
+        lifecycle_event.assert_not_called()
+
+    def test_delete_account_does_not_delete_sheet_rows_if_drive_ownership_fails(self):
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+        with (
+            patch.object(self.app, "get_clinic_row", return_value={
+                "ClinicID": "Clinic A",
+                self.app.SHEET_COL_DATASET_FILE_ID: "drive-file-id",
+            }),
+            patch.object(
+                self.app,
+                "require_clinic_dataset_file_access",
+                side_effect=PermissionError("dataset access denied"),
+            ) as require_access,
+            patch.object(self.app, "get_settings_spreadsheet") as spreadsheet,
+            patch.object(self.app, "drive_trash_file") as trash_file,
+            patch.object(self.app, "record_account_lifecycle_event") as lifecycle_event,
+        ):
+            with self.assertRaisesRegex(PermissionError, "dataset access denied"):
+                self.app.delete_clinic_account_and_data("Clinic A")
+
+        require_access.assert_called_once_with(
+            "Clinic A",
+            "drive-file-id",
+            current_file_id="drive-file-id",
+        )
+        spreadsheet.assert_not_called()
+        trash_file.assert_not_called()
+        lifecycle_event.assert_not_called()
 
     def test_statistics_team_frame_handles_missing_optional_action_columns(self):
         team = self.app.build_statistics_team_frame(
