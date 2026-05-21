@@ -823,7 +823,7 @@ class StatisticsTests(unittest.TestCase):
             rendered_frame.columns.tolist(),
             [
                 "Item",
-                "Capturable Revenue Potential per Year",
+                "Potential Annual Revenue Lift",
                 "Max Annual Revenue",
                 "Current Annual Revenue",
                 "Captured Revenue %",
@@ -840,6 +840,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Success Rate", rendered_frame.columns)
         self.assertNotIn("Revenue from Successes", rendered_frame.columns)
         self.assertNotIn("Calculated Revenue per Year", rendered_frame.columns)
+        self.assertNotIn("Capturable Revenue Potential per Year", rendered_frame.columns)
         self.assertNotIn("Total Purchases", rendered_frame.columns)
         self.assertNotIn("Total Repeat Purchases", rendered_frame.columns)
         self.assertNotIn("Repeat Purchase %", rendered_frame.columns)
@@ -866,6 +867,7 @@ class StatisticsTests(unittest.TestCase):
             {
                 "Item": "Rabies",
                 "Desired Gap Days": 365,
+                "Avg Item Purchase Gap Days": 370,
                 "Gap Day % to Desired": 370 / 365,
                 "Revenue per Item": 120.4,
                 "Revenue per Year": 300.6,
@@ -894,6 +896,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Actual Median Gap Days", rendered_frame.columns)
         desired_index = rendered_frame.columns.get_loc("Desired Gap Days")
         self.assertEqual(rendered_frame.columns[desired_index + 1], "Actual Median Gap Days")
+        self.assertEqual(rendered_frame.iloc[0]["Actual Median Gap Days"], 370)
 
     def test_stats_items_display_columns_keep_activity_and_receive_moved_outcome_metrics(self):
         actioning_frame = pd.DataFrame([

@@ -14231,7 +14231,7 @@ STATS_REVENUE_DISPLAY_COLUMNS = [
     "Unique Purchasing Patients",
     "Unique Repeat Purchasing Patients",
 ]
-STATS_CALCULATION_CACHE_SCHEMA_VERSION = 2
+STATS_CALCULATION_CACHE_SCHEMA_VERSION = 3
 STATS_ITEMS_DISPLAY_COLUMNS = [
     "Item",
     STATISTICS_SCHEDULED_REMINDERS_LABEL,
@@ -14267,7 +14267,7 @@ STATS_ITEMS_DISPLAY_COLUMN_LABELS = {
     "Overall Purchases": "Total Purchases",
     "Revenue per Year": "Current Annual Revenue",
     "Theoretical Max Revenue": "Max Annual Revenue",
-    "Capturable Revenue per Year": "Capturable Revenue Potential per Year",
+    "Capturable Revenue per Year": "Potential Annual Revenue Lift",
 }
 OUTCOME_SENDER_GROUP_COLUMNS = [
     "Sender",
@@ -16547,6 +16547,13 @@ def ensure_stats_revenue_display_columns(frame: pd.DataFrame) -> pd.DataFrame:
     if frame is None:
         frame = pd.DataFrame()
     revenue_frame = frame.copy()
+    if "Avg Item Purchase Gap Days" in revenue_frame.columns:
+        average_values = pd.to_numeric(revenue_frame["Avg Item Purchase Gap Days"], errors="coerce")
+        if "Median Item Purchase Gap Days" in revenue_frame.columns:
+            median_values = pd.to_numeric(revenue_frame["Median Item Purchase Gap Days"], errors="coerce")
+            revenue_frame["Median Item Purchase Gap Days"] = median_values.where(median_values.notna(), average_values)
+        else:
+            revenue_frame["Median Item Purchase Gap Days"] = average_values
     for column in STATS_REVENUE_DISPLAY_COLUMNS:
         if column not in revenue_frame.columns:
             revenue_frame[column] = pd.NA
@@ -17446,7 +17453,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
             default_sort_ascending=False,
             item_label="item rows",
             display_column_labels=STATS_ITEMS_DISPLAY_COLUMN_LABELS,
-            highlight_column="Capturable Revenue Potential per Year",
+            highlight_column="Potential Annual Revenue Lift",
         )
         render_stats_csv_export(
             item_frame,
