@@ -2205,34 +2205,6 @@ st.markdown(
         line-height: 1.25;
         margin: 0 0 1.55rem 15px;
     }
-    .cr-login-illustration-wrap {
-        align-items: flex-start;
-        display: flex;
-        justify-content: center;
-        min-height: 36rem;
-        padding: 0.1rem 1.25rem 0 0;
-    }
-    .cr-login-illustration {
-        display: block;
-        height: auto;
-        margin: 0 auto;
-        max-height: min(76vh, 54rem);
-        max-width: min(100%, 58rem);
-        width: 100%;
-        -webkit-mask-image:
-            linear-gradient(to right, transparent 0%, #000 8%, #000 94%, transparent 100%),
-            linear-gradient(to bottom, transparent 0%, #000 7%, #000 94%, transparent 100%);
-        -webkit-mask-composite: source-in;
-        mask-image:
-            linear-gradient(to right, transparent 0%, #000 8%, #000 94%, transparent 100%),
-            linear-gradient(to bottom, transparent 0%, #000 7%, #000 94%, transparent 100%);
-        mask-composite: intersect;
-    }
-    @media (max-width: 900px) {
-        .cr-login-illustration-wrap {
-            display: none;
-        }
-    }
     div[data-testid="stForm"]:has(.login-form-marker) {
         background: transparent !important;
         border: 0 !important;
@@ -2277,8 +2249,23 @@ st.markdown(
         border: 1px solid var(--cr-login-input-border) !important;
         border-radius: 8px !important;
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+        display: flex !important;
         min-height: 2.75rem !important;
         overflow: hidden !important;
+        width: 100% !important;
+    }
+    .st-key-login_username_input [data-baseweb="input"] > div,
+    .st-key-login_username_input [data-baseweb="base-input"] > div,
+    .st-key-login_password_input [data-baseweb="input"] > div,
+    .st-key-login_password_input [data-baseweb="base-input"] > div {
+        background: transparent !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        flex: 1 1 auto !important;
+        height: 2.75rem !important;
+        margin: 0 !important;
+        min-width: 0 !important;
         width: 100% !important;
     }
     .st-key-login_username_input input,
@@ -2296,16 +2283,8 @@ st.markdown(
     }
     .st-key-login_password_input input {
         padding-right: 0.85rem !important;
-    }
-    .st-key-login_password_input [data-baseweb="base-input"] > div,
-    .st-key-login_password_input [data-baseweb="input"] > div {
-        background: transparent !important;
-        border: 0 !important;
-        border-radius: 0 !important;
-        box-shadow: none !important;
-        height: 2.75rem !important;
-        margin: 0 !important;
-        width: 100% !important;
+        -webkit-text-security: disc;
+        text-security: disc;
     }
     .st-key-login_password_input [data-baseweb="base-input"] button,
     .st-key-login_password_input [data-baseweb="input"] button {
@@ -2331,6 +2310,8 @@ st.markdown(
         border-color: #29D272 !important;
         box-shadow: 0 0 0 2px rgba(41, 210, 114, 0.16) !important;
     }
+    .st-key-login_username_input [data-baseweb="base-input"]:focus-within > div,
+    .st-key-login_username_input [data-baseweb="input"]:focus-within > div,
     .st-key-login_password_input [data-baseweb="base-input"]:focus-within > div,
     .st-key-login_password_input [data-baseweb="input"]:focus-within > div {
         background: transparent !important;
@@ -9757,126 +9738,6 @@ if (
 pending_google_signup = bool(st.session_state.get("pending_google_signup") and google_user.get("is_logged_in"))
 
 
-def login_workflow_illustration_html() -> str:
-    return """
-    <div class="cr-login-illustration-wrap" aria-hidden="true">
-      <svg class="cr-login-illustration" viewBox="0 0 900 1040" role="img">
-        <defs>
-          <filter id="cr-login-card-shadow" x="-25%" y="-25%" width="150%" height="150%">
-            <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.10"/>
-          </filter>
-          <linearGradient id="cr-login-line" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stop-color="#16c35f"/>
-            <stop offset="100%" stop-color="#0fbf58"/>
-          </linearGradient>
-          <style>
-            .cr-li-title { fill: #101828; font: 800 54px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
-            .cr-li-subtitle { fill: #475467; font: 400 25px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-            .cr-li-card-title { fill: #101828; font: 800 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-            .cr-li-copy { fill: #475467; font: 400 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-            .cr-li-num { fill: #18c961; font: 800 42px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-            .cr-li-faint { color: rgba(22, 163, 74, 0.13); fill: none; stroke: currentColor; stroke-width: 3; }
-          </style>
-        </defs>
-        <rect x="0" y="0" width="900" height="1040" fill="#f6faf7"/>
-        <g opacity="0.9">
-          <path class="cr-li-faint" d="M84 88c17-16 46-8 46 18 0 24-25 36-48 27l-18 11 7-22c-9-11-7-25 13-34z"/>
-          <path class="cr-li-faint" d="M765 88h54v42h-54zM776 78v22M808 78v22M765 105h54"/>
-          <path class="cr-li-faint" d="M737 336a32 32 0 1 1-64 0 32 32 0 0 1 64 0zM705 292v88M661 336h88"/>
-          <path class="cr-li-faint" d="M795 698c17-16 46-8 46 18 0 24-25 36-48 27l-18 11 7-22c-9-11-7-25 13-34z"/>
-          <path class="cr-li-faint" d="M120 824h54v42h-54zM131 814v22M163 814v22M120 841h54"/>
-        </g>
-        <text x="450" y="105" text-anchor="middle" class="cr-li-title">From Reminders to Results</text>
-        <line x1="330" y1="148" x2="410" y2="148" stroke="#18c961" stroke-width="3"/>
-        <path d="M450 134c5 0 8 5 5 10 7-2 12 3 9 10-2 6-9 7-14 3-5 4-12 3-14-3-3-7 2-12 9-10-3-5 0-10 5-10z" fill="#18c961"/>
-        <line x1="490" y1="148" x2="570" y2="148" stroke="#18c961" stroke-width="3"/>
-        <text x="450" y="195" text-anchor="middle" class="cr-li-subtitle">The 4-step Clinic Reminders workflow.</text>
-
-        <path d="M460 240 C610 260 585 375 475 450 C365 526 360 635 490 695 C610 750 555 865 450 918"
-              fill="none" stroke="url(#cr-login-line)" stroke-width="5" stroke-linecap="round"/>
-
-        <g filter="url(#cr-login-card-shadow)">
-          <rect x="60" y="240" width="330" height="176" rx="18" fill="#ffffff" stroke="#bee8ce"/>
-          <circle cx="125" cy="328" r="46" fill="#e8f8ee"/>
-          <path d="M101 351h48M109 351v-22h9v22M125 351v-38h9v38M141 351v-52h9v52M104 360l42 42" stroke="#16c35f" stroke-width="4" fill="none" stroke-linecap="round"/>
-          <line x1="196" y1="260" x2="196" y2="396" stroke="#bee8ce"/>
-          <text x="220" y="292" class="cr-li-card-title">Identify lost</text>
-          <text x="220" y="322" class="cr-li-card-title">repeat revenue</text>
-          <line x1="220" y1="348" x2="254" y2="348" stroke="#18c961" stroke-width="3"/>
-          <text x="220" y="380" class="cr-li-copy">See where late or missed</text>
-          <text x="220" y="405" class="cr-li-copy">repeat purchases are</text>
-          <text x="220" y="430" class="cr-li-copy">impacting the clinic.</text>
-        </g>
-
-        <g>
-          <line x1="390" y1="328" x2="460" y2="328" stroke="#18c961" stroke-width="2" stroke-dasharray="6 7"/>
-          <circle cx="390" cy="328" r="6" fill="#18c961"/>
-          <circle cx="474" cy="328" r="39" fill="#ffffff" stroke="#18c961" stroke-width="6"/>
-          <text x="474" y="342" text-anchor="middle" class="cr-li-num">1</text>
-        </g>
-
-        <g filter="url(#cr-login-card-shadow)">
-          <rect x="535" y="405" width="305" height="184" rx="18" fill="#ffffff" stroke="#bee8ce"/>
-          <line x1="713" y1="425" x2="713" y2="569" stroke="#bee8ce"/>
-          <text x="565" y="452" class="cr-li-card-title">Precise</text>
-          <text x="565" y="482" class="cr-li-card-title">configurations</text>
-          <line x1="565" y1="508" x2="599" y2="508" stroke="#18c961" stroke-width="3"/>
-          <text x="565" y="540" class="cr-li-copy">Customise reminders</text>
-          <text x="565" y="565" class="cr-li-copy">by product, service,</text>
-          <text x="565" y="590" class="cr-li-copy">due date and timing.</text>
-          <circle cx="775" cy="498" r="46" fill="#e8f8ee"/>
-          <path d="M752 470h46v48h-46zM762 485h26M762 501h26M764 485a5 5 0 1 1-10 0M790 501a5 5 0 1 1-10 0M796 528a18 18 0 1 1-36 0" stroke="#16c35f" stroke-width="3" fill="none"/>
-        </g>
-        <g>
-          <line x1="500" y1="505" x2="535" y2="505" stroke="#18c961" stroke-width="2" stroke-dasharray="6 7"/>
-          <circle cx="535" cy="505" r="6" fill="#18c961"/>
-          <circle cx="500" cy="505" r="39" fill="#ffffff" stroke="#18c961" stroke-width="6"/>
-          <text x="500" y="519" text-anchor="middle" class="cr-li-num">2</text>
-        </g>
-
-        <g filter="url(#cr-login-card-shadow)">
-          <rect x="60" y="590" width="305" height="184" rx="18" fill="#ffffff" stroke="#bee8ce"/>
-          <circle cx="125" cy="682" r="46" fill="#e8f8ee"/>
-          <path d="M125 646a38 38 0 0 0-32 59l-8 30 31-8a38 38 0 1 0 9-81zM109 669c11 26 29 32 37 34" stroke="#16c35f" stroke-width="5" fill="none" stroke-linecap="round"/>
-          <line x1="196" y1="610" x2="196" y2="754" stroke="#bee8ce"/>
-          <text x="220" y="638" class="cr-li-card-title">Effortless</text>
-          <text x="220" y="668" class="cr-li-card-title">WhatsApp</text>
-          <text x="220" y="698" class="cr-li-card-title">messages</text>
-          <line x1="220" y1="724" x2="254" y2="724" stroke="#18c961" stroke-width="3"/>
-          <text x="220" y="756" class="cr-li-copy">Deliver reminders to</text>
-          <text x="220" y="781" class="cr-li-copy">clients with fast,</text>
-          <text x="220" y="806" class="cr-li-copy">low-friction messaging.</text>
-        </g>
-        <g>
-          <line x1="365" y1="681" x2="462" y2="681" stroke="#18c961" stroke-width="2" stroke-dasharray="6 7"/>
-          <circle cx="365" cy="681" r="6" fill="#18c961"/>
-          <circle cx="470" cy="681" r="39" fill="#ffffff" stroke="#18c961" stroke-width="6"/>
-          <text x="470" y="695" text-anchor="middle" class="cr-li-num">3</text>
-        </g>
-
-        <g filter="url(#cr-login-card-shadow)">
-          <rect x="535" y="765" width="305" height="184" rx="18" fill="#ffffff" stroke="#bee8ce"/>
-          <line x1="713" y1="785" x2="713" y2="929" stroke="#bee8ce"/>
-          <text x="565" y="815" class="cr-li-card-title">Clear tracking</text>
-          <line x1="565" y1="841" x2="599" y2="841" stroke="#18c961" stroke-width="3"/>
-          <text x="565" y="873" class="cr-li-copy">Monitor outcomes,</text>
-          <text x="565" y="898" class="cr-li-copy">success rates, revenue</text>
-          <text x="565" y="923" class="cr-li-copy">and team usage.</text>
-          <circle cx="775" cy="857" r="46" fill="#e8f8ee"/>
-          <path d="M750 902h55M758 902v-23h10v23M778 902v-42h10v42M798 902v-63h10v63M752 866l24-24 15 12 27-35M818 819v20h-20" stroke="#16c35f" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        </g>
-        <g>
-          <line x1="500" y1="855" x2="535" y2="855" stroke="#18c961" stroke-width="2" stroke-dasharray="6 7"/>
-          <circle cx="535" cy="855" r="6" fill="#18c961"/>
-          <circle cx="500" cy="855" r="39" fill="#ffffff" stroke="#18c961" stroke-width="6"/>
-          <text x="500" y="869" text-anchor="middle" class="cr-li-num">4</text>
-        </g>
-        <path d="M375 970c65 30 145 30 210 0M415 970c10-45 38-72 61-87 16 28 41 48 78 65 16-18 35-28 57-30 9 19 11 37 4 54M325 965c20-2 35-16 45-42M315 940c25 10 42 28 51 55M620 965c20-2 35-16 45-42M610 940c25 10 42 28 51 55"
-              fill="none" stroke="#16c35f" stroke-width="3" stroke-linecap="round"/>
-      </svg>
-    </div>
-    """
-
 
 if pending_google_signup and not st.session_state["logged_in"]:
     onboarding_mode = st.session_state.get("google_onboarding_mode", "signup")
@@ -9904,7 +9765,7 @@ if not st.session_state["logged_in"]:
         with st.form("clinic_login_form"):
             st.markdown("<span class='login-form-marker'></span>", unsafe_allow_html=True)
             username = st.text_input("Clinic ID / Username", value=DEV_AUTO_LOGIN_CREDENTIALS[0], key="login_username_input")
-            password = st.text_input("Password", value="", type="password", key="login_password_input")
+            password = st.text_input("Password", value="", key="login_password_input")
             keep_logged_in = st.checkbox(
                 "Keep me logged in on this browser",
                 value=True,
