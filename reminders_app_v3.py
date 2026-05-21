@@ -558,6 +558,88 @@ COUNTRY_OPTIONS = [
     "Vietnam", "Zimbabwe", "Other",
 ]
 
+COUNTRY_CURRENCY_PREFIXES = {
+    "United Arab Emirates": "AED ",
+    "Saudi Arabia": "SAR ",
+    "Qatar": "QAR ",
+    "Bahrain": "BHD ",
+    "Kuwait": "KWD ",
+    "Oman": "OMR ",
+    "United Kingdom": "£",
+    "Ireland": "€",
+    "United States": "$",
+    "Canada": "C$",
+    "Australia": "A$",
+    "New Zealand": "NZ$",
+    "South Africa": "R",
+    "India": "₹",
+    "Pakistan": "Rs ",
+    "Philippines": "₱",
+    "Sri Lanka": "Rs ",
+    "Nepal": "Rs ",
+    "Afghanistan": "Af ",
+    "Albania": "Lek ",
+    "Algeria": "DA ",
+    "Andorra": "€",
+    "Angola": "Kz ",
+    "Argentina": "$",
+    "Armenia": "֏",
+    "Austria": "€",
+    "Azerbaijan": "₼",
+    "Bangladesh": "৳",
+    "Belgium": "€",
+    "Brazil": "R$",
+    "Bulgaria": "лв ",
+    "Chile": "$",
+    "China": "¥",
+    "Colombia": "$",
+    "Croatia": "€",
+    "Cyprus": "€",
+    "Czechia": "Kč ",
+    "Denmark": "kr ",
+    "Egypt": "E£",
+    "Estonia": "€",
+    "Finland": "€",
+    "France": "€",
+    "Georgia": "₾",
+    "Germany": "€",
+    "Ghana": "₵",
+    "Greece": "€",
+    "Hong Kong": "HK$",
+    "Hungary": "Ft ",
+    "Indonesia": "Rp ",
+    "Iran": "IRR ",
+    "Iraq": "IQD ",
+    "Israel": "₪",
+    "Italy": "€",
+    "Japan": "¥",
+    "Jordan": "JOD ",
+    "Kenya": "KSh ",
+    "Lebanon": "LBP ",
+    "Malaysia": "RM ",
+    "Malta": "€",
+    "Mexico": "$",
+    "Morocco": "MAD ",
+    "Netherlands": "€",
+    "Nigeria": "₦",
+    "Norway": "kr ",
+    "Poland": "zł ",
+    "Portugal": "€",
+    "Romania": "lei ",
+    "Russia": "₽",
+    "Serbia": "RSD ",
+    "Singapore": "S$",
+    "South Korea": "₩",
+    "Spain": "€",
+    "Sweden": "kr ",
+    "Switzerland": "CHF ",
+    "Thailand": "฿",
+    "Turkey": "₺",
+    "Ukraine": "₴",
+    "Vietnam": "₫",
+    "Zimbabwe": "$",
+}
+
 def reset_file_uploader_selection():
     """Force Streamlit's file uploader to remount without stale selected files."""
     uploader_keys = [
@@ -16459,12 +16541,22 @@ def format_outcome_number(value) -> str:
     return f"{float(value):.1f}"
 
 
-def format_outcome_currency(value) -> str:
+def clinic_currency_prefix(country: str | None = None) -> str:
+    if country is None:
+        country = st.session_state.get("user_country", "")
+    return COUNTRY_CURRENCY_PREFIXES.get(str(country or "").strip(), "")
+
+
+def clinic_currency_number_format(country: str | None = None) -> str:
+    return f"{clinic_currency_prefix(country)}%,.0f"
+
+
+def format_outcome_currency(value, country: str | None = None) -> str:
     try:
         amount = float(value or 0)
     except (TypeError, ValueError):
         amount = 0.0
-    return f"{amount:,.0f}"
+    return f"{clinic_currency_prefix(country)}{amount:,.0f}"
 
 
 def format_outcome_display_date(value) -> str:
@@ -16704,6 +16796,7 @@ def outcome_display_number_column(column: str, number_format: str):
 
 
 def outcome_display_column_config() -> dict:
+    currency_format = clinic_currency_number_format()
     column_config = {
         column: outcome_display_text_column(column)
         for column in OUTCOME_DISPLAY_COLUMN_HELP
@@ -16733,16 +16826,16 @@ def outcome_display_column_config() -> dict:
         "Unique Repeat Purchasing Patients": outcome_display_number_column("Unique Repeat Purchasing Patients", "%d"),
         "Unique Purchasing Patients": outcome_display_number_column("Unique Purchasing Patients", "%d"),
         "Repeat Purchase %": outcome_display_number_column("Repeat Purchase %", "%.0f%%"),
-        "Revenue per Item": outcome_display_number_column("Revenue per Item", "localized"),
-        "Revenue from Successes": outcome_display_number_column("Revenue from Successes", "localized"),
-        "Current Annual Revenue": outcome_display_number_column("Current Annual Revenue", "localized"),
-        "Calculated Revenue per Year": outcome_display_number_column("Calculated Revenue per Year", "localized"),
-        "Revenue per Year": outcome_display_number_column("Revenue per Year", "localized"),
-        "Max Annual Revenue": outcome_display_number_column("Max Annual Revenue", "localized"),
-        "Theoretical Max Revenue": outcome_display_number_column("Theoretical Max Revenue", "localized"),
-        "Potential Annual Revenue Lift": outcome_display_number_column("Potential Annual Revenue Lift", "localized"),
-        "Capturable Revenue Potential per Year": outcome_display_number_column("Capturable Revenue Potential per Year", "localized"),
-        "Capturable Revenue per Year": outcome_display_number_column("Capturable Revenue per Year", "localized"),
+        "Revenue per Item": outcome_display_number_column("Revenue per Item", currency_format),
+        "Revenue from Successes": outcome_display_number_column("Revenue from Successes", currency_format),
+        "Current Annual Revenue": outcome_display_number_column("Current Annual Revenue", currency_format),
+        "Calculated Revenue per Year": outcome_display_number_column("Calculated Revenue per Year", currency_format),
+        "Revenue per Year": outcome_display_number_column("Revenue per Year", currency_format),
+        "Max Annual Revenue": outcome_display_number_column("Max Annual Revenue", currency_format),
+        "Theoretical Max Revenue": outcome_display_number_column("Theoretical Max Revenue", currency_format),
+        "Potential Annual Revenue Lift": outcome_display_number_column("Potential Annual Revenue Lift", currency_format),
+        "Capturable Revenue Potential per Year": outcome_display_number_column("Capturable Revenue Potential per Year", currency_format),
+        "Capturable Revenue per Year": outcome_display_number_column("Capturable Revenue per Year", currency_format),
         "Current Revenue Capture %": outcome_display_number_column("Current Revenue Capture %", "%.0f%%"),
         "Captured Revenue %": outcome_display_number_column("Captured Revenue %", "%.0f%%"),
         "Success Rate": st.column_config.ProgressColumn(
@@ -16974,7 +17067,11 @@ def stats_team_column_config() -> dict:
         "Sent Reminders": st.column_config.NumberColumn("Sent Reminders", help=STATS_TEAM_COLUMN_HELP["Sent Reminders"], format="%d"),
         "Successes": st.column_config.NumberColumn("Successes", help=STATS_TEAM_COLUMN_HELP["Successes"], format="%d"),
         "Success Rate": st.column_config.NumberColumn("Success Rate", help=STATS_TEAM_COLUMN_HELP["Success Rate"], format="%.0f%%"),
-        "Revenue from Successes": st.column_config.NumberColumn("Revenue from Successes", help=STATS_TEAM_COLUMN_HELP["Revenue from Successes"], format="localized"),
+        "Revenue from Successes": st.column_config.NumberColumn(
+            "Revenue from Successes",
+            help=STATS_TEAM_COLUMN_HELP["Revenue from Successes"],
+            format=clinic_currency_number_format(),
+        ),
         "Actioned": st.column_config.NumberColumn("Actioned", help=STATS_TEAM_COLUMN_HELP["Actioned"], format="%d"),
         "Sent Actions": st.column_config.NumberColumn("Sent Actions", help=STATS_TEAM_COLUMN_HELP["Sent Actions"], format="%d"),
         "Declined Actions": st.column_config.NumberColumn("Declined Actions", help=STATS_TEAM_COLUMN_HELP["Declined Actions"], format="%d"),

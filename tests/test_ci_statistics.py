@@ -621,6 +621,7 @@ class StatisticsTests(unittest.TestCase):
 
     def test_stats_actioning_column_configs_explain_headers(self):
         item_config = self.app.stats_item_actioning_column_config()
+        self.app.st.session_state["user_country"] = "United Kingdom"
         team_config = self.app.stats_team_column_config()
 
         for column in ["Item", "Scheduled reminders", "Actioned", "Actioned %", "Sent", "Declined", "Sent %"]:
@@ -638,6 +639,8 @@ class StatisticsTests(unittest.TestCase):
             with self.subTest(column=column):
                 self.assertIn(column, team_config)
                 self.assertTrue(team_config[column]["help"])
+        self.assertEqual(team_config["Revenue from Successes"]["type_config"]["format"], "£%,.0f")
+
         self.assertNotIn("Pending", team_config)
         self.assertNotIn("No Match", team_config)
 
@@ -650,6 +653,15 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("outcome matching", team_config["Sent Reminders"]["help"])
         self.assertIn("sent or declined", team_config["Actioned"]["help"])
         self.assertEqual(team_config["Success Rate"]["type_config"]["format"], "%.0f%%")
+
+    def test_currency_format_uses_clinic_country_for_display(self):
+        self.app.st.session_state["user_country"] = "United Arab Emirates"
+        self.assertEqual(self.app.clinic_currency_number_format(), "AED %,.0f")
+        self.assertEqual(self.app.format_outcome_currency(13051), "AED 13,051")
+
+        self.app.st.session_state["user_country"] = "United States"
+        self.assertEqual(self.app.clinic_currency_number_format(), "$%,.0f")
+        self.assertEqual(self.app.format_outcome_currency(13051), "$13,051")
 
     def test_all_paged_tables_use_50_rows(self):
         self.assertEqual(self.app.TABLE_PAGE_SIZE, 50)
@@ -3417,6 +3429,7 @@ class StatisticsTests(unittest.TestCase):
         )
 
     def test_render_outcome_dataframe_uses_native_sortable_dataframe_for_summary_rows(self):
+        self.app.st.session_state["user_country"] = "United Arab Emirates"
         frame = pd.DataFrame([
             {
                 "Item": "Rabies",
@@ -3477,14 +3490,14 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(column_config["Repeat Purchase %"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Current Revenue Capture %"]["type_config"]["format"], "%.0f%%")
         self.assertEqual(column_config["Captured Revenue %"]["type_config"]["format"], "%.0f%%")
-        self.assertEqual(column_config["Revenue per Item"]["type_config"]["format"], "localized")
-        self.assertEqual(column_config["Revenue from Successes"]["type_config"]["format"], "localized")
-        self.assertEqual(column_config["Current Annual Revenue"]["type_config"]["format"], "localized")
-        self.assertEqual(column_config["Calculated Revenue per Year"]["type_config"]["format"], "localized")
-        self.assertEqual(column_config["Max Annual Revenue"]["type_config"]["format"], "localized")
-        self.assertEqual(column_config["Theoretical Max Revenue"]["type_config"]["format"], "localized")
-        self.assertEqual(column_config["Potential Annual Revenue Lift"]["type_config"]["format"], "localized")
-        self.assertEqual(column_config["Capturable Revenue Potential per Year"]["type_config"]["format"], "localized")
+        self.assertEqual(column_config["Revenue per Item"]["type_config"]["format"], "AED %,.0f")
+        self.assertEqual(column_config["Revenue from Successes"]["type_config"]["format"], "AED %,.0f")
+        self.assertEqual(column_config["Current Annual Revenue"]["type_config"]["format"], "AED %,.0f")
+        self.assertEqual(column_config["Calculated Revenue per Year"]["type_config"]["format"], "AED %,.0f")
+        self.assertEqual(column_config["Max Annual Revenue"]["type_config"]["format"], "AED %,.0f")
+        self.assertEqual(column_config["Theoretical Max Revenue"]["type_config"]["format"], "AED %,.0f")
+        self.assertEqual(column_config["Potential Annual Revenue Lift"]["type_config"]["format"], "AED %,.0f")
+        self.assertEqual(column_config["Capturable Revenue Potential per Year"]["type_config"]["format"], "AED %,.0f")
         self.assertEqual(column_config["Revenue from Successes"]["label"], "Revenue from\nSuccesses")
         self.assertEqual(column_config["Revenue per Item"]["label"], "Revenue\nper Item")
         self.assertEqual(column_config["Current Annual Revenue"]["label"], "Current Annual\nRevenue")
