@@ -228,7 +228,7 @@ class VisualThemeCssTests(unittest.TestCase):
     def test_stats_page_folds_outcomes_and_actioning_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
-        self.assertIn('MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Upload Data", "Stats", "Graphs", "Get Started"]', source)
+        self.assertIn('MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Stats", "Upload Data", "Get Started", "Graphs"]', source)
         self.assertIn('"Reminders": "Send Reminders"', source)
         self.assertIn('"Search Terms": "Configure Reminders"', source)
         self.assertIn('"Stats": "Tracking"', source)

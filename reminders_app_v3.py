@@ -69,7 +69,7 @@ DRIVE_SCOPE = [
 
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
-MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Upload Data", "Stats", "Graphs", "Get Started"]
+MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Stats", "Upload Data", "Get Started", "Graphs"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 STAFF_ACCESS_QUERY_PARAM = "staff_access"
 PENDING_MAIN_SECTION_TAB_KEY = "_pending_main_section_tab"
@@ -3226,7 +3226,7 @@ SEARCH_TERM_CATEGORIES = [
     "Dental",
     "Grooming",
     "Medications",
-    "Injections",
+    "Injectables",
     "Supplements",
     "Wellness & Seniors",
     "Diagnostics",
@@ -3242,7 +3242,8 @@ SEARCH_TERM_CATEGORIES = [
 SEARCH_TERM_CATEGORY_ALIASES = {
     "Dental Care": "Dental",
     "Medication": "Medications",
-    "Injection Therapies": "Injections",
+    "Injection Therapies": "Injectables",
+    "Injections": "Injectables",
     "Wellness & Senior Care": "Wellness & Seniors",
     "Diagnostics & Monitoring": "Diagnostics",
     "Surgery & Post-Op": "Surgery",
@@ -3298,9 +3299,9 @@ DEFAULT_RULE_CATEGORIES = {
     "dental scale and polish": "Dental",
     "groom": "Grooming",
     "cardisure": "Medications",
-    "librela": "Injections",
-    "cytopoint": "Injections",
-    "solensia": "Injections",
+    "librela": "Injectables",
+    "cytopoint": "Injectables",
+    "solensia": "Injectables",
     "feliway": "Supplements",
     "dermoscent": "Supplements",
     "samylin": "Supplements",
@@ -3333,7 +3334,7 @@ def infer_search_term_category(rule: str) -> str:
         ("Dental", ["dental", "tooth", "teeth", "scale", "polish"]),
         ("Grooming", ["groom", "bath", "clip"]),
         ("Medications", ["tablet", "capsule", "cardisure", "medication", "medicine"]),
-        ("Injections", ["librela", "cytopoint", "solensia", "injection"]),
+        ("Injectables", ["librela", "cytopoint", "solensia", "injection"]),
         ("Supplements", ["supplement", "samylin", "cystaid", "feliway", "dermoscent"]),
         ("Wellness & Seniors", ["wellness", "senior", "health check", "annual check"]),
         ("Diagnostics", ["ultrasound", "xray", "x-ray", "diagnostic", "blood", "monitor"]),
@@ -12059,7 +12060,7 @@ def get_today_active_reminder_count(today: date | None = None) -> int:
 def reminders_badge_label(count: int | None = None) -> str:
     count = get_active_reminder_badge_count() if count is None else int(count or 0)
     if count <= 0:
-        return "Reminders"
+        return MAIN_SECTION_TAB_DISPLAY_LABELS["Reminders"]
     return tab_badge_label("Reminders", count, f"{count} active reminders in the look-back window")
 
 

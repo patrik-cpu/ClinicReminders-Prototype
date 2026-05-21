@@ -121,11 +121,13 @@ class SettingsSaveStateTests(unittest.TestCase):
     def test_search_term_category_aliases_migrate_old_saved_names(self):
         normalized = self.app.normalize_search_term_rules({
             "librela": {"days": 30, "use_qty": False, "category": "Injection Therapies"},
+            "cytopoint": {"days": 30, "use_qty": False, "category": "Injections"},
             "dental": {"days": 365, "use_qty": False, "category": "Dental Care"},
             "arthritis": {"days": 30, "use_qty": False, "category": "Mobility & Pain Management"},
         })
 
-        self.assertEqual(normalized["librela"]["category"], "Injections")
+        self.assertEqual(normalized["librela"]["category"], "Injectables")
+        self.assertEqual(normalized["cytopoint"]["category"], "Injectables")
         self.assertEqual(normalized["dental"]["category"], "Dental")
         self.assertEqual(normalized["arthritis"]["category"], "Mobility & Pain")
 

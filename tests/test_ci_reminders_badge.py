@@ -20,11 +20,11 @@ class RemindersBadgeTests(unittest.TestCase):
             del state[key]
 
     def test_reminders_badge_hides_at_zero_and_shows_active_count(self):
-        self.assertEqual(self.app.reminders_badge_label(count=0), "Reminders")
+        self.assertEqual(self.app.reminders_badge_label(count=0), "Send Reminders")
 
         label = self.app.reminders_badge_label(count=3)
 
-        self.assertIn("Reminders", label)
+        self.assertIn("Send Reminders", label)
         self.assertIn("3 active reminders in the look-back window", label)
         self.assertIn("data:image/svg+xml;base64", label)
 
