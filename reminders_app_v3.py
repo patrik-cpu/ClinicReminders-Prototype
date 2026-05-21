@@ -18769,7 +18769,33 @@ def render_search_terms_editor():
         invalidate_reminder_rule_cache()
         st.rerun()
 
-    if st.button("Reset defaults", help="Restore the default search terms and clear exclusions."):
+    st.divider()
+    st.markdown(
+        """
+        <style>
+          .reset-config-warning {
+            color: #b00020;
+            font-weight: 800;
+            margin: 0.2rem 0 0.75rem;
+          }
+          .st-key-reset_all_configurations button {
+            min-height: 3rem;
+            font-size: 1rem;
+            font-weight: 800;
+          }
+        </style>
+        <div class="reset-config-warning">
+          Warning: resetting will remove all added search terms and settings.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button(
+        "Reset all Configurations",
+        key="reset_all_configurations",
+        help="Restore the default search terms and clear exclusions.",
+        use_container_width=True,
+    ):
         st.session_state["rules"] = normalize_search_term_rules(DEFAULT_RULES.copy())
         st.session_state["exclusions"] = []
         st.session_state["client_exclusions"] = []
@@ -18785,7 +18811,6 @@ def render_search_terms_editor():
         invalidate_reminder_rule_cache()
         st.rerun()
 
-    st.divider()
     render_top_unreminded_items_section()
 
     # --------------------------------
