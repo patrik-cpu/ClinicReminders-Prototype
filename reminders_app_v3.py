@@ -8742,10 +8742,9 @@ def render_google_onboarding_dialog(google_user: dict):
             _render_dialog_body()
 
 
-def login_marketing_image_html() -> str:
+def login_marketing_image_svg() -> str:
     return """
-    <div class="cr-login-marketing-visual" aria-label="From Reminders to Results workflow">
-      <svg class="cr-login-workflow-svg" viewBox="0 0 1120 1320" role="img" aria-labelledby="login-workflow-title login-workflow-desc" xmlns="http://www.w3.org/2000/svg">
+      <svg viewBox="0 0 1120 1320" role="img" aria-labelledby="login-workflow-title login-workflow-desc" xmlns="http://www.w3.org/2000/svg">
         <title id="login-workflow-title">From Reminders to Results</title>
         <desc id="login-workflow-desc">A four step Clinic Reminders workflow showing revenue identification, reminder configuration, WhatsApp messaging, and tracking.</desc>
         <defs>
@@ -8878,6 +8877,14 @@ def login_marketing_image_html() -> str:
         <path d="M535 1210c18 0 28 14 28 29 0 20-28 36-28 36s-28-16-28-36c0-15 10-29 28-29z" fill="#ffffff" stroke="#18bf5d" stroke-width="3"/>
         <path d="M334 1260c-30-18-54-44-48-67 32 6 45 37 48 67zm452 0c30-18 54-44 48-67-32 6-45 37-48 67z" fill="#ffffff" stroke="#18bf5d" stroke-width="3"/>
       </svg>
+    """
+
+
+def login_marketing_image_html() -> str:
+    encoded_svg = base64.b64encode(login_marketing_image_svg().strip().encode("utf-8")).decode("ascii")
+    return f"""
+    <div class="cr-login-marketing-visual" aria-label="From Reminders to Results workflow">
+      <img class="cr-login-workflow-svg" src="data:image/svg+xml;base64,{encoded_svg}" alt="From Reminders to Results workflow" />
     </div>
     """
 
