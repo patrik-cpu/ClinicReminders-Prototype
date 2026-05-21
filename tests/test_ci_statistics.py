@@ -825,7 +825,7 @@ class StatisticsTests(unittest.TestCase):
                 "Item",
                 "Capturable Revenue Potential per Year",
                 "Max Annual Revenue",
-                "Calculated Revenue per Year",
+                "Current Annual Revenue",
                 "Captured Revenue %",
                 "Revenue per Item",
                 "Desired Gap Days",
@@ -839,6 +839,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("Successes", rendered_frame.columns)
         self.assertNotIn("Success Rate", rendered_frame.columns)
         self.assertNotIn("Revenue from Successes", rendered_frame.columns)
+        self.assertNotIn("Calculated Revenue per Year", rendered_frame.columns)
         self.assertNotIn("Total Purchases", rendered_frame.columns)
         self.assertNotIn("Total Repeat Purchases", rendered_frame.columns)
         self.assertNotIn("Repeat Purchase %", rendered_frame.columns)
@@ -859,6 +860,40 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(rendered_frame.iloc[0]["Desired Gap Days"], 365)
         self.assertEqual(rendered_frame.iloc[0]["Actual Median Gap Days"], 120)
         self.assertAlmostEqual(rendered_frame.iloc[0]["Annual Repeat Difference"], (370 / 365) * 100)
+
+    def test_stats_revenue_display_columns_include_median_gap_when_source_schema_is_old(self):
+        frame = pd.DataFrame([
+            {
+                "Item": "Rabies",
+                "Desired Gap Days": 365,
+                "Gap Day % to Desired": 370 / 365,
+                "Revenue per Item": 120.4,
+                "Revenue per Year": 300.6,
+                "Theoretical Max Revenue": 600.2,
+                "Capturable Revenue per Year": 299.6,
+                "Captured Revenue %": 0.5,
+            }
+        ])
+
+        normalized = self.app.ensure_stats_revenue_display_columns(frame)
+        with (
+            mock.patch.object(self.app.st, "caption"),
+            mock.patch.object(self.app.st, "button", return_value=False),
+            mock.patch.object(self.app.st, "dataframe") as dataframe,
+        ):
+            self.app.render_outcome_dataframe(
+                normalized,
+                columns=self.app.STATS_REVENUE_DISPLAY_COLUMNS,
+                table_key="stats_items",
+                default_sort_column="Capturable Revenue per Year",
+                item_label="item rows",
+                display_column_labels=self.app.STATS_ITEMS_DISPLAY_COLUMN_LABELS,
+            )
+
+        rendered_frame = dataframe.call_args.args[0]
+        self.assertIn("Actual Median Gap Days", rendered_frame.columns)
+        desired_index = rendered_frame.columns.get_loc("Desired Gap Days")
+        self.assertEqual(rendered_frame.columns[desired_index + 1], "Actual Median Gap Days")
 
     def test_stats_items_display_columns_keep_activity_and_receive_moved_outcome_metrics(self):
         actioning_frame = pd.DataFrame([

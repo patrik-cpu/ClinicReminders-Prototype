@@ -14231,6 +14231,7 @@ STATS_REVENUE_DISPLAY_COLUMNS = [
     "Unique Purchasing Patients",
     "Unique Repeat Purchasing Patients",
 ]
+STATS_CALCULATION_CACHE_SCHEMA_VERSION = 2
 STATS_ITEMS_DISPLAY_COLUMNS = [
     "Item",
     STATISTICS_SCHEDULED_REMINDERS_LABEL,
@@ -14264,7 +14265,7 @@ STATS_ITEMS_DISPLAY_COLUMN_LABELS = {
     "Gap Day % to Desired": "Annual Repeat Difference",
     "Overall Repeat Purchases": "Total Repeat Purchases",
     "Overall Purchases": "Total Purchases",
-    "Revenue per Year": "Calculated Revenue per Year",
+    "Revenue per Year": "Current Annual Revenue",
     "Theoretical Max Revenue": "Max Annual Revenue",
     "Capturable Revenue per Year": "Capturable Revenue Potential per Year",
 }
@@ -16542,6 +16543,16 @@ def prepare_stats_items_outcome_dataframe_for_display(frame: pd.DataFrame) -> pd
     )
 
 
+def ensure_stats_revenue_display_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame is None:
+        frame = pd.DataFrame()
+    revenue_frame = frame.copy()
+    for column in STATS_REVENUE_DISPLAY_COLUMNS:
+        if column not in revenue_frame.columns:
+            revenue_frame[column] = pd.NA
+    return revenue_frame
+
+
 def build_stats_items_display_frame(item_actioning_frame: pd.DataFrame, item_outcome_frame: pd.DataFrame) -> pd.DataFrame:
     action_display = prepare_statistics_display_frame(item_actioning_frame)
     if action_display is None or getattr(action_display, "empty", True):
@@ -17238,6 +17249,7 @@ def stats_calculation_cache_signature(
     action_records: list[dict],
 ) -> tuple:
     return (
+        STATS_CALCULATION_CACHE_SCHEMA_VERSION,
         statistics_data_version,
         statistics_group_days,
         due_date_window_days,
@@ -17425,7 +17437,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     active_stats_subtab = render_stats_subtab_selector()
 
     if active_stats_subtab == "Revenue":
-        item_frame = stats_item_outcome_frame
+        item_frame = ensure_stats_revenue_display_columns(stats_item_outcome_frame)
         render_outcome_dataframe(
             item_frame,
             columns=STATS_REVENUE_DISPLAY_COLUMNS,
