@@ -22,6 +22,18 @@ class PilotReleaseScriptTests(unittest.TestCase):
         self.assertIn("--fail-on-risk", content)
         self.assertIn("PILOT_TEST_CLINIC_ID", content)
 
+    def test_dependency_security_audit_command_is_repo_owned(self):
+        script = REPO_ROOT / "scripts" / "dependency_security_audit.sh"
+        content = script.read_text()
+        dev_requirements = (REPO_ROOT / "requirements-dev.txt").read_text()
+        pilot_content = (REPO_ROOT / "scripts" / "pilot_release_check.sh").read_text()
+
+        self.assertTrue(script.exists())
+        self.assertTrue(os.access(script, os.X_OK))
+        self.assertIn("python -m pip_audit -r requirements.txt", content)
+        self.assertIn("pip-audit", dev_requirements)
+        self.assertIn("dependency_security_audit.sh", pilot_content)
+
 
 if __name__ == "__main__":
     unittest.main()
