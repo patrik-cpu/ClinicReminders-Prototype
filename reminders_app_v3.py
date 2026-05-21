@@ -73,6 +73,7 @@ MAIN_SECTION_TABS = ["Reminders", "Get Started", "Upload Data", "Search Terms", 
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 STAFF_ACCESS_QUERY_PARAM = "staff_access"
 PENDING_MAIN_SECTION_TAB_KEY = "_pending_main_section_tab"
+SCROLL_TO_PAGE_TOP_KEY = "_scroll_to_page_top"
 GET_STARTED_MANUAL_DONE_KEY = "get_started_manual_done"
 GET_STARTED_MANUAL_OFF_KEY = "get_started_manual_off"
 GET_STARTED_VISITED_TABS_KEY = "get_started_visited_tabs"
@@ -744,6 +745,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "show_new_account_welcome_dialog",
     "show_upload_sales_data_help_dialog",
     "delete_account_confirm_text",
+    SCROLL_TO_PAGE_TOP_KEY,
     "_scroll_to_whatsapp_composer",
     "_settings_row_cache",
     "_profile_row_cache",
@@ -6698,6 +6700,8 @@ def close_upload_sales_data_help_dialog():
 
 def mark_new_account_welcome_pending():
     st.session_state["show_new_account_welcome_dialog"] = True
+    queue_scroll_to_page_top()
+    navigate_main_section_tab("Upload Data")
 
 
 def render_new_account_welcome_dialog():
@@ -6712,6 +6716,7 @@ def render_new_account_welcome_dialog():
             st.markdown(welcome_html, unsafe_allow_html=True)
         if st.button("Get started", key="new_account_welcome_get_started", type="primary", use_container_width=True):
             close_new_account_welcome_dialog()
+            queue_scroll_to_page_top()
             navigate_main_section_tab("Upload Data")
             st.rerun()
 
@@ -8193,6 +8198,45 @@ def clear_query_param(name: str):
         params = st.experimental_get_query_params()
         params.pop(name, None)
         st.experimental_set_query_params(**params)
+
+
+def queue_scroll_to_page_top() -> None:
+    st.session_state[SCROLL_TO_PAGE_TOP_KEY] = True
+
+
+def render_pending_page_top_scroll() -> None:
+    if not st.session_state.pop(SCROLL_TO_PAGE_TOP_KEY, False):
+        return
+
+    components.html(
+        """
+        <script>
+        (function() {
+          function scrollToTop() {
+            try {
+              const parentWindow = window.parent;
+              const parentDocument = parentWindow.document;
+              parentWindow.scrollTo({top: 0, left: 0, behavior: 'auto'});
+              for (const element of [
+                parentDocument.scrollingElement,
+                parentDocument.documentElement,
+                parentDocument.body,
+                parentDocument.querySelector('[data-testid="stAppViewContainer"]'),
+                parentDocument.querySelector('section.main')
+              ]) {
+                if (element) element.scrollTop = 0;
+              }
+            } catch (_err) {}
+          }
+
+          scrollToTop();
+          window.setTimeout(scrollToTop, 80);
+          window.setTimeout(scrollToTop, 240);
+        })();
+        </script>
+        """,
+        height=0,
+    )
 
 
 def queue_remember_login_cookie_update(token: str = "") -> None:
@@ -12352,6 +12396,7 @@ if active_main_section not in visited_main_sections:
 if active_main_section in {"Reminders", "Stats"}:
     ensure_action_tracker_loaded_for_current_clinic()
 render_main_section_nav(active_main_section)
+render_pending_page_top_scroll()
 if active_main_section not in MAIN_SECTION_TABS:
     active_main_section = "Reminders"
     set_main_section_tab(active_main_section)

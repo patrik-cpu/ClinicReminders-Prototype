@@ -132,11 +132,37 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertNotIn("I'll explore first", html)
 
     def test_new_account_welcome_pending_flag_is_session_scoped(self):
-        self.app.mark_new_account_welcome_pending()
+        with mock.patch.object(self.app, "set_query_param") as set_query_param:
+            self.app.mark_new_account_welcome_pending()
+
         self.assertTrue(self.app.st.session_state["show_new_account_welcome_dialog"])
+        self.assertEqual(self.app.st.session_state["main_section_tab"], "Upload Data")
+        self.assertTrue(self.app.st.session_state[self.app.SCROLL_TO_PAGE_TOP_KEY])
+        set_query_param.assert_called_once_with(
+            self.app.MAIN_SECTION_TAB_QUERY_PARAM,
+            "upload-data",
+        )
 
         self.app.close_new_account_welcome_dialog()
         self.assertFalse(self.app.st.session_state["show_new_account_welcome_dialog"])
+
+    def test_pending_page_top_scroll_is_one_shot(self):
+        self.app.queue_scroll_to_page_top()
+
+        with mock.patch.object(self.app.components, "html") as html:
+            self.app.render_pending_page_top_scroll()
+
+        self.assertNotIn(self.app.SCROLL_TO_PAGE_TOP_KEY, self.app.st.session_state)
+        html.assert_called_once()
+        scroll_script = html.call_args.args[0]
+        self.assertIn("scrollTo({top: 0", scroll_script)
+        self.assertIn('data-testid="stAppViewContainer"', scroll_script)
+        self.assertEqual(html.call_args.kwargs["height"], 0)
+
+        with mock.patch.object(self.app.components, "html") as html:
+            self.app.render_pending_page_top_scroll()
+
+        html.assert_not_called()
 
     def test_welcome_get_started_navigation_targets_upload_data(self):
         with mock.patch.object(self.app, "set_query_param") as set_query_param:
