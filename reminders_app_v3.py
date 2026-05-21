@@ -17184,11 +17184,13 @@ def render_stats_period_selector(
         today_value = user_today()
         storage_key = stats_custom_range_storage_key(range_key)
         stored_range = normalize_stats_sent_custom_range(st.session_state.get(storage_key))
-        current_range = normalize_stats_sent_custom_range(st.session_state.get(range_key))
-        if stored_range is not None and current_range != stored_range:
-            st.session_state[range_key] = stored_range
-        elif range_key not in st.session_state:
+        current_value = st.session_state.get(range_key)
+        current_range = normalize_stats_sent_custom_range(current_value)
+        current_range_is_partial = stats_custom_range_selection_in_progress(current_value)
+        if range_key not in st.session_state:
             st.session_state[range_key] = stored_range or (today_value, today_value)
+        elif current_range is None and not current_range_is_partial and stored_range is not None:
+            st.session_state[range_key] = stored_range
         custom_range_value = st.date_input(
             "Custom date range",
             value=st.session_state[range_key],
