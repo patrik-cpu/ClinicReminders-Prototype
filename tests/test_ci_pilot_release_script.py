@@ -34,6 +34,15 @@ class PilotReleaseScriptTests(unittest.TestCase):
         self.assertIn("pip-audit", dev_requirements)
         self.assertIn("dependency_security_audit.sh", pilot_content)
 
+    def test_pre_production_checklist_covers_live_smoke_and_rollback(self):
+        checklist = (REPO_ROOT / "PRE_PRODUCTION_CHECKLIST.md").read_text()
+
+        self.assertIn("scripts/live_google_smoke_check.py", checklist)
+        self.assertIn("scripts/auth_legacy_audit.py --fail-on-risk", checklist)
+        self.assertIn("PILOT_TEST_CLINIC_ID", checklist)
+        self.assertIn("previous known-good commit SHA", checklist)
+        self.assertIn("main-reminders", checklist)
+
 
 if __name__ == "__main__":
     unittest.main()
