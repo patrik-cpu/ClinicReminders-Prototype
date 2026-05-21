@@ -3872,12 +3872,30 @@ def load_shared_dataset_for_clinic():
     clinic_id = require_authenticated_tenant_access(clinic_id)
 
     rec = None
+    cached_headers = []
+    cached_row_values = get_cached_settings_row_values(clinic_id)
+    cached = st.session_state.get("_settings_row_cache")
+    if (
+        isinstance(cached, dict)
+        and cached_row_values
+        and normalize_clinic_id_key(cached.get("clinic_key", "")) == normalize_clinic_id_key(clinic_id)
+    ):
+        cached_headers = list(cached.get("headers") or [])
+        if SHEET_COL_DATASET_FILE_ID in cached_headers:
+            file_idx = cached_headers.index(SHEET_COL_DATASET_FILE_ID)
+            cached_file_id = cached_row_values[file_idx] if file_idx < len(cached_row_values) else ""
+            if str(cached_file_id or "").strip():
+                rec = {
+                    header: cached_row_values[idx] if idx < len(cached_row_values) else ""
+                    for idx, header in enumerate(cached_headers)
+                }
     try:
-        sheet, headers, row_idx, row_values = get_fresh_settings_row_values(clinic_id)
-        rec = {
-            header: row_values[idx] if idx < len(row_values) else ""
-            for idx, header in enumerate(headers)
-        }
+        if rec is None:
+            sheet, headers, row_idx, row_values = get_fresh_settings_row_values(clinic_id)
+            rec = {
+                header: row_values[idx] if idx < len(row_values) else ""
+                for idx, header in enumerate(headers)
+            }
     except Exception:
         sheet = get_settings_sheet()
         records = sheet.get_all_records()
@@ -5192,6 +5210,30 @@ def _settings_equal(left, right) -> bool:
         return left == right
 
 
+def settings_save_is_noop(
+    clinic_id: str,
+    headers: list[str],
+    settings_data: dict,
+    remote_settings: dict,
+    metadata_updates: dict[str, object],
+) -> bool:
+    if not _settings_equal(settings_data, remote_settings):
+        return False
+    if not metadata_updates:
+        return True
+
+    cached_row_values = get_cached_settings_row_values(clinic_id)
+    if not cached_row_values:
+        return False
+    for header, value in metadata_updates.items():
+        if header not in headers:
+            continue
+        idx = headers.index(header)
+        if idx >= len(cached_row_values) or str(cached_row_values[idx]) != str(value):
+            return False
+    return True
+
+
 def _merged_scalar_setting(key: str, default, base_settings: dict, remote_settings: dict):
     if key not in st.session_state:
         return _settings_copy(remote_settings.get(key, default))
@@ -5527,6 +5569,7 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
     }
     settings_json = json.dumps(settings_data)
     updated_at = utc_now_iso()
+    settings_write_skipped = False
 
     # Update existing row or append a new one
     if row:
@@ -5536,7 +5579,9 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
                 SHEET_COL_COUNTRY: settings_data.get("country", ""),
                 SHEET_COL_ACCOUNT_STATUS: "active",
             }
-        if callable(globals().get("_update_settings_cells", None)):
+        if settings_save_is_noop(clinic_id, headers, settings_data, remote_settings, metadata_updates):
+            settings_write_skipped = True
+        elif callable(globals().get("_update_settings_cells", None)):
             if metadata_updates:
                 _update_settings_cells(sheet, headers, row, settings_json, updated_at, metadata_updates)
             else:
@@ -5573,15 +5618,16 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
             ),
             value_input_option="USER_ENTERED",
         )
-    update_cached_settings_row_fields(
-        clinic_id,
-        {
-            SHEET_COL_SETTINGS_JSON: settings_json,
-            SHEET_COL_UPDATED_AT: updated_at,
-            SHEET_COL_COUNTRY: settings_data.get("country", ""),
-            SHEET_COL_ACCOUNT_STATUS: "active",
-        },
-    )
+    if not settings_write_skipped:
+        update_cached_settings_row_fields(
+            clinic_id,
+            {
+                SHEET_COL_SETTINGS_JSON: settings_json,
+                SHEET_COL_UPDATED_AT: updated_at,
+                SHEET_COL_COUNTRY: settings_data.get("country", ""),
+                SHEET_COL_ACCOUNT_STATUS: "active",
+            },
+        )
     cache_remote_settings(clinic_id, settings_data)
     saved_outcome_due_date_window_days = normalized_outcome_due_date_window_days(
         settings_data.get("outcome_due_date_window_days")
@@ -10952,6 +10998,12 @@ def has_working_dataset() -> bool:
     return df_w is not None and not getattr(df_w, "empty", True)
 
 
+def should_load_action_tracker_for_main_section(tab_name: str) -> bool:
+    if tab_name not in {"Reminders", "Stats"}:
+        return False
+    return has_working_dataset()
+
+
 def render_dataset_status(saved_rows: list[dict] | None = None):
     pending_success = st.session_state.pop("_pending_dataset_success", "")
     if pending_success:
@@ -12854,7 +12906,7 @@ active_main_section = default_main_section_tab
 visited_main_sections = list(st.session_state.get(GET_STARTED_VISITED_TABS_KEY, []))
 if active_main_section not in visited_main_sections:
     st.session_state[GET_STARTED_VISITED_TABS_KEY] = [*visited_main_sections, active_main_section]
-if active_main_section in {"Reminders", "Stats"}:
+if should_load_action_tracker_for_main_section(active_main_section):
     ensure_action_tracker_loaded_for_current_clinic()
 render_main_section_nav(active_main_section)
 render_pending_page_top_scroll()

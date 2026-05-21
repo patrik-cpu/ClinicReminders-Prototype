@@ -872,6 +872,22 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn("show_pending_settings_sync_warning()", startup_fn)
         self.assertIn("show_pending_action_sync_warning()", startup_fn)
 
+    def test_action_tracker_load_gate_skips_empty_dataset_sections(self):
+        state = self.app.st.session_state
+        state.pop("working_df", None)
+
+        self.assertFalse(self.app.should_load_action_tracker_for_main_section("Reminders"))
+        self.assertFalse(self.app.should_load_action_tracker_for_main_section("Stats"))
+        self.assertFalse(self.app.should_load_action_tracker_for_main_section("Upload Data"))
+
+        state["working_df"] = self.app.pd.DataFrame()
+        self.assertFalse(self.app.should_load_action_tracker_for_main_section("Reminders"))
+
+        state["working_df"] = self.app.pd.DataFrame({"Item Name": ["Rabies"]})
+        self.assertTrue(self.app.should_load_action_tracker_for_main_section("Reminders"))
+        self.assertTrue(self.app.should_load_action_tracker_for_main_section("Stats"))
+        self.assertFalse(self.app.should_load_action_tracker_for_main_section("Upload Data"))
+
     def test_failed_login_attempts_lock_username_temporarily(self):
         state = {}
         username = "Clinic Login"

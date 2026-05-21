@@ -13,8 +13,10 @@ class FakeSettingsSheet:
     def __init__(self, remote_settings):
         self.remote_settings = remote_settings
         self.batch_updates = []
+        self.row_values_calls = 0
 
     def row_values(self, row_idx):
+        self.row_values_calls += 1
         return [
             "Clinic Save State",
             "",
@@ -341,6 +343,47 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertIn("C2:D2", {update["range"] for update in sheet.batch_updates[0]})
         self.assertEqual(updates_by_range["E2:E2"], "United Arab Emirates")
         self.assertEqual(updates_by_range["F2:F2"], "active")
+
+    def test_save_settings_skips_batch_update_when_remote_payload_is_unchanged(self):
+        expected_settings = self.run_save_with_remote({})
+        self.setUp()
+        headers = [
+            self.app.SHEET_COL_CLINIC_ID,
+            self.app.SHEET_COL_PLAIN_PASSWORD,
+            self.app.SHEET_COL_PASSWORD_HASH,
+            self.app.SHEET_COL_SETTINGS_JSON,
+            self.app.SHEET_COL_UPDATED_AT,
+            self.app.SHEET_COL_COUNTRY,
+            self.app.SHEET_COL_ACCOUNT_STATUS,
+        ]
+        sheet = FakeSettingsSheet(expected_settings)
+        self.app.cache_remote_settings("Clinic Save State", expected_settings)
+        self.app.st.session_state["_settings_row_cache"] = {
+            "clinic_key": "clinic save state",
+            "headers": headers,
+            "row_idx": 2,
+            "row_values": [
+                "Clinic Save State",
+                "",
+                "",
+                json.dumps(expected_settings),
+                "2026-05-15T00:00:00",
+                str(expected_settings.get("country", "")),
+                "active",
+            ],
+        }
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "_gspread_retry", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+            patch.object(self.app, "update_settings_row_fields") as update_fields,
+        ):
+            saved = self.app.save_settings(track_user=False)
+
+        self.assertTrue(saved)
+        self.assertEqual(sheet.row_values_calls, 1)
+        self.assertEqual(sheet.batch_updates, [])
+        update_fields.assert_not_called()
 
     def test_save_settings_does_not_persist_action_logs(self):
         hidden_a = {
