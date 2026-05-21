@@ -72,6 +72,8 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Stats", "Upload Data", "Get Started", "Graphs"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 STAFF_ACCESS_QUERY_PARAM = "staff_access"
+SUPPORT_WHATSAPP_NUMBER = "+97142416777"
+SUPPORT_WHATSAPP_URL = "https://wa.me/97142416777"
 PENDING_MAIN_SECTION_TAB_KEY = "_pending_main_section_tab"
 SCROLL_TO_PAGE_TOP_KEY = "_scroll_to_page_top"
 GET_STARTED_MANUAL_DONE_KEY = "get_started_manual_done"
@@ -8419,6 +8421,93 @@ def render_pending_page_top_scroll() -> None:
     )
 
 
+def render_floating_whatsapp_support_widget() -> None:
+    safe_url = html_lib.escape(SUPPORT_WHATSAPP_URL, quote=True)
+    safe_number = html_lib.escape(SUPPORT_WHATSAPP_NUMBER)
+    st.markdown(
+        f"""
+        <style>
+          .cr-whatsapp-support {{
+            align-items: center;
+            background: #25d366;
+            border: 1px solid rgba(10, 126, 57, 0.35);
+            border-radius: 999px;
+            bottom: 4.75rem;
+            box-shadow: 0 10px 26px rgba(16, 24, 40, 0.18);
+            color: #ffffff !important;
+            display: inline-flex;
+            gap: 0.55rem;
+            min-height: 3rem;
+            padding: 0.72rem 1rem;
+            position: fixed;
+            right: 1.25rem;
+            text-decoration: none !important;
+            z-index: 1000;
+          }}
+          .cr-whatsapp-support:hover {{
+            background: #1fbd5a;
+            color: #ffffff !important;
+            text-decoration: none !important;
+          }}
+          .cr-whatsapp-support:focus-visible {{
+            outline: 3px solid rgba(37, 211, 102, 0.35);
+            outline-offset: 3px;
+          }}
+          .cr-whatsapp-support-icon {{
+            align-items: center;
+            background: rgba(255, 255, 255, 0.18);
+            border-radius: 999px;
+            display: inline-flex;
+            font-size: 0.84rem;
+            font-weight: 800;
+            height: 1.8rem;
+            justify-content: center;
+            letter-spacing: 0;
+            width: 1.8rem;
+          }}
+          .cr-whatsapp-support-text {{
+            display: flex;
+            flex-direction: column;
+            font-size: 0.78rem;
+            font-weight: 700;
+            line-height: 1.08;
+          }}
+          .cr-whatsapp-support-text strong {{
+            color: #ffffff;
+            font-size: 0.96rem;
+            font-weight: 800;
+          }}
+          @media (max-width: 640px) {{
+            .cr-whatsapp-support {{
+              bottom: 4.25rem;
+              min-height: 2.75rem;
+              padding: 0.62rem 0.78rem;
+              right: 0.85rem;
+            }}
+            .cr-whatsapp-support-text span {{
+              display: none;
+            }}
+          }}
+        </style>
+        <a
+          class="cr-whatsapp-support"
+          href="{safe_url}"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="WhatsApp support on {safe_number}"
+          title="WhatsApp support: {safe_number}"
+        >
+          <span class="cr-whatsapp-support-icon" aria-hidden="true">WA</span>
+          <span class="cr-whatsapp-support-text">
+            <strong>WhatsApp support</strong>
+            <span>{safe_number}</span>
+          </span>
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def queue_remember_login_cookie_update(token: str = "") -> None:
     st.session_state[REMEMBER_LOGIN_COOKIE_UPDATE_KEY] = str(token or "")
 
@@ -9978,6 +10067,7 @@ if (
     if restore_remembered_login_session():
         rerun_app()
 render_pending_remember_login_cookie_update()
+render_floating_whatsapp_support_widget()
 
 default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
 

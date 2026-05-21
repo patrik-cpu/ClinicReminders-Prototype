@@ -295,6 +295,20 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertNotIn('"Reset defaults"', reset_block)
         self.assertIn("Coming Soon", source)
 
+    def test_floating_whatsapp_support_widget_is_available(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn('SUPPORT_WHATSAPP_NUMBER = "+97142416777"', source)
+        self.assertIn('SUPPORT_WHATSAPP_URL = "https://wa.me/97142416777"', source)
+        self.assertIn("def render_floating_whatsapp_support_widget", source)
+        self.assertIn("cr-whatsapp-support", source)
+        self.assertIn('target="_blank"', source)
+        self.assertIn('rel="noopener noreferrer"', source)
+        self.assertIn("WhatsApp support", source)
+        self.assertIn("render_floating_whatsapp_support_widget()", source)
+        self.assertIn("bottom: 4.75rem;", source)
+        self.assertIn("right: 1.25rem;", source)
+
     def test_search_term_headers_bottom_align_wrapped_labels(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
