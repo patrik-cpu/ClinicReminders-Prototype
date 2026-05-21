@@ -17921,7 +17921,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     active_stats_subtab = render_stats_subtab_selector()
 
     if active_stats_subtab == "Revenue":
-        st.caption("Annual estimates use all uploaded sales data.")
         item_frame = ensure_stats_revenue_display_columns(stats_item_outcome_frame)
         render_outcome_dataframe(
             item_frame,
