@@ -18810,12 +18810,6 @@ def render_top_unreminded_items_section():
         st.caption("Upload clinic sales data to see unreminded items.")
         return
 
-    section_cols = st.columns([5, 1], gap="small")
-    with section_cols[1]:
-        if st.button("Refresh", key="refresh_top_unreminded_items", use_container_width=True):
-            refresh_top_unreminded_items()
-            st.rerun()
-
     rules = normalize_search_term_rules(st.session_state.get("rules", DEFAULT_RULES.copy()))
     by_count, by_revenue = get_top_unreminded_items(working_df, rules)
     table_cols = st.columns(2, gap="large")
