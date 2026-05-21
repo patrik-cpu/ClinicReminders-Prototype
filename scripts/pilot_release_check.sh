@@ -10,6 +10,11 @@ if python -c "import pip_audit" >/dev/null 2>&1; then
 else
   echo "Skipping dependency security audit: install dev requirements with python -m pip install -r requirements-dev.txt."
 fi
+if python -c "import ruff" >/dev/null 2>&1; then
+  bash scripts/bug_lint_check.sh
+else
+  echo "Skipping bug-only lint check: install dev requirements with python -m pip install -r requirements-dev.txt."
+fi
 python -m unittest discover -s tests -p "test_ci_*.py"
 python -m unittest tests.test_ci_streamlit_startup
 python -m unittest tests.test_settings_pointer_helpers tests.test_reminders_pointer_wrapper

@@ -8,6 +8,7 @@ Run this before promoting `main` to production.
 - Run `bash scripts/pre_merge_check.sh`.
 - Run `bash scripts/pilot_release_check.sh`.
 - Run `bash scripts/dependency_security_audit.sh` after installing dev tooling with `python -m pip install -r requirements-dev.txt`.
+- Run `bash scripts/bug_lint_check.sh` after installing dev tooling with `python -m pip install -r requirements-dev.txt`.
 
 ## Live Google Smoke
 

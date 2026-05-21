@@ -2,3 +2,4 @@
 
 # Developer-only security tooling. Keep production requirements in requirements.txt.
 pip-audit
+ruff

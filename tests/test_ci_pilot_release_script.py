@@ -43,6 +43,19 @@ class PilotReleaseScriptTests(unittest.TestCase):
         self.assertIn("previous known-good commit SHA", checklist)
         self.assertIn("main-reminders", checklist)
 
+    def test_bug_lint_check_is_narrow_and_optional_in_pilot_gate(self):
+        script = REPO_ROOT / "scripts" / "bug_lint_check.sh"
+        content = script.read_text()
+        dev_requirements = (REPO_ROOT / "requirements-dev.txt").read_text()
+        pilot_content = (REPO_ROOT / "scripts" / "pilot_release_check.sh").read_text()
+
+        self.assertTrue(script.exists())
+        self.assertTrue(os.access(script, os.X_OK))
+        self.assertIn("python -m ruff check --select=F,E9", content)
+        self.assertIn("ruff", dev_requirements)
+        self.assertIn("bug_lint_check.sh", pilot_content)
+        self.assertIn("Skipping bug-only lint check", pilot_content)
+
 
 if __name__ == "__main__":
     unittest.main()
