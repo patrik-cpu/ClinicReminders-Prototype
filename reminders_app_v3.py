@@ -26,8 +26,6 @@ import random
 import calendar
 import html as html_lib
 import textwrap
-import smtplib
-from email.message import EmailMessage
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import auth_password_utils as _auth_password_utils
 
@@ -87,8 +85,6 @@ _CURRENCY_RX = re.compile(r"[^\d.\-]")
 MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Identify", "Stats", "Upload Data", "Get Started"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 STAFF_ACCESS_QUERY_PARAM = "staff_access"
-EMAIL_VERIFY_QUERY_PARAM = "verify_email"
-PASSWORD_RESET_QUERY_PARAM = "reset_password"
 SUPPORT_WHATSAPP_NUMBER = "+97142416777"
 SUPPORT_WHATSAPP_URL = "https://wa.me/97142416777"
 PENDING_MAIN_SECTION_TAB_KEY = "_pending_main_section_tab"
@@ -415,15 +411,6 @@ SHEET_COL_GOOGLE_EMAIL = "GoogleEmail"
 SHEET_COL_GOOGLE_SUBJECT = "GoogleSubject"
 SHEET_COL_GOOGLE_NAME = "GoogleName"
 SHEET_COL_COUNTRY = "Country"
-SHEET_COL_EMAIL_VERIFIED = "EmailVerified"
-SHEET_COL_EMAIL_VERIFICATION_TOKEN_HASH = "EmailVerificationTokenHash"
-SHEET_COL_EMAIL_VERIFICATION_EXPIRES_AT = "EmailVerificationExpiresAt"
-SHEET_COL_EMAIL_VERIFICATION_SENT_AT = "EmailVerificationSentAt"
-SHEET_COL_EMAIL_VERIFICATION_USED_AT = "EmailVerificationUsedAt"
-SHEET_COL_PASSWORD_RESET_TOKEN_HASH = "PasswordResetTokenHash"
-SHEET_COL_PASSWORD_RESET_EXPIRES_AT = "PasswordResetExpiresAt"
-SHEET_COL_PASSWORD_RESET_SENT_AT = "PasswordResetSentAt"
-SHEET_COL_PASSWORD_RESET_USED_AT = "PasswordResetUsedAt"
 SHEET_COL_CREATED_AT_GST = "CreatedAtGST"
 SHEET_COL_LAST_LOGIN_AT_GST = "LastLoginAtGST"
 SHEET_COL_LAST_LOGIN_PROVIDER = "LastLoginProvider"
@@ -447,17 +434,6 @@ GOOGLE_ACCOUNT_COLUMNS = [
     SHEET_COL_GOOGLE_SUBJECT,
     SHEET_COL_GOOGLE_NAME,
 ]
-EMAIL_AUTH_COLUMNS = [
-    SHEET_COL_EMAIL_VERIFIED,
-    SHEET_COL_EMAIL_VERIFICATION_TOKEN_HASH,
-    SHEET_COL_EMAIL_VERIFICATION_EXPIRES_AT,
-    SHEET_COL_EMAIL_VERIFICATION_SENT_AT,
-    SHEET_COL_EMAIL_VERIFICATION_USED_AT,
-    SHEET_COL_PASSWORD_RESET_TOKEN_HASH,
-    SHEET_COL_PASSWORD_RESET_EXPIRES_AT,
-    SHEET_COL_PASSWORD_RESET_SENT_AT,
-    SHEET_COL_PASSWORD_RESET_USED_AT,
-]
 ACCOUNT_METADATA_COLUMNS = [
     SHEET_COL_COUNTRY,
     SHEET_COL_CREATED_AT_GST,
@@ -465,16 +441,7 @@ ACCOUNT_METADATA_COLUMNS = [
     SHEET_COL_LAST_LOGIN_PROVIDER,
     SHEET_COL_ACCOUNT_STATUS,
 ]
-SETTINGS_REQUIRED_COLUMNS = SETTINGS_BASE_COLUMNS + DATASET_POINTER_COLUMNS + GOOGLE_ACCOUNT_COLUMNS + EMAIL_AUTH_COLUMNS + ACCOUNT_METADATA_COLUMNS
-EMAIL_VERIFICATION_EXPIRY_MINUTES = 60
-PASSWORD_RESET_EXPIRY_MINUTES = 45
-EMAIL_SENDER_FROM = config_value("CLINIC_REMINDERS_EMAIL_FROM", "info@novavetfamily.com")
-EMAIL_SMTP_HOST = config_value("CLINIC_REMINDERS_SMTP_HOST", "smtp.gmail.com")
-EMAIL_SMTP_PORT = int(config_value("CLINIC_REMINDERS_SMTP_PORT", "587") or "587")
-EMAIL_SMTP_USERNAME = config_value("CLINIC_REMINDERS_SMTP_USERNAME", "")
-EMAIL_SMTP_PASSWORD = config_value("CLINIC_REMINDERS_SMTP_PASSWORD", "")
-EMAIL_SEND_MODE = config_value("CLINIC_REMINDERS_EMAIL_MODE", "local").lower()
-APP_PUBLIC_BASE_URL = config_value("CLINIC_REMINDERS_PUBLIC_BASE_URL", "")
+SETTINGS_REQUIRED_COLUMNS = SETTINGS_BASE_COLUMNS + DATASET_POINTER_COLUMNS + GOOGLE_ACCOUNT_COLUMNS + ACCOUNT_METADATA_COLUMNS
 DEFAULT_USER_TIMEZONE = "UTC"
 GST_TZ = ZoneInfo("Asia/Dubai")
 BASE_ACTION_TRACKER_WORKSHEET = "Action tracker"
@@ -8215,372 +8182,6 @@ def normalize_email(value: str) -> str:
     return str(value or "").strip().lower()
 
 
-_BASIC_EMAIL_RX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-
-def is_valid_email(value: str) -> bool:
-    email = normalize_email(value)
-    return bool(email and _BASIC_EMAIL_RX.match(email))
-
-
-def validate_required_email(value: str) -> str:
-    email = normalize_email(value)
-    if not is_valid_email(email):
-        raise ValueError("Enter a valid email address.")
-    return email
-
-
-def email_is_verified_value(value) -> bool:
-    return str(value or "").strip().lower() in {"1", "true", "yes", "verified"}
-
-
-def token_hash_for_storage(token: str) -> str:
-    token = str(token or "").strip()
-    if not token:
-        return ""
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def generate_email_token() -> str:
-    return secrets.token_urlsafe(32)
-
-
-def parse_utc_iso(value: str) -> datetime | None:
-    value = str(value or "").strip()
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    return utc_now(parsed)
-
-
-def utc_minutes_from_now(minutes: int, now: datetime | None = None) -> str:
-    return (utc_now(now) + timedelta(minutes=int(minutes))).isoformat()
-
-
-def row_dict_from_values(headers: list[str], row_values: list[str]) -> dict:
-    return {
-        header: row_values[idx] if idx < len(row_values) else ""
-        for idx, header in enumerate(headers)
-    }
-
-
-def settings_rows_snapshot() -> tuple[object, list[str], list[list[str]]]:
-    sheet = get_settings_sheet()
-    if not callable(getattr(sheet, "get_all_values", None)):
-        records = _gspread_retry(sheet.get_all_records) or []
-        headers = list(records[0].keys()) if records else list(SETTINGS_REQUIRED_COLUMNS)
-        rows = [[record.get(header, "") for header in headers] for record in records]
-        return sheet, headers, rows
-    values = _gspread_retry(sheet.get_all_values) or []
-    headers = list(values[0]) if values else list(SETTINGS_REQUIRED_COLUMNS)
-    return sheet, headers, values[1:] if values else []
-
-
-def find_settings_row_by_email(email: str) -> tuple[object, list[str], int, dict] | None:
-    email = normalize_email(email)
-    if not email:
-        return None
-    sheet, headers, rows = settings_rows_snapshot()
-    if SHEET_COL_GOOGLE_EMAIL not in headers:
-        return None
-    for row_idx, row_values in enumerate(rows, start=2):
-        row = row_dict_from_values(headers, row_values)
-        if hmac.compare_digest(normalize_email(row.get(SHEET_COL_GOOGLE_EMAIL, "")), email):
-            return sheet, headers, row_idx, row
-    return None
-
-
-def update_settings_row_fields_by_index(
-    sheet,
-    headers: list[str],
-    row_idx: int,
-    values_by_header: dict[str, object],
-) -> None:
-    updates = []
-    for header, value in values_by_header.items():
-        if header in headers:
-            col_idx = _settings_col_index(headers, header)
-            updates.append({
-                "range": _row_range_a1(row_idx, col_idx, col_idx),
-                "values": [[value]],
-            })
-    if updates:
-        _gspread_retry(sheet.batch_update, updates)
-    st.session_state.pop("_settings_row_cache", None)
-
-
-def find_settings_row_by_token_hash(token_hash: str, token_column: str) -> tuple[object, list[str], int, dict] | None:
-    token_hash = str(token_hash or "").strip()
-    if not token_hash:
-        return None
-    sheet, headers, rows = settings_rows_snapshot()
-    if token_column not in headers:
-        return None
-    for row_idx, row_values in enumerate(rows, start=2):
-        row = row_dict_from_values(headers, row_values)
-        stored_hash = str(row.get(token_column, "") or "").strip()
-        if stored_hash and hmac.compare_digest(stored_hash, token_hash):
-            return sheet, headers, row_idx, row
-    return None
-
-
-def email_belongs_to_other_clinic(email: str, clinic_id: str = "") -> bool:
-    found = find_settings_row_by_email(email)
-    if not found:
-        return False
-    _sheet, _headers, _row_idx, row = found
-    current_key = normalize_clinic_id_key(clinic_id)
-    found_key = normalize_clinic_id_key(row.get(SHEET_COL_CLINIC_ID, ""))
-    return bool(found_key and found_key != current_key)
-
-
-def current_app_base_url() -> str:
-    configured = str(APP_PUBLIC_BASE_URL or "").strip().rstrip("/")
-    if configured:
-        return configured
-    try:
-        base_url = getattr(st.context, "url", "")
-    except Exception:
-        base_url = ""
-    parsed = urlparse(str(base_url or ""))
-    if parsed.scheme and parsed.netloc:
-        return f"{parsed.scheme}://{parsed.netloc}"
-    return "http://localhost:8501"
-
-
-def build_app_link(**params: str) -> str:
-    base = current_app_base_url()
-    query = "&".join(
-        f"{key}={quote_value}"
-        for key, value in params.items()
-        if (quote_value := str(value or "").strip())
-    )
-    return f"{base}?{query}" if query else base
-
-
-def verification_link(token: str) -> str:
-    return build_app_link(**{EMAIL_VERIFY_QUERY_PARAM: token})
-
-
-def password_reset_link(token: str) -> str:
-    return build_app_link(**{PASSWORD_RESET_QUERY_PARAM: token})
-
-
-def email_verification_body(link: str) -> str:
-    return "\n".join([
-        "Hi,",
-        "",
-        "Please verify your email address to finish setting up your Clinic Reminders account.",
-        "",
-        "Verify your email:",
-        str(link or "").strip(),
-        "",
-        f"This link will expire in {EMAIL_VERIFICATION_EXPIRY_MINUTES} minutes.",
-        "",
-        "If you did not create a Clinic Reminders account, you can ignore this email.",
-        "",
-        "Clinic Reminders",
-        "A Nova Vet Family product",
-    ])
-
-
-def password_reset_body(link: str) -> str:
-    return "\n".join([
-        "Hi,",
-        "",
-        "We received a request to reset the password for your Clinic Reminders account.",
-        "",
-        "Reset your password:",
-        str(link or "").strip(),
-        "",
-        f"This link will expire in {PASSWORD_RESET_EXPIRY_MINUTES} minutes. It can only be used once.",
-        "",
-        "If you did not request this, you can ignore this email.",
-        "",
-        "Clinic Reminders",
-        "A Nova Vet Family product",
-    ])
-
-
-def send_clinic_email(to_email: str, subject: str, body: str) -> bool:
-    to_email = validate_required_email(to_email)
-    from_email = normalize_email(EMAIL_SENDER_FROM) or "info@novavetfamily.com"
-    message = EmailMessage()
-    message["From"] = from_email
-    message["To"] = to_email
-    message["Subject"] = str(subject or "").strip()
-    message.set_content(str(body or ""))
-
-    if EMAIL_SEND_MODE in {"local", "test", "off", "disabled"} or not EMAIL_SMTP_USERNAME or not EMAIL_SMTP_PASSWORD:
-        st.session_state.setdefault("_email_outbox", []).append({
-            "from": from_email,
-            "to": to_email,
-            "subject": message["Subject"],
-            "body": str(body or ""),
-        })
-        return True
-
-    try:
-        with smtplib.SMTP(EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, timeout=20) as smtp:
-            smtp.starttls()
-            smtp.login(EMAIL_SMTP_USERNAME, EMAIL_SMTP_PASSWORD)
-            smtp.send_message(message)
-        return True
-    except Exception as e:
-        record_error_tracker_event(
-            "email_send_failed",
-            stage="send_clinic_email",
-            error=e,
-            source="email_adapter",
-        )
-        return False
-
-
-def send_email_verification(clinic_id: str, email: str, now: datetime | None = None) -> str:
-    clinic_id = str(clinic_id or "").strip()
-    email = validate_required_email(email)
-    token = generate_email_token()
-    token_hash = token_hash_for_storage(token)
-    sent_at = utc_now_iso(now)
-    expires_at = utc_minutes_from_now(EMAIL_VERIFICATION_EXPIRY_MINUTES, now)
-    _raw_update_settings_row_fields(
-        clinic_id,
-        {
-            SHEET_COL_EMAIL_VERIFIED: "false",
-            SHEET_COL_EMAIL_VERIFICATION_TOKEN_HASH: token_hash,
-            SHEET_COL_EMAIL_VERIFICATION_EXPIRES_AT: expires_at,
-            SHEET_COL_EMAIL_VERIFICATION_SENT_AT: sent_at,
-            SHEET_COL_EMAIL_VERIFICATION_USED_AT: "",
-            SHEET_COL_UPDATED_AT: sent_at,
-        },
-        SETTINGS_REQUIRED_COLUMNS,
-    )
-    send_clinic_email(
-        email,
-        "Verify your Clinic Reminders account",
-        email_verification_body(verification_link(token)),
-    )
-    return token
-
-
-def send_initial_email_verification(clinic_id: str, email: str, now: datetime | None = None) -> str:
-    try:
-        return send_email_verification(clinic_id, email, now=now)
-    except Exception as e:
-        record_error_tracker_event(
-            "email_verification_send_failed",
-            stage="send_initial_email_verification",
-            error=e,
-            source="auth_email",
-        )
-        return ""
-
-
-def verify_email_token(token: str, now: datetime | None = None) -> bool:
-    token_hash = token_hash_for_storage(token)
-    found = find_settings_row_by_token_hash(token_hash, SHEET_COL_EMAIL_VERIFICATION_TOKEN_HASH)
-    if not found:
-        return False
-    sheet, headers, row_idx, row = found
-    if str(row.get(SHEET_COL_EMAIL_VERIFICATION_USED_AT, "") or "").strip():
-        return False
-    expires_at = parse_utc_iso(row.get(SHEET_COL_EMAIL_VERIFICATION_EXPIRES_AT, ""))
-    if not expires_at or expires_at < utc_now(now):
-        return False
-    email = normalize_email(row.get(SHEET_COL_GOOGLE_EMAIL, ""))
-    if not email:
-        return False
-    now_iso = utc_now_iso(now)
-    update_settings_row_fields_by_index(
-        sheet,
-        headers,
-        row_idx,
-        {
-            SHEET_COL_EMAIL_VERIFIED: "true",
-            SHEET_COL_EMAIL_VERIFICATION_TOKEN_HASH: "",
-            SHEET_COL_EMAIL_VERIFICATION_USED_AT: now_iso,
-            SHEET_COL_UPDATED_AT: now_iso,
-        },
-    )
-    return True
-
-
-FORGOT_PASSWORD_GENERIC_MESSAGE = "If an account exists for that email, we’ll send password reset instructions."
-
-
-def request_password_reset(email: str, now: datetime | None = None) -> str:
-    email = normalize_email(email)
-    if not is_valid_email(email):
-        return FORGOT_PASSWORD_GENERIC_MESSAGE
-    found = find_settings_row_by_email(email)
-    if not found:
-        return FORGOT_PASSWORD_GENERIC_MESSAGE
-    sheet, headers, row_idx, row = found
-    if not email_is_verified_value(row.get(SHEET_COL_EMAIL_VERIFIED, "")):
-        return FORGOT_PASSWORD_GENERIC_MESSAGE
-    if not str(row.get(SHEET_COL_PASSWORD_HASH, "") or "").strip():
-        return FORGOT_PASSWORD_GENERIC_MESSAGE
-
-    token = generate_email_token()
-    now_iso = utc_now_iso(now)
-    update_settings_row_fields_by_index(
-        sheet,
-        headers,
-        row_idx,
-        {
-            SHEET_COL_PASSWORD_RESET_TOKEN_HASH: token_hash_for_storage(token),
-            SHEET_COL_PASSWORD_RESET_EXPIRES_AT: utc_minutes_from_now(PASSWORD_RESET_EXPIRY_MINUTES, now),
-            SHEET_COL_PASSWORD_RESET_SENT_AT: now_iso,
-            SHEET_COL_PASSWORD_RESET_USED_AT: "",
-            SHEET_COL_UPDATED_AT: now_iso,
-        },
-    )
-    send_clinic_email(
-        email,
-        "Reset your Clinic Reminders password",
-        password_reset_body(password_reset_link(token)),
-    )
-    return FORGOT_PASSWORD_GENERIC_MESSAGE
-
-
-def complete_password_reset(token: str, new_password: str, confirm_password: str, now: datetime | None = None) -> bool:
-    if str(new_password or "") != str(confirm_password or ""):
-        raise ValueError("Passwords do not match.")
-    token_hash = token_hash_for_storage(token)
-    found = find_settings_row_by_token_hash(token_hash, SHEET_COL_PASSWORD_RESET_TOKEN_HASH)
-    if not found:
-        raise ValueError("This password reset link is invalid or expired.")
-    sheet, headers, row_idx, row = found
-    if str(row.get(SHEET_COL_PASSWORD_RESET_USED_AT, "") or "").strip():
-        raise ValueError("This password reset link is invalid or expired.")
-    expires_at = parse_utc_iso(row.get(SHEET_COL_PASSWORD_RESET_EXPIRES_AT, ""))
-    if not expires_at or expires_at < utc_now(now):
-        raise ValueError("This password reset link is invalid or expired.")
-    clinic_id = str(row.get(SHEET_COL_CLINIC_ID, "") or "").strip()
-    if not clinic_id:
-        raise ValueError("This password reset link is invalid or expired.")
-    validate_password_policy(new_password, clinic_id)
-    now_iso = utc_now_iso(now)
-    password_hash = password_hash_for_storage(new_password)
-    update_settings_row_fields_by_index(
-        sheet,
-        headers,
-        row_idx,
-        {
-            SHEET_COL_PLAIN_PASSWORD: "",
-            SHEET_COL_PASSWORD_HASH: password_hash,
-            SHEET_COL_PASSWORD_RESET_TOKEN_HASH: "",
-            SHEET_COL_PASSWORD_RESET_USED_AT: now_iso,
-            SHEET_COL_UPDATED_AT: now_iso,
-        },
-    )
-    clear_remember_login_token(block_restore=True)
-    return True
-
-
 def normalize_clinic_id_key(value) -> str:
     if value is None:
         return ""
@@ -9373,11 +8974,10 @@ def record_settings_account_event(
         return
 
 
-def create_clinic_account(clinic_id: str, country: str, password: str, email: str):
+def create_clinic_account(clinic_id: str, country: str, password: str):
     clinic_id = str(clinic_id or "").strip()
     country = str(country or "").strip()
     password = str(password or "")
-    email = validate_required_email(email)
     if not clinic_id:
         raise ValueError("Enter a clinic name.")
     if not country:
@@ -9394,29 +8994,15 @@ def create_clinic_account(clinic_id: str, country: str, password: str, email: st
             current = row[clinic_ix] if len(row) > clinic_ix else ""
             if normalize_clinic_id_key(current) == clinic_key:
                 raise ValueError("That clinic name is already registered.")
-    if SHEET_COL_GOOGLE_EMAIL in headers:
-        email_ix = headers.index(SHEET_COL_GOOGLE_EMAIL)
-        for row in all_vals[1:]:
-            current_email = row[email_ix] if len(row) > email_ix else ""
-            if normalize_email(current_email) == email:
-                raise ValueError("That email address is already registered.")
     headers = ensure_settings_sheet_columns(sheet, headers, SETTINGS_REQUIRED_COLUMNS)
     settings_json = json.dumps(default_settings_for_country(country))
     password_hash = password_hash_for_storage(password)
     created_at_gst = gst_now_iso()
-    verification_token = generate_email_token()
-    now_iso = utc_now_iso()
     values_by_header = {
         SHEET_COL_CLINIC_ID: clinic_id,
         SHEET_COL_PASSWORD_HASH: password_hash,
         SHEET_COL_SETTINGS_JSON: settings_json,
-        SHEET_COL_UPDATED_AT: now_iso,
-        SHEET_COL_GOOGLE_EMAIL: email,
-        SHEET_COL_EMAIL_VERIFIED: "false",
-        SHEET_COL_EMAIL_VERIFICATION_TOKEN_HASH: token_hash_for_storage(verification_token),
-        SHEET_COL_EMAIL_VERIFICATION_EXPIRES_AT: utc_minutes_from_now(EMAIL_VERIFICATION_EXPIRY_MINUTES),
-        SHEET_COL_EMAIL_VERIFICATION_SENT_AT: now_iso,
-        SHEET_COL_EMAIL_VERIFICATION_USED_AT: "",
+        SHEET_COL_UPDATED_AT: utc_now_iso(),
         SHEET_COL_COUNTRY: country,
         SHEET_COL_CREATED_AT_GST: created_at_gst,
         SHEET_COL_LAST_LOGIN_AT_GST: created_at_gst,
@@ -9424,11 +9010,6 @@ def create_clinic_account(clinic_id: str, country: str, password: str, email: st
         SHEET_COL_ACCOUNT_STATUS: "active",
     }
     _gspread_retry(sheet.append_row, settings_row_values(headers, values_by_header), value_input_option="USER_ENTERED")
-    send_clinic_email(
-        email,
-        "Verify your Clinic Reminders account",
-        email_verification_body(verification_link(verification_token)),
-    )
     upsert_user_tracker(clinic_id, country=country, event="created")
     record_account_lifecycle_event(
         clinic_id,
@@ -9487,11 +9068,6 @@ def create_google_clinic_account(clinic_id: str, country: str, google_user: dict
         SHEET_COL_GOOGLE_EMAIL: email,
         SHEET_COL_GOOGLE_SUBJECT: str(google_user.get("subject", "")).strip(),
         SHEET_COL_GOOGLE_NAME: str(google_user.get("name", "")).strip(),
-        SHEET_COL_EMAIL_VERIFIED: "true",
-        SHEET_COL_EMAIL_VERIFICATION_TOKEN_HASH: "",
-        SHEET_COL_EMAIL_VERIFICATION_EXPIRES_AT: "",
-        SHEET_COL_EMAIL_VERIFICATION_SENT_AT: "",
-        SHEET_COL_EMAIL_VERIFICATION_USED_AT: "",
         SHEET_COL_COUNTRY: country,
         SHEET_COL_CREATED_AT_GST: created_at_gst,
         SHEET_COL_LAST_LOGIN_AT_GST: created_at_gst,
@@ -9643,7 +9219,6 @@ def get_clinic_profile(clinic_id: str) -> dict:
     return {
         "clinic_id": str(row.get("ClinicID") or clinic_id or "").strip(),
         "email": normalize_email(row.get(SHEET_COL_GOOGLE_EMAIL, "")),
-        "email_verified": email_is_verified_value(row.get(SHEET_COL_EMAIL_VERIFIED, "")),
         "auth_provider": str(row.get(SHEET_COL_AUTH_PROVIDER, "")).strip(),
         "country": str(row.get(SHEET_COL_COUNTRY, "")).strip(),
     }
@@ -9703,7 +9278,7 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
     email = normalize_email(email)
     if not new_clinic_id:
         raise ValueError("Enter a clinic name.")
-    if email and not is_valid_email(email):
+    if email and ("@" not in email or "." not in email.split("@")[-1]):
         raise ValueError("Enter a valid email address.")
 
     clinic_name_changed = new_clinic_id.lower() != old_clinic_id.lower()
@@ -9724,9 +9299,6 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
         if email and email != stored_google_email:
             raise ValueError("Google sign-in email is managed by Google and cannot be changed here.")
         email = stored_google_email
-    elif email:
-        if email_belongs_to_other_clinic(email, old_clinic_id):
-            raise ValueError("That email address is already registered.")
     updated_at = utc_now_iso()
     values_by_header = {
         "ClinicID": new_clinic_id,
@@ -9734,12 +9306,6 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
     }
     if not google_identity_locked:
         values_by_header[SHEET_COL_GOOGLE_EMAIL] = email
-        if email != stored_google_email:
-            values_by_header[SHEET_COL_EMAIL_VERIFIED] = "false"
-            values_by_header[SHEET_COL_EMAIL_VERIFICATION_TOKEN_HASH] = ""
-            values_by_header[SHEET_COL_EMAIL_VERIFICATION_EXPIRES_AT] = ""
-            values_by_header[SHEET_COL_EMAIL_VERIFICATION_SENT_AT] = ""
-            values_by_header[SHEET_COL_EMAIL_VERIFICATION_USED_AT] = ""
     file_id = str(old_row.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
     if file_id and clinic_name_changed:
         new_filename = f"{new_clinic_id}_shared_dataset.csv"
@@ -9759,12 +9325,10 @@ def update_clinic_profile(old_clinic_id: str, new_clinic_id: str, email: str) ->
                 "Please try again before changing the clinic name."
             ) from e
 
-    update_settings_row_fields(old_clinic_id, values_by_header, GOOGLE_ACCOUNT_COLUMNS + EMAIL_AUTH_COLUMNS)
+    update_settings_row_fields(old_clinic_id, values_by_header, GOOGLE_ACCOUNT_COLUMNS)
     st.session_state.pop("_profile_row_cache", None)
     if clinic_name_changed:
         update_rows_with_clinic_id(old_clinic_id, new_clinic_id)
-    if not google_identity_locked and email and email != stored_google_email:
-        send_initial_email_verification(new_clinic_id, email)
     return {"clinic_id": new_clinic_id, "email": email}
 
 
@@ -10124,11 +9688,6 @@ def render_profile_dialog():
             if google_profile:
                 new_email = google_email
                 st.caption("Managed by Google. Changing clinic details here will not change the Google sign-in email.")
-            elif profile.get("email"):
-                if profile.get("email_verified"):
-                    st.caption("Email verified.")
-                else:
-                    st.caption("Email not verified yet. Save profile to send a fresh verification email after changing it.")
             submitted = st.form_submit_button("Save profile", type="primary", use_container_width=True)
 
         if submitted:
@@ -10151,18 +9710,6 @@ def render_profile_dialog():
                     source="profile_dialog",
                 )
                 st.error("Could not update profile. Please try again or contact support.")
-
-        if (
-            not google_profile
-            and profile.get("email")
-            and not profile.get("email_verified")
-            and st.button("Resend verification email", key="profile_resend_verification", use_container_width=True)
-        ):
-            token = send_initial_email_verification(clinic_id, profile.get("email", ""))
-            if token:
-                st.success("Verification email sent.")
-            else:
-                st.error("Could not send verification email. Please try again later.")
 
         if st.button("Close", key="profile_dialog_close", use_container_width=True):
             close_profile_dialog()
@@ -10533,55 +10080,6 @@ def finish_authenticated_session(
     )
 
 
-def render_password_reset_screen(token: str) -> None:
-    login_col, _ = st.columns([0.36, 0.64])
-    with login_col:
-        st.markdown("<div class='login-title'>Reset password</div>", unsafe_allow_html=True)
-        st.caption("Enter a new password for your Clinic Reminders account.")
-        with st.form("password_reset_form"):
-            new_password = st.text_input("New password", type="password", key="reset_new_password")
-            confirm_password = st.text_input("Confirm password", type="password", key="reset_confirm_password")
-            submitted = st.form_submit_button("Reset password", type="primary", use_container_width=True)
-        if submitted:
-            try:
-                complete_password_reset(token, new_password, confirm_password)
-                clear_query_param(PASSWORD_RESET_QUERY_PARAM)
-                st.session_state["logout_notice"] = "Password reset. Log in with your new password."
-                st.rerun()
-            except ValueError as e:
-                st.error(str(e))
-            except Exception as e:
-                record_error_tracker_event(
-                    "password_reset_failed",
-                    stage="render_password_reset_screen",
-                    error=e,
-                    source="forgot_password",
-                )
-                st.error("Could not reset password. Please request a new reset link.")
-        if st.button("Back to login", key="password_reset_back_to_login", use_container_width=True):
-            clear_query_param(PASSWORD_RESET_QUERY_PARAM)
-            st.rerun()
-
-
-def render_forgot_password_request() -> None:
-    st.markdown("### Reset password")
-    with st.form("forgot_password_form"):
-        reset_email = st.text_input("Email", key="forgot_password_email")
-        submitted = st.form_submit_button("Send reset instructions", type="primary", use_container_width=True)
-    if submitted:
-        try:
-            message = request_password_reset(reset_email)
-        except Exception as e:
-            record_error_tracker_event(
-                "password_reset_request_failed",
-                stage="render_forgot_password_request",
-                error=e,
-                source="forgot_password",
-            )
-            message = FORGOT_PASSWORD_GENERIC_MESSAGE
-        st.success(message)
-
-
 def summarize_uploads(file_blobs, cache_version: int = UPLOAD_SUMMARY_SCHEMA_VERSION):
     validate_upload_file_collection(file_blobs)
     datasets, summary_rows = [], []
@@ -10778,20 +10276,6 @@ if (
 render_pending_remember_login_cookie_update()
 render_floating_whatsapp_support_widget()
 
-email_verification_token = get_query_param(EMAIL_VERIFY_QUERY_PARAM).strip()
-if email_verification_token:
-    if verify_email_token(email_verification_token):
-        st.session_state["logout_notice"] = "Email verified. You can log in normally."
-    else:
-        st.session_state["logout_notice"] = "This verification link is invalid or expired. Please request a new one from Profile."
-    clear_query_param(EMAIL_VERIFY_QUERY_PARAM)
-    st.rerun()
-
-password_reset_token = get_query_param(PASSWORD_RESET_QUERY_PARAM).strip()
-if password_reset_token and not st.session_state["logged_in"]:
-    render_password_reset_screen(password_reset_token)
-    st.stop()
-
 default_username, default_password = DEV_AUTO_LOGIN_CREDENTIALS
 
 if (
@@ -10857,13 +10341,10 @@ if not st.session_state["logged_in"]:
                 key="login_keep_logged_in",
             )
             login_submitted = st.form_submit_button("Login", type="primary", use_container_width=True)
-        if st.button("Forgot password?", key="toggle_forgot_password", use_container_width=False):
-            st.session_state["show_forgot_password"] = not st.session_state.get("show_forgot_password", False)
 
         if login_submitted:
             st.session_state["show_staff_access_login"] = False
             st.session_state["show_create_account"] = False
-            st.session_state["show_forgot_password"] = False
             login_allowed, retry_after = login_attempt_allowed(
                 username,
             )
@@ -10888,9 +10369,6 @@ if not st.session_state["logged_in"]:
                 else:
                     record_failed_login_attempt(username)
                     st.error("❌ Invalid username or password.")
-
-        if st.session_state.get("show_forgot_password", False):
-            render_forgot_password_request()
 
         google_auth_ready = authlib_available()
         google_signup_error = st.session_state.pop("google_signup_error", "")
@@ -10989,7 +10467,6 @@ if not st.session_state["logged_in"]:
             st.markdown("### Sign Up")
             with st.form("create_account_form"):
                 new_clinic = st.text_input("Clinic Name (username)", key="signup_clinic_name").strip()
-                new_email = st.text_input("Email", key="signup_email").strip()
                 new_password = st.text_input("Set password", type="password", key="signup_password")
                 confirm_password = st.text_input("Confirm password", type="password", key="signup_confirm_password")
                 country = st.selectbox("Country", COUNTRY_OPTIONS, key="signup_country")
@@ -11000,10 +10477,8 @@ if not st.session_state["logged_in"]:
                 )
 
             if create_submitted:
-                if not new_clinic or not new_email or not new_password or not confirm_password:
-                    st.error("Enter a clinic name, email, and password twice.")
-                elif not is_valid_email(new_email):
-                    st.error("Enter a valid email address.")
+                if not new_clinic or not new_password or not confirm_password:
+                    st.error("Enter a clinic name and password twice.")
                 elif password_policy_error(new_password, new_clinic):
                     st.error(password_policy_error(new_password, new_clinic))
                 elif new_password != confirm_password:
@@ -11019,7 +10494,6 @@ if not st.session_state["logged_in"]:
                                 new_clinic,
                                 country,
                                 new_password,
-                                new_email,
                             )
                             st.session_state["user_country"] = country
                             finish_authenticated_session(

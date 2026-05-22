@@ -23,7 +23,7 @@ class LogicEdgeCaseTests(unittest.TestCase):
             patch.object(self.app, "get_settings_sheet") as get_sheet,
         ):
             with self.assertRaisesRegex(ValueError, "Enter a clinic name"):
-                self.app.create_clinic_account("   ", "United States", "secret-password", "owner@example.com")
+                self.app.create_clinic_account("   ", "United States", "secret-password")
 
         get_row.assert_not_called()
         get_sheet.assert_not_called()
@@ -34,7 +34,7 @@ class LogicEdgeCaseTests(unittest.TestCase):
             patch.object(self.app, "get_settings_sheet") as get_sheet,
         ):
             with self.assertRaisesRegex(ValueError, "Password must be at least 12 characters"):
-                self.app.create_clinic_account("Clinic Short", "United States", "12345", "owner@example.com")
+                self.app.create_clinic_account("Clinic Short", "United States", "12345")
 
         get_row.assert_not_called()
         get_sheet.assert_not_called()

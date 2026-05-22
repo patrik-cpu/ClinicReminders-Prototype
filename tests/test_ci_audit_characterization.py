@@ -96,11 +96,10 @@ class AuditCharacterizationTests(unittest.TestCase):
             patch.object(self.app, "get_settings_sheet", return_value=sheet),
             patch.object(self.app, "ensure_settings_sheet_columns", return_value=headers),
             patch.object(self.app, "_gspread_retry", side_effect=self.retry_immediately),
-            patch.object(self.app, "send_clinic_email", return_value=True) as send_email,
             patch.object(self.app, "upsert_user_tracker") as upsert_tracker,
             patch.object(self.app, "record_account_lifecycle_event") as lifecycle_event,
         ):
-            password_hash = self.app.create_clinic_account("Clinic New", "United Arab Emirates", "secret-password", " Owner@Example.COM ")
+            password_hash = self.app.create_clinic_account("Clinic New", "United Arab Emirates", "secret-password")
 
         values = sheet.appended["values"]
         by_header = dict(zip(headers, values))
@@ -108,17 +107,11 @@ class AuditCharacterizationTests(unittest.TestCase):
         self.assertEqual(by_header[self.app.SHEET_COL_CLINIC_ID], "Clinic New")
         self.assertNotIn(self.app.SHEET_COL_PLAIN_PASSWORD, headers)
         self.assertEqual(by_header[self.app.SHEET_COL_PASSWORD_HASH], password_hash)
-        self.assertEqual(by_header[self.app.SHEET_COL_GOOGLE_EMAIL], "owner@example.com")
-        self.assertEqual(by_header[self.app.SHEET_COL_EMAIL_VERIFIED], "false")
-        self.assertTrue(by_header[self.app.SHEET_COL_EMAIL_VERIFICATION_TOKEN_HASH])
         self.assertTrue(self.app.verify_password("secret-password", password_hash))
         self.assertEqual(json.loads(by_header[self.app.SHEET_COL_SETTINGS_JSON])["country"], "United Arab Emirates")
         self.assertEqual(by_header[self.app.SHEET_COL_ACCOUNT_STATUS], "active")
         self.assertEqual(sheet.get_all_values_calls, 1)
         self.assertEqual(sheet.get_all_records_calls, 0)
-        send_email.assert_called_once()
-        self.assertEqual(send_email.call_args.args[0], "owner@example.com")
-        self.assertEqual(send_email.call_args.args[1], "Verify your Clinic Reminders account")
         upsert_tracker.assert_called_once_with("Clinic New", country="United Arab Emirates", event="created")
         lifecycle_event.assert_called_once_with(
             "Clinic New",
@@ -157,7 +150,7 @@ class AuditCharacterizationTests(unittest.TestCase):
             patch.object(self.app, "record_account_lifecycle_event") as lifecycle_event,
         ):
             with self.assertRaisesRegex(ValueError, "already registered"):
-                self.app.create_clinic_account("Clinic Existing", "United States", "secret-password", "new@example.com")
+                self.app.create_clinic_account("Clinic Existing", "United States", "secret-password")
 
         self.assertEqual(sheet.get_all_values_calls, 1)
         self.assertEqual(sheet.get_all_records_calls, 0)
@@ -461,7 +454,7 @@ class AuditCharacterizationTests(unittest.TestCase):
 
         self.assertEqual(profile["clinic_id"], "Clinic A")
         self.assertEqual(updated, {"clinic_id": "Clinic A", "email": "owner@example.com"})
-        self.assertEqual(sheet.get_all_records_calls, 2)
+        self.assertEqual(sheet.get_all_records_calls, 1)
         update_fields.assert_called_once()
         self.assertEqual(update_fields.call_args.args[0], "Clinic A")
         self.assertEqual(
