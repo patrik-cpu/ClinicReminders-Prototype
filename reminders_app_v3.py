@@ -6057,6 +6057,7 @@ def merge_wa_reminder_logs(*logs):
     )[-MAX_SETTINGS_LOG_ENTRIES:]
 
 HIDDEN_REMINDER_KEY_FIELDS = ("Client Name", "Animal Name", "Plan Item", "Due Date", "Reminder Date")
+AUTO_HIDDEN_REMINDER_LOG_KEY = "auto_hidden_reminder_log"
 REMINDER_ACTION_SENT = "sent"
 REMINDER_ACTION_DECLINED = "declined"
 MAX_SETTINGS_LOG_ENTRIES = 1000
@@ -12232,39 +12233,111 @@ def ensure_reminder_columns(df: pd.DataFrame, rules: dict) -> pd.DataFrame:
 
     return df
 
-def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
+def _reminder_family_values(value) -> tuple[str, ...]:
+    if isinstance(value, list):
+        values = value
+    else:
+        values = [value]
+    return tuple(
+        sorted({
+            _exclusion_key(item)
+            for item in values
+            if str(item or "").strip()
+        })
+    )
+
+
+def reminder_purchase_family_key(row) -> tuple:
+    terms = _reminder_family_values(row.get("MatchedSearchTerms", []))
+    items = _reminder_family_values(row.get("MatchedItems", []))
+    return (
+        _exclusion_key(row.get("Client Name", "")),
+        _exclusion_key(row.get("Animal Name", "")),
+        terms or items,
+    )
+
+
+def _display_date(value) -> str:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.notna(parsed):
+        return parsed.strftime("%d %b %Y")
+    return str(value or "").strip()
+
+
+def _display_matched_item(row) -> str:
+    matched = row.get("MatchedItems", [])
+    if isinstance(matched, list) and matched:
+        return simplify_vaccine_text(format_items([str(item).strip() for item in matched if str(item).strip()]))
+    return simplify_vaccine_text(str(row.get("Item Name", "") or "").strip())
+
+
+def superseded_reminder_log_entry(row, superseding_row) -> dict:
+    original_charge = row.get("ChargeDate", "")
+    superseding_charge = superseding_row.get("ChargeDate", "")
+    return {
+        "Client Name": normalize_display_case(row.get("Client Name", "")),
+        "Animal Name": normalize_display_case(row.get("Animal Name", "")),
+        "Plan Item": _display_matched_item(row),
+        "Original Charge Date": _display_date(original_charge),
+        "Superseding Charge Date": _display_date(superseding_charge),
+        "Due Date": _display_date(row.get("NextDueDate", "")),
+        "Reason": (
+            "A matching newer uploaded purchase reset this reminder."
+            if pd.to_datetime(superseding_charge, errors="coerce") > pd.to_datetime(original_charge, errors="coerce")
+            else "Another matching uploaded purchase reset this reminder."
+        ),
+    }
+
+
+def filter_superseded_reminder_purchases(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
     """
-    Keeps only the most recent treatment record per client–animal–item combination
-    before the next treatment occurs, even if that next treatment happens early.
-    In effect:
-      - Each new treatment resets the due date.
-      - Any previous record with the same item before that new charge is dropped.
+    Keep only the latest uploaded purchase cycle for each client/patient/reminder family.
+
+    A later matching purchase means the older reminder cycle has already been
+    satisfied by uploaded data, so reminders generated from the older row would
+    be stale.
     """
     if df.empty:
-        return df
+        return df, []
 
     df = df.copy()
-    df["MatchedItems_str"] = df["MatchedItems"].apply(
-        lambda x: ", ".join(sorted(x)) if isinstance(x, list) else str(x)
-    )
+    df["_ReminderFamilyKey"] = df.apply(reminder_purchase_family_key, axis=1)
+    key_has_family = df["_ReminderFamilyKey"].map(lambda key: bool(key[0] and key[1] and key[2]))
+    if not key_has_family.any():
+        return df.drop(columns=["_ReminderFamilyKey"]), []
 
-    # Sort chronologically within each client–animal–item
-    df.sort_values(
-        ["Client Name", "Animal Name", "MatchedItems_str", "ChargeDate"],
+    work = df.loc[key_has_family].copy()
+    passthrough = df.loc[~key_has_family].copy()
+    work["_ChargeDateTs"] = pd.to_datetime(work["ChargeDate"], errors="coerce")
+
+    work.sort_values(
+        ["_ReminderFamilyKey", "_ChargeDateTs"],
         inplace=True,
-        ignore_index=True
+        na_position="last",
     )
 
-    # Within each animal+item, find the next charge date
-    g = df.groupby(["Client Name", "Animal Name", "MatchedItems_str"], dropna=False)
-    next_charge = g["ChargeDate"].shift(-1)
+    work["_CurrentIndex"] = work.index
+    next_charge = work.groupby("_ReminderFamilyKey", dropna=False)["_ChargeDateTs"].shift(-1)
+    next_index = work.groupby("_ReminderFamilyKey", dropna=False)["_CurrentIndex"].shift(-1)
 
-    # Rule:
-    #  - Drop any row that has a later charge for the same item, regardless of early/late.
-    #  - Keep only the last one (most recent) before the next charge.
-    keep = next_charge.isna()
+    keep_mask = next_charge.isna()
+    hidden_log = []
+    for idx in work.index[~keep_mask]:
+        next_idx = next_index.get(idx)
+        if pd.isna(next_idx) or next_idx not in work.index:
+            continue
+        hidden_log.append(superseded_reminder_log_entry(work.loc[idx].to_dict(), work.loc[next_idx].to_dict()))
 
-    return df.loc[keep].drop(columns=["MatchedItems_str"]).reset_index(drop=True)
+    kept = pd.concat([work.loc[keep_mask], passthrough], axis=0)
+    return (
+        kept.drop(columns=["_ReminderFamilyKey", "_ChargeDateTs", "_CurrentIndex"], errors="ignore").sort_index().reset_index(drop=True),
+        hidden_log[-MAX_SETTINGS_LOG_ENTRIES:],
+    )
+
+
+def drop_early_duplicates_fast(df: pd.DataFrame) -> pd.DataFrame:
+    filtered, _hidden_log = filter_superseded_reminder_purchases(df)
+    return filtered
 
 
 def _exclusion_key(value) -> str:
@@ -12334,7 +12407,8 @@ def apply_reminder_exclusion_filters(df: pd.DataFrame, rules: dict) -> pd.DataFr
 
 def build_prepared_reminder_rows(working_df: pd.DataFrame, rules: dict) -> pd.DataFrame:
     prepared = ensure_reminder_columns(working_df, rules)
-    prepared = drop_early_duplicates_fast(prepared)
+    prepared, auto_hidden_log = filter_superseded_reminder_purchases(prepared)
+    st.session_state[AUTO_HIDDEN_REMINDER_LOG_KEY] = auto_hidden_log
     prepared = expand_reminder_dates(prepared)
     return prepared
 
@@ -13716,6 +13790,26 @@ if active_main_section == "Upload Data":
 # --------------------------------
 # Render Tables
 # --------------------------------
+def render_auto_hidden_reminder_summary() -> None:
+    hidden_log = [
+        entry for entry in st.session_state.get(AUTO_HIDDEN_REMINDER_LOG_KEY, [])
+        if isinstance(entry, dict)
+    ]
+    if not hidden_log:
+        return
+
+    with st.expander(f"Why aren't some reminders appearing? {len(hidden_log)} hidden by newer uploaded purchases", expanded=False):
+        st.caption(
+            "Clinic Reminders automatically hides reminder cycles when the uploaded sales data already contains a newer matching purchase for the same client, patient, and reminder item."
+        )
+        preview_rows = hidden_log[-10:]
+        st.dataframe(
+            pd.DataFrame(preview_rows),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+
 def render_table(
     df,
     title,
@@ -13737,6 +13831,7 @@ def render_table(
         active_count=caught_up_active_count,
         lookback_days=caught_up_lookback_days,
     )
+    render_auto_hidden_reminder_summary()
 
     if df.empty:
         if empty_message:

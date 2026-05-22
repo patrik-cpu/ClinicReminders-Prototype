@@ -233,6 +233,96 @@ class ReminderGroupingTests(unittest.TestCase):
         self.assertEqual(set(expanded["DueDateFmt"]), {"01 Apr 2025"})
         self.assertEqual(set(expanded["ReminderDateFmt"]), {"01 Apr 2025", "11 Apr 2025"})
 
+    def test_newer_matching_purchase_silently_hides_older_reminder_cycle(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01", "2025-12-03"]),
+                "Client Name": ["Client A", "Client A"],
+                "Animal Name": ["Milo", "Milo"],
+                "Item Name": ["Rabies Vaccine 1yr", "Vaccination - Rabies"],
+                "Qty": [1, 1],
+                "Amount": [100, 120],
+            }
+        )
+        rules = {
+            "rabies": {
+                "days": 365,
+                "reminder_1": 335,
+                "use_qty": False,
+                "visible_text": "Rabies",
+            }
+        }
+
+        prepared = self.app.build_prepared_reminder_rows(df, rules)
+
+        self.assertEqual(set(prepared["ChargeDateFmt"]), {"03 Dec 2025"})
+        self.assertNotIn("02 Dec 2025", set(prepared["ReminderDateFmt"]))
+        self.assertEqual(len(state[self.app.AUTO_HIDDEN_REMINDER_LOG_KEY]), 1)
+        log_entry = state[self.app.AUTO_HIDDEN_REMINDER_LOG_KEY][0]
+        self.assertEqual(log_entry["Client Name"], "Client A")
+        self.assertEqual(log_entry["Animal Name"], "Milo")
+        self.assertEqual(log_entry["Plan Item"], "Rabies")
+        self.assertEqual(log_entry["Original Charge Date"], "01 Jan 2025")
+        self.assertEqual(log_entry["Superseding Charge Date"], "03 Dec 2025")
+
+    def test_purchase_before_due_date_hides_due_reminder_cycle(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01", "2025-12-31"]),
+                "Client Name": ["Client A", "Client A"],
+                "Animal Name": ["Milo", "Milo"],
+                "Item Name": ["Rabies Vaccine", "Rabies Vaccine"],
+                "Qty": [1, 1],
+                "Amount": [100, 120],
+            }
+        )
+        rules = {
+            "rabies": {
+                "days": 365,
+                "use_qty": False,
+                "visible_text": "Rabies",
+            }
+        }
+
+        prepared = self.app.build_prepared_reminder_rows(df, rules)
+
+        self.assertEqual(set(prepared["ChargeDateFmt"]), {"31 Dec 2025"})
+        self.assertNotIn("01 Jan 2026", set(prepared["ReminderDateFmt"]))
+        self.assertEqual(len(state[self.app.AUTO_HIDDEN_REMINDER_LOG_KEY]), 1)
+
+    def test_newer_purchase_for_different_patient_does_not_hide_reminder(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01", "2025-12-31"]),
+                "Client Name": ["Client A", "Client A"],
+                "Animal Name": ["Milo", "Luna"],
+                "Item Name": ["Rabies Vaccine", "Rabies Vaccine"],
+                "Qty": [1, 1],
+                "Amount": [100, 120],
+            }
+        )
+        rules = {
+            "rabies": {
+                "days": 365,
+                "use_qty": False,
+                "visible_text": "Rabies",
+            }
+        }
+
+        prepared = self.app.build_prepared_reminder_rows(df, rules)
+
+        self.assertEqual(set(prepared["Animal Name"]), {"Milo", "Luna"})
+        self.assertEqual(state[self.app.AUTO_HIDDEN_REMINDER_LOG_KEY], [])
+
     def test_interval_mapping_handles_non_contiguous_filtered_index(self):
         df = pd.DataFrame(
             {
