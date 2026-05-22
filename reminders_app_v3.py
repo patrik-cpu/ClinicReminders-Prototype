@@ -15319,6 +15319,28 @@ def render_whatsapp_tools(key_prefix: str, msg_key: str):
                 </div>
                 <script>
                   const MESSAGE_RAW = {json.dumps(current_message)};
+                  function liveComposerMessage() {{
+                    try {{
+                      const frame = window.frameElement;
+                      const parentDoc = window.parent.document;
+                      const frameTop = frame ? frame.getBoundingClientRect().top : Number.POSITIVE_INFINITY;
+                      const textareas = Array.from(parentDoc.querySelectorAll('textarea'));
+                      let nearest = null;
+                      let nearestDistance = Number.POSITIVE_INFINITY;
+                      for (const textarea of textareas) {{
+                        const rect = textarea.getBoundingClientRect();
+                        if (rect.top <= frameTop) {{
+                          const distance = frameTop - rect.top;
+                          if (distance < nearestDistance) {{
+                            nearest = textarea;
+                            nearestDistance = distance;
+                          }}
+                        }}
+                      }}
+                      if (nearest) return nearest.value || '';
+                    }} catch (err) {{}}
+                    return MESSAGE_RAW || '';
+                  }}
                   async function copyToClipboard(text) {{
                     try {{ await navigator.clipboard.writeText(text); }}
                     catch (err) {{
@@ -15329,11 +15351,11 @@ def render_whatsapp_tools(key_prefix: str, msg_key: str):
                   }}
                   document.getElementById('waBtn').addEventListener('click', async function(e) {{
                     e.preventDefault();
-                    await copyToClipboard(MESSAGE_RAW || '');
+                    await copyToClipboard(liveComposerMessage());
                     window.open("https://wa.me/", '_blank', 'noopener');
                   }});
                   document.getElementById('copyBtn').addEventListener('click', async function() {{
-                    await copyToClipboard(MESSAGE_RAW || '');
+                    await copyToClipboard(liveComposerMessage());
                     const old = this.innerText;
                     this.innerText = '✅ Copied!';
                     setTimeout(() => this.innerText = old, 1500);

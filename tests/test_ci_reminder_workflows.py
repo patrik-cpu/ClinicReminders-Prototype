@@ -258,6 +258,17 @@ class ReminderWorkflowTests(unittest.TestCase):
             active_branch.index("render_reminders_caught_up_banner("),
         )
 
+    def test_whatsapp_copy_buttons_read_live_composer_text(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        composer_start = source.index("def render_whatsapp_tools")
+        composer_end = source.index("# --- WhatsApp Template Editor ---", composer_start)
+        composer_source = source[composer_start:composer_end]
+
+        self.assertIn("function liveComposerMessage()", composer_source)
+        self.assertIn("parentDoc.querySelectorAll('textarea')", composer_source)
+        self.assertIn("copyToClipboard(liveComposerMessage())", composer_source)
+        self.assertNotIn("copyToClipboard(MESSAGE_RAW || '')", composer_source)
+
     def test_empty_reminders_still_render_table_region_for_actioned_subtab(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
         body_start = source.index("def render_reminders_body")
