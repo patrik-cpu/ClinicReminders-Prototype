@@ -363,7 +363,9 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('[class*="st-key-top_unreminded_"][class*="_exclude_all"] button', source)
         self.assertIn("border: 1px solid rgba(217, 45, 32, 0.36) !important;", source)
         self.assertIn("border-radius: 8px !important;", source)
-        self.assertIn("font-size: 0.78rem !important;", source)
+        self.assertIn("font-size: 0.98rem !important;", source)
+        self.assertIn("margin-left: auto !important;", source)
+        self.assertIn("width: fit-content !important;", source)
         self.assertIn("Exclude all 10", source)
 
     def test_search_term_categories_render_as_wrapped_button_tabs(self):

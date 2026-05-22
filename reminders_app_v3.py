@@ -2802,7 +2802,10 @@ st.markdown(
         box-shadow: 0 1px 0 rgba(217, 45, 32, 0.08) !important;
         color: #b42318 !important;
         min-height: 1.9rem !important;
-        padding: 0.2rem 0.55rem !important;
+        margin-left: auto !important;
+        min-width: 0 !important;
+        padding: 0.2rem 0.45rem !important;
+        width: fit-content !important;
     }
     [class*="st-key-top_unreminded_"][class*="_exclude_all"] button:hover {
         background: #ffedd5 !important;
@@ -2812,7 +2815,7 @@ st.markdown(
     }
     [class*="st-key-top_unreminded_"][class*="_exclude_all"] button p {
         color: #b42318 !important;
-        font-size: 0.78rem !important;
+        font-size: 0.98rem !important;
         font-weight: 700 !important;
         line-height: 1.1 !important;
         margin: 0 !important;
