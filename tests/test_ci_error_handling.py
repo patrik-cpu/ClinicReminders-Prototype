@@ -361,6 +361,7 @@ class ErrorHandlingObservabilityTests(unittest.TestCase):
 
         rendered = warning.call_args[0][0]
         self.assertIn("Could not load clinic data", rendered)
+        self.assertIn("tried to load the saved clinic data automatically", rendered)
         self.assertNotIn("owner@example.com", rendered)
         self.assertNotIn("1AbCdEfGhIjKlMnOpQrStUv", rendered)
 

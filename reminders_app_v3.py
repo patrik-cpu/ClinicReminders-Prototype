@@ -3957,6 +3957,7 @@ def load_shared_dataset_for_clinic():
         clinic_key = normalize_clinic_id_key(clinic_id)
         rec = next((r for r in records if normalize_clinic_id_key(r.get("ClinicID", "")) == clinic_key), None)
     if not rec:
+        st.session_state.pop("shared_dataset_error", None)
         return
 
     file_id = str(rec.get(SHEET_COL_DATASET_FILE_ID, "")).strip()
@@ -4004,6 +4005,7 @@ def load_shared_dataset_for_clinic():
                 )
                 return
         else:
+            st.session_state.pop("shared_dataset_error", None)
             return  # no shared dataset published yet
 
     load_started = time.perf_counter()
@@ -4019,6 +4021,7 @@ def load_shared_dataset_for_clinic():
             st.session_state["working_df"] = sanitize_working_df(df)
             st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1  # invalidate downstream caches
             st.session_state["shared_dataset_loaded"] = True
+            st.session_state.pop("shared_dataset_error", None)
             st.session_state["shared_dataset_name"] = filename
             st.session_state["shared_dataset_updated_at"] = rec.get(SHEET_COL_DATASET_UPDATED_AT, "")
             remember_shared_dataset_loaded_for_current_pointer(clinic_id)
@@ -11306,7 +11309,10 @@ def render_dataset_status(saved_rows: list[dict] | None = None):
         if "missing its file link" in error_text:
             st.warning(f"⚠️ {error_text}")
         else:
-            st.warning("⚠️ Could not load clinic data. Please try again or contact support.")
+            st.warning(
+                "⚠️ Could not load clinic data. Clinic Reminders tried to load the saved clinic data automatically, but it could not be loaded. "
+                "Please try again or contact support."
+            )
 
 
 def format_dataset_saved_summary(row_count: int, start_date, end_date) -> str:

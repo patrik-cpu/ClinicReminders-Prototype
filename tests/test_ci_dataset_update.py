@@ -1190,6 +1190,7 @@ class DatasetUpdateTests(unittest.TestCase):
         state = self.app.st.session_state
         state["clinic_id"] = "Clinic With Saved Data"
         state["logged_in"] = True
+        state["shared_dataset_error"] = "old load error"
         state["_settings_row_cache"] = {
             "clinic_key": "clinic with saved data",
             "headers": headers,
@@ -1238,6 +1239,7 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertIn("working_df", state)
         self.assertEqual(len(state["working_df"]), 1)
         self.assertEqual(state["_settings_row_cache"]["row_values"][4], "fresh-drive-file-id")
+        self.assertNotIn("shared_dataset_error", state)
 
     def test_shared_dataset_load_reuses_cached_pointer_row(self):
         headers = [
@@ -1252,6 +1254,7 @@ class DatasetUpdateTests(unittest.TestCase):
         state = self.app.st.session_state
         state["clinic_id"] = "Clinic With Saved Data"
         state["logged_in"] = True
+        state["shared_dataset_error"] = "old load error"
         state["_settings_row_cache"] = {
             "clinic_key": "clinic with saved data",
             "headers": headers,
@@ -1296,6 +1299,7 @@ class DatasetUpdateTests(unittest.TestCase):
         )
         self.assertIn("working_df", state)
         self.assertEqual(len(state["working_df"]), 1)
+        self.assertNotIn("shared_dataset_error", state)
 
 
 if __name__ == "__main__":
