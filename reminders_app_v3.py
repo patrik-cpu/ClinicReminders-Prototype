@@ -10817,6 +10817,7 @@ def get_setup_checklist_modules() -> list[dict]:
         "review_reminder_settings": "Review the reminder date, look-back, grouping, and warning settings before sending messages.",
         "send_whatsapp": "Open a prepared WhatsApp message from a reminder row and review it before contacting the client.",
         "mark_sent": "Use the sent action after contacting a client so the reminder moves into action history.",
+        "mark_declined": "Use the declined action when a reminder should not be sent so it moves into action history.",
         "review_template": "Review or save the General WhatsApp template so routine reminders match your clinic voice.",
         "add_client_exclusion": "Hide every reminder for a specific client who should not be contacted.",
         "add_patient_exclusion": "Hide reminders for one patient under one specific client.",
@@ -10861,6 +10862,7 @@ def get_setup_checklist_modules() -> list[dict]:
                 item("review_template", "Review the General WhatsApp template", bool(st.session_state.get("wa_template_reviewed", False)), str(st.session_state.get("wa_template_reviewed", False))),
                 item("send_whatsapp", "Create a WhatsApp message", sent_after_reset(), get_started_latest_sent_token()),
                 item("mark_sent", "Action a reminder as sent", action_after_reset(REMINDER_ACTION_SENT), get_started_latest_action_token(REMINDER_ACTION_SENT)),
+                item("mark_declined", "Action a reminder as declined", action_after_reset(REMINDER_ACTION_DECLINED), get_started_latest_action_token(REMINDER_ACTION_DECLINED)),
             ],
         },
         {

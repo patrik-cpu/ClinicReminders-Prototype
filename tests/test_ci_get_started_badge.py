@@ -57,7 +57,7 @@ class GetStartedBadgeTests(unittest.TestCase):
             ],
         )
         self.assertIn("Review the General WhatsApp template", [item["label"] for item in reminder_items])
-        self.assertNotIn("Action a reminder as declined", [item["label"] for item in reminder_items])
+        self.assertIn("Action a reminder as declined", [item["label"] for item in reminder_items])
         self.assertIn("Add first, second, or overdue reminder timing", [item["label"] for item in configure_items])
         self.assertIn("Review Top Unreminded Items", [item["label"] for item in configure_items])
         self.assertIn("Review automatic death keywords", [item["label"] for item in exclusion_items])
@@ -67,6 +67,38 @@ class GetStartedBadgeTests(unittest.TestCase):
         )
         self.assertFalse(any(item["auto_done"] for item in identify_items))
         self.assertNotIn("Account", module_titles)
+
+    def test_get_started_declined_action_auto_completes_from_action_tracker(self):
+        state = self.app.st.session_state
+
+        def declined_item():
+            return next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "mark_declined"
+            )
+
+        self.assertFalse(declined_item()["done"])
+
+        state["deleted_reminders"] = [
+            {
+                "Action": self.app.REMINDER_ACTION_DECLINED,
+                "ActionedAt": "2026-05-21T09:00:00",
+            }
+        ]
+        self.assertTrue(declined_item()["done"])
+
+        self.app.reset_get_started_checklist_state()
+        self.assertFalse(declined_item()["done"])
+
+        state["deleted_reminders"].append(
+            {
+                "Action": self.app.REMINDER_ACTION_DECLINED,
+                "ActionedAt": "2026-05-23T09:00:00",
+            }
+        )
+        self.assertTrue(declined_item()["done"])
 
     def test_get_started_reminder_timing_auto_completes_from_rules(self):
         state = self.app.st.session_state
