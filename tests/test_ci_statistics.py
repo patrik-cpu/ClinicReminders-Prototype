@@ -1871,6 +1871,37 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn("_identify_calculation_cache", state)
         self.assertNotIn("_stats_export_csv_cache", state)
 
+    def test_identify_cache_signature_tracks_only_identify_inputs(self):
+        state = self.app.st.session_state
+        state["exclusions"] = []
+        state["client_exclusions"] = []
+        state["patient_exclusions"] = []
+        state["client_item_exclusions"] = []
+        state["automatic_patient_exclusions"] = []
+        state["patient_passaway_keywords"] = []
+        state["client_group_days"] = 1
+        rules = {"rabies": {"days": 365}}
+
+        first = self.app.identify_calculation_cache_signature(1, rules)
+        state["client_group_days"] = 14
+
+        self.assertEqual(first, self.app.identify_calculation_cache_signature(1, rules))
+        self.assertNotEqual(first, self.app.identify_calculation_cache_signature(2, rules))
+        self.assertNotEqual(first, self.app.identify_calculation_cache_signature(1, {"librela": {"days": 30}}))
+
+        state["exclusions"] = ["rabies"]
+        self.assertNotEqual(first, self.app.identify_calculation_cache_signature(1, rules))
+
+    def test_identify_opportunities_use_fixed_ungrouped_window(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        identify_start = source.index("def build_identify_item_opportunity_frame")
+        identify_end = source.index("def render_identify_tab", identify_start)
+        identify_source = source[identify_start:identify_end]
+
+        self.assertEqual(self.app.IDENTIFY_OPPORTUNITY_GROUP_DAYS, 0)
+        self.assertIn("group_days=IDENTIFY_OPPORTUNITY_GROUP_DAYS", identify_source)
+        self.assertNotIn("client_group_days", identify_source)
+
     def test_stats_header_sections_are_visually_separated(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
         render_start = source.index("def render_stats_tab")

@@ -692,6 +692,9 @@ def reset_uploaded_data_state(clear_cache: bool = True, reset_uploader: bool = F
         "shared_dataset_name",
         "shared_dataset_updated_at",
         "shared_dataset_error",
+        "_identify_calculation_cache",
+        "_stats_calculation_cache",
+        "_stats_export_csv_cache",
     ]:
         st.session_state.pop(key, None)
     if reset_uploader:
@@ -11547,6 +11550,7 @@ def remove_dataset_upload_at_index(remove_idx: int):
     if remaining_df.empty:
         clear_clinic_dataset_pointer(clinic_id)
         st.session_state.pop("working_df", None)
+        st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
         st.session_state["shared_dataset_loaded"] = False
         st.session_state["shared_dataset_name"] = None
         st.session_state["shared_dataset_updated_at"] = ""
@@ -13585,6 +13589,7 @@ if active_main_section == "Upload Data":
 
             # 3) Clear local state so UI resets immediately
             reset_uploaded_data_state(clear_cache=False, reset_uploader=True)
+            st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
 
             st.session_state["shared_dataset_loaded"] = False
             st.session_state["shared_dataset_name"] = None
@@ -14949,6 +14954,7 @@ STATS_REVENUE_SUBTAB = "Revenue"
 STATS_REVENUE_SUBTAB_LABEL = "Revenue (All-time only)"
 STATS_PERIOD_FILTERED_SUBTABS = ["Items", "Successes", "Reminders", "Team"]
 STATS_SUBTABS = [*STATS_PERIOD_FILTERED_SUBTABS]
+IDENTIFY_OPPORTUNITY_GROUP_DAYS = 0
 STATS_SUBTAB_LABELS = {
     STATS_REVENUE_SUBTAB: STATS_REVENUE_SUBTAB_LABEL,
     "Reminders": "Reminder Outcomes",
@@ -18667,14 +18673,12 @@ def identify_action_records_from_generated_rows(generated_df: pd.DataFrame) -> l
 
 def identify_calculation_cache_signature(
     statistics_data_version: int,
-    statistics_group_days: int,
     rules: dict,
 ) -> tuple:
     return (
         STATS_CALCULATION_CACHE_SCHEMA_VERSION,
         "identify",
         statistics_data_version,
-        statistics_group_days,
         _rules_fp(rules),
         statistics_exclusion_fp(),
     )
@@ -18684,12 +18688,10 @@ def build_identify_item_opportunity_frame(
     sales_df: pd.DataFrame,
     prepared: pd.DataFrame,
     rules: dict,
-    statistics_group_days: int,
     statistics_data_version: int,
 ) -> pd.DataFrame:
     cache_signature = identify_calculation_cache_signature(
         statistics_data_version,
-        statistics_group_days,
         rules,
     )
     identify_cache = st.session_state.get("_identify_calculation_cache")
@@ -18700,7 +18702,7 @@ def build_identify_item_opportunity_frame(
         generated_df = cached_statistics_generated_rows(
             prepared,
             rules,
-            group_days=statistics_group_days,
+            group_days=IDENTIFY_OPPORTUNITY_GROUP_DAYS,
             period="All time",
             today_iso=user_today().isoformat(),
             data_version=statistics_data_version,
@@ -18755,10 +18757,6 @@ def render_identify_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: d
         st.warning("Search terms have changed. Click Refresh Identify to apply the latest rules here.")
 
     try:
-        statistics_group_days = max(0, int(st.session_state.get("client_group_days", 1) or 0))
-    except (TypeError, ValueError):
-        statistics_group_days = 1
-    try:
         statistics_data_version = int(st.session_state.get("data_version", 0) or 0)
     except (TypeError, ValueError):
         statistics_data_version = 0
@@ -18767,7 +18765,6 @@ def render_identify_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: d
         sales_df,
         prepared,
         rules,
-        statistics_group_days,
         statistics_data_version,
     )
     metric_col, _metric_spacer = st.columns([1, 5])

@@ -3,6 +3,7 @@ import hashlib
 import importlib
 import io
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
@@ -792,6 +793,7 @@ class DatasetUpdateTests(unittest.TestCase):
         state["file_uploader_reset_version"] = 3
         state["last_uploaded_files"] = ["sample.csv"]
         state["last_saved_upload_key"] = "saved-key"
+        state["data_version"] = 7
 
         with (
             patch.object(self.app, "get_existing_dataset_pointer", return_value=("file-id", "clinic_shared_dataset.csv")),
@@ -804,10 +806,36 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertEqual(state["dataset_upload_history"], [])
         self.assertFalse(state["shared_dataset_loaded"])
         self.assertNotIn("working_df", state)
+        self.assertEqual(state["data_version"], 8)
         self.assertNotIn("file_uploader_main_3", state)
         self.assertEqual(state["last_uploaded_files"], [])
         self.assertNotIn("last_saved_upload_key", state)
         self.assertGreater(state["file_uploader_reset_version"], 3)
+
+    def test_upload_reset_clears_calculation_caches(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        state["_identify_calculation_cache"] = {"signature": "identify"}
+        state["_stats_calculation_cache"] = {"signature": "stats"}
+        state["_stats_export_csv_cache"] = {"entries": {}}
+
+        self.app.reset_uploaded_data_state(clear_cache=False)
+
+        self.assertNotIn("_identify_calculation_cache", state)
+        self.assertNotIn("_stats_calculation_cache", state)
+        self.assertNotIn("_stats_export_csv_cache", state)
+
+    def test_clear_saved_clinic_data_bumps_data_version_for_empty_dataset(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        clear_start = source.index("    def clear_saved_clinic_data():")
+        clear_end = source.index("    def show_clear_clinic_data_confirmation():", clear_start)
+        clear_source = source[clear_start:clear_end]
+
+        self.assertIn(
+            'st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1',
+            clear_source,
+        )
 
     def test_remove_last_upload_clears_undated_leftover_rows(self):
         state = self.app.st.session_state
