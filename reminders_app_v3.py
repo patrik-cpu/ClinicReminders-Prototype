@@ -15617,7 +15617,7 @@ def filter_generated_for_statistics_period(generated_df: pd.DataFrame, period: s
 
 
 def filter_actions_by_reminder_period(action_records: list[dict], period: str, today: date | None = None) -> list[dict]:
-    return statistics_records_in_reminder_period(action_records, period, today)
+    return expand_rows_for_statistics_item_period(action_records, period, today)
 
 
 def filter_actions_by_actioned_period(
@@ -15641,7 +15641,10 @@ def filter_actions_by_actioned_period(
         row = dict(record)
         if include_parsed:
             row[STATISTICS_ACTIONED_DATETIME_KEY] = actioned_dt
-        rows.append(row)
+        for expanded_row in expand_grouped_action_record(row):
+            if include_parsed:
+                expanded_row[STATISTICS_ACTIONED_DATETIME_KEY] = actioned_dt
+            rows.append(expanded_row)
     return rows
 
 
@@ -15663,7 +15666,7 @@ def statistics_generated_records_in_period(
 ) -> list[dict]:
     if generated_df is None or getattr(generated_df, "empty", True):
         return []
-    return statistics_records_in_reminder_period(generated_df.to_dict("records"), period, today)
+    return expand_rows_for_statistics_item_period(generated_df.to_dict("records"), period, today)
 
 
 def expand_rows_for_statistics_item_period(

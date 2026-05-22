@@ -547,6 +547,65 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(item_rows["Tricat Vaccine"]["Generated"], 1)
         self.assertEqual(item_rows["Tricat Vaccine"]["Sent"], 1)
 
+    def test_grouped_declined_action_counts_each_detail_downstream(self):
+        reminder_details = [
+            {
+                "Reminder Date": "16 May 2026",
+                "Due Date": "16 May 2026",
+                "Charge Date": "16 May 2025",
+                "Animal Name": "Pet A",
+                "Plan Item": "Rabies Vaccine",
+                "Qty": "1",
+                "Days": "365",
+            },
+            {
+                "Reminder Date": "16 May 2026",
+                "Due Date": "16 May 2026",
+                "Charge Date": "16 May 2025",
+                "Animal Name": "Pet A",
+                "Plan Item": "Tricat Vaccine",
+                "Qty": "1",
+                "Days": "365",
+            },
+        ]
+        grouped_row = {
+            "Reminder Date": "16 May 2026",
+            "Due Date": "16 May 2026",
+            "Charge Date": "16 May 2025",
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies and Tricat Vaccines",
+            "Qty": "NA",
+            "Days": "NA",
+            "ReminderDetails": reminder_details,
+        }
+        generated = pd.DataFrame([grouped_row])
+        actions = [
+            {
+                **grouped_row,
+                "Action": self.app.REMINDER_ACTION_DECLINED,
+                "ActionedAt": "2026-05-16T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+
+        summary = self.app.statistics_summary_for_period(generated, actions, "Today", today=date(2026, 5, 16))
+        daily = self.app.build_statistics_daily_frame(generated, actions, "Today", today=date(2026, 5, 16))
+        team = self.app.build_statistics_team_frame(actions, "Today", today=date(2026, 5, 16))
+        items = self.app.build_statistics_item_frame(generated, actions, "Today", today=date(2026, 5, 16))
+        item_rows = {row["Item"]: row for row in items.to_dict("records")}
+
+        self.assertEqual(summary["generated"], 2)
+        self.assertEqual(summary["actioned"], 2)
+        self.assertEqual(summary["sent"], 0)
+        self.assertEqual(summary["declined"], 2)
+        self.assertEqual(int(daily.iloc[0]["Generated"]), 2)
+        self.assertEqual(int(daily.iloc[0]["Declined"]), 2)
+        self.assertEqual(int(team.iloc[0]["Actioned"]), 2)
+        self.assertEqual(int(team.iloc[0]["Declined"]), 2)
+        self.assertEqual(item_rows["Rabies Vaccine"]["Declined"], 1)
+        self.assertEqual(item_rows["Tricat Vaccine"]["Declined"], 1)
+
     def test_statistics_item_frame_dedupes_multiple_steps_for_same_purchase_cycle(self):
         first_step = {
             "Reminder Date": "01 May 2026",
@@ -3393,6 +3452,57 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(float(summary["revenue"]), 95.0)
         self.assertEqual(outcomes.iloc[0]["Sender"], "Nurse A")
         self.assertEqual(str(outcomes.iloc[0]["Reminder Date"].date()), "2025-03-18")
+
+    def test_outcomes_count_one_success_when_due_and_post_windows_both_match(self):
+        actions = [
+            {
+                "Reminder Date": "01 Apr 2025",
+                "Due Date": "01 Apr 2025",
+                "Charge Date": "01 Jan 2025",
+                "Client Name": "Client A",
+                "Animal Name": "Pet A",
+                "Plan Item": "Bravecto",
+                "Days": "90",
+                "Action": self.app.REMINDER_ACTION_SENT,
+                "ActionedAt": "2025-04-01T09:00:00",
+                "Actioned By": "Nurse A",
+            }
+        ]
+        sales = pd.DataFrame(
+            [
+                {
+                    "ChargeDate": "2025-01-01",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto",
+                    "Amount": 80,
+                },
+                {
+                    "ChargeDate": "2025-04-02",
+                    "Client Name": "Client A",
+                    "Animal Name": "Pet A",
+                    "Item Name": "Bravecto",
+                    "Amount": 95,
+                },
+            ]
+        )
+
+        outcomes = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=14,
+            post_reminder_window_days=7,
+            today=date(2025, 5, 1),
+        )
+        summary = self.app.summarize_outcomes(outcomes)
+
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(summary["sent"], 1)
+        self.assertEqual(summary["successes"], 1)
+        self.assertEqual(float(summary["revenue"]), 95.0)
+        self.assertEqual(outcomes.iloc[0]["Outcome"], "Reminder Success")
+        self.assertEqual(outcomes.iloc[0]["Success Basis"], "Due date window")
+        self.assertEqual(str(outcomes.iloc[0]["Success Date"].date()), "2025-04-02")
 
     def test_action_tracker_preserves_grouped_reminder_details(self):
         row = {
