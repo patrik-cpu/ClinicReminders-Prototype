@@ -52,7 +52,6 @@ class GetStartedBadgeTests(unittest.TestCase):
                 "Exclusions",
                 "Identify & Track",
                 "Upload Data",
-                "Graphs",
             ],
         )
         self.assertIn("Review the General WhatsApp template", [item["label"] for item in reminder_items])
@@ -255,13 +254,6 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertNotIn("New Stats tab", label)
         self.assertNotIn("data:image/svg+xml;base64", label)
 
-    def test_graphs_tab_shows_coming_soon_badge(self):
-        label = self.app.main_section_tab_label("Graphs")
-
-        self.assertIn("Graphs", label)
-        self.assertIn("Graphs coming soon", label)
-        self.assertIn("data:image/svg+xml;base64", label)
-
     def test_inactive_reminders_badge_uses_cached_count_only(self):
         state = self.app.st.session_state
         state["working_df"] = pd.DataFrame({"ChargeDate": pd.to_datetime(["2026-05-01"])})
@@ -302,13 +294,6 @@ class GetStartedBadgeTests(unittest.TestCase):
 
         self.assertIn('dy="0.08em"', svg)
         self.assertIn('alignment-baseline="middle"', svg)
-
-    def test_new_and_soon_badges_use_normal_text_weight(self):
-        for label in (self.app.graphs_badge_label(),):
-            encoded = re.search(r"base64,([A-Za-z0-9+/=]+)", label).group(1)
-            svg = base64.b64decode(encoded).decode("utf-8")
-
-            self.assertIn('font-weight="400"', svg)
 
     def test_new_account_welcome_copy_is_clear_and_actionable(self):
         html = self.app.new_account_welcome_dialog_html()

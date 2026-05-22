@@ -229,7 +229,8 @@ class VisualThemeCssTests(unittest.TestCase):
     def test_stats_page_folds_outcomes_and_actioning_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
-        self.assertIn('MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Stats", "Upload Data", "Get Started", "Graphs"]', source)
+        self.assertIn('MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Stats", "Upload Data", "Get Started"]', source)
+        self.assertNotIn('"Graphs": "graphs"', source)
         self.assertIn('"Reminders": "Send Reminders"', source)
         self.assertIn('"Search Terms": "Configure Reminders"', source)
         self.assertIn('"Stats": "Identify & Track"', source)
@@ -283,17 +284,6 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertNotIn('["Overview", "Team", "Items", "Completion"]', source)
         self.assertIn('STATISTICS_SCHEDULED_REMINDERS_LABEL = "Scheduled reminders"', source)
 
-    def test_graphs_tab_is_coming_soon_placeholder(self):
-        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
-
-        self.assertIn('"graphs": "Graphs"', source)
-        self.assertIn('"Graphs": "graphs"', source)
-        self.assertIn("def graphs_badge_label", source)
-        self.assertIn("Graphs coming soon", source)
-        self.assertIn("def render_graphs_coming_soon", source)
-        self.assertNotIn('st.error("Coming soon")', source)
-        self.assertIn("graphs-coming-soon-art", source)
-
     def test_search_terms_reset_configurations_is_separated_and_warned(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
@@ -314,7 +304,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('st.session_state["show_reset_configurations_dialog"] = True', reset_block)
         self.assertIn("render_reset_configurations_dialog()", reset_block)
         self.assertNotIn('"Reset defaults"', reset_block)
-        self.assertIn("Coming Soon", source)
+        self.assertNotIn("Coming Soon", source)
 
         dialog_start = source.index("def render_reset_configurations_dialog")
         dialog_end = source.index("def save_rule_category", dialog_start)
@@ -449,7 +439,7 @@ class VisualThemeCssTests(unittest.TestCase):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
         checklist_source = source[
             source.index("def render_setup_checklist")
-            : source.index("def render_graphs_coming_soon")
+            : source.index("# --------------------------------\n# Session state init")
         ]
 
         self.assertIn('with st.container(key="get_started_reset_row"):', checklist_source)
