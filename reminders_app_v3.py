@@ -5356,7 +5356,7 @@ def load_settings(load_action_history: bool = True):
         if load_action_history:
             tracked_actions = load_action_tracker_records_for_clinic(clinic_id)
             st.session_state["deleted_reminders"] = merge_deleted_reminders(legacy_deleted_reminders, tracked_actions)
-            st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(legacy_wa_log, action_records_to_wa_log(st.session_state["deleted_reminders"]))
+            st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(legacy_wa_log)
             st.session_state.pop("_action_tracker_pending_load_for", None)
         else:
             st.session_state["deleted_reminders"] = merge_deleted_reminders(legacy_deleted_reminders)
@@ -5439,7 +5439,6 @@ def ensure_action_tracker_loaded_for_current_clinic() -> None:
     )
     st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(
         st.session_state.get("wa_reminder_log", []),
-        action_records_to_wa_log(st.session_state["deleted_reminders"]),
     )
     st.session_state.pop("_action_tracker_pending_load_for", None)
 
@@ -6080,11 +6079,8 @@ def get_remote_settings(sheet=None, headers=None, row=None) -> dict:
         return {}
 
 def get_remote_wa_reminder_log(sheet=None, headers=None, row=None) -> list:
-    clinic_id = st.session_state.get("clinic_id", "")
-    tracked_actions = load_action_tracker_records_for_clinic(clinic_id)
     return merge_wa_reminder_logs(
         get_remote_settings(sheet=sheet, headers=headers, row=row).get("wa_reminder_log", []),
-        action_records_to_wa_log(tracked_actions),
     )
 
 def merge_wa_reminder_logs(*logs):
@@ -6528,13 +6524,17 @@ def show_recent_reminder_warning(message: str, key: str):
         @st.dialog("Reminder warning")
         def _warning_dialog():
             st.write(message)
-            st.button("OK", key=key)
+            if st.button("OK", key=key):
+                st.session_state.pop("_pending_recent_reminder_warning", None)
+                rerun_app()
         _warning_dialog()
     elif hasattr(st, "experimental_dialog"):
         @st.experimental_dialog("Reminder warning")
         def _warning_dialog():
             st.write(message)
-            st.button("OK", key=key)
+            if st.button("OK", key=key):
+                st.session_state.pop("_pending_recent_reminder_warning", None)
+                rerun_app()
         _warning_dialog()
     else:
         st.warning(message)
@@ -14281,6 +14281,7 @@ def prepare_whatsapp_action(row_data: dict, key_prefix: str, msg_key: str, idx):
     now = utc_now()
     warning_message = get_recent_reminder_warning(client_name, now=now)
     queue_recent_reminder_warning(warning_message, key=f"{key_prefix}_recent_reminder_ok_{idx}")
+    record_wa_reminder_click(client_name, now=now, row=row_data, save=True)
 
     message = build_whatsapp_message_for_row(row_data)
     st.session_state[msg_key] = message
@@ -14290,13 +14291,9 @@ def prepare_whatsapp_action(row_data: dict, key_prefix: str, msg_key: str, idx):
 
 def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx):
     set_main_section_tab("Reminders")
-    client_name = row_data.get("Client Name", "")
     now = utc_now()
     hidden_record = get_hidden_reminder_record(row_data)
     hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
-
-    warning_message = get_recent_reminder_warning(client_name, now=now)
-    queue_recent_reminder_warning(warning_message, key=f"{key_prefix}_recent_sent_ok_{idx}")
 
     message = build_whatsapp_message_for_row(row_data)
     st.session_state[msg_key] = message
@@ -14305,7 +14302,6 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
         if not record_action_tracker(row_data, REMINDER_ACTION_SENT, message=message, source=f"{key_prefix}_sent", now=now):
             remember_action_tracker_save_failure()
             return
-        record_wa_reminder_click(client_name, now=now, row=row_data, save=False)
     upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
     hide_revealed_reminders_after_action(key_prefix)
 
@@ -14351,7 +14347,6 @@ def mark_all_listed_reminders_sent_action(rows: list[dict], key_prefix: str, msg
     for row_data in rows_to_send:
         message = messages_by_key.get(hidden_reminder_key(row_data), "")
         st.session_state[msg_key] = message
-        record_wa_reminder_click(row_data.get("Client Name", ""), now=now, row=row_data, save=False)
         upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
 
     save_settings_quietly()
@@ -14368,22 +14363,16 @@ def decline_reminder_action(row_data: dict, key_prefix: str):
         if not record_action_tracker(row_data, REMINDER_ACTION_DECLINED, source=f"{key_prefix}_declined", now=now):
             remember_action_tracker_save_failure()
             return
-    if hidden_action == REMINDER_ACTION_SENT:
-        remove_wa_reminder_click_for_row(row_data, queue_settings_removal=False)
     upsert_hidden_reminder(row_data, REMINDER_ACTION_DECLINED, now=now)
     hide_revealed_reminders_after_action(key_prefix)
 
 
 def remove_actioned_reminder_action(row_data: dict, key_prefix: str):
     set_main_section_tab("Reminders")
-    hidden_record = get_hidden_reminder_record(row_data) or row_data
-    hidden_action = str(hidden_record.get("Action", "")).strip().lower()
     with busy_overlay("Saving reminder action", "Returning this reminder to Active Reminders."):
         if not record_action_tracker(row_data, "active", source=f"{key_prefix}_undo", now=utc_now()):
             remember_action_tracker_save_failure()
             return
-        if hidden_action == REMINDER_ACTION_SENT:
-            remove_wa_reminder_click_for_row(row_data)
         remove_actioned_reminder(row_data)
         save_settings_quietly()
 
@@ -19109,10 +19098,6 @@ def refresh_outcome_results_state(sync_remote: bool = False) -> None:
         st.session_state["deleted_reminders"] = merge_deleted_reminders(
             st.session_state.get("deleted_reminders", []),
             tracked_actions,
-        )
-        st.session_state["wa_reminder_log"] = merge_wa_reminder_logs(
-            st.session_state.get("wa_reminder_log", []),
-            action_records_to_wa_log(st.session_state["deleted_reminders"]),
         )
         if shared_dataset_reload_needed_for_clinic(clinic_id):
             st.session_state.pop("_shared_dataset_load_attempted_for", None)

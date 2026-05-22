@@ -1184,7 +1184,7 @@ class SettingsSaveStateTests(unittest.TestCase):
         overlay.assert_not_called()
         self.assertEqual(state["wa_message"], "Reminder message")
         self.assertEqual(state["deleted_reminders"][-1]["Action"], self.app.REMINDER_ACTION_SENT)
-        self.assertEqual(state["wa_reminder_log"][-1]["ReminderKey"], list(self.app.hidden_reminder_key(row)))
+        self.assertEqual(state["wa_reminder_log"], [])
         self.assertFalse(state["daily_reveal_hidden_reminders"])
 
     def test_different_staff_users_append_sent_actions_for_same_clinic(self):
@@ -1274,7 +1274,7 @@ class SettingsSaveStateTests(unittest.TestCase):
         save_settings.assert_not_called()
         overlay.assert_not_called()
         self.assertEqual(state["deleted_reminders"][-1]["Action"], self.app.REMINDER_ACTION_DECLINED)
-        self.assertEqual(state["wa_reminder_log"], [])
+        self.assertEqual(len(state["wa_reminder_log"]), 1)
         self.assertNotIn("_wa_reminder_remove_keys_once", state)
         self.assertFalse(state["daily_reveal_hidden_reminders"])
 

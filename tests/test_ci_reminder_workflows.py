@@ -123,10 +123,43 @@ class ReminderWorkflowTests(unittest.TestCase):
         state = self.app.st.session_state
         self.assertEqual(state["main_section_tab"], "Reminders")
         self.assertEqual(len(state["deleted_reminders"]), 2)
-        self.assertEqual(len(state["wa_reminder_log"]), 2)
+        self.assertEqual(state["wa_reminder_log"], [])
         self.assertEqual(state["wa_message"], "Reminder message")
         self.assertEqual(state["_bulk_sent_success"], "Marked 2 reminders as sent.")
         self.assertFalse(state["daily_reveal_hidden_reminders"])
+
+    def test_whatsapp_action_records_warning_log_before_message_prepare(self):
+        row = sample_reminder_row(**{"Client Name": "Client A"})
+        self.app.st.session_state["reminder_warning_days"] = 7
+        self.app.st.session_state["wa_reminder_log"] = [{
+            "Client Name": "Client A",
+            "RemindedAt": "2026-05-15T12:00:00",
+        }]
+
+        with (
+            patch.object(self.app, "build_whatsapp_message_for_row", return_value="Reminder message"),
+            patch.object(self.app, "utc_now", return_value=datetime(2026, 5, 16, 12, 0, 0)),
+            patch.object(self.app, "save_settings_quietly", return_value=True) as save_settings,
+        ):
+            self.app.prepare_whatsapp_action(row, "daily", "wa_message", 0)
+
+        save_settings.assert_called_once()
+        state = self.app.st.session_state
+        self.assertEqual(state["wa_message"], "Reminder message")
+        self.assertEqual(len(state["wa_reminder_log"]), 2)
+        self.assertEqual(state["wa_reminder_log"][-1]["ReminderKey"], list(self.app.hidden_reminder_key(row)))
+        self.assertIn("Reminder: Client A got a reminder", state["_pending_recent_reminder_warning"]["message"])
+
+    def test_recent_reminder_warning_dialog_ok_reruns_to_close(self):
+        source = Path("reminders_app_v3.py").read_text(encoding="utf-8")
+        helper_source = source[
+            source.index("def show_recent_reminder_warning")
+            : source.index("def data_privacy_policy_content")
+        ]
+
+        self.assertIn('if st.button("OK"', helper_source)
+        self.assertIn('st.session_state.pop("_pending_recent_reminder_warning", None)', helper_source)
+        self.assertIn("rerun_app()", helper_source)
 
     def test_send_all_does_not_render_busy_overlay_inside_dialog_callback(self):
         source = Path("reminders_app_v3.py").read_text(encoding="utf-8")
@@ -315,7 +348,7 @@ class ReminderWorkflowTests(unittest.TestCase):
         load_dataset.assert_called_once()
         self.assertEqual(len(state["deleted_reminders"]), 1)
         self.assertEqual(state["deleted_reminders"][0]["Action"], self.app.REMINDER_ACTION_SENT)
-        self.assertEqual(len(state["wa_reminder_log"]), 1)
+        self.assertEqual(state["wa_reminder_log"], [])
         self.assertNotIn("_outcomes_refresh_success", state)
 
     def test_refresh_stats_applies_search_terms_without_remote_sync(self):
