@@ -384,6 +384,7 @@ class AuthSessionTests(unittest.TestCase):
                     "Clinic New",
                     "United States",
                     "password123456",
+                    "owner@example.com",
                 )
 
         get_row.assert_not_called()
@@ -396,6 +397,7 @@ class AuthSessionTests(unittest.TestCase):
                     "Clinic New",
                     "",
                     "better-random-passphrase-2026",
+                    "owner@example.com",
                 )
 
         get_sheet.assert_not_called()
@@ -992,14 +994,17 @@ class AuthSessionTests(unittest.TestCase):
         signup_form = source[signup_start:signup_end]
 
         clinic_pos = signup_form.index('"Clinic Name (username)"')
+        email_pos = signup_form.index('"Email"')
         password_pos = signup_form.index('"Set password"')
         confirm_pos = signup_form.index('"Confirm password"')
         country_pos = signup_form.index('"Country"')
 
-        self.assertLess(clinic_pos, password_pos)
+        self.assertLess(clinic_pos, email_pos)
+        self.assertLess(email_pos, password_pos)
         self.assertLess(password_pos, confirm_pos)
         self.assertLess(confirm_pos, country_pos)
         self.assertIn('key="signup_clinic_name"', signup_form)
+        self.assertIn('key="signup_email"', signup_form)
         self.assertIn('key="signup_password"', signup_form)
         self.assertIn('key="signup_confirm_password"', signup_form)
         self.assertIn('key="signup_country"', signup_form)
