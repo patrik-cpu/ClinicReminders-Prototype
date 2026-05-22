@@ -1097,9 +1097,23 @@ class StatisticsTests(unittest.TestCase):
         html = markdown.call_args.args[0]
         self.assertIn("Reminded Items", html)
         self.assertIn("column-help", html)
-        self.assertIn("Unique reminded item purchase cycles", html)
+        self.assertIn("selected Track period", html)
         self.assertNotIn("Total Reminded Items", html)
         self.assertNotIn(">Sent<", html)
+
+    def test_identify_and_track_summary_tooltips_match_split_layout(self):
+        self.assertIn("all-time", self.app.STATS_SUMMARY_CARD_HELP["Potential Annual Revenue Lift"])
+        self.assertIn("Track's Period selector", self.app.STATS_SUMMARY_CARD_HELP["Potential Annual Revenue Lift"])
+        self.assertNotIn("selected reporting period", self.app.STATS_SUMMARY_CARD_HELP["Potential Annual Revenue Lift"])
+        for label in [
+            "Reminded Items",
+            "Reminder Successes",
+            "Success Rate",
+            "Revenue from Successes",
+            "Top Team Member",
+        ]:
+            with self.subTest(label=label):
+                self.assertIn("selected Track period", self.app.STATS_SUMMARY_CARD_HELP[label])
 
     def test_potential_annual_revenue_lift_total_sums_all_time_item_frame(self):
         item_frame = pd.DataFrame(

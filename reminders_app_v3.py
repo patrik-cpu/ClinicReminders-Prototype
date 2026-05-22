@@ -15150,12 +15150,12 @@ OUTCOME_DISPLAY_COLUMN_WIDTHS = {
     "Captured Revenue %": "small",
 }
 STATS_SUMMARY_CARD_HELP = {
-    "Potential Annual Revenue Lift": "Estimated annual revenue still available across all items. This all-time opportunity metric is not affected by the selected reporting period.",
-    "Reminded Items": "Unique reminded item purchase cycles included in outcome matching. Multiple reminder steps for the same item cycle count once.",
-    "Reminder Successes": "Reminded items with a matching repeat purchase in either success window.",
-    "Success Rate": "Reminder successes divided by total reminded items.",
-    "Revenue from Successes": "Revenue from matching repeat purchases that counted as reminder successes.",
-    "Top Team Member": "Team member with the highest revenue from successful reminders.",
+    "Potential Annual Revenue Lift": "Estimated annual revenue still available across all current remindable items in the uploaded dataset. This Identify metric is all-time and does not use Track's Period selector.",
+    "Reminded Items": "Unique reminded item purchase cycles in the selected Track period. Multiple reminder steps for the same item cycle count once.",
+    "Reminder Successes": "Reminded items in the selected Track period with a matching repeat purchase in either success window.",
+    "Success Rate": "Reminder successes divided by total reminded items in the selected Track period.",
+    "Revenue from Successes": "Revenue from matching repeat purchases that counted as reminder successes in the selected Track period.",
+    "Top Team Member": "Team member with the highest revenue from successful reminders in the selected Track period.",
 }
 OUTCOME_SENT_DISPLAY_COLUMNS = [
     "Sent Date",
@@ -18822,7 +18822,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         render_field_label(
             st,
             "Success window around due date",
-            "A reminder is successful when the matching sale is within this many days before or after the due date.",
+            "In Track, a reminder is successful when the matching sale is within this many days before or after the due date.",
         )
         st.session_state["outcome_due_date_window_days"] = normalized_outcome_due_date_window_days()
         due_date_window_days = st.number_input(
@@ -18839,7 +18839,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         render_field_label(
             st,
             "Success window after sent date",
-            "Also counts as successful when a matching sale happens within this many days after the reminder is sent.",
+            "In Track, this also counts a reminder as successful when a matching sale happens within this many days after the reminder is sent.",
         )
         st.session_state["outcome_post_reminder_window_days"] = normalized_outcome_post_reminder_window_days()
         post_reminder_window_days = st.number_input(
