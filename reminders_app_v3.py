@@ -13572,10 +13572,17 @@ if active_main_section == "Upload Data":
 # --------------------------------
 # Render Tables
 # --------------------------------
-def render_table(df, title, key_prefix, msg_key, rules):
+def render_table(df, title, key_prefix, msg_key, rules, empty_message: str | None = None):
     render_started = time.perf_counter()
+    selected_reminders_subtab = render_reminders_subtab_selector(key_prefix)
+    if selected_reminders_subtab != "Active Reminders":
+        render_actioned_reminders_tab(key_prefix)
+        record_slow_render_performance("reminders_table_render", render_started, rows=len(df), source=key_prefix)
+        return
+
     if df.empty:
-        st.info(f"No reminders in {title}. Try another date range or check Search Terms.")
+        if empty_message:
+            st.info(empty_message)
         record_slow_render_performance("reminders_table_render", render_started, rows=0, source=key_prefix)
         return
     df = apply_reminder_exclusion_filters(df, rules)
@@ -13586,15 +13593,10 @@ def render_table(df, title, key_prefix, msg_key, rules):
 
     show_pending_recent_reminder_warning()
 
-    selected_reminders_subtab = render_reminders_subtab_selector(key_prefix)
-    if selected_reminders_subtab == "Active Reminders":
-        active_df = filter_hidden_reminders(df)
-        if not active_df.empty:
-            render_table_with_buttons(active_df, key_prefix, msg_key, hidden_index=get_hidden_reminders_index())
-        render_whatsapp_tools(key_prefix, msg_key)
-
-    else:
-        render_actioned_reminders_tab(key_prefix)
+    active_df = filter_hidden_reminders(df)
+    if not active_df.empty:
+        render_table_with_buttons(active_df, key_prefix, msg_key, hidden_index=get_hidden_reminders_index())
+    render_whatsapp_tools(key_prefix, msg_key)
     record_slow_render_performance("reminders_table_render", render_started, rows=len(df), source=key_prefix)
 
 
@@ -19666,13 +19668,20 @@ if st.session_state.get("logged_in", False):
 
             render_search_criteria_refresh_notice()
 
-            if not grouped.empty:
-                render_table(grouped, f"{lookback_start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
-            else:
+            empty_message = None
+            if grouped.empty:
                 if reminders_before_exclusions:
-                    st.info("All reminders in the selected date range are hidden by exclusions. Review Exclusions if this looks wrong.")
+                    empty_message = "All reminders in the selected date range are hidden by exclusions. Review Exclusions if this looks wrong."
                 elif should_show_no_reminders_info(reminders_before_exclusions, active_reminder_count):
-                    st.info("No reminders in the selected date range. Try Today, widen the date window, or check Search Terms.")
+                    empty_message = "No reminders in the selected date range. Try Today, widen the date window, or check Search Terms."
+            render_table(
+                grouped,
+                f"{lookback_start_date} to {end_date}",
+                "weekly",
+                "weekly_message",
+                applied_rules,
+                empty_message=empty_message,
+            )
 
         if reminders_need_loading:
             with busy_overlay("Loading reminders", "Preparing the reminder list for this clinic."):

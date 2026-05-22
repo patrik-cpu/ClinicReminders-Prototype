@@ -229,10 +229,25 @@ class ReminderWorkflowTests(unittest.TestCase):
         render_end = source.index("def render_sender_name_input", render_start)
         active_branch = source[render_start:render_end]
 
-        self.assertIn('if selected_reminders_subtab == "Active Reminders":', active_branch)
+        self.assertIn('if selected_reminders_subtab != "Active Reminders":', active_branch)
+        self.assertLess(
+            active_branch.index("render_reminders_subtab_selector(key_prefix)"),
+            active_branch.index("if df.empty:"),
+        )
         self.assertIn("render_whatsapp_tools(key_prefix, msg_key)", active_branch)
-        actioned_branch = active_branch.split("else:", 1)[1]
+        actioned_branch = active_branch.split('if selected_reminders_subtab != "Active Reminders":', 1)[1].split("return", 1)[0]
         self.assertNotIn("render_whatsapp_tools", actioned_branch)
+
+    def test_empty_reminders_still_render_table_region_for_actioned_subtab(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        body_start = source.index("def render_reminders_body")
+        body_end = source.index("if reminders_need_loading:", body_start)
+        body_source = source[body_start:body_end]
+
+        self.assertIn("empty_message = None", body_source)
+        self.assertIn("render_table(", body_source)
+        self.assertNotIn("if not grouped.empty:\n                render_table(", body_source)
+        self.assertIn("empty_message=empty_message", body_source)
 
     def test_refresh_outcomes_syncs_actions_and_reloads_dataset(self):
         tracked_record = sample_reminder_row(
