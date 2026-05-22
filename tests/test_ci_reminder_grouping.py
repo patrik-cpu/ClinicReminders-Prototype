@@ -2,6 +2,7 @@ import contextlib
 import importlib
 import io
 import unittest
+from datetime import date
 from unittest.mock import patch
 
 import pandas as pd
@@ -295,6 +296,65 @@ class ReminderGroupingTests(unittest.TestCase):
         self.assertEqual(set(prepared["ChargeDateFmt"]), {"31 Dec 2025"})
         self.assertNotIn("01 Jan 2026", set(prepared["ReminderDateFmt"]))
         self.assertEqual(len(state[self.app.AUTO_HIDDEN_REMINDER_LOG_KEY]), 1)
+
+    def test_purchase_after_original_cycle_reminder_dates_does_not_hide_old_cycle(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01", "2026-03-01"]),
+                "Client Name": ["Client A", "Client A"],
+                "Animal Name": ["Milo", "Milo"],
+                "Item Name": ["Rabies Vaccine", "Rabies Vaccine"],
+                "Qty": [1, 1],
+                "Amount": [100, 120],
+            }
+        )
+        rules = {
+            "rabies": {
+                "days": 365,
+                "reminder_1": 335,
+                "overdue_reminder": 380,
+                "use_qty": False,
+                "visible_text": "Rabies",
+            }
+        }
+
+        prepared = self.app.build_prepared_reminder_rows(df, rules)
+
+        self.assertEqual(set(prepared["ChargeDateFmt"]), {"01 Jan 2025", "01 Mar 2026"})
+        self.assertEqual(state[self.app.AUTO_HIDDEN_REMINDER_LOG_KEY], [])
+
+    def test_auto_hidden_reminder_log_is_scoped_to_active_reminder_window(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01", "2025-12-31", "2024-01-01", "2024-12-31"]),
+                "Client Name": ["Client A", "Client A", "Client B", "Client B"],
+                "Animal Name": ["Milo", "Milo", "Luna", "Luna"],
+                "Item Name": ["Rabies Vaccine", "Rabies Vaccine", "Rabies Vaccine", "Rabies Vaccine"],
+                "Qty": [1, 1, 1, 1],
+                "Amount": [100, 120, 90, 110],
+            }
+        )
+        rules = {
+            "rabies": {
+                "days": 365,
+                "use_qty": False,
+                "visible_text": "Rabies",
+            }
+        }
+
+        self.app.build_prepared_reminder_rows(df, rules)
+        visible_log = self.app.auto_hidden_reminder_log_for_window(date(2025, 12, 31), date(2026, 1, 2))
+
+        self.assertEqual(len(state[self.app.AUTO_HIDDEN_REMINDER_LOG_KEY]), 2)
+        self.assertEqual(len(visible_log), 1)
+        self.assertEqual(visible_log[0]["Client Name"], "Client A")
+        self.assertEqual(visible_log[0]["Due Date"], "01 Jan 2026")
 
     def test_newer_purchase_for_different_patient_does_not_hide_reminder(self):
         state = self.app.st.session_state

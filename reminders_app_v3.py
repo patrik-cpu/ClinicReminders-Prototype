@@ -6097,6 +6097,7 @@ def merge_wa_reminder_logs(*logs):
 
 HIDDEN_REMINDER_KEY_FIELDS = ("Client Name", "Animal Name", "Plan Item", "Due Date", "Reminder Date")
 AUTO_HIDDEN_REMINDER_LOG_KEY = "auto_hidden_reminder_log"
+AUTO_HIDDEN_REMINDER_VISIBLE_LOG_KEY = "_auto_hidden_reminder_visible_log"
 REMINDER_ACTION_SENT = "sent"
 REMINDER_ACTION_DECLINED = "declined"
 MAX_SETTINGS_LOG_ENTRIES = 1000
@@ -12439,9 +12440,41 @@ def _display_matched_item(row) -> str:
     return simplify_vaccine_text(str(row.get("Item Name", "") or "").strip())
 
 
+def reminder_candidate_dates_for_row(row) -> list[date]:
+    charge_date = pd.to_datetime(row.get("ChargeDate", ""), errors="coerce")
+    if pd.isna(charge_date):
+        return []
+    candidates = []
+    for column in ["Reminder1Days", "Reminder2Days", "OverdueReminderDays", "IntervalDays"]:
+        try:
+            days = int(float(str(row.get(column, "")).strip()))
+        except (TypeError, ValueError):
+            continue
+        if days <= 0:
+            continue
+        candidates.append((charge_date + pd.to_timedelta(days, unit="D")).date())
+    return sorted(set(candidates))
+
+
+def superseding_purchase_resets_reminder_cycle(row, superseding_row) -> bool:
+    original_charge = pd.to_datetime(row.get("ChargeDate", ""), errors="coerce")
+    superseding_charge = pd.to_datetime(superseding_row.get("ChargeDate", ""), errors="coerce")
+    if pd.isna(original_charge) or pd.isna(superseding_charge) or superseding_charge <= original_charge:
+        return False
+    reminder_dates = reminder_candidate_dates_for_row(row)
+    if not reminder_dates:
+        due_date = pd.to_datetime(row.get("NextDueDate", ""), errors="coerce")
+        if pd.notna(due_date):
+            reminder_dates = [due_date.date()]
+    if not reminder_dates:
+        return False
+    return superseding_charge.date() <= max(reminder_dates)
+
+
 def superseded_reminder_log_entry(row, superseding_row) -> dict:
     original_charge = row.get("ChargeDate", "")
     superseding_charge = superseding_row.get("ChargeDate", "")
+    reminder_dates = reminder_candidate_dates_for_row(row)
     return {
         "Client Name": normalize_display_case(row.get("Client Name", "")),
         "Animal Name": normalize_display_case(row.get("Animal Name", "")),
@@ -12449,12 +12482,34 @@ def superseded_reminder_log_entry(row, superseding_row) -> dict:
         "Original Charge Date": _display_date(original_charge),
         "Superseding Charge Date": _display_date(superseding_charge),
         "Due Date": _display_date(row.get("NextDueDate", "")),
+        "_ReminderDates": [value.isoformat() for value in reminder_dates],
         "Reason": (
             "A matching newer uploaded purchase reset this reminder."
             if pd.to_datetime(superseding_charge, errors="coerce") > pd.to_datetime(original_charge, errors="coerce")
             else "Another matching uploaded purchase reset this reminder."
         ),
     }
+
+
+def hidden_reminder_log_entry_in_window(entry: dict, start_date: date, end_date: date) -> bool:
+    reminder_dates = entry.get("_ReminderDates", [])
+    if isinstance(reminder_dates, list):
+        for raw_value in reminder_dates:
+            parsed = pd.to_datetime(raw_value, errors="coerce")
+            if pd.notna(parsed) and start_date <= parsed.date() <= end_date:
+                return True
+        return False
+
+    parsed_due = pd.to_datetime(entry.get("Due Date", ""), errors="coerce")
+    return bool(pd.notna(parsed_due) and start_date <= parsed_due.date() <= end_date)
+
+
+def auto_hidden_reminder_log_for_window(start_date: date, end_date: date) -> list[dict]:
+    visible_log = [
+        entry for entry in st.session_state.get(AUTO_HIDDEN_REMINDER_LOG_KEY, [])
+        if isinstance(entry, dict) and hidden_reminder_log_entry_in_window(entry, start_date, end_date)
+    ]
+    return visible_log[-MAX_SETTINGS_LOG_ENTRIES:]
 
 
 def filter_superseded_reminder_purchases(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
@@ -12485,18 +12540,22 @@ def filter_superseded_reminder_purchases(df: pd.DataFrame) -> tuple[pd.DataFrame
     )
 
     work["_CurrentIndex"] = work.index
-    next_charge = work.groupby("_ReminderFamilyKey", dropna=False)["_ChargeDateTs"].shift(-1)
     next_index = work.groupby("_ReminderFamilyKey", dropna=False)["_CurrentIndex"].shift(-1)
 
-    keep_mask = next_charge.isna()
+    superseded_mask = pd.Series(False, index=work.index)
     hidden_log = []
-    for idx in work.index[~keep_mask]:
+    for idx in work.index:
         next_idx = next_index.get(idx)
         if pd.isna(next_idx) or next_idx not in work.index:
             continue
-        hidden_log.append(superseded_reminder_log_entry(work.loc[idx].to_dict(), work.loc[next_idx].to_dict()))
+        row = work.loc[idx].to_dict()
+        superseding_row = work.loc[next_idx].to_dict()
+        if not superseding_purchase_resets_reminder_cycle(row, superseding_row):
+            continue
+        superseded_mask.loc[idx] = True
+        hidden_log.append(superseded_reminder_log_entry(row, superseding_row))
 
-    kept = pd.concat([work.loc[keep_mask], passthrough], axis=0)
+    kept = pd.concat([work.loc[~superseded_mask], passthrough], axis=0)
     return (
         kept.drop(columns=["_ReminderFamilyKey", "_ChargeDateTs", "_CurrentIndex"], errors="ignore").sort_index().reset_index(drop=True),
         hidden_log[-MAX_SETTINGS_LOG_ENTRIES:],
@@ -14000,20 +14059,28 @@ if active_main_section == "Upload Data":
 # Render Tables
 # --------------------------------
 def render_auto_hidden_reminder_summary() -> None:
+    source_log = st.session_state.get(
+        AUTO_HIDDEN_REMINDER_VISIBLE_LOG_KEY,
+        st.session_state.get(AUTO_HIDDEN_REMINDER_LOG_KEY, []),
+    )
     hidden_log = [
-        entry for entry in st.session_state.get(AUTO_HIDDEN_REMINDER_LOG_KEY, [])
+        entry for entry in source_log
         if isinstance(entry, dict)
     ]
     if not hidden_log:
         return
 
-    with st.expander(f"Why aren't some reminders appearing? {len(hidden_log)} hidden by newer uploaded purchases", expanded=False):
+    with st.expander(f"Why aren't some reminders appearing? {len(hidden_log)} hidden in this date window", expanded=False):
         st.caption(
-            "Clinic Reminders automatically hides reminder cycles when the uploaded sales data already contains a newer matching purchase for the same client, patient, and reminder item."
+            "Clinic Reminders automatically hides reminder cycles in this date window when uploaded sales data already contains a newer matching purchase for the same client, patient, and reminder item."
         )
         preview_rows = hidden_log[-10:]
+        display_rows = [
+            {key: value for key, value in row.items() if not str(key).startswith("_")}
+            for row in preview_rows
+        ]
         st.dataframe(
-            pd.DataFrame(preview_rows),
+            pd.DataFrame(display_rows),
             hide_index=True,
             use_container_width=True,
         )
@@ -20131,6 +20198,10 @@ if st.session_state.get("logged_in", False):
                 lookback_start_date,
                 end_date,
                 group_days,
+            )
+            st.session_state[AUTO_HIDDEN_REMINDER_VISIBLE_LOG_KEY] = auto_hidden_reminder_log_for_window(
+                lookback_start_date,
+                end_date,
             )
             today = user_today()
             if start_date == today and end_date >= today:
