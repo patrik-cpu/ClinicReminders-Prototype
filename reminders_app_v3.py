@@ -94,14 +94,19 @@ GET_STARTED_MANUAL_OFF_KEY = "get_started_manual_off"
 GET_STARTED_VISITED_TABS_KEY = "get_started_visited_tabs"
 MAIN_SECTION_TAB_SLUGS = {
     "reminders": "Reminders",
+    "send-reminders": "Reminders",
     "identify": "Identify",
     "stats": "Stats",
     "track": "Stats",
     "outcomes": "Stats",
     "get-started": "Get Started",
+    "learn": "Get Started",
     "upload-data": "Upload Data",
+    "upload": "Upload Data",
     "search-terms": "Search Terms",
+    "configure": "Search Terms",
     "exclusions": "Exclusions",
+    "exclude": "Exclusions",
     "statistics": "Stats",
 }
 MAIN_SECTION_TAB_TO_SLUG = {
@@ -115,9 +120,12 @@ MAIN_SECTION_TAB_TO_SLUG = {
 }
 MAIN_SECTION_TAB_DISPLAY_LABELS = {
     "Reminders": "Send Reminders",
-    "Search Terms": "Configure Reminders",
+    "Search Terms": "Configure",
+    "Exclusions": "Exclude",
     "Identify": "Identify",
     "Stats": "Track",
+    "Upload Data": "Upload",
+    "Get Started": "Learn",
 }
 REMINDERS_START_DATE_INPUT_KEY = "reminders_start_date_input"
 DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14
@@ -6519,7 +6527,7 @@ def data_privacy_policy_content() -> dict:
             {
                 "title": "Your control",
                 "body": (
-                    "Use Clear Clinic Data on the Upload Data tab to remove the active saved clinic data while keeping "
+                    "Use Clear Clinic Data on the Upload tab to remove the active saved clinic data while keeping "
                     "clinic settings and search terms. Account > Delete account and data removes the clinic account, "
                     "saved settings, action history, and uploaded clinic data file."
                 ),
@@ -6722,25 +6730,25 @@ def new_account_welcome_dialog_html() -> str:
             "1",
             "Upload your data",
             "Start with a recent sales export from your PMS. About a year of history is ideal.",
-            "Upload Data",
+            MAIN_SECTION_TAB_DISPLAY_LABELS["Upload Data"],
         ),
         (
             "2",
             "Set your reminder rules",
             "Add the products or services you want to remind clients about, and choose when each reminder should go out.",
-            "Search Terms",
+            MAIN_SECTION_TAB_DISPLAY_LABELS["Search Terms"],
         ),
         (
             "3",
             "Prepare your message",
             "Enter your name, review the WhatsApp template, then use the WhatsApp button to create each message.",
-            "Reminders",
+            MAIN_SECTION_TAB_DISPLAY_LABELS["Reminders"],
         ),
         (
             "4",
             "Clear the list as you work",
             "Mark reminders as sent or declined so completed items leave the active list.",
-            "Reminders",
+            MAIN_SECTION_TAB_DISPLAY_LABELS["Reminders"],
         ),
     ]
     step_cards = []
@@ -6868,7 +6876,7 @@ def new_account_welcome_dialog_html() -> str:
         <p>Four calm steps get the clinic from upload to ready-to-send reminders. You can change everything later.</p>
       </div>
       <div class="cr-welcome-grid">{step_cards_html}</div>
-      <div class="cr-welcome-note">Start with Upload Data. The app will save your setup as you go, so your search terms and template work are not lost between sessions.</div>
+      <div class="cr-welcome-note">Start with Upload. The app will save your setup as you go, so your search terms and template work are not lost between sessions.</div>
     </div>
     """).strip().format(step_cards_html=step_cards_html)
 
@@ -10809,7 +10817,7 @@ def get_setup_checklist_modules() -> list[dict]:
     item_help = {
         "upload_data": "Upload a recent PMS sales export so Clinic Reminders can build reminder dates from real clinic activity.",
         "review_upload_checks": "Check that the saved upload has the right PMS, enough date coverage, and no large gaps.",
-        "review_search_terms": "Look through Current Search Terms so you know which products and services create reminders.",
+        "review_search_terms": "Look through current search terms so you know which products and services create reminders.",
         "add_search_term": "Add a clinic-specific item rule for a product or service your clinic wants to remind clients about.",
         "check_rule_days": "Set First reminder, Second reminder, or Overdue after days for any current search term.",
         "review_top_unreminded_items": "Use Top Unreminded Items to spot common or high-value sales that are not covered by current search terms.",
@@ -10877,11 +10885,11 @@ def get_setup_checklist_modules() -> list[dict]:
                     st.session_state.get("search_term_added_at", ""),
                 ),
                 item("check_rule_days", "Add first, second, or overdue reminder timing", has_reminder_timing, reminder_timing_token),
-                item("review_top_unreminded_items", "Review Top Unreminded Items", has_data and main_section_tab_visited("Search Terms"), str(has_data and main_section_tab_visited("Search Terms"))),
+                item("review_top_unreminded_items", "Review top unreminded items", has_data and main_section_tab_visited("Search Terms"), str(has_data and main_section_tab_visited("Search Terms"))),
             ],
         },
         {
-            "tab": "Exclusions",
+            "tab": MAIN_SECTION_TAB_DISPLAY_LABELS["Exclusions"],
             "copy": "Hide reminders that should not be contacted.",
             "items": [
                 item("add_client_exclusion", "Add a Client exclusion", has_client_exclusion_after_reset, client_exclusion_token),
@@ -10914,7 +10922,7 @@ def get_setup_checklist_modules() -> list[dict]:
             ],
         },
         {
-            "tab": "Upload Data",
+            "tab": MAIN_SECTION_TAB_DISPLAY_LABELS["Upload Data"],
             "copy": "Bring in the clinic sales export and check the saved dataset.",
             "items": [
                 item(
@@ -10989,8 +10997,8 @@ def tab_badge_label(tab_name: str, count: int, alt_text: str) -> str:
 def get_started_badge_label(count: int | None = None) -> str:
     count = get_started_incomplete_count() if count is None else int(count or 0)
     if count <= 0:
-        return "Get Started"
-    return tab_badge_label("Get Started", count, f"{count} setup steps remaining")
+        return MAIN_SECTION_TAB_DISPLAY_LABELS["Get Started"]
+    return tab_badge_label("Get Started", count, f"{count} learn steps remaining")
 
 
 def upload_data_badge_count(rows: list[dict] | None = None) -> int:
@@ -11021,8 +11029,8 @@ def upload_data_needs_initial_upload(rows: list[dict] | None = None) -> bool:
 def upload_data_badge_label(count: int | None = None) -> str:
     count = upload_data_badge_count() if count is None else int(count or 0)
     if count <= 0:
-        return "Upload Data"
-    return tab_badge_label("Upload Data", count, f"{count} upload data checks need attention")
+        return MAIN_SECTION_TAB_DISPLAY_LABELS["Upload Data"]
+    return tab_badge_label("Upload Data", count, f"{count} upload checks need attention")
 
 
 def stats_badge_label() -> str:
@@ -11651,7 +11659,7 @@ def render_setup_checklist():
 
     with setup_panel:
         st.markdown(
-            '<p class="setup-intro">Use these modules as a quick tour of the main Clinic Reminders features. Some items complete automatically; review items can be ticked off manually.</p>',
+            '<p class="setup-intro">Use Learn as a quick tour of the main Clinic Reminders workflow. Some steps complete automatically; review steps can be ticked off manually.</p>',
             unsafe_allow_html=True,
         )
         module_columns = st.columns(2, gap="medium")
@@ -11692,10 +11700,10 @@ def render_setup_checklist():
                             )
 
         with st.container(key="get_started_reset_row"):
-            if st.button("↻ Reset", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
+            if st.button("↻ Reset", key="reset_get_started_checklist", help="Reset Learn. Clinic data and settings are not deleted."):
                 reset_get_started_checklist_state()
                 save_settings_quietly()
-                st.success("Get Started guide reset.")
+                st.success("Learn reset.")
                 st.rerun()
 
 # --------------------------------
@@ -13251,7 +13259,7 @@ if active_main_section not in MAIN_SECTION_TABS:
 # --- Data section ---
 if active_main_section == "Get Started":
     st.markdown("<div id='getting-started' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("## ✅ Get Started")
+    st.markdown("## ✅ Learn")
     render_setup_checklist()
 
 if active_main_section == "Upload Data":
@@ -13259,8 +13267,8 @@ if active_main_section == "Upload Data":
     st.markdown(
         """
         <section class="cr-page-hero">
-          <p class="cr-page-kicker">Upload Data</p>
-          <h2>Keep your reminder data current</h2>
+          <p class="cr-page-kicker">Upload</p>
+          <h2>Keep data current</h2>
           <p>Upload one or more sales exports from your PMS. Clinic Reminders saves the active clinic dataset and keeps your search terms, exclusions, templates, and action history separate.</p>
         </section>
         """,
@@ -13738,7 +13746,7 @@ def render_table(
         return
     df = apply_reminder_exclusion_filters(df, rules)
     if df.empty:
-        st.info("All reminders in this view are hidden by exclusions. Review Exclusions if this looks wrong.")
+        st.info("All reminders in this view are hidden by exclusions. Review Exclude if this looks wrong.")
         render_whatsapp_tools(key_prefix, msg_key)
         record_slow_render_performance("reminders_table_render", render_started, rows=0, source=key_prefix)
         return
@@ -19132,7 +19140,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 def render_search_terms_editor():
     # Rules editor (unchanged UI; behavior preserved)
     st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("## 📝 Configure Reminders")
+    st.markdown("## 📝 Configure")
 
     def column_header(label, help_text):
         safe_label = html_lib.escape(label)
@@ -19587,7 +19595,7 @@ def render_top_unreminded_items_table(title: str, rows: pd.DataFrame, value_colu
         if st.button(
             "Exclude all 10",
             key=f"{key_prefix}_exclude_all",
-            help="Add every item currently shown in this table to General Item Exclusions.",
+            help="Add every item currently shown in this table to general item exclusions.",
             use_container_width=True,
             disabled=not visible_item_names,
         ):
@@ -19623,7 +19631,7 @@ def render_top_unreminded_items_table(title: str, rows: pd.DataFrame, value_colu
             value_text = f"{int(row.get('Count', 0) or 0):,}"
         row_cols[1].markdown(padded_html_text(value_text), unsafe_allow_html=True)
         safe_key = hashlib.sha256(item_name.lower().encode("utf-8")).hexdigest()[:10]
-        if row_cols[2].button("×", key=f"{key_prefix}_exclude_{idx}_{safe_key}", help="Add this item to General Item Exclusions"):
+        if row_cols[2].button("×", key=f"{key_prefix}_exclude_{idx}_{safe_key}", help="Add this item to general item exclusions"):
             exclude_top_unreminded_item(item_name)
             st.rerun()
 
@@ -19809,9 +19817,9 @@ if st.session_state.get("logged_in", False):
             empty_message = None
             if grouped.empty:
                 if reminders_before_exclusions:
-                    empty_message = "All reminders in the selected date range are hidden by exclusions. Review Exclusions if this looks wrong."
+                    empty_message = "All reminders in the selected date range are hidden by exclusions. Review Exclude if this looks wrong."
                 elif should_show_no_reminders_info(reminders_before_exclusions, active_reminder_count):
-                    empty_message = "No reminders in the selected date range. Try Today, widen the date window, or check Search Terms."
+                    empty_message = "No reminders in the selected date range. Try Today, widen the date window, or check Configure."
             render_table(
                 grouped,
                 f"{lookback_start_date} to {end_date}",
@@ -19836,12 +19844,12 @@ if st.session_state.get("logged_in", False):
         render_stats_tab(df, prepared, applied_rules)
 
     if active_main_section == "Exclusions":
-        # Exclusions
+        # Exclude
         # --------------------------------
         st.markdown("<div id='exclusions' class='anchor-offset'></div>", unsafe_allow_html=True)
-        st.markdown("## 🚫 Exclusions")
+        st.markdown("## 🚫 Exclude")
     
-        st.markdown("### Client Exclusions")
+        st.markdown("### Clients")
         st.caption("Hide every reminder for a specific client.")
         st.session_state.setdefault("client_exclusions", [])
         if st.session_state["client_exclusions"]:
@@ -19891,11 +19899,11 @@ if st.session_state.get("logged_in", False):
                         st.session_state["new_rule_counter"] += 1
                         st.rerun()
                     else:
-                        st.info("This client exclusion already exists.")
+                        st.info("This client is already excluded.")
                 else:
                     st.error("Enter a valid client name")
 
-        st.markdown("### Patient Exclusions")
+        st.markdown("### Patients")
         st.caption("Hide reminders for one patient under one specific client.")
         st.session_state.setdefault("patient_exclusions", [])
         if st.session_state["patient_exclusions"]:
@@ -19919,7 +19927,7 @@ if st.session_state.get("logged_in", False):
                         f"patient_{safe_pair}",
                         patient_exclusion_label_html(client_name, patient_name),
                         f"del_patient_excl_{safe_pair}",
-                        "Remove patient exclusion",
+                        "Remove patient",
                     ):
                         st.session_state["patient_exclusions"].remove(exclusion)
                         save_settings_quietly()
@@ -19978,7 +19986,7 @@ if st.session_state.get("logged_in", False):
                 else:
                     st.error("Enter both client and patient names")
 
-        st.markdown("### Client-Specific Item Exclusions")
+        st.markdown("### Client-specific items")
         st.caption("Hide one item or service only for a specific client.")
         st.session_state["client_item_exclusions"] = normalize_client_item_exclusions(
             st.session_state.get("client_item_exclusions", [])
@@ -20004,7 +20012,7 @@ if st.session_state.get("logged_in", False):
                         f"client_item_{safe_pair}",
                         patient_exclusion_label_html(client_name, item_name),
                         f"del_client_item_excl_{safe_pair}",
-                        "Remove client-specific item exclusion",
+                        "Remove client-specific item",
                     ):
                         st.session_state["client_item_exclusions"].remove(exclusion)
                         save_settings_quietly()
@@ -20059,11 +20067,11 @@ if st.session_state.get("logged_in", False):
                         st.session_state["new_rule_counter"] += 1
                         st.rerun()
                     else:
-                        st.info("This client-specific item exclusion already exists.")
+                        st.info("This client-specific item is already excluded.")
                 else:
                     st.error("Enter both client and item names")
 
-        st.markdown("### General Item Exclusions")
+        st.markdown("### General items")
         st.caption("Hide reminders for an item or phrase across every client.")
         if st.session_state["exclusions"]:
             with st.container(border=True, key="item_exclusions_list_box"):
@@ -20107,11 +20115,11 @@ if st.session_state.get("logged_in", False):
                         st.session_state["new_rule_counter"] += 1
                         st.rerun()
                     else:
-                        st.info("This exclusion already exists.")
+                        st.info("This item is already excluded.")
                 else:
                     st.error("Enter a valid exclusion term")
 
-        st.markdown("### Automatic Patient Death Exclusions")
+        st.markdown("### Automatic death keywords")
         st.caption(
             "When uploaded item text contains one of these keywords, the matching client and patient are added here automatically."
         )

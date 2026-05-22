@@ -94,8 +94,8 @@ class DatasetUpdateTests(unittest.TestCase):
             self.assertEqual(self.app.dataset_summary_issue_count(rows), 1)
             label = self.app.upload_data_badge_label(count=self.app.dataset_summary_issue_count(rows))
 
-        self.assertIn("Upload Data", label)
-        self.assertIn("1 upload data checks need attention", label)
+        self.assertIn("Upload", label)
+        self.assertIn("1 upload checks need attention", label)
         self.assertIn("data:image/svg+xml;base64", label)
 
     def test_upload_data_badge_shows_issue_when_no_csv_is_saved(self):
@@ -104,8 +104,8 @@ class DatasetUpdateTests(unittest.TestCase):
 
         label = self.app.upload_data_badge_label(count=self.app.upload_data_badge_count(rows=[]))
 
-        self.assertIn("Upload Data", label)
-        self.assertIn("1 upload data checks need attention", label)
+        self.assertIn("Upload", label)
+        self.assertIn("1 upload checks need attention", label)
 
     def test_dataset_coverage_turns_red_on_day_30_since_last_upload(self):
         rows = [
@@ -139,7 +139,7 @@ class DatasetUpdateTests(unittest.TestCase):
 
         with patch.object(self.app, "user_today", return_value=pd.Timestamp("2026-05-31").date()):
             self.assertEqual(self.app.dataset_summary_issue_count(rows), 0)
-            self.assertEqual(self.app.upload_data_badge_label(count=0), "Upload Data")
+            self.assertEqual(self.app.upload_data_badge_label(count=0), "Upload")
 
     def test_dataset_saved_summary_shows_total_rows_and_date_range(self):
         summary = self.app.format_dataset_saved_summary(

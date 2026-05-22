@@ -24,7 +24,7 @@ class GetStartedBadgeTests(unittest.TestCase):
         incomplete_count = self.app.get_started_incomplete_count()
         self.assertGreater(incomplete_count, 6)
         badge_label = self.app.get_started_badge_label()
-        self.assertIn(f"{incomplete_count} setup steps remaining", badge_label)
+        self.assertIn(f"{incomplete_count} learn steps remaining", badge_label)
         self.assertIn(str(incomplete_count), badge_label)
 
         state = self.app.st.session_state
@@ -35,31 +35,31 @@ class GetStartedBadgeTests(unittest.TestCase):
         }
 
         self.assertEqual(self.app.get_started_incomplete_count(), 0)
-        self.assertEqual(self.app.get_started_badge_label(), "Get Started")
+        self.assertEqual(self.app.get_started_badge_label(), "Learn")
 
     def test_get_started_modules_include_tab_feature_guidance(self):
         modules = self.app.get_setup_checklist_modules()
         module_titles = [module["tab"] for module in modules]
         reminder_items = next(module for module in modules if module["tab"] == "Send Reminders")["items"]
-        configure_items = next(module for module in modules if module["tab"] == "Configure Reminders")["items"]
-        exclusion_items = next(module for module in modules if module["tab"] == "Exclusions")["items"]
+        configure_items = next(module for module in modules if module["tab"] == "Configure")["items"]
+        exclusion_items = next(module for module in modules if module["tab"] == "Exclude")["items"]
         identify_items = next(module for module in modules if module["tab"] == "Identify")["items"]
 
         self.assertEqual(
             module_titles,
             [
                 "Send Reminders",
-                "Configure Reminders",
-                "Exclusions",
+                "Configure",
+                "Exclude",
                 "Identify",
                 "Track",
-                "Upload Data",
+                "Upload",
             ],
         )
         self.assertIn("Review the General WhatsApp template", [item["label"] for item in reminder_items])
         self.assertIn("Action a reminder as declined", [item["label"] for item in reminder_items])
         self.assertIn("Add first, second, or overdue reminder timing", [item["label"] for item in configure_items])
-        self.assertIn("Review Top Unreminded Items", [item["label"] for item in configure_items])
+        self.assertIn("Review top unreminded items", [item["label"] for item in configure_items])
         self.assertIn("Review automatic death keywords", [item["label"] for item in exclusion_items])
         self.assertEqual(
             [item["label"] for item in identify_items],
