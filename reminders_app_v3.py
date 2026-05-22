@@ -1887,6 +1887,13 @@ st.markdown(
         letter-spacing: 0;
         line-height: 1;
     }
+    .stats-summary-value--fit {
+        font-size: clamp(1rem, 1.2vw, 2rem);
+        line-height: 1.05;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
     .stats-summary-tab-gap {
         height: 1rem;
     }
@@ -15701,6 +15708,7 @@ def render_statistics_metric_card(label: str, value: str, help_text: str = ""):
     safe_label = html_lib.escape(str(label or ""))
     safe_value = html_lib.escape(str(value or "0"))
     safe_help = html_lib.escape(str(help_text or ""))
+    value_class = "stats-summary-value stats-summary-value--fit" if label == "Top Team Member" else "stats-summary-value"
     help_html = (
         f" <span class='column-help' data-tooltip='{safe_help}'>{HELP_ICON_HTML}</span>"
         if safe_help
@@ -15710,7 +15718,7 @@ def render_statistics_metric_card(label: str, value: str, help_text: str = ""):
         f"""
         <div class="stats-summary-card">
           <div class="stats-summary-label">{safe_label}{help_html}</div>
-          <div class="stats-summary-value">{safe_value}</div>
+          <div class="{value_class}">{safe_value}</div>
         </div>
         """,
         unsafe_allow_html=True,
