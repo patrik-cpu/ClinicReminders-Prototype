@@ -1896,9 +1896,9 @@ st.markdown(
         margin: 1rem 0;
     }
     .stats-period-selector-title {
-        color: var(--cr-text);
-        font-size: 0.92rem;
-        font-weight: 700;
+        color: #23513a;
+        font-size: 1rem;
+        font-weight: 600;
         line-height: 1.2;
         margin-bottom: 0.12rem;
     }

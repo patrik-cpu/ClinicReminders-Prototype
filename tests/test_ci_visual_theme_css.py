@@ -249,6 +249,8 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('STATS_SENT_REMINDER_PERIODS = ["Today", "Past", "All-time", "Calendar", "Custom"]', source)
         self.assertIn('STATS_PAST_PERIODS = ["Past week", "Past month", "Past 3 months", "Past 6 months", "Past year", "Past 2 years"]', source)
         self.assertIn("stats-period-selector-title", source)
+        self.assertIn("font-size: 1rem;", source)
+        self.assertIn("font-weight: 600;", source)
         self.assertIn("stats-period-to-label", source)
         self.assertIn("Choose your reporting window:", source)
         self.assertIn("padding-left: 0.55rem !important;", source)
