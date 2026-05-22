@@ -17816,6 +17816,7 @@ def stats_subtab_display_label(tab_name: str) -> str:
 
 
 def set_active_stats_subtab(tab_name: str) -> None:
+    set_main_section_tab("Stats")
     st.session_state["stats_active_subtab"] = tab_name if tab_name in STATS_SUBTABS else "Revenue"
 
 

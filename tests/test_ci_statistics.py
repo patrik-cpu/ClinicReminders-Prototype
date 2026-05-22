@@ -1621,6 +1621,14 @@ class StatisticsTests(unittest.TestCase):
         self.app.reset_stats_shared_period_pages()
         self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
 
+    def test_stats_subtab_clicks_keep_stats_main_tab_active(self):
+        self.app.st.session_state["main_section_tab"] = "Reminders"
+
+        self.app.set_active_stats_subtab("Reminders")
+
+        self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
+        self.assertEqual(self.app.st.session_state["stats_active_subtab"], "Reminders")
+
     def test_stats_render_reuses_matching_calculation_cache_without_custom_range_partial(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
         render_start = source.index("def render_stats_tab")
