@@ -5185,6 +5185,7 @@ def load_settings(load_action_history: bool = True):
         load_reminder_filter_settings(settings)
         load_outcome_due_date_window_days(settings)
         load_outcome_post_reminder_window_days(settings)
+        load_period_window_preferences(settings)
         st.session_state["clinic_access_code_hash"] = str(settings.get("clinic_access_code_hash", "") or "").strip()
         st.session_state["clinic_access_code_plain"] = normalize_clinic_access_code(
             settings.get("clinic_access_code_plain", "")
@@ -5245,6 +5246,7 @@ def load_settings(load_action_history: bool = True):
         load_reminder_filter_settings(settings)
         load_outcome_due_date_window_days(settings)
         load_outcome_post_reminder_window_days(settings)
+        load_period_window_preferences(settings)
         st.session_state["clinic_access_code_hash"] = ""
         st.session_state["clinic_access_code_plain"] = ""
         st.session_state["wa_reminder_log"] = []
@@ -5653,6 +5655,12 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "user_name_updated_at": setting_for_save("user_name_updated_at", ""),
         "wa_template_updated_at": setting_for_save("wa_template_updated_at", ""),
         "dataset_upload_history": normalize_dataset_upload_history(setting_for_save("dataset_upload_history", [])),
+        PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY: period_window_preferences_for_save(
+            remote_settings.get(
+                PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY,
+                base_settings.get(PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY, {}),
+            )
+        ),
         "country": setting_for_save("user_country", remote_settings.get("country", "")),
         "action_tracker_migrated_at": setting_for_save("action_tracker_migrated_at", remote_settings.get("action_tracker_migrated_at", "")),
     }
@@ -18103,6 +18111,113 @@ def stats_custom_range_storage_key(range_key: str) -> str:
     return f"{range_key}_last_complete"
 
 
+PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY = "period_window_preferences"
+PERIOD_WINDOW_PREFERENCES_SAVE_PENDING_KEY = "_period_window_preferences_save_pending"
+PERIOD_WINDOW_PREFERENCE_SPECS = (
+    ("stats_period", "stats_custom_range", "All-time"),
+    ("reminders_actioned_period", "reminders_actioned_custom_range", "Today"),
+)
+
+
+def period_window_preference_keys(period_key: str, range_key: str) -> tuple[str, ...]:
+    return (
+        period_key,
+        range_key,
+        stats_custom_range_storage_key(range_key),
+        f"{period_key}_rolling_more",
+        f"{period_key}_calendar_year",
+        f"{period_key}_calendar_period",
+        f"{period_key}_calendar_month",
+        f"{period_key}_calendar_quarter",
+        f"{range_key}_start",
+        f"{range_key}_end",
+    )
+
+
+def serialize_period_window_value(key: str, value):
+    if key.endswith("_custom_range") or key.endswith("_custom_range_last_complete"):
+        custom_range = normalize_stats_sent_custom_range(value)
+        return [custom_range[0].isoformat(), custom_range[1].isoformat()] if custom_range else None
+    if key.endswith("_start") or key.endswith("_end"):
+        return value.isoformat() if isinstance(value, date) else None
+    return value if isinstance(value, (str, int, bool)) or value is None else str(value)
+
+
+def parse_period_window_date(value) -> date | None:
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def parse_period_window_range(value) -> tuple[date, date] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    start_date = parse_period_window_date(value[0])
+    end_date = parse_period_window_date(value[1])
+    if start_date is None or end_date is None:
+        return None
+    return normalize_stats_sent_custom_range((start_date, end_date))
+
+
+def period_window_preferences_for_save(existing_preferences=None) -> dict:
+    preferences = dict(existing_preferences) if isinstance(existing_preferences, dict) else {}
+    for period_key, range_key, _default_period in PERIOD_WINDOW_PREFERENCE_SPECS:
+        for key in period_window_preference_keys(period_key, range_key):
+            if key not in st.session_state:
+                continue
+            serialized_value = serialize_period_window_value(key, st.session_state.get(key))
+            if serialized_value is None:
+                preferences.pop(key, None)
+            else:
+                preferences[key] = serialized_value
+    return preferences
+
+
+def load_period_window_preferences(settings: dict) -> None:
+    preferences = settings.get(PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY, {})
+    if not isinstance(preferences, dict):
+        return
+    for period_key, range_key, default_period in PERIOD_WINDOW_PREFERENCE_SPECS:
+        st.session_state[period_key] = normalize_stats_period_selection(preferences.get(period_key), default_period)
+        rolling_key = f"{period_key}_rolling_more"
+        if preferences.get(rolling_key) in STATS_PAST_PERIODS:
+            st.session_state[rolling_key] = preferences[rolling_key]
+        period_type_key = f"{period_key}_calendar_period"
+        if preferences.get(period_type_key) in STATS_CALENDAR_PERIOD_TYPES:
+            st.session_state[period_type_key] = preferences[period_type_key]
+        for numeric_key in (
+            f"{period_key}_calendar_year",
+            f"{period_key}_calendar_month",
+            f"{period_key}_calendar_quarter",
+        ):
+            try:
+                if numeric_key in preferences:
+                    st.session_state[numeric_key] = int(preferences[numeric_key])
+            except (TypeError, ValueError):
+                pass
+        storage_key = stats_custom_range_storage_key(range_key)
+        saved_range = parse_period_window_range(preferences.get(range_key)) or parse_period_window_range(preferences.get(storage_key))
+        if saved_range is not None:
+            st.session_state[range_key] = saved_range
+            st.session_state[storage_key] = saved_range
+        for date_key in (f"{range_key}_start", f"{range_key}_end"):
+            saved_date = parse_period_window_date(preferences.get(date_key))
+            if saved_date is not None:
+                st.session_state[date_key] = saved_date
+
+
+def persist_period_window_preferences_if_pending() -> None:
+    if not st.session_state.pop(PERIOD_WINDOW_PREFERENCES_SAVE_PENDING_KEY, False):
+        return
+    if not save_settings_quietly():
+        st.session_state[PERIOD_WINDOW_PREFERENCES_SAVE_PENDING_KEY] = True
+
+
 def stats_custom_range_selection_in_progress(value) -> bool:
     return isinstance(value, (tuple, list)) and len(value) == 1 and isinstance(value[0], date)
 
@@ -18279,6 +18394,11 @@ def render_stats_period_selector(
     current = normalize_stats_period_selection(st.session_state.get(filter_key, default_period), default_period)
     control_current = "Past" if current in STATS_PAST_PERIODS else current
     safe_filter_key = re.sub(r"[^a-zA-Z0-9_-]", "_", filter_key)
+
+    def handle_period_change() -> None:
+        on_change()
+        st.session_state[PERIOD_WINDOW_PREFERENCES_SAVE_PENDING_KEY] = True
+
     st.markdown(
         f"""
         <style>
@@ -18316,7 +18436,7 @@ def render_stats_period_selector(
             default=control_current,
             key=filter_key,
             label_visibility="collapsed",
-            on_change=on_change,
+            on_change=handle_period_change,
         )
     else:
         selected_period = st.radio(
@@ -18326,7 +18446,7 @@ def render_stats_period_selector(
             horizontal=True,
             key=filter_key,
             label_visibility="collapsed",
-            on_change=on_change,
+            on_change=handle_period_change,
         )
     selected_period = selected_period or control_current
     custom_range = None
@@ -18341,7 +18461,7 @@ def render_stats_period_selector(
             index=STATS_PAST_PERIODS.index(more_current),
             key=more_key,
             label_visibility="collapsed",
-            on_change=on_change,
+            on_change=handle_period_change,
         )
     elif selected_period == "Calendar":
         today_value = user_today()
@@ -18358,7 +18478,7 @@ def render_stats_period_selector(
                 index=year_options.index(stored_year),
                 key=year_key,
                 label_visibility="collapsed",
-                on_change=on_change,
+                on_change=handle_period_change,
             )
         period_key = f"{filter_key}_calendar_period"
         stored_period_type = st.session_state.get(period_key, "Month")
@@ -18371,7 +18491,7 @@ def render_stats_period_selector(
                 index=STATS_CALENDAR_PERIOD_TYPES.index(stored_period_type),
                 key=period_key,
                 label_visibility="collapsed",
-                on_change=on_change,
+                on_change=handle_period_change,
             )
         period_value = None
         with value_col:
@@ -18388,7 +18508,7 @@ def render_stats_period_selector(
                     index=month_options.index(stored_month) if stored_month in month_options else 0,
                     key=month_key,
                     label_visibility="collapsed",
-                    on_change=on_change,
+                    on_change=handle_period_change,
                 )
             elif period_type == "Quarter":
                 quarter_options = stats_calendar_quarter_options(selected_year, today_value)
@@ -18403,7 +18523,7 @@ def render_stats_period_selector(
                     index=quarter_options.index(stored_quarter) if stored_quarter in quarter_options else 0,
                     key=quarter_key,
                     label_visibility="collapsed",
-                    on_change=on_change,
+                    on_change=handle_period_change,
                 )
             else:
                 st.markdown("<div class='stats-calendar-full-year'>Full year</div>", unsafe_allow_html=True)
@@ -18429,7 +18549,7 @@ def render_stats_period_selector(
                 value=st.session_state[start_key],
                 key=start_key,
                 label_visibility="collapsed",
-                on_change=on_change,
+                on_change=handle_period_change,
             )
         with to_col:
             st.markdown('<div class="stats-period-to-label">to</div>', unsafe_allow_html=True)
@@ -18439,12 +18559,13 @@ def render_stats_period_selector(
                 value=st.session_state[end_key],
                 key=end_key,
                 label_visibility="collapsed",
-                on_change=on_change,
+                on_change=handle_period_change,
             )
         custom_range = normalize_stats_sent_custom_range((start_value, end_value))
         st.session_state[range_key] = custom_range
         if custom_range is not None:
             st.session_state[storage_key] = custom_range
+    persist_period_window_preferences_if_pending()
     return selected_period, custom_range
 
 

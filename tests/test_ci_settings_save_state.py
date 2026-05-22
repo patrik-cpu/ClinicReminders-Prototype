@@ -3,6 +3,7 @@ import importlib
 import io
 import json
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -573,6 +574,53 @@ class SettingsSaveStateTests(unittest.TestCase):
             self.app.DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = default_value
 
         self.assertEqual(saved["outcome_due_date_window_days"], 14)
+
+    def test_save_settings_persists_period_window_preferences(self):
+        self.app.cache_remote_settings("Clinic Save State", {})
+        self.app.st.session_state["stats_period"] = "Custom"
+        self.app.st.session_state["stats_custom_range"] = (date(2026, 5, 1), date(2026, 5, 22))
+        self.app.st.session_state["stats_custom_range_last_complete"] = (date(2026, 5, 1), date(2026, 5, 22))
+        self.app.st.session_state["reminders_actioned_period"] = "Past"
+        self.app.st.session_state["reminders_actioned_period_rolling_more"] = "Past 6 months"
+
+        saved = self.run_save_with_remote({})
+
+        preferences = saved[self.app.PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY]
+        self.assertEqual(preferences["stats_period"], "Custom")
+        self.assertEqual(preferences["stats_custom_range"], ["2026-05-01", "2026-05-22"])
+        self.assertEqual(preferences["stats_custom_range_last_complete"], ["2026-05-01", "2026-05-22"])
+        self.assertEqual(preferences["reminders_actioned_period"], "Past")
+        self.assertEqual(preferences["reminders_actioned_period_rolling_more"], "Past 6 months")
+
+    def test_load_settings_restores_period_window_preferences(self):
+        headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
+        sheet = FakeSettingsSheet({
+            self.app.PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY: {
+                "stats_period": "Custom",
+                "stats_custom_range": ["2026-05-01", "2026-05-22"],
+                "reminders_actioned_period": "Calendar",
+                "reminders_actioned_period_calendar_year": "2026",
+                "reminders_actioned_period_calendar_period": "Quarter",
+                "reminders_actioned_period_calendar_quarter": "1",
+            }
+        })
+
+        with (
+            patch.object(self.app, "_get_settings_row_for_clinic", return_value=(sheet, headers, 2)),
+            patch.object(self.app, "load_action_tracker_records_for_clinic", return_value=[]),
+        ):
+            self.app.load_settings()
+
+        self.assertEqual(self.app.st.session_state["stats_period"], "Custom")
+        self.assertEqual(self.app.st.session_state["stats_custom_range"], (date(2026, 5, 1), date(2026, 5, 22)))
+        self.assertEqual(
+            self.app.st.session_state["stats_custom_range_last_complete"],
+            (date(2026, 5, 1), date(2026, 5, 22)),
+        )
+        self.assertEqual(self.app.st.session_state["reminders_actioned_period"], "Calendar")
+        self.assertEqual(self.app.st.session_state["reminders_actioned_period_calendar_year"], 2026)
+        self.assertEqual(self.app.st.session_state["reminders_actioned_period_calendar_period"], "Quarter")
+        self.assertEqual(self.app.st.session_state["reminders_actioned_period_calendar_quarter"], 1)
 
     def test_load_settings_restores_outcome_due_date_window_days(self):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
