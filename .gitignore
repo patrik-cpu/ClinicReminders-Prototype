@@ -13,3 +13,7 @@ htmlcov/
 venv/
 .streamlit/secrets.toml
 google-credentials.json
+
+# Local reference exports/assets; may contain clinic/client data.
+example data formats/
+other items/
