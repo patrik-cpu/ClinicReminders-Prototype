@@ -485,6 +485,33 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(saved["client_group_days"], 4)
         self.assertEqual(saved["reminder_warning_days"], 0)
 
+    def test_recent_reminder_filter_save_is_not_reverted_by_stale_remote_read(self):
+        base_settings = {
+            "rules": {},
+            "reminder_lookback_days": 7,
+            "reminder_window_days": 1,
+            "client_group_days": 1,
+            "reminder_warning_days": 0,
+        }
+        stale_remote_settings = {
+            **base_settings,
+            "reminder_lookback_days": 2,
+        }
+        self.app.cache_remote_settings("Clinic Save State", base_settings)
+        self.app.st.session_state["rules"] = {}
+        self.app.st.session_state["reminder_lookback_days"] = 7
+        self.app.st.session_state["reminder_window_days"] = 5
+        self.app.st.session_state["client_group_days"] = 1
+        self.app.st.session_state["reminder_warning_days"] = 0
+        self.app.st.session_state[
+            f"{self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY}_recent_local_save"
+        ] = 7
+
+        saved = self.run_save_with_remote(stale_remote_settings)
+
+        self.assertEqual(saved["reminder_lookback_days"], 7)
+        self.assertEqual(saved["reminder_window_days"], 5)
+
     def test_save_settings_persists_outcome_due_date_window_days(self):
         self.app.cache_remote_settings("Clinic Save State", {})
         self.app.st.session_state["outcome_due_date_window_days"] = 30
@@ -538,6 +565,44 @@ class SettingsSaveStateTests(unittest.TestCase):
         save_settings.assert_called_once()
         self.assertFalse(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY])
         self.assertEqual(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY], 9)
+
+    def test_reminder_filter_render_pass_persists_values_changed_without_callback(self):
+        self.app.st.session_state["reminder_lookback_days"] = 7
+        self.app.st.session_state["reminder_window_days"] = 5
+        self.app.st.session_state["client_group_days"] = 3
+        self.app.st.session_state["reminder_warning_days"] = 4
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY] = 2
+        self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_LOADED_KEY] = 1
+        self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_LOADED_KEY] = 1
+        self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_LOADED_KEY] = 0
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY] = False
+        self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_DIRTY_KEY] = False
+        self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_DIRTY_KEY] = False
+        self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_DIRTY_KEY] = False
+
+        with patch.object(self.app, "save_settings_quietly", return_value=True) as save_settings:
+            self.app.persist_reminder_filter_controls_if_changed()
+
+        self.assertEqual(save_settings.call_count, 4)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY], 7)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_LOADED_KEY], 5)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_LOADED_KEY], 3)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_LOADED_KEY], 4)
+        self.assertFalse(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY])
+        self.assertFalse(self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_DIRTY_KEY])
+        self.assertFalse(self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_DIRTY_KEY])
+        self.assertFalse(self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_DIRTY_KEY])
+
+    def test_reminder_filter_render_pass_skips_values_before_settings_are_loaded(self):
+        self.app.st.session_state["reminder_lookback_days"] = 7
+        self.app.st.session_state["reminder_window_days"] = 5
+        self.app.st.session_state["client_group_days"] = 3
+        self.app.st.session_state["reminder_warning_days"] = 4
+
+        with patch.object(self.app, "save_settings_quietly") as save_settings:
+            self.app.persist_reminder_filter_controls_if_changed()
+
+        save_settings.assert_not_called()
 
     def test_outcome_window_callback_skips_save_when_value_is_unchanged(self):
         self.app.st.session_state["outcome_due_date_window_days"] = 14

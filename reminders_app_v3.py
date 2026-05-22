@@ -5640,7 +5640,30 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
             ]
         st.session_state["deleted_reminders"] = deleted_reminders
 
+    reminder_int_settings = {
+        "client_group_days": (REMINDER_GROUP_DAYS_LOADED_KEY, normalized_reminder_group_days),
+        "reminder_window_days": (REMINDER_WINDOW_DAYS_LOADED_KEY, normalized_reminder_window_days),
+        "reminder_lookback_days": (REMINDER_LOOKBACK_DAYS_LOADED_KEY, normalized_reminder_lookback_days),
+        "reminder_warning_days": (REMINDER_WARNING_DAYS_LOADED_KEY, normalized_reminder_warning_days),
+    }
+
     def int_setting_for_save(key: str, default: int) -> int:
+        if key in reminder_int_settings and key in st.session_state:
+            loaded_key, normalizer = reminder_int_settings[key]
+            recent_local_key = f"{loaded_key}_recent_local_save"
+            recent_local_value = st.session_state.get(recent_local_key, _SETTING_MISSING)
+            if recent_local_value is not _SETTING_MISSING:
+                local_value = normalizer()
+                base_value = base_settings.get(key, _SETTING_MISSING)
+                remote_value = remote_settings.get(key, _SETTING_MISSING)
+                if remote_value is not _SETTING_MISSING and normalizer(remote_value) == local_value:
+                    st.session_state.pop(recent_local_key, None)
+                elif (
+                    base_value is not _SETTING_MISSING
+                    and normalizer(base_value) == local_value
+                    and normalizer(recent_local_value) == local_value
+                ):
+                    return local_value
         value = _merged_scalar_setting(key, default, base_settings, remote_settings)
         try:
             return int(value)
@@ -12627,6 +12650,7 @@ def save_reminder_int_setting(key: str, dirty_key: str, loaded_key: str, normali
     if save_settings_quietly():
         st.session_state[dirty_key] = False
         st.session_state[loaded_key] = value
+        st.session_state[f"{loaded_key}_recent_local_save"] = value
 
 
 def save_reminder_lookback_days() -> None:
@@ -12658,6 +12682,39 @@ def save_reminder_group_days() -> None:
 
 def save_reminder_warning_days() -> None:
     save_reminder_int_setting(
+        "reminder_warning_days",
+        REMINDER_WARNING_DAYS_DIRTY_KEY,
+        REMINDER_WARNING_DAYS_LOADED_KEY,
+        normalized_reminder_warning_days,
+    )
+
+
+def persist_reminder_int_setting_if_changed(key: str, dirty_key: str, loaded_key: str, normalizer) -> None:
+    if loaded_key not in st.session_state and not st.session_state.get(dirty_key):
+        return
+    save_reminder_int_setting(key, dirty_key, loaded_key, normalizer)
+
+
+def persist_reminder_filter_controls_if_changed() -> None:
+    persist_reminder_int_setting_if_changed(
+        "reminder_lookback_days",
+        REMINDER_LOOKBACK_DAYS_DIRTY_KEY,
+        REMINDER_LOOKBACK_DAYS_LOADED_KEY,
+        normalized_reminder_lookback_days,
+    )
+    persist_reminder_int_setting_if_changed(
+        "reminder_window_days",
+        REMINDER_WINDOW_DAYS_DIRTY_KEY,
+        REMINDER_WINDOW_DAYS_LOADED_KEY,
+        normalized_reminder_window_days,
+    )
+    persist_reminder_int_setting_if_changed(
+        "client_group_days",
+        REMINDER_GROUP_DAYS_DIRTY_KEY,
+        REMINDER_GROUP_DAYS_LOADED_KEY,
+        normalized_reminder_group_days,
+    )
+    persist_reminder_int_setting_if_changed(
         "reminder_warning_days",
         REMINDER_WARNING_DAYS_DIRTY_KEY,
         REMINDER_WARNING_DAYS_LOADED_KEY,
@@ -19882,6 +19939,11 @@ if st.session_state.get("logged_in", False):
                 on_change=save_reminder_warning_days,
                 label_visibility="collapsed",
             )
+
+        persist_reminder_filter_controls_if_changed()
+        reminder_lookback_days = normalized_reminder_lookback_days()
+        reminder_window_days = normalized_reminder_window_days()
+        group_days = normalized_reminder_group_days()
 
         lookback_start_date = start_date - timedelta(days=reminder_lookback_days)
         end_date = start_date + timedelta(days=reminder_window_days)
