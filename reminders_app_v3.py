@@ -7437,6 +7437,21 @@ def get_or_create_tracker_sheet(title: str, headers: list[str]):
     return worksheet
 
 
+def remember_tracker_write_failure(title: str, error: Exception, row_count: int = 1) -> None:
+    diagnostic = {
+        "tracker": tracker_cell_value(title),
+        "error_type": tracker_cell_value(type(error).__name__),
+        "message": sanitize_diagnostic_message(str(error)),
+        "row_count": tracker_cell_value(row_count),
+        "recorded_at": utc_now_iso(),
+    }
+    st.session_state["_last_tracker_write_failure"] = diagnostic
+    failures = st.session_state.setdefault("_tracker_write_failures", [])
+    if isinstance(failures, list):
+        failures.append(diagnostic)
+        del failures[:-5]
+
+
 def append_tracker_row(title: str, headers: list[str], row_values: list[str]):
     try:
         worksheet = get_or_create_tracker_sheet(title, headers)
@@ -7444,7 +7459,8 @@ def append_tracker_row(title: str, headers: list[str], row_values: list[str]):
         if title == ACTION_TRACKER_WORKSHEET:
             invalidate_action_tracker_records_cache()
         return True
-    except Exception:
+    except Exception as e:
+        remember_tracker_write_failure(title, e, row_count=1)
         return False
 
 
@@ -7462,7 +7478,8 @@ def append_tracker_rows(title: str, headers: list[str], rows: list[list[str]]):
         if title == ACTION_TRACKER_WORKSHEET:
             invalidate_action_tracker_records_cache()
         return True
-    except Exception:
+    except Exception as e:
+        remember_tracker_write_failure(title, e, row_count=len(rows))
         return False
 
 
@@ -8919,7 +8936,13 @@ def render_google_onboarding_dialog(google_user: dict):
                     st.rerun()
                 except ValueError as e:
                     st.error(str(e))
-                except Exception:
+                except Exception as e:
+                    record_error_tracker_event(
+                        "google_onboarding_failed",
+                        stage="google_onboarding_create_account",
+                        error=e,
+                        source="google_onboarding",
+                    )
                     st.error("Could not create your clinic account. Please try again or contact support.")
 
         if st.button("Use another Google account", key="google_onboarding_logout", use_container_width=True):
@@ -9413,7 +9436,13 @@ def render_profile_dialog():
                 st.rerun()
             except ValueError as e:
                 st.error(str(e))
-            except Exception:
+            except Exception as e:
+                record_error_tracker_event(
+                    "profile_update_failed",
+                    stage="profile_dialog_update",
+                    error=e,
+                    source="profile_dialog",
+                )
                 st.error("Could not update profile. Please try again or contact support.")
 
         if st.button("Close", key="profile_dialog_close", use_container_width=True):
@@ -10216,7 +10245,13 @@ if not st.session_state["logged_in"]:
                             st.rerun()
                         except ValueError as e:
                             st.error(str(e))
-                        except Exception:
+                        except Exception as e:
+                            record_error_tracker_event(
+                                "manual_account_create_failed",
+                                stage="manual_signup_create_account",
+                                error=e,
+                                source="manual_signup",
+                            )
                             st.error("Could not create account. Please try again or contact support.")
 else:
     clinic_id = st.session_state.get("clinic_id", "")
@@ -10275,16 +10310,27 @@ else:
                     elif not authenticate_user(clinic_id, current_password):
                         st.error("Current password is incorrect.")
                     else:
-                        password_hash = update_clinic_password(clinic_id, new_password)
-                        clear_remember_login_token()
-                        render_pending_remember_login_cookie_update()
-                        upsert_user_tracker(
-                            clinic_id,
-                            country=st.session_state.get("user_country", ""),
-                            event="password_changed",
-                        )
-                        st.session_state["show_top_change_password"] = False
-                        st.success("Password updated.")
+                        try:
+                            password_hash = update_clinic_password(clinic_id, new_password)
+                        except Exception as e:
+                            record_error_tracker_event(
+                                "password_change_failed",
+                                stage="change_password_update",
+                                error=e,
+                                source="account_popover",
+                            )
+                            st.error("Could not update password. Please try again or contact support.")
+                            password_hash = ""
+                        if password_hash:
+                            clear_remember_login_token()
+                            render_pending_remember_login_cookie_update()
+                            upsert_user_tracker(
+                                clinic_id,
+                                country=st.session_state.get("user_country", ""),
+                                event="password_changed",
+                            )
+                            st.session_state["show_top_change_password"] = False
+                            st.success("Password updated.")
 
 if upload_widget_has_files() and account_dialog_is_open():
     close_account_dialogs()

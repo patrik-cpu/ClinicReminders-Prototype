@@ -1,8 +1,10 @@
 import contextlib
 import importlib
 import io
+import inspect
 import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -114,6 +116,68 @@ class ErrorHandlingObservabilityTests(unittest.TestCase):
             self.assertNotIn("owner@example.com", row["Message"])
             self.assertNotIn("1AbCdEfGhIjKlMnOpQrStUv", row["Message"])
             self.assertNotIn("secret-token", row["Message"])
+
+    def test_tracker_write_failure_records_sanitized_local_diagnostic(self):
+        error = RuntimeError("sheet denied token=secret-token owner@example.com file 1AbCdEfGhIjKlMnOpQrStUv")
+
+        with patch.object(self.app, "get_or_create_tracker_sheet", side_effect=error):
+            saved = self.app.append_tracker_row(
+                self.app.ACTION_TRACKER_WORKSHEET,
+                self.app.ACTION_TRACKER_HEADERS,
+                ["2026-05-22"],
+            )
+
+        self.assertFalse(saved)
+        diagnostic = self.app.st.session_state["_last_tracker_write_failure"]
+        self.assertEqual(diagnostic["tracker"], self.app.ACTION_TRACKER_WORKSHEET)
+        self.assertEqual(diagnostic["error_type"], "RuntimeError")
+        self.assertEqual(diagnostic["row_count"], "1")
+        self.assertIn("token=[redacted]", diagnostic["message"])
+        self.assertIn("[redacted-email]", diagnostic["message"])
+        self.assertNotIn("secret-token", diagnostic["message"])
+        self.assertNotIn("owner@example.com", diagnostic["message"])
+        self.assertNotIn("1AbCdEfGhIjKlMnOpQrStUv", diagnostic["message"])
+
+    def test_tracker_batch_write_failure_records_sanitized_row_count(self):
+        error = RuntimeError("append failed password=hunter2")
+
+        with patch.object(self.app, "get_or_create_tracker_sheet", side_effect=error):
+            saved = self.app.append_tracker_rows(
+                self.app.DATASET_TRACKER_WORKSHEET,
+                self.app.DATASET_TRACKER_HEADERS,
+                [["row-1"], ["row-2"]],
+            )
+
+        self.assertFalse(saved)
+        diagnostic = self.app.st.session_state["_last_tracker_write_failure"]
+        self.assertEqual(diagnostic["tracker"], self.app.DATASET_TRACKER_WORKSHEET)
+        self.assertEqual(diagnostic["row_count"], "2")
+        self.assertIn("password=[redacted]", diagnostic["message"])
+        self.assertNotIn("hunter2", diagnostic["message"])
+
+    def test_account_flow_unexpected_failures_record_error_diagnostics(self):
+        onboarding_source = inspect.getsource(self.app.render_google_onboarding_dialog)
+        profile_source = inspect.getsource(self.app.render_profile_dialog)
+        app_source = Path(self.app.__file__).read_text(encoding="utf-8")
+
+        expected_events = [
+            "google_onboarding_failed",
+            "profile_update_failed",
+            "manual_account_create_failed",
+            "password_change_failed",
+        ]
+        for event in expected_events:
+            with self.subTest(event=event):
+                self.assertIn(f'"{event}"', app_source)
+
+        self.assertIn("stage=\"google_onboarding_create_account\"", onboarding_source)
+        self.assertIn("source=\"google_onboarding\"", onboarding_source)
+        self.assertIn("stage=\"profile_dialog_update\"", profile_source)
+        self.assertIn("source=\"profile_dialog\"", profile_source)
+        self.assertIn("stage=\"manual_signup_create_account\"", app_source)
+        self.assertIn("source=\"manual_signup\"", app_source)
+        self.assertIn("stage=\"change_password_update\"", app_source)
+        self.assertIn("source=\"account_popover\"", app_source)
 
     def test_slow_render_performance_is_thresholded_and_compact(self):
         with (

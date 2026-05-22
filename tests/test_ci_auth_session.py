@@ -1216,6 +1216,48 @@ class AuthSessionTests(unittest.TestCase):
         self.assertEqual(sheet.get_all_values_calls, 1)
         self.assertEqual(sheet.get_all_records_calls, 0)
 
+    def test_password_login_setup_reuses_authenticated_settings_row(self):
+        headers = [
+            self.app.SHEET_COL_CLINIC_ID,
+            self.app.SHEET_COL_PASSWORD_HASH,
+            self.app.SHEET_COL_SETTINGS_JSON,
+        ]
+        password_hash = self.app.password_hash_for_storage("secret-password")
+        settings_json = json.dumps({"user_name": "Clinic Sender", "rules": {}})
+
+        class FakeSheet:
+            def __init__(self):
+                self.get_all_values_calls = 0
+                self.row_values_calls = 0
+
+            def get_all_values(self):
+                self.get_all_values_calls += 1
+                return [
+                    headers,
+                    ["Other Clinic", "", "{}"],
+                    ["Clinic A", password_hash, settings_json],
+                ]
+
+            def row_values(self, row_idx):
+                self.row_values_calls += 1
+                raise AssertionError("load_settings should reuse the authenticated settings row")
+
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        sheet = FakeSheet()
+
+        with patch.object(self.app, "get_settings_sheet", return_value=sheet):
+            authenticated = self.app.authenticate_user("clinic a", "secret-password")
+            state["clinic_id"] = authenticated[self.app.SHEET_COL_CLINIC_ID]
+            state["logged_in"] = True
+            self.app.load_settings(load_action_history=False)
+
+        self.assertEqual(authenticated[self.app.SHEET_COL_CLINIC_ID], "Clinic A")
+        self.assertEqual(state["user_name"], "Clinic Sender")
+        self.assertEqual(sheet.get_all_values_calls, 1)
+        self.assertEqual(sheet.row_values_calls, 0)
+
     def test_get_clinic_row_seeds_settings_row_cache(self):
         self.app.st.session_state.pop("_settings_row_cache", None)
         headers = [
