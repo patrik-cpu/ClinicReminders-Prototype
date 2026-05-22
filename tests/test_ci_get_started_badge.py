@@ -43,6 +43,7 @@ class GetStartedBadgeTests(unittest.TestCase):
         reminder_items = next(module for module in modules if module["tab"] == "Send Reminders")["items"]
         configure_items = next(module for module in modules if module["tab"] == "Configure Reminders")["items"]
         exclusion_items = next(module for module in modules if module["tab"] == "Exclusions")["items"]
+        identify_items = next(module for module in modules if module["tab"] == "Identify")["items"]
 
         self.assertEqual(
             module_titles,
@@ -50,6 +51,7 @@ class GetStartedBadgeTests(unittest.TestCase):
                 "Send Reminders",
                 "Configure Reminders",
                 "Exclusions",
+                "Identify",
                 "Track",
                 "Upload Data",
             ],
@@ -59,6 +61,11 @@ class GetStartedBadgeTests(unittest.TestCase):
         self.assertIn("Add first, second, or overdue reminder timing", [item["label"] for item in configure_items])
         self.assertIn("Review Top Unreminded Items", [item["label"] for item in configure_items])
         self.assertIn("Review automatic death keywords", [item["label"] for item in exclusion_items])
+        self.assertEqual(
+            [item["label"] for item in identify_items],
+            ["Review total potential annual revenue lift", "Review top revenue lift items"],
+        )
+        self.assertFalse(any(item["auto_done"] for item in identify_items))
         self.assertNotIn("Account", module_titles)
 
     def test_get_started_reminder_timing_auto_completes_from_rules(self):

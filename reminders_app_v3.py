@@ -10805,6 +10805,8 @@ def get_setup_checklist_modules() -> list[dict]:
         "add_item_exclusion": "Hide an item or phrase across all clients when it should never create reminders.",
         "add_client_item_exclusion": "Hide one item only for one client, while keeping the item active for everyone else.",
         "review_death_keywords": "Review the words that automatically exclude patients when uploads suggest a pet has passed away.",
+        "review_identify_revenue_lift": "Review the all-time Potential Annual Revenue Lift metric to see the total opportunity in current remindable items.",
+        "review_identify_top_items": "Review the Identify table to see which items have the largest potential annual revenue lift.",
         "test_success_windows": "Try changing either success window to see how outcome matching changes.",
         "review_tracking_metrics": "Review the headline tracking metrics to understand reminders, successes, rate, and revenue.",
         "review_tracking_filters": "Filter Track by date range to review a specific period.",
@@ -10867,6 +10869,14 @@ def get_setup_checklist_modules() -> list[dict]:
                 item("add_item_exclusion", "Add a General Item exclusion", has_item_exclusion, str(st.session_state.get("exclusions", []))),
                 item("add_client_item_exclusion", "Add a Client-Specific Item exclusion", has_client_item_exclusion, str(st.session_state.get("client_item_exclusions", []))),
                 item("review_death_keywords", "Review automatic death keywords", reviewed_passaway_keywords, str(passaway_keywords)),
+            ],
+        },
+        {
+            "tab": "Identify",
+            "copy": "Find the biggest all-time reminder revenue opportunities.",
+            "items": [
+                item("review_identify_revenue_lift", "Review total potential annual revenue lift"),
+                item("review_identify_top_items", "Review top revenue lift items"),
             ],
         },
         {
