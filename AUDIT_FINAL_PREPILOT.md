@@ -18,7 +18,7 @@ This was a documentation-only audit after one emergency crash hotfix was applied
   - `python -m py_compile reminders_app_v3.py settings_pointer_utils.py scripts/*.py`
   - `python -m unittest discover -s tests -p "test_ci_*.py"`: 492 tests passed
   - `bash scripts/pre_merge_check.sh`: passed
-  - `bash scripts/pilot_release_check.sh`: failed at live auth legacy audit
+  - `bash scripts/pilot_release_check.sh`: initially failed at live auth legacy audit; after live legacy-account cleanup, advanced to the existing Ruff unused-variable lint failure
   - `python -m pip install -r requirements-dev.txt`
   - `bash scripts/dependency_security_audit.sh`: no known vulnerabilities found
   - `bash scripts/bug_lint_check.sh`: failed on one unused exception variable
@@ -27,24 +27,28 @@ This was a documentation-only audit after one emergency crash hotfix was applied
   - Required settings columns present.
   - 7 tracker worksheets present with expected columns.
   - Datasets Drive folder opened and listed successfully.
-  - Auth legacy audit inspected 19 live settings rows and found 17 legacy MD5 password hashes.
+  - Initial auth legacy audit inspected 19 live settings rows and found 17 legacy MD5 password hashes.
+  - Follow-up cleanup on 2026-05-22 deleted the 17 legacy MD5 password-account rows and matching tracker/audit rows.
+  - Post-cleanup auth legacy audit inspected 2 remaining settings rows and found 0 legacy MD5 hashes, 0 unknown hashes, and 0 nonblank plaintext passwords.
 - Limitations:
   - No browser automation framework is present in CI.
   - No Playwright/Selenium end-to-end browser run was performed in this pass.
   - Mobile/tablet checks were code-driven and screenshot-informed, not device-browser verified.
-  - Live destructive actions were not executed against production data.
+  - Live destructive action was limited to deleting the explicitly approved legacy MD5 password-account rows and related rows.
 
 ## Executive Summary
 
 `main` is stronger than earlier audit baselines: local unit coverage is broad, upload validation is much better, remembered-login and tenant checks have dedicated tests, and the app has safer user-facing errors in several paths.
 
-However, the current live pilot posture is **not ready** because the release gate found legacy MD5 password hashes in the live settings sheet while current login intentionally rejects MD5 hashes. That means many existing password accounts may be unable to log in unless migrated or reset before pilots use the system.
+The initial audit found a release-blocking legacy-auth issue: 17 live settings rows had MD5 password hashes while current login intentionally rejects MD5 hashes. After human confirmation that all pilot users will create new accounts, those legacy password-account rows were deleted from the live Google sheets. The post-cleanup auth audit now passes.
 
-The next largest risks are not single obvious code crashes; they are release/process and data-safety risks: GitHub CI does not run the pilot release/live auth gates, there is no browser-level E2E coverage for the Streamlit UI, Google Sheets/Drive tenant isolation remains application-enforced over shared resources, and large Google mutations remain non-transactional.
+The largest remaining risks are not single obvious code crashes; they are release/process and data-safety risks: GitHub CI does not run the pilot release/live auth gates, there is no browser-level E2E coverage for the Streamlit UI, Google Sheets/Drive tenant isolation remains application-enforced over shared resources, and large Google mutations remain non-transactional.
 
 ## P0 Issues
 
-### P0-001: Live settings sheet contains legacy MD5 password hashes that current login rejects
+No active P0 issues remain after the approved legacy-account cleanup on 2026-05-22.
+
+### Resolved P0-001: Live settings sheet contained legacy MD5 password hashes that current login rejects
 
 - Impact: Existing clinic accounts with legacy MD5 password hashes will not be able to log in with the password flow. This blocks pilot usage for affected clinics and undermines trust immediately at first contact.
 - Affected flow: Password login, remembered password login after token expiry, any pilot account still on old password storage.
@@ -53,21 +57,23 @@ The next largest risks are not single obvious code crashes; they are release/pro
   2. Observe `scripts/auth_legacy_audit.py --fail-on-risk` output.
   3. Attempt password login for one of the legacy-hash clinics.
 - Expected behaviour: All password-login pilot accounts use supported `pbkdf2_sha256$...` hashes or have a safe migration/reset path before pilot.
-- Actual behaviour: Live audit reports 17 legacy MD5 password hashes and 0 PBKDF2 password hashes across 19 settings rows.
+- Actual behaviour before cleanup: Live audit reported 17 legacy MD5 password hashes and 0 PBKDF2 password hashes across 19 settings rows.
+- Resolution: On 2026-05-22, after confirmation that all pilot users will create new accounts, the 17 MD5 password-account rows were deleted from the live settings sheet along with matching tracker/audit rows. One referenced dataset file ID was already missing in Drive.
+- Current behaviour after cleanup: `python scripts/auth_legacy_audit.py --show-clinics --fail-on-risk` inspected 2 remaining settings rows and passed with 0 legacy MD5 hashes, 0 unknown hashes, and 0 nonblank `PlainPassword` cells.
 - Evidence:
   - `bash scripts/pilot_release_check.sh` output: `FAIL Auth audit: legacy authentication data remains`.
   - Same output: `WARN Auth audit: legacy MD5 password hashes: 17`, `OK Auth audit: pbkdf2 password hashes: 0`, `OK Auth audit: blank password hashes: 2`.
   - [auth_password_utils.py](/workspaces/ClinicReminders-Prototype/auth_password_utils.py:45) rejects any stored hash that is not `pbkdf2_sha256$iterations$salt$digest`.
   - [tests/test_ci_auth_session.py](/workspaces/ClinicReminders-Prototype/tests/test_ci_auth_session.py:346) asserts legacy MD5 login is rejected.
   - [scripts/auth_legacy_audit.py](/workspaces/ClinicReminders-Prototype/scripts/auth_legacy_audit.py:37) treats MD5, unknown hashes, and plaintext cells as release-blocking risk.
-- Recommended fix approach: Before pilot, migrate every password account to PBKDF2 using a controlled password reset/manual reset process, or create a one-time admin migration flow that never exposes plaintext and requires clinics to set a new password. Re-run `python scripts/auth_legacy_audit.py --fail-on-risk` until it passes.
+- Recommended fix approach: Keep `scripts/auth_legacy_audit.py --fail-on-risk` in the release runbook so future legacy or malformed password rows cannot silently reappear.
 - Suggested validation test: Add/keep a release checklist item that blocks production promotion unless `scripts/auth_legacy_audit.py --fail-on-risk` passes against the exact production settings sheet.
 
 ## P1 Issues
 
 ### P1-001: GitHub CI can pass while pilot release gates fail
 
-- Impact: Developers can push a branch that appears green in GitHub while the actual pilot release script fails on live auth readiness. This already happened: local unit tests passed, but `pilot_release_check.sh` failed because live auth data is not pilot-safe.
+- Impact: Developers can push a branch that appears green in GitHub while the actual pilot release script can still fail on live checks or stricter local gates. This happened during the audit: local unit tests passed, while `pilot_release_check.sh` initially failed on live auth data and then, after cleanup, on an existing Ruff lint issue.
 - Affected flow: Release/promotion process, pilot confidence, regression response.
 - Steps to reproduce:
   1. Inspect `.github/workflows/ci.yml`.
@@ -195,7 +201,7 @@ The next largest risks are not single obvious code crashes; they are release/pro
 
 ## P2 / Polish Issues
 
-- `scripts/bug_lint_check.sh` fails on an unused exception variable in [reminders_app_v3.py](/workspaces/ClinicReminders-Prototype/reminders_app_v3.py:13773). This is low risk, but it means the documented bug-lint gate is not clean.
+- `scripts/bug_lint_check.sh` fails on an unused exception variable in [reminders_app_v3.py](/workspaces/ClinicReminders-Prototype/reminders_app_v3.py). This is low risk, but it means the documented bug-lint gate is not clean.
 - The checked-in `requirements.txt` uses broad dependency ranges for several packages; `pip-audit` passed today, but reproducibility is weaker than a locked release environment.
 - Mobile/responsive usability for wide Streamlit tables remains unverified by automated tests. The app has many custom column layouts, which are fragile on narrow screens.
 - Several user-facing terms still map from older internal names (`Stats`, `Search Terms`, `Get Started`) to sleeker labels. The label mapping appears intentional, but future changes should keep old query params and saved tab names compatible.
@@ -205,7 +211,7 @@ The next largest risks are not single obvious code crashes; they are release/pro
 
 - Authentication and session handling: Partial
   - Unit/source coverage exists for password login, Google login helpers, staff access, remembered-login tokens, logout cleanup, and rate limiting.
-  - Live auth readiness failed due legacy MD5 hashes.
+  - Live auth readiness initially failed due legacy MD5 hashes, then passed after the approved cleanup.
   - Browser refresh/close/reopen was not tested in this audit.
 - First-time clinic setup: Partial
   - Code paths and Learn checklist reviewed.
@@ -257,11 +263,11 @@ Backup/restore documentation exists in `docs/operations/BACKUP_RESTORE_RUNBOOK.m
 
 ## Pilot Go / No-Go View
 
-Current view: **Not ready**.
+Current view after approved legacy-account cleanup: **Ready with known risks**.
 
-Reason: the current live release gate fails because 17 live settings rows still contain legacy MD5 password hashes while current login rejects MD5. This can block real clinics from logging in. Fix or migrate the live auth data first, then re-run `bash scripts/pilot_release_check.sh` until it passes.
+Reason: the original P0 legacy-auth blocker has been removed from live data, and new pilot users will create fresh accounts. The remaining blockers are process and confidence risks rather than a known active P0 in the app: the pilot release script still stops on one existing Ruff unused-variable lint issue, and the app still lacks browser-level E2E coverage.
 
-After P0-001 is resolved, the branch may become **Ready with known risks** for a controlled pilot if:
+For a controlled pilot, proceed only if:
 
 - A human completes a browser walkthrough of login, upload, reminders, WhatsApp, Identify, Track, clear data, and logout using a disposable pilot clinic.
 - The pilot release gate result is recorded.
