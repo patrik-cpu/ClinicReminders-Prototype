@@ -18991,7 +18991,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 def render_search_terms_editor():
     # Rules editor (unchanged UI; behavior preserved)
     st.markdown("<div id='search-terms' class='anchor-offset'></div>", unsafe_allow_html=True)
-    st.markdown("## 📝 Search Terms")
+    st.markdown("## 📝 Configure Reminders")
 
     def column_header(label, help_text):
         safe_label = html_lib.escape(label)
