@@ -1267,6 +1267,128 @@ class AuthSessionTests(unittest.TestCase):
         self.assertEqual(sheet.get_all_values_calls, 1)
         self.assertEqual(sheet.get_all_records_calls, 0)
 
+    def test_password_auth_uses_exact_row_lookup_before_full_sheet_scan(self):
+        headers = [
+            self.app.SHEET_COL_CLINIC_ID,
+            self.app.SHEET_COL_PASSWORD_HASH,
+            self.app.SHEET_COL_SETTINGS_JSON,
+        ]
+        password_hash = self.app.password_hash_for_storage("secret-password")
+
+        class FakeCell:
+            row = 3
+
+        class FakeSheet:
+            def __init__(self):
+                self.find_calls = []
+                self.row_values_calls = []
+                self.get_all_values_calls = 0
+
+            def row_values(self, row_idx):
+                self.row_values_calls.append(row_idx)
+                if row_idx == 1:
+                    return headers
+                if row_idx == 3:
+                    return ["Clinic A", password_hash, '{"rules": {}}']
+                return []
+
+            def find(self, value, in_column=None):
+                self.find_calls.append((value, in_column))
+                return FakeCell()
+
+            def get_all_values(self):
+                self.get_all_values_calls += 1
+                return []
+
+        sheet = FakeSheet()
+        with patch.object(self.app, "get_settings_sheet", return_value=sheet):
+            authenticated = self.app.authenticate_user("Clinic A", "secret-password")
+
+        self.assertEqual(authenticated[self.app.SHEET_COL_CLINIC_ID], "Clinic A")
+        self.assertEqual(sheet.find_calls, [("Clinic A", 1)])
+        self.assertEqual(sheet.row_values_calls, [1, 3])
+        self.assertEqual(sheet.get_all_values_calls, 0)
+
+    def test_clinic_access_auth_uses_exact_row_lookup_before_full_sheet_scan(self):
+        access_hash = self.app.clinic_access_code_hash_for_storage("123456")
+        headers = [
+            self.app.SHEET_COL_CLINIC_ID,
+            self.app.SHEET_COL_SETTINGS_JSON,
+        ]
+
+        class FakeCell:
+            row = 2
+
+        class FakeSheet:
+            def __init__(self):
+                self.get_all_values_calls = 0
+
+            def row_values(self, row_idx):
+                if row_idx == 1:
+                    return headers
+                if row_idx == 2:
+                    return ["Clinic A", json.dumps({"clinic_access_code_hash": access_hash})]
+                return []
+
+            def find(self, value, in_column=None):
+                return FakeCell()
+
+            def get_all_values(self):
+                self.get_all_values_calls += 1
+                return []
+
+        sheet = FakeSheet()
+        with patch.object(self.app, "get_settings_sheet", return_value=sheet):
+            authenticated = self.app.authenticate_clinic_access("Clinic A", "123456")
+
+        self.assertEqual(authenticated[self.app.SHEET_COL_CLINIC_ID], "Clinic A")
+        self.assertEqual(sheet.get_all_values_calls, 0)
+
+    def test_google_lookup_uses_exact_subject_lookup_before_full_sheet_scan(self):
+        headers = [
+            self.app.SHEET_COL_CLINIC_ID,
+            self.app.SHEET_COL_GOOGLE_EMAIL,
+            self.app.SHEET_COL_GOOGLE_SUBJECT,
+            self.app.SHEET_COL_SETTINGS_JSON,
+        ]
+
+        class FakeCell:
+            row = 4
+
+        class FakeSheet:
+            def __init__(self):
+                self.find_calls = []
+                self.get_all_values_calls = 0
+
+            def row_values(self, row_idx):
+                if row_idx == 1:
+                    return headers
+                if row_idx == 4:
+                    return ["Clinic Google", "owner@example.com", "google-subject", '{"rules": {}}']
+                return []
+
+            def find(self, value, in_column=None):
+                self.find_calls.append((value, in_column))
+                return FakeCell()
+
+            def get_all_values(self):
+                self.get_all_values_calls += 1
+                return []
+
+        google_user = {
+            "is_logged_in": True,
+            "email": "owner@example.com",
+            "subject": "google-subject",
+        }
+        sheet = FakeSheet()
+
+        with patch.object(self.app, "get_settings_sheet", return_value=sheet):
+            row = self.app.get_clinic_row_by_google_identity(google_user)
+
+        self.assertEqual(row[self.app.SHEET_COL_CLINIC_ID], "Clinic Google")
+        self.assertEqual(sheet.find_calls, [("google-subject", 3)])
+        self.assertEqual(sheet.get_all_values_calls, 0)
+
     def test_password_login_setup_reuses_authenticated_settings_row(self):
         headers = [
             self.app.SHEET_COL_CLINIC_ID,

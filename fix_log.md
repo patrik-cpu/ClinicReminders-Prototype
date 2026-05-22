@@ -77,3 +77,22 @@ Date started: 2026-05-22
 - Tests added/updated:
   - `tests.test_ci_dataset_update.DatasetUpdateTests.test_remove_upload_records_pointer_failure_before_local_state_changes`
 - Remaining risks: This is not a full transaction/rollback framework. If Drive upsert mutates an existing file and the settings pointer write fails, the app now records the failing operation clearly, but it cannot automatically restore the prior Drive file contents. A larger versioned-dataset or two-phase publish design remains deferred.
+
+## P1-005: Initial Login/Account Lookup And Cold Action-History Load Scan Full Worksheets
+
+- Status: Partially fixed.
+- Summary of change: Added a bounded exact-row lookup path for settings-sheet account lookups. Password login, staff clinic-access login, direct clinic-row lookup, and Google identity lookup now try the relevant indexed column with `find(..., in_column=...)` plus `row_values(...)` before falling back to the existing full-sheet scan. The fallback keeps existing case-insensitive and older fake/client behavior intact.
+- Files changed:
+  - `reminders_app_v3.py`
+  - `tests/test_ci_auth_session.py`
+  - `fix_log.md`
+- Validation performed:
+  - `python -m unittest tests.test_ci_auth_session.AuthSessionTests.test_password_auth_uses_exact_row_lookup_before_full_sheet_scan tests.test_ci_auth_session.AuthSessionTests.test_clinic_access_auth_uses_exact_row_lookup_before_full_sheet_scan tests.test_ci_auth_session.AuthSessionTests.test_google_lookup_uses_exact_subject_lookup_before_full_sheet_scan tests.test_ci_auth_session.AuthSessionTests.test_clinic_row_lookup_handles_non_string_sheet_values tests.test_ci_auth_session.AuthSessionTests.test_successful_authentication_seeds_settings_row_cache tests.test_ci_auth_session.AuthSessionTests.test_google_clinic_lookup_seeds_settings_row_cache tests.test_ci_auth_session.AuthSessionTests.test_google_clinic_lookup_miss_does_not_seed_settings_row_cache`
+  - `python -m unittest tests.test_ci_auth_session`
+  - `python -m py_compile reminders_app_v3.py settings_pointer_utils.py auth_password_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py`
+  - `bash scripts/bug_lint_check.sh`
+- Tests added/updated:
+  - `tests.test_ci_auth_session.AuthSessionTests.test_password_auth_uses_exact_row_lookup_before_full_sheet_scan`
+  - `tests.test_ci_auth_session.AuthSessionTests.test_clinic_access_auth_uses_exact_row_lookup_before_full_sheet_scan`
+  - `tests.test_ci_auth_session.AuthSessionTests.test_google_lookup_uses_exact_subject_lookup_before_full_sheet_scan`
+- Remaining risks: Login still falls back to a full settings-sheet scan when the entered clinic name differs only by case, when the worksheet client does not support `find`, or when exact lookup cannot safely prove a match. Cold action-history loading still reads the shared action tracker worksheet and filters locally; fixing that fully needs a storage/indexing change beyond this focused pass.

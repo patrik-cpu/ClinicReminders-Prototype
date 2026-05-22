@@ -8277,9 +8277,67 @@ def settings_json_from_row(row: dict | None) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def settings_row_from_values(headers: list[str], values_row: list) -> dict:
+    return {
+        header: values_row[idx] if idx < len(values_row) else ""
+        for idx, header in enumerate(headers)
+    }
+
+
+def cache_settings_row_lookup(clinic_id: str, headers: list[str], row_idx: int, values_row: list) -> None:
+    clinic_key = normalize_clinic_id_key(clinic_id)
+    if not clinic_key:
+        return
+    st.session_state["_settings_row_cache"] = {
+        "clinic_key": clinic_key,
+        "headers": list(headers),
+        "row_idx": row_idx,
+        "row_values": list(values_row),
+    }
+
+
+def find_settings_row_by_exact_value(sheet, column_name: str, value: str) -> tuple[list[str], int, list] | None:
+    value = str(value or "").strip()
+    if not value or not callable(getattr(sheet, "find", None)) or not callable(getattr(sheet, "row_values", None)):
+        return None
+    try:
+        headers = list(_gspread_retry(sheet.row_values, 1) or [])
+        if column_name not in headers:
+            return None
+        column_index = headers.index(column_name) + 1
+        try:
+            cell = _gspread_retry(sheet.find, value, in_column=column_index)
+        except TypeError:
+            cell = _gspread_retry(sheet.find, value)
+        row_idx = int(getattr(cell, "row", 0) or 0)
+        if row_idx < 2:
+            return None
+        values_row = list(_gspread_retry(sheet.row_values, row_idx) or [])
+        if len(values_row) < column_index or str(values_row[column_index - 1]).strip() != value:
+            return None
+        return headers, row_idx, values_row
+    except Exception:
+        return None
+
+
+def find_settings_row_by_exact_clinic_id(sheet, clinic_id: str) -> tuple[list[str], int, list] | None:
+    return find_settings_row_by_exact_value(sheet, SHEET_COL_CLINIC_ID, clinic_id)
+
+
 def authenticate_user(username, password):
     """Check username/password pair against the sheet."""
     sheet = get_settings_sheet()
+    username_key = normalize_clinic_id_key(username)
+    exact = find_settings_row_by_exact_clinic_id(sheet, username)
+    if exact is not None:
+        headers, row_idx, values_row = exact
+        if SHEET_COL_PASSWORD_HASH in headers:
+            row = settings_row_from_values(headers, values_row)
+            password_hash = row.get(SHEET_COL_PASSWORD_HASH, "")
+            if verify_password(password, password_hash):
+                cache_settings_row_lookup(row.get(SHEET_COL_CLINIC_ID, username), headers, row_idx, values_row)
+                return row
+
     values = _gspread_retry(sheet.get_all_values) or []
     if not values:
         return None
@@ -8288,28 +8346,30 @@ def authenticate_user(username, password):
         return None
     clinic_ix = headers.index(SHEET_COL_CLINIC_ID)
     password_ix = headers.index(SHEET_COL_PASSWORD_HASH)
-    username_key = normalize_clinic_id_key(username)
     for row_idx, values_row in enumerate(values[1:], start=2):
         clinic_id = values_row[clinic_ix] if len(values_row) > clinic_ix else ""
         if normalize_clinic_id_key(clinic_id) == username_key:
             password_hash = values_row[password_ix] if len(values_row) > password_ix else ""
             if verify_password(password, password_hash):
-                row = {
-                    header: values_row[idx] if idx < len(values_row) else ""
-                    for idx, header in enumerate(headers)
-                }
-                st.session_state["_settings_row_cache"] = {
-                    "clinic_key": username_key,
-                    "headers": list(headers),
-                    "row_idx": row_idx,
-                    "row_values": list(values_row),
-                }
+                row = settings_row_from_values(headers, values_row)
+                cache_settings_row_lookup(clinic_id, headers, row_idx, values_row)
                 return row
     return None
 
 
 def authenticate_clinic_access(clinic_id: str, access_code: str) -> dict | None:
     sheet = get_settings_sheet()
+    clinic_key = normalize_clinic_id_key(clinic_id)
+    exact = find_settings_row_by_exact_clinic_id(sheet, clinic_id)
+    if exact is not None:
+        headers, row_idx, values_row = exact
+        row = settings_row_from_values(headers, values_row)
+        settings = settings_json_from_row(row)
+        stored_hash = str(settings.get("clinic_access_code_hash", "") or "").strip()
+        if verify_clinic_access_code(access_code, stored_hash):
+            cache_settings_row_lookup(row.get(SHEET_COL_CLINIC_ID, clinic_id), headers, row_idx, values_row)
+            return row
+
     values = _gspread_retry(sheet.get_all_values) or []
     if not values:
         return None
@@ -8317,24 +8377,15 @@ def authenticate_clinic_access(clinic_id: str, access_code: str) -> dict | None:
     if SHEET_COL_CLINIC_ID not in headers:
         return None
     clinic_ix = headers.index(SHEET_COL_CLINIC_ID)
-    clinic_key = normalize_clinic_id_key(clinic_id)
     for row_idx, values_row in enumerate(values[1:], start=2):
         current_clinic_id = values_row[clinic_ix] if len(values_row) > clinic_ix else ""
         if normalize_clinic_id_key(current_clinic_id) != clinic_key:
             continue
-        row = {
-            header: values_row[idx] if idx < len(values_row) else ""
-            for idx, header in enumerate(headers)
-        }
+        row = settings_row_from_values(headers, values_row)
         settings = settings_json_from_row(row)
         stored_hash = str(settings.get("clinic_access_code_hash", "") or "").strip()
         if verify_clinic_access_code(access_code, stored_hash):
-            st.session_state["_settings_row_cache"] = {
-                "clinic_key": clinic_key,
-                "headers": list(headers),
-                "row_idx": row_idx,
-                "row_values": list(values_row),
-            }
+            cache_settings_row_lookup(current_clinic_id, headers, row_idx, values_row)
             return row
     return None
 
@@ -8342,17 +8393,21 @@ def get_clinic_row(username):
     """Return a clinic row by ClinicID without checking password."""
     sheet = get_settings_sheet()
     username_key = normalize_clinic_id_key(username)
+    exact = find_settings_row_by_exact_clinic_id(sheet, username)
+    if exact is not None:
+        headers, row_idx, values_row = exact
+        row = settings_row_from_values(headers, values_row)
+        cache_settings_row_lookup(row.get(SHEET_COL_CLINIC_ID, username), headers, row_idx, values_row)
+        return row
+
     if not callable(getattr(sheet, "get_all_values", None)):
         records = _gspread_retry(sheet.get_all_records)
         for row_idx, row in enumerate(records or [], start=2):
             if normalize_clinic_id_key(row.get(SHEET_COL_CLINIC_ID, "")) == username_key:
                 headers = list(row.keys())
-                st.session_state["_settings_row_cache"] = {
-                    "clinic_key": username_key,
-                    "headers": headers,
-                    "row_idx": row_idx,
-                    "row_values": [row.get(header, "") for header in headers],
-                }
+                cache_settings_row_lookup(row.get(SHEET_COL_CLINIC_ID, username), headers, row_idx, [
+                    row.get(header, "") for header in headers
+                ])
                 return row
         return None
 
@@ -8366,16 +8421,8 @@ def get_clinic_row(username):
     for row_idx, values_row in enumerate(values[1:], start=2):
         clinic_id = values_row[clinic_ix] if len(values_row) > clinic_ix else ""
         if normalize_clinic_id_key(clinic_id) == username_key:
-            st.session_state["_settings_row_cache"] = {
-                "clinic_key": username_key,
-                "headers": list(headers),
-                "row_idx": row_idx,
-                "row_values": list(values_row),
-            }
-            return {
-                header: values_row[idx] if idx < len(values_row) else ""
-                for idx, header in enumerate(headers)
-            }
+            cache_settings_row_lookup(clinic_id, headers, row_idx, values_row)
+            return settings_row_from_values(headers, values_row)
     return None
 
 
@@ -8383,24 +8430,29 @@ def get_clinic_row_by_google_identity(google_user: dict):
     if not google_user.get("is_logged_in"):
         return None
     sheet = get_settings_sheet()
+    google_subject = str(google_user.get("subject", "") or "").strip()
+    google_email = normalize_email(google_user.get("email", ""))
+    for column_name, value in (
+        (SHEET_COL_GOOGLE_SUBJECT, google_subject),
+        (SHEET_COL_GOOGLE_EMAIL, google_email),
+    ):
+        exact = find_settings_row_by_exact_value(sheet, column_name, value)
+        if exact is None:
+            continue
+        headers, row_idx, values_row = exact
+        row = settings_row_from_values(headers, values_row)
+        if google_identity_matches_row(row, google_user):
+            cache_settings_row_lookup(row.get(SHEET_COL_CLINIC_ID, ""), headers, row_idx, values_row)
+            return row
+
     values = _gspread_retry(sheet.get_all_values) or []
     if not values:
         return None
     headers = list(values[0])
     for row_idx, values_row in enumerate(values[1:], start=2):
-        row = {
-            header: values_row[idx] if idx < len(values_row) else ""
-            for idx, header in enumerate(headers)
-        }
+        row = settings_row_from_values(headers, values_row)
         if google_identity_matches_row(row, google_user):
-            clinic_key = normalize_clinic_id_key(row.get(SHEET_COL_CLINIC_ID, ""))
-            if clinic_key:
-                st.session_state["_settings_row_cache"] = {
-                    "clinic_key": clinic_key,
-                    "headers": list(headers),
-                    "row_idx": row_idx,
-                    "row_values": list(values_row),
-                }
+            cache_settings_row_lookup(row.get(SHEET_COL_CLINIC_ID, ""), headers, row_idx, values_row)
             return row
     return None
 
