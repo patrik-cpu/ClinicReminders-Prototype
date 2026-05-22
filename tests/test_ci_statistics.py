@@ -1214,6 +1214,99 @@ class StatisticsTests(unittest.TestCase):
         self.assertNotIn('"Potential Annual Revenue Lift"', track_metrics_source)
         self.assertIn('"Reminded Items"', track_metrics_source)
 
+    def test_canonical_pilot_fixture_matches_identify_and_track_headlines(self):
+        rules = {
+            "rabies": {"days": 365},
+            "librela": {"days": 30},
+            "dental": {"days": 180},
+        }
+        sales = pd.DataFrame(
+            [
+                {"ChargeDate": "2025-01-01", "Client Name": "Client A", "Animal Name": "Pet A", "Item Name": "Rabies Vaccine", "Amount": 100},
+                {"ChargeDate": "2026-01-03", "Client Name": "Client A", "Animal Name": "Pet A", "Item Name": "Rabies Vaccine", "Amount": 120},
+                {"ChargeDate": "2026-04-01", "Client Name": "Client B", "Animal Name": "Pet B", "Item Name": "Librela 10mg", "Amount": 80},
+                {"ChargeDate": "2026-05-02", "Client Name": "Client B", "Animal Name": "Pet B", "Item Name": "Librela 10mg", "Amount": 90},
+                {"ChargeDate": "2025-01-01", "Client Name": "Client C", "Animal Name": "Pet C", "Item Name": "Dental Scale", "Amount": 200},
+                {"ChargeDate": "2025-07-01", "Client Name": "Client C", "Animal Name": "Pet C", "Item Name": "Dental Scale", "Amount": 250},
+            ]
+        )
+        generated = pd.DataFrame(
+            [
+                {"Reminder Date": "2025-12-02", "Due Date": "2026-01-01", "Charge Date": "2025-01-01", "Client Name": "Client A", "Animal Name": "Pet A", "Plan Item": "Rabies", "Days": 365},
+                {"Reminder Date": "2026-05-01", "Due Date": "2026-05-01", "Charge Date": "2026-04-01", "Client Name": "Client B", "Animal Name": "Pet B", "Plan Item": "Librela", "Days": 30},
+                {"Reminder Date": "2025-12-28", "Due Date": "2025-12-28", "Charge Date": "2025-07-01", "Client Name": "Client C", "Animal Name": "Pet C", "Plan Item": "Dental", "Days": 180},
+            ]
+        )
+        actions = [
+            {**row, "Action": self.app.REMINDER_ACTION_SENT, "ActionedAt": actioned_at, "Actioned By": sender}
+            for row, actioned_at, sender in zip(
+                generated.to_dict("records"),
+                ["2025-12-02T09:00:00", "2026-05-01T09:00:00", "2025-12-28T09:00:00"],
+                ["Nurse A", "Nurse B", "Nurse A"],
+            )
+        ]
+
+        track_rows = self.app.build_reminder_outcomes(
+            actions,
+            sales,
+            due_date_window_days=7,
+            post_reminder_window_days=7,
+            today=date(2026, 5, 22),
+            rules=rules,
+        )
+        track_summary = self.app.summarize_outcomes(track_rows)
+
+        with (
+            mock.patch.object(self.app, "cached_statistics_generated_rows", return_value=generated),
+            mock.patch.object(self.app, "user_today", return_value=date(2026, 5, 22)),
+        ):
+            identify_frame = self.app.build_identify_item_opportunity_frame(
+                sales,
+                prepared=pd.DataFrame(),
+                rules=rules,
+                statistics_data_version=123,
+            )
+
+        identify_rows = {row["Item"]: row for row in identify_frame.to_dict("records")}
+        track_item_rows = {
+            row["Item"]: row
+            for row in self.app.build_outcome_group_frame(
+                self.app.outcome_summary_precompute_numeric_columns(track_rows.copy()),
+                "Item",
+                self.app.OUTCOME_ITEM_GROUP_COLUMNS,
+                numeric_precomputed=True,
+            ).to_dict("records")
+        }
+        team_rows = {
+            row["Sender"]: row
+            for row in self.app.build_outcome_group_frame(
+                self.app.outcome_summary_precompute_numeric_columns(track_rows.copy()),
+                "Sender",
+                self.app.OUTCOME_SENDER_GROUP_COLUMNS,
+                numeric_precomputed=True,
+            ).to_dict("records")
+        }
+
+        self.assertEqual(track_summary["sent"], 3)
+        self.assertEqual(track_summary["successes"], 2)
+        self.assertEqual(track_summary["no_match"], 1)
+        self.assertAlmostEqual(track_summary["success_rate"], 2 / 3)
+        self.assertEqual(track_summary["revenue"], 210)
+        self.assertEqual(team_rows["Nurse A"]["Sent"], 2)
+        self.assertEqual(team_rows["Nurse A"]["Successes"], 1)
+        self.assertEqual(team_rows["Nurse A"]["Revenue"], 120)
+        self.assertEqual(team_rows["Nurse B"]["Sent"], 1)
+        self.assertEqual(team_rows["Nurse B"]["Successes"], 1)
+        self.assertEqual(team_rows["Nurse B"]["Revenue"], 90)
+        self.assertEqual(track_item_rows["Dental"]["No Match"], 1)
+        self.assertEqual(track_item_rows["Librela"]["Successes"], 1)
+        self.assertAlmostEqual(
+            self.app.potential_annual_revenue_lift_total(identify_frame),
+            36.480388326679474,
+        )
+        self.assertEqual(set(identify_rows), {"Dental", "Librela", "Rabies"})
+        self.assertAlmostEqual(identify_rows["Librela"]["Capturable Revenue per Year"], 33.360215053763426)
+
     def test_statistics_display_frame_renames_generated_and_adds_actioning_rates(self):
         frame = pd.DataFrame([{"Generated": 4, "Actioned": 2, "Sent": 1, "Declined": 1}])
 

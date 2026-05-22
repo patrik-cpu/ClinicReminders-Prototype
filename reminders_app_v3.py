@@ -3055,15 +3055,15 @@ st.markdown(
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         font-size: 0.8rem;
         font-weight: 500;
-        left: 50%;
+        left: 0;
         line-height: 1.35;
-        max-width: 27rem;
-        min-width: 15rem;
+        max-width: min(27rem, calc(100vw - 2rem));
+        min-width: min(15rem, calc(100vw - 2rem));
         padding: 0.55rem 0.7rem;
         position: absolute;
         text-align: left;
         bottom: calc(100% + 0.45rem);
-        transform: translateX(-50%);
+        transform: none;
         white-space: normal;
         z-index: 9999;
     }
@@ -3107,9 +3107,20 @@ st.markdown(
         color: #ffffff !important;
     }
     .field-label {
+        align-items: center;
+        display: inline-flex;
         font-size: 0.9rem;
         font-weight: 600;
+        gap: 0.25rem;
+        line-height: 1.25;
         margin-bottom: 0.25rem;
+        max-width: 100%;
+        vertical-align: top;
+    }
+    .field-label .column-help,
+    .search-term-column-header .column-help,
+    .stats-summary-label .column-help {
+        margin-left: 0;
     }
     .reminder-control-label {
         align-items: flex-start;

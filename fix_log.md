@@ -113,3 +113,37 @@ Date started: 2026-05-22
 - Tests added/updated:
   - `tests.test_ci_dataset_update.DatasetUpdateTests.test_dataset_upload_removal_requires_matching_pending_confirmation`
 - Remaining risks: This does not add a full rollback model or a comprehensive review screen for every upload/replace operation. Clear Clinic Data already has a confirmation checkbox; overlapping upload replacement/recovery still deserves a broader design pass.
+
+## P1-007: Track/Identify Calculations Need Fixture-Level Confidence
+
+- Status: Fixed for helper-level pilot fixture coverage.
+- Summary of change: Added a canonical pilot fixture that exercises Identify and Track from the same underlying clinic scenario: three remindable item cycles, two reminder successes, one no-match, two team members, and an all-time Identify potential annual revenue lift total. The test asserts Track headline counts/revenue/team rows, item outcome rows, and Identify revenue-lift rows.
+- Files changed:
+  - `tests/test_ci_statistics.py`
+  - `fix_log.md`
+- Validation performed:
+  - `python -m unittest tests.test_ci_statistics.StatisticsTests.test_canonical_pilot_fixture_matches_identify_and_track_headlines`
+  - `python -m unittest tests.test_ci_statistics`
+  - `python -m py_compile reminders_app_v3.py settings_pointer_utils.py auth_password_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py`
+  - `bash scripts/bug_lint_check.sh`
+- Tests added/updated:
+  - `tests.test_ci_statistics.StatisticsTests.test_canonical_pilot_fixture_matches_identify_and_track_headlines`
+- Remaining risks: This is still helper/harness-level fixture coverage, not a full browser/live Google journey. Browser validation with a disposable pilot clinic and uploaded fixture data remains valuable before wider rollout.
+
+## Final Summary
+
+- P0 fixed: 1
+  - P0-001 legacy MD5 password-account rows were removed from live data with explicit approval, and the auth legacy audit now passes.
+- P1 fixed: 2
+  - P1-001 CI now runs the repo-owned pilot release gates.
+  - P1-007 has canonical Identify/Track fixture coverage.
+- P1 partially fixed: 5
+  - P1-002 added Streamlit navigation smoke coverage, but not full real-browser E2E.
+  - P1-003 hardened confirmed tenant helper boundaries, but storage remains shared and application-enforced.
+  - P1-004 added dataset-removal operation diagnostics and safer local-state timing, but not full transaction rollback.
+  - P1-005 bounded normal account lookups, but exact-lookup misses and cold action-history loads can still fall back to full worksheet scans.
+  - P1-006 added confirmation for saved-upload removal, but not a full rollback/review model for every data mutation.
+- Issues deferred, with reason: Full tenant-storage redesign, full transaction/versioned dataset model, full browser/live Google E2E suite, indexed action-history storage, and upload rollback UX were intentionally deferred as broad refactors or infrastructure work outside this focused pass.
+- Tests run: Focused tests for each issue, dataset update suite, auth session suite, statistics suite, Streamlit navigation smoke, compile checks, bug lint, pre-merge/pilot release gates where noted above.
+- Known remaining risks: Shared Google storage architecture, live write-path validation, Streamlit real-browser/mobile coverage, full rollback for data mutations, and action tracker scale.
+- Recommendation: Ready with known risks.
