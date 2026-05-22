@@ -761,6 +761,7 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "_shared_dataset_load_attempted_for",
     "_row_count_repair_load_attempted_for",
     "last_uploaded_files",
+    "pending_dataset_upload_removal",
     "confirm_reset_dataset",
     "show_clear_clinic_data_confirm",
     "form_version",
@@ -11505,6 +11506,23 @@ def get_dataset_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Ti
         return None, None
     return dmin, dmax
 
+def dataset_upload_removal_token(idx: int, row: dict) -> str:
+    row_hash = hashlib.sha256(json.dumps(row, sort_keys=True).encode("utf-8")).hexdigest()[:10]
+    return f"{idx}:{row_hash}"
+
+
+def request_dataset_upload_removal(idx: int, row: dict) -> None:
+    st.session_state["pending_dataset_upload_removal"] = dataset_upload_removal_token(idx, row)
+
+
+def cancel_dataset_upload_removal() -> None:
+    st.session_state.pop("pending_dataset_upload_removal", None)
+
+
+def dataset_upload_removal_is_pending(idx: int, row: dict) -> bool:
+    return st.session_state.get("pending_dataset_upload_removal") == dataset_upload_removal_token(idx, row)
+
+
 def render_dataset_summary_box(title: str, rows: list[dict]):
     normalized_rows = normalize_dataset_upload_history(rows)
     if not normalized_rows:
@@ -11532,14 +11550,34 @@ def render_dataset_summary_box(title: str, rows: list[dict]):
             row_cols[2].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(row_count)}</div>", unsafe_allow_html=True)
             row_cols[3].markdown(f"<div class='dataset-summary-value'>{html_lib.escape(formatted_history_range(row))}</div>", unsafe_allow_html=True)
             row_key = hashlib.sha256(json.dumps(row, sort_keys=True).encode("utf-8")).hexdigest()[:10]
-            if row_cols[4].button(
+            if dataset_upload_removal_is_pending(idx, row):
+                if row_cols[4].button(
+                    "Confirm",
+                    key=f"confirm_remove_dataset_upload_button_{idx}_{row_key}",
+                    help="Confirm removal of this saved data file.",
+                ):
+                    cancel_dataset_upload_removal()
+                    set_main_section_tab("Upload Data")
+                    with busy_overlay("Removing saved data file", "Updating the clinic dataset."):
+                        remove_dataset_upload_at_index(idx)
+                    st.rerun()
+                st.markdown(
+                    (
+                        "<div class='cr-field-danger-note'>Remove "
+                        f"<strong>{html_lib.escape(str(row.get('file_name', 'this saved file')))}</strong>? "
+                        "This updates the active clinic data.</div>"
+                    ),
+                    unsafe_allow_html=True,
+                )
+                if st.button("Cancel removal", key=f"cancel_remove_dataset_upload_button_{idx}_{row_key}"):
+                    cancel_dataset_upload_removal()
+                    st.rerun()
+            elif row_cols[4].button(
                 "Remove",
                 key=f"remove_dataset_upload_button_{idx}_{row_key}",
-                help="Remove this data file",
+                help="Review and confirm removal of this saved data file.",
             ):
-                set_main_section_tab("Upload Data")
-                with busy_overlay("Removing saved data file", "Updating the clinic dataset."):
-                    remove_dataset_upload_at_index(idx)
+                request_dataset_upload_removal(idx, row)
                 st.rerun()
 
 

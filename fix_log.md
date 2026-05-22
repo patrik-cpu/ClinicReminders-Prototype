@@ -96,3 +96,20 @@ Date started: 2026-05-22
   - `tests.test_ci_auth_session.AuthSessionTests.test_clinic_access_auth_uses_exact_row_lookup_before_full_sheet_scan`
   - `tests.test_ci_auth_session.AuthSessionTests.test_google_lookup_uses_exact_subject_lookup_before_full_sheet_scan`
 - Remaining risks: Login still falls back to a full settings-sheet scan when the entered clinic name differs only by case, when the worksheet client does not support `find`, or when exact lookup cannot safely prove a match. Cold action-history loading still reads the shared action tracker worksheet and filters locally; fixing that fully needs a storage/indexing change beyond this focused pass.
+
+## P1-006: Upload/Data Removal UX Allows High-Impact Changes Without Full Review/Rollback
+
+- Status: Partially fixed.
+- Summary of change: Added an inline confirmation step for removing a saved upload range. Clicking `Remove` now marks that exact row as pending; the active clinic dataset is changed only after a second `Confirm` click, and the pending confirmation is tied to both row index and row contents so it cannot silently apply to a different row after the upload history changes.
+- Files changed:
+  - `reminders_app_v3.py`
+  - `tests/test_ci_dataset_update.py`
+  - `fix_log.md`
+- Validation performed:
+  - `python -m unittest tests.test_ci_dataset_update.DatasetUpdateTests.test_dataset_upload_removal_requires_matching_pending_confirmation tests.test_ci_dataset_update.DatasetUpdateTests.test_remove_upload_records_pointer_failure_before_local_state_changes tests.test_ci_dataset_update.DatasetUpdateTests.test_remove_overlapping_upload_keeps_rows_covered_by_remaining_history tests.test_ci_dataset_update.DatasetUpdateTests.test_remove_last_upload_clears_stale_uploader_selection tests.test_ci_dataset_update.DatasetUpdateTests.test_remove_last_upload_clears_undated_leftover_rows`
+  - `python -m unittest tests.test_ci_dataset_update`
+  - `python -m py_compile reminders_app_v3.py settings_pointer_utils.py auth_password_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py`
+  - `bash scripts/bug_lint_check.sh`
+- Tests added/updated:
+  - `tests.test_ci_dataset_update.DatasetUpdateTests.test_dataset_upload_removal_requires_matching_pending_confirmation`
+- Remaining risks: This does not add a full rollback model or a comprehensive review screen for every upload/replace operation. Clear Clinic Data already has a confirmation checkbox; overlapping upload replacement/recovery still deserves a broader design pass.

@@ -812,6 +812,39 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertNotIn("last_saved_upload_key", state)
         self.assertGreater(state["file_uploader_reset_version"], 3)
 
+    def test_dataset_upload_removal_requires_matching_pending_confirmation(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        first_row = {
+            "file_name": "january.csv",
+            "pms": "CSV",
+            "rows": 1,
+            "from": "2025-01-01",
+            "to": "2025-01-01",
+            "status": "Saved",
+        }
+        second_row = {
+            "file_name": "february.csv",
+            "pms": "CSV",
+            "rows": 1,
+            "from": "2025-02-01",
+            "to": "2025-02-01",
+            "status": "Saved",
+        }
+
+        self.assertFalse(self.app.dataset_upload_removal_is_pending(0, first_row))
+
+        self.app.request_dataset_upload_removal(0, first_row)
+
+        self.assertTrue(self.app.dataset_upload_removal_is_pending(0, first_row))
+        self.assertFalse(self.app.dataset_upload_removal_is_pending(1, first_row))
+        self.assertFalse(self.app.dataset_upload_removal_is_pending(0, second_row))
+
+        self.app.cancel_dataset_upload_removal()
+
+        self.assertFalse(self.app.dataset_upload_removal_is_pending(0, first_row))
+
     def test_remove_upload_records_pointer_failure_before_local_state_changes(self):
         state = self.app.st.session_state
         for key in list(state.keys()):
