@@ -82,7 +82,7 @@ DRIVE_SCOPE = [
 
 _SPACE_RX = re.compile(r"\s+")
 _CURRENCY_RX = re.compile(r"[^\d.\-]")
-MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Stats", "Upload Data", "Get Started"]
+MAIN_SECTION_TABS = ["Reminders", "Search Terms", "Exclusions", "Identify", "Stats", "Upload Data", "Get Started"]
 MAIN_SECTION_TAB_QUERY_PARAM = "section"
 STAFF_ACCESS_QUERY_PARAM = "staff_access"
 SUPPORT_WHATSAPP_NUMBER = "+97142416777"
@@ -94,7 +94,9 @@ GET_STARTED_MANUAL_OFF_KEY = "get_started_manual_off"
 GET_STARTED_VISITED_TABS_KEY = "get_started_visited_tabs"
 MAIN_SECTION_TAB_SLUGS = {
     "reminders": "Reminders",
+    "identify": "Identify",
     "stats": "Stats",
+    "track": "Stats",
     "outcomes": "Stats",
     "get-started": "Get Started",
     "upload-data": "Upload Data",
@@ -108,12 +110,14 @@ MAIN_SECTION_TAB_TO_SLUG = {
     "Upload Data": "upload-data",
     "Search Terms": "search-terms",
     "Exclusions": "exclusions",
+    "Identify": "identify",
     "Stats": "stats",
 }
 MAIN_SECTION_TAB_DISPLAY_LABELS = {
     "Reminders": "Send Reminders",
     "Search Terms": "Configure Reminders",
-    "Stats": "Identify & Track",
+    "Identify": "Identify",
+    "Stats": "Track",
 }
 REMINDERS_START_DATE_INPUT_KEY = "reminders_start_date_input"
 DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14
@@ -137,8 +141,10 @@ E2E_SEARCH_TERMS_LAYOUT_MODE = os.environ.get("CLINIC_REMINDERS_E2E_SEARCH_TERMS
 
 def canonical_main_section_tab(tab_name: str) -> str:
     legacy = {
+        "Identify & Track": "Stats",
         "Outcomes": "Stats",
         "Statistics": "Stats",
+        "Track": "Stats",
     }
     return legacy.get(str(tab_name or "").strip(), str(tab_name or "").strip())
 
@@ -10755,7 +10761,7 @@ def get_setup_checklist_modules() -> list[dict]:
         "review_death_keywords": "Review the words that automatically exclude patients when uploads suggest a pet has passed away.",
         "test_success_windows": "Try changing either success window to see how outcome matching changes.",
         "review_tracking_metrics": "Review the headline tracking metrics to understand reminders, successes, rate, and revenue.",
-        "review_tracking_filters": "Filter Identify & Track by date range to review a specific period.",
+        "review_tracking_filters": "Filter Track by date range to review a specific period.",
     }
 
     def item(item_id: str, label: str, auto_done: bool = False, auto_token: str = "") -> dict:
@@ -14894,7 +14900,7 @@ STATS_TABLE_HEIGHT = 700
 STATS_REVENUE_SUBTAB = "Revenue"
 STATS_REVENUE_SUBTAB_LABEL = "Revenue (All-time only)"
 STATS_PERIOD_FILTERED_SUBTABS = ["Items", "Successes", "Reminders", "Team"]
-STATS_SUBTABS = [STATS_REVENUE_SUBTAB, *STATS_PERIOD_FILTERED_SUBTABS]
+STATS_SUBTABS = [*STATS_PERIOD_FILTERED_SUBTABS]
 STATS_SUBTAB_LABELS = {
     STATS_REVENUE_SUBTAB: STATS_REVENUE_SUBTAB_LABEL,
     "Reminders": "Reminder Outcomes",
@@ -18116,7 +18122,7 @@ def stats_subtab_display_label(tab_name: str) -> str:
 
 def set_active_stats_subtab(tab_name: str) -> None:
     set_main_section_tab("Stats")
-    st.session_state["stats_active_subtab"] = tab_name if tab_name in STATS_SUBTABS else "Revenue"
+    st.session_state["stats_active_subtab"] = tab_name if tab_name in STATS_SUBTABS else "Items"
 
 
 def render_stats_subtab_selector() -> str:
@@ -18125,10 +18131,10 @@ def render_stats_subtab_selector() -> str:
         "Item Activity": "Items",
         "Sent Reminders": "Reminders",
     }
-    requested = st.session_state.get(key, "Revenue")
+    requested = st.session_state.get(key, "Items")
     current = legacy_subtab_map.get(requested, requested)
     if current not in STATS_SUBTABS:
-        current = "Revenue"
+        current = "Items"
     st.session_state[key] = current
     active_button_key = stats_subtab_button_key(current)
     st.markdown(
@@ -18150,21 +18156,19 @@ def render_stats_subtab_selector() -> str:
         """,
         unsafe_allow_html=True,
     )
-    first_row_tabs = [STATS_REVENUE_SUBTAB]
-    second_row_tabs = STATS_PERIOD_FILTERED_SUBTABS
-    for row_tabs, filler_width in ((first_row_tabs, 8.8), (second_row_tabs, 6.8)):
-        widths = [max(1.35, min(2.7, len(stats_subtab_display_label(tab_name)) / 9)) for tab_name in row_tabs]
-        columns = st.columns([*widths, filler_width], gap="small")[:len(row_tabs)]
-        for column, tab_name in zip(columns, row_tabs):
-            with column:
-                st.button(
-                    stats_subtab_display_label(tab_name),
-                    key=stats_subtab_button_key(tab_name),
-                    on_click=set_active_stats_subtab,
-                    args=(tab_name,),
-                    type="secondary",
-                    use_container_width=True,
-                )
+    row_tabs = STATS_PERIOD_FILTERED_SUBTABS
+    widths = [max(1.35, min(2.7, len(stats_subtab_display_label(tab_name)) / 9)) for tab_name in row_tabs]
+    columns = st.columns([*widths, 6.8], gap="small")[:len(row_tabs)]
+    for column, tab_name in zip(columns, row_tabs):
+        with column:
+            st.button(
+                stats_subtab_display_label(tab_name),
+                key=stats_subtab_button_key(tab_name),
+                on_click=set_active_stats_subtab,
+                args=(tab_name,),
+                type="secondary",
+                use_container_width=True,
+            )
     st.markdown('<div class="cr-stats-subtab-rule" aria-hidden="true"></div>', unsafe_allow_html=True)
     return current
 
@@ -18536,6 +18540,7 @@ def refresh_outcome_results_state(sync_remote: bool = False) -> None:
     except Exception:
         pass
     st.session_state.pop("_stats_calculation_cache", None)
+    st.session_state.pop("_identify_calculation_cache", None)
     st.session_state.pop("_stats_export_csv_cache", None)
     if search_criteria_have_pending_changes():
         apply_search_criteria_changes(show_notice=False)
@@ -18559,6 +18564,12 @@ def refresh_outcome_results_state(sync_remote: bool = False) -> None:
 def refresh_outcome_results_action() -> None:
     set_main_section_tab("Stats")
     with busy_overlay("Refreshing stats", "Applying latest search terms and recalculating stats."):
+        refresh_outcome_results_state()
+
+
+def refresh_identify_results_action() -> None:
+    set_main_section_tab("Identify")
+    with busy_overlay("Refreshing identify", "Applying latest search terms and recalculating identify opportunities."):
         refresh_outcome_results_state()
 
 
@@ -18592,25 +18603,173 @@ def stats_calculation_cache_signature(
     )
 
 
+def identify_action_records_from_generated_rows(generated_df: pd.DataFrame) -> list[dict]:
+    if generated_df is None or getattr(generated_df, "empty", True):
+        return []
+    records = []
+    for row in generated_df.to_dict("records"):
+        if not isinstance(row, dict):
+            continue
+        record = dict(row)
+        record["Action"] = REMINDER_ACTION_SENT
+        record.setdefault("Actioned By", "Identify")
+        records.append(record)
+    return records
+
+
+def identify_calculation_cache_signature(
+    statistics_data_version: int,
+    statistics_group_days: int,
+    rules: dict,
+) -> tuple:
+    return (
+        STATS_CALCULATION_CACHE_SCHEMA_VERSION,
+        "identify",
+        statistics_data_version,
+        statistics_group_days,
+        _rules_fp(rules),
+        statistics_exclusion_fp(),
+    )
+
+
+def build_identify_item_opportunity_frame(
+    sales_df: pd.DataFrame,
+    prepared: pd.DataFrame,
+    rules: dict,
+    statistics_group_days: int,
+    statistics_data_version: int,
+) -> pd.DataFrame:
+    cache_signature = identify_calculation_cache_signature(
+        statistics_data_version,
+        statistics_group_days,
+        rules,
+    )
+    identify_cache = st.session_state.get("_identify_calculation_cache")
+    if isinstance(identify_cache, dict) and identify_cache.get("signature") == cache_signature:
+        return identify_cache.get("item_frame", pd.DataFrame(columns=OUTCOME_ITEM_GROUP_COLUMNS))
+
+    with busy_overlay("Calculating identify opportunities", "Finding all current remindable item revenue opportunities."):
+        generated_df = cached_statistics_generated_rows(
+            prepared,
+            rules,
+            group_days=statistics_group_days,
+            period="All time",
+            today_iso=user_today().isoformat(),
+            data_version=statistics_data_version,
+            rules_fp=_rules_fp(rules),
+            exclusion_fp=statistics_exclusion_fp(),
+            schema_version=STATISTICS_GENERATED_SCHEMA_VERSION,
+        )
+        identify_records = identify_action_records_from_generated_rows(generated_df)
+        expanded_identify_records = expand_grouped_action_records(identify_records)
+        outcome_rows = build_reminder_outcomes(
+            identify_records,
+            sales_df,
+            due_date_window_days=DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
+            post_reminder_window_days=DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
+            today=stats_outcome_as_of_date(sales_df),
+            rules=rules,
+            action_records_reduced=True,
+            expanded_sent_records=expanded_identify_records,
+        )
+        identify_outcome_rows = outcome_summary_precompute_numeric_columns(outcome_rows.copy())
+        item_frame = build_outcome_group_frame(
+            identify_outcome_rows,
+            "Item",
+            OUTCOME_ITEM_GROUP_COLUMNS,
+            numeric_precomputed=True,
+        )
+        st.session_state["_identify_calculation_cache"] = {
+            "signature": cache_signature,
+            "item_frame": item_frame,
+        }
+        return item_frame
+
+
+def render_identify_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict):
+    render_started = time.perf_counter()
+    st.markdown("<div id='identify' class='anchor-offset'></div>", unsafe_allow_html=True)
+    title_col, refresh_col = st.columns([4, 1], gap="large")
+    with title_col:
+        st.markdown("## 🔎 Identify")
+    with refresh_col:
+        st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
+        st.button(
+            "Refresh Identify",
+            key="identify_refresh_results",
+            type="primary",
+            use_container_width=True,
+            help="Apply the latest search terms and recalculate identify opportunities.",
+            on_click=refresh_identify_results_action,
+        )
+    st.session_state.pop("_outcomes_refresh_success", None)
+    if search_criteria_have_pending_changes():
+        st.warning("Search terms have changed. Click Refresh Identify to apply the latest rules here.")
+
+    try:
+        statistics_group_days = max(0, int(st.session_state.get("client_group_days", 1) or 0))
+    except (TypeError, ValueError):
+        statistics_group_days = 1
+    try:
+        statistics_data_version = int(st.session_state.get("data_version", 0) or 0)
+    except (TypeError, ValueError):
+        statistics_data_version = 0
+
+    item_frame = build_identify_item_opportunity_frame(
+        sales_df,
+        prepared,
+        rules,
+        statistics_group_days,
+        statistics_data_version,
+    )
+    metric_col, _metric_spacer = st.columns([1, 5])
+    with metric_col:
+        render_statistics_metric_card(
+            "Potential Annual Revenue Lift",
+            format_outcome_currency(potential_annual_revenue_lift_total(item_frame)),
+            STATS_SUMMARY_CARD_HELP["Potential Annual Revenue Lift"],
+        )
+    st.markdown("<div class='stats-summary-tab-gap' aria-hidden='true'></div>", unsafe_allow_html=True)
+    revenue_frame = ensure_stats_revenue_display_columns(item_frame)
+    render_outcome_dataframe(
+        revenue_frame,
+        columns=STATS_REVENUE_DISPLAY_COLUMNS,
+        table_key="identify_items",
+        default_sort_column="Capturable Revenue per Year",
+        default_sort_ascending=False,
+        item_label="item rows",
+        display_column_labels=STATS_ITEMS_DISPLAY_COLUMN_LABELS,
+        highlight_column="Potential Annual Revenue Lift",
+    )
+    render_stats_csv_export(
+        revenue_frame,
+        "identify-items",
+        "identify_items",
+        columns=STATS_REVENUE_DISPLAY_COLUMNS,
+        display_preparer=prepare_stats_items_outcome_dataframe_for_display,
+    )
+    record_slow_render_performance("identify_tab_render", render_started, rows=len(item_frame), source="identify")
+
+
 def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict):
     render_started = time.perf_counter()
     st.markdown("<div id='stats' class='anchor-offset'></div><div id='outcomes' class='anchor-offset'></div>", unsafe_allow_html=True)
     title_col, refresh_col = st.columns([4, 1], gap="large")
     with title_col:
-        st.markdown("## 📊 Stats")
+        st.markdown("## 📊 Track")
     with refresh_col:
         st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
         st.button(
-            "Refresh Stats",
+            "Refresh Track",
             key="outcomes_refresh_results",
             type="primary",
             use_container_width=True,
-            help="Apply the latest search terms and recalculate stats.",
+            help="Apply the latest search terms and recalculate track results.",
             on_click=refresh_outcome_results_action,
         )
     st.session_state.pop("_outcomes_refresh_success", None)
     if search_criteria_have_pending_changes():
-        st.warning("Search terms have changed. Click Refresh Stats to apply the latest rules here.")
+        st.warning("Search terms have changed. Click Refresh Track to apply the latest rules here.")
 
     controls = st.columns([0.8, 0.8, 3.4], gap="large")
     with controls[0]:
@@ -18761,7 +18920,6 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     )
     summary = summarize_outcomes(stats_summary_rows)
     metrics = [
-        ("Potential Annual Revenue Lift", format_outcome_currency(potential_annual_revenue_lift_total(stats_item_outcome_frame))),
         ("Reminded Items", f"{summary['sent']:,}"),
         ("Reminder Successes", f"{summary['successes']:,}"),
         ("Success Rate", f"{summary['success_rate']:.0%}"),
@@ -18776,27 +18934,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
 
     active_stats_subtab = render_stats_subtab_selector()
 
-    if active_stats_subtab == "Revenue":
-        item_frame = ensure_stats_revenue_display_columns(stats_item_outcome_frame)
-        render_outcome_dataframe(
-            item_frame,
-            columns=STATS_REVENUE_DISPLAY_COLUMNS,
-            table_key="stats_items",
-            default_sort_column="Capturable Revenue per Year",
-            default_sort_ascending=False,
-            item_label="item rows",
-            display_column_labels=STATS_ITEMS_DISPLAY_COLUMN_LABELS,
-            highlight_column="Potential Annual Revenue Lift",
-        )
-        render_stats_csv_export(
-            item_frame,
-            "stats-items",
-            "stats_items",
-            columns=STATS_REVENUE_DISPLAY_COLUMNS,
-            display_preparer=prepare_stats_items_outcome_dataframe_for_display,
-        )
-
-    elif active_stats_subtab == "Items":
+    if active_stats_subtab == "Items":
         selected_item_generated_rows = statistics_generated_records_for_period_filter(
             generated_df,
             selected_stats_period,
@@ -19436,8 +19574,8 @@ if st.session_state.get("logged_in", False) and active_main_section == "Search T
 
 has_working_df = st.session_state.get("working_df") is not None
 if st.session_state.get("logged_in", False):
-    needs_working_df = active_main_section in {"Reminders", "Stats"}
-    needs_prepared_df = active_main_section == "Stats"
+    needs_working_df = active_main_section in {"Reminders", "Identify", "Stats"}
+    needs_prepared_df = active_main_section in {"Identify", "Stats"}
     df = st.session_state["working_df"].copy() if has_working_df and needs_working_df else pd.DataFrame()
     applied_rules = get_applied_reminder_rules() if needs_working_df else {}
     prepared = (
@@ -19613,6 +19751,9 @@ if st.session_state.get("logged_in", False):
                 render_reminders_body()
         else:
             render_reminders_body()
+
+    if active_main_section == "Identify":
+        render_identify_tab(df, prepared, applied_rules)
 
     if active_main_section == "Stats":
         render_stats_tab(df, prepared, applied_rules)

@@ -1002,12 +1002,12 @@ class StatisticsTests(unittest.TestCase):
     def test_stats_sent_reminders_display_puts_sent_date_first(self):
         self.assertEqual(self.app.OUTCOME_SENT_DISPLAY_COLUMNS[0], "Sent Date")
 
-    def test_stats_tabs_separate_all_time_revenue_from_period_tabs(self):
+    def test_track_tabs_keep_only_period_tabs(self):
         self.assertEqual(self.app.STATS_REVENUE_SUBTAB, "Revenue")
         self.assertEqual(self.app.stats_subtab_display_label("Revenue"), "Revenue (All-time only)")
         self.assertEqual(self.app.stats_subtab_display_label("Reminders"), "Reminder Outcomes")
         self.assertEqual(self.app.STATS_PERIOD_FILTERED_SUBTABS, ["Items", "Successes", "Reminders", "Team"])
-        self.assertEqual(self.app.STATS_SUBTABS, ["Revenue", "Items", "Successes", "Reminders", "Team"])
+        self.assertEqual(self.app.STATS_SUBTABS, ["Items", "Successes", "Reminders", "Team"])
 
     def test_stats_sent_reminders_defaults_to_today_without_caption(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
@@ -1112,18 +1112,34 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertEqual(self.app.potential_annual_revenue_lift_total(item_frame), 425.5)
 
-    def test_potential_annual_revenue_lift_metric_is_first_and_all_time(self):
-        source = Path(self.app.__file__).read_text(encoding="utf-8")
-        metrics_start = source.index("metrics = [")
-        metrics_end = source.index("metric_cols = st.columns", metrics_start)
-        metrics_source = source[metrics_start:metrics_end]
-
-        self.assertLess(
-            metrics_source.index('"Potential Annual Revenue Lift"'),
-            metrics_source.index('"Reminded Items"'),
+    def test_identify_opportunity_records_include_every_generated_reminder_row(self):
+        generated = pd.DataFrame(
+            [
+                {"Reminder Date": "2026-05-01", "Due Date": "2026-05-10", "Client Name": "A", "Animal Name": "Cat", "Plan Item": "Rabies"},
+                {"Reminder Date": "2026-05-02", "Due Date": "2026-05-11", "Client Name": "B", "Animal Name": "Dog", "Plan Item": "Librela"},
+            ]
         )
-        self.assertIn("potential_annual_revenue_lift_total(stats_item_outcome_frame)", metrics_source)
-        self.assertNotIn("potential_annual_revenue_lift_total(stats_summary_rows)", metrics_source)
+
+        records = self.app.identify_action_records_from_generated_rows(generated)
+
+        self.assertEqual(len(records), 2)
+        self.assertEqual([record["Plan Item"] for record in records], ["Rabies", "Librela"])
+        self.assertTrue(all(record["Action"] == self.app.REMINDER_ACTION_SENT for record in records))
+        self.assertTrue(all(record["Actioned By"] == "Identify" for record in records))
+
+    def test_potential_annual_revenue_lift_metric_lives_on_identify_only(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        identify_start = source.index("def render_identify_tab")
+        identify_end = source.index("def render_stats_tab", identify_start)
+        identify_source = source[identify_start:identify_end]
+        track_metrics_start = source.index("metrics = [", identify_end)
+        track_metrics_end = source.index("metric_cols = st.columns", track_metrics_start)
+        track_metrics_source = source[track_metrics_start:track_metrics_end]
+
+        self.assertIn('"Potential Annual Revenue Lift"', identify_source)
+        self.assertIn("potential_annual_revenue_lift_total(item_frame)", identify_source)
+        self.assertNotIn('"Potential Annual Revenue Lift"', track_metrics_source)
+        self.assertIn('"Reminded Items"', track_metrics_source)
 
     def test_statistics_display_frame_renames_generated_and_adds_actioning_rates(self):
         frame = pd.DataFrame([{"Generated": 4, "Actioned": 2, "Sent": 1, "Declined": 1}])
@@ -1798,6 +1814,20 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
         self.assertEqual(self.app.st.session_state["stats_active_subtab"], "Reminders")
 
+    def test_refresh_identify_keeps_identify_main_tab_active(self):
+        self.app.st.session_state["main_section_tab"] = "Reminders"
+
+        with (
+            mock.patch.object(self.app, "busy_overlay") as busy_overlay,
+            mock.patch.object(self.app, "refresh_outcome_results_state") as refresh_state,
+        ):
+            busy_overlay.return_value.__enter__.return_value = None
+            busy_overlay.return_value.__exit__.return_value = None
+            self.app.refresh_identify_results_action()
+
+        self.assertEqual(self.app.st.session_state["main_section_tab"], "Identify")
+        refresh_state.assert_called_once_with()
+
     def test_stats_render_reuses_matching_calculation_cache_without_custom_range_partial(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
         render_start = source.index("def render_stats_tab")
@@ -1813,6 +1843,7 @@ class StatisticsTests(unittest.TestCase):
     def test_refresh_stats_clears_session_calculation_cache(self):
         state = self.app.st.session_state
         state["_stats_calculation_cache"] = {"signature": "old"}
+        state["_identify_calculation_cache"] = {"signature": "old"}
         state["_stats_export_csv_cache"] = {"entries": {}}
 
         with (
@@ -1823,6 +1854,7 @@ class StatisticsTests(unittest.TestCase):
             self.app.refresh_outcome_results_state(sync_remote=False)
 
         self.assertNotIn("_stats_calculation_cache", state)
+        self.assertNotIn("_identify_calculation_cache", state)
         self.assertNotIn("_stats_export_csv_cache", state)
 
     def test_stats_header_sections_are_visually_separated(self):

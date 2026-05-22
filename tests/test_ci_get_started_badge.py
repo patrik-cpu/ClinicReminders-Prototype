@@ -50,7 +50,7 @@ class GetStartedBadgeTests(unittest.TestCase):
                 "Send Reminders",
                 "Configure Reminders",
                 "Exclusions",
-                "Identify & Track",
+                "Track",
                 "Upload Data",
             ],
         )
@@ -247,12 +247,13 @@ class GetStartedBadgeTests(unittest.TestCase):
             )["done"]
         )
 
-    def test_stats_tab_shows_identify_and_track_without_new_badge(self):
+    def test_stats_tab_shows_track_without_new_badge(self):
         label = self.app.main_section_tab_label("Stats")
 
-        self.assertEqual(label, "Identify & Track")
+        self.assertEqual(label, "Track")
         self.assertNotIn("New Stats tab", label)
         self.assertNotIn("data:image/svg+xml;base64", label)
+        self.assertEqual(self.app.main_section_tab_label("Identify"), "Identify")
 
     def test_inactive_reminders_badge_uses_cached_count_only(self):
         state = self.app.st.session_state
