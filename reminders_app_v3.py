@@ -13640,13 +13640,27 @@ if active_main_section == "Upload Data":
 # --------------------------------
 # Render Tables
 # --------------------------------
-def render_table(df, title, key_prefix, msg_key, rules, empty_message: str | None = None):
+def render_table(
+    df,
+    title,
+    key_prefix,
+    msg_key,
+    rules,
+    empty_message: str | None = None,
+    caught_up_active_count: int | None = None,
+    caught_up_lookback_days: int | None = None,
+):
     render_started = time.perf_counter()
     selected_reminders_subtab = render_reminders_subtab_selector(key_prefix)
     if selected_reminders_subtab != "Active Reminders":
         render_actioned_reminders_tab(key_prefix)
         record_slow_render_performance("reminders_table_render", render_started, rows=len(df), source=key_prefix)
         return
+
+    render_reminders_caught_up_banner(
+        active_count=caught_up_active_count,
+        lookback_days=caught_up_lookback_days,
+    )
 
     if df.empty:
         if empty_message:
@@ -19737,11 +19751,6 @@ if st.session_state.get("logged_in", False):
             else:
                 active_reminder_count = get_active_reminder_badge_count(today=today)
 
-            render_reminders_caught_up_banner(
-                active_count=active_reminder_count,
-                lookback_days=reminder_lookback_days,
-            )
-
             render_search_criteria_refresh_notice()
 
             empty_message = None
@@ -19757,6 +19766,8 @@ if st.session_state.get("logged_in", False):
                 "weekly_message",
                 applied_rules,
                 empty_message=empty_message,
+                caught_up_active_count=active_reminder_count,
+                caught_up_lookback_days=reminder_lookback_days,
             )
 
         if reminders_need_loading:
