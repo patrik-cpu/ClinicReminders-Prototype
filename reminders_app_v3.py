@@ -8584,6 +8584,7 @@ def render_floating_whatsapp_support_widget() -> None:
         '<path d="M11.2 10.5c.3-.6.6-.6.9-.6h.7c.2 0 .5.1.7.5l1 2.3c.1.3.1.5-.1.7l-.7.8c.7 1.3 1.8 2.4 3.2 3.1l.9-.8c.2-.2.5-.2.8-.1l2.1.9c.4.2.5.4.5.7 0 .7-.5 1.7-1.2 2.1-.6.4-1.5.5-2.8.1-3.2-1-6.2-3.8-7.2-7-.4-1.2-.2-2.1.2-2.8Z" />'
         '</svg>'
         '</span>'
+        '<span class="cr-whatsapp-support-text">Support</span>'
         '</a>'
     )
     st.markdown(
@@ -8598,13 +8599,14 @@ def render_floating_whatsapp_support_widget() -> None:
             box-shadow: 0 10px 26px rgba(16, 24, 40, 0.18);
             color: #ffffff !important;
             display: inline-flex;
+            gap: 0.42rem;
             height: 3rem;
             justify-content: center;
-            padding: 0;
+            padding: 0 0.95rem 0 0.78rem;
             position: fixed;
             right: 1.25rem;
             text-decoration: none !important;
-            width: 3rem;
+            width: auto;
             z-index: 1000;
           }}
           .cr-whatsapp-support:hover {{
@@ -8619,9 +8621,16 @@ def render_floating_whatsapp_support_widget() -> None:
           .cr-whatsapp-support-icon {{
             align-items: center;
             display: inline-flex;
-            height: 100%;
+            height: 1.55rem;
             justify-content: center;
-            width: 100%;
+            width: 1.55rem;
+          }}
+          .cr-whatsapp-support-text {{
+            color: #ffffff !important;
+            font-size: 0.95rem;
+            font-weight: 700;
+            letter-spacing: 0;
+            line-height: 1;
           }}
           .cr-whatsapp-support-icon svg {{
             display: block;
@@ -8639,8 +8648,11 @@ def render_floating_whatsapp_support_widget() -> None:
             .cr-whatsapp-support {{
               bottom: 4.25rem;
               height: 2.85rem;
+              padding: 0 0.82rem 0 0.68rem;
               right: 0.85rem;
-              width: 2.85rem;
+            }}
+            .cr-whatsapp-support-text {{
+              font-size: 0.88rem;
             }}
           }}
         </style>
