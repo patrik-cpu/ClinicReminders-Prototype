@@ -18436,7 +18436,7 @@ def render_stats_period_selector(
             st.session_state[start_key] = initial_start
         if end_key not in st.session_state:
             st.session_state[end_key] = initial_end
-        start_col, to_col, end_col, _custom_spacer = st.columns([1, 0.18, 1, 3.82], gap="small")
+        start_col, to_col, end_col, _custom_spacer = st.columns([0.72, 0.12, 0.72, 4.44], gap="small")
         with start_col:
             start_value = st.date_input(
                 "Start date",
