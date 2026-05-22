@@ -29,3 +29,16 @@ Date started: 2026-05-22
   - `bash scripts/pilot_release_check.sh`
 - Tests added/updated: No new tests were needed; existing release-script tests cover the script wiring, and CI now executes the release gate directly.
 - Remaining risks: GitHub CI still cannot run live Google smoke/auth audit unless credentials are deliberately configured for that environment. A protected/manual credentialed release workflow remains useful for production promotion.
+
+## P1-002: No Browser-Level E2E Coverage For The Real Streamlit UI
+
+- Status: Partially fixed.
+- Summary of change: Added an authenticated Streamlit navigation smoke test using the existing CI-safe E2E layout mode. The test renders the app through `streamlit.testing.v1.AppTest`, clicks every main tab, and fails if any tab raises an uncaught Streamlit exception. This directly covers the recent class of widget/session-state crash while avoiding live Google credentials.
+- Files changed:
+  - `tests/test_ci_streamlit_navigation_smoke.py`
+  - `fix_log.md`
+- Validation performed:
+  - `python -m unittest tests.test_ci_streamlit_navigation_smoke`
+- Tests added/updated:
+  - `tests.test_ci_streamlit_navigation_smoke.StreamlitNavigationSmokeTests.test_authenticated_main_tabs_render_without_uncaught_exception`
+- Remaining risks: This is Streamlit component-level coverage, not a full real-browser Playwright/Selenium journey. It does not verify actual browser back/forward behavior, mobile viewport rendering, clipboard/WhatsApp deep links, or live Google persistence.
