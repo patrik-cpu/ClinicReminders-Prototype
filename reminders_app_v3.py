@@ -23,6 +23,7 @@ from typing import Iterable
 import numpy as np
 from gspread.exceptions import APIError
 import random
+import calendar
 import html as html_lib
 import textwrap
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -787,10 +788,30 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "stats_successes_period",
     "stats_successes_custom_range",
     "stats_successes_custom_range_last_complete",
+    "stats_period_rolling_more",
+    "stats_period_calendar_year",
+    "stats_period_calendar_period",
+    "stats_period_calendar_month",
+    "stats_period_calendar_quarter",
+    "stats_sent_reminders_period_rolling_more",
+    "stats_sent_reminders_period_calendar_year",
+    "stats_sent_reminders_period_calendar_period",
+    "stats_sent_reminders_period_calendar_month",
+    "stats_sent_reminders_period_calendar_quarter",
+    "stats_successes_period_rolling_more",
+    "stats_successes_period_calendar_year",
+    "stats_successes_period_calendar_period",
+    "stats_successes_period_calendar_month",
+    "stats_successes_period_calendar_quarter",
     "reminders_active_subtab",
     "reminders_actioned_period",
     "reminders_actioned_custom_range",
     "reminders_actioned_custom_range_last_complete",
+    "reminders_actioned_period_rolling_more",
+    "reminders_actioned_period_calendar_year",
+    "reminders_actioned_period_calendar_period",
+    "reminders_actioned_period_calendar_month",
+    "reminders_actioned_period_calendar_quarter",
     "_hidden_reminders_index_cache",
     "pending_google_signup",
     "google_onboarding_mode",
@@ -1865,6 +1886,16 @@ st.markdown(
         border-top: 1px solid var(--cr-border);
         height: 0;
         margin: 1rem 0;
+    }
+    .stats-calendar-full-year {
+        align-items: center;
+        border: 1px solid var(--cr-border);
+        border-radius: 8px;
+        color: var(--cr-muted);
+        display: flex;
+        font-size: 0.9rem;
+        min-height: 2.55rem;
+        padding: 0 0.8rem;
     }
     .sidebar-clinic-block {
         font-size: 15px;
@@ -14041,12 +14072,16 @@ def format_actioned_reminder_date(row) -> str:
 def actioned_reminder_period_start(period: str, now: datetime | None = None) -> datetime | None:
     now = user_now(now)
     today_start = datetime.combine(now.date(), datetime.min.time())
+    period = sent_reminder_outcome_period(period)
     if period in {"Daily", "Today"}:
         return today_start
     if period in {"Weekly", "Previous 7 days"}:
         return today_start - timedelta(days=6)
     if period in {"Monthly", "Previous 30 days"}:
         return today_start - timedelta(days=29)
+    period_start = statistics_period_start(period, now.date())
+    if period_start is not None:
+        return datetime.combine(period_start, datetime.min.time())
     return None
 
 
@@ -14711,9 +14746,17 @@ STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
 STATISTICS_GENERATED_COLUMNS = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
 STATISTICS_SCHEDULED_REMINDERS_LABEL = "Scheduled reminders"
 OUTCOME_PERIODS = ["Today", "7 days", "30 days", "All time"]
-STATS_SENT_REMINDER_PERIODS = ["Today", "Previous 7 days", "Previous 30 days", "All-time", "Custom"]
+STATS_SENT_REMINDER_PERIODS = ["Today", "Past week", "Past month", "Past year", "All-time", "More", "Calendar", "Custom"]
+STATS_MORE_ROLLING_PERIODS = ["Past 3 months", "Past 6 months", "Past 2 years"]
+STATS_CALENDAR_PERIOD_TYPES = ["Year", "Quarter", "Month"]
 STATS_SENT_REMINDER_PERIOD_MAP = {
     "Today": "Today",
+    "Past week": "7 days",
+    "Past month": "30 days",
+    "Past 3 months": "Past 3 months",
+    "Past 6 months": "Past 6 months",
+    "Past year": "Past year",
+    "Past 2 years": "Past 2 years",
     "Previous 7 days": "7 days",
     "Previous 30 days": "30 days",
     "All-time": "All time",
@@ -15128,18 +15171,35 @@ def statistics_exclusion_fp() -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
+def add_months_to_date(value: date, months: int) -> date:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
 def empty_statistics_generated_frame() -> pd.DataFrame:
     return pd.DataFrame(columns=STATISTICS_GENERATED_COLUMNS)
 
 
 def statistics_period_start(period: str, today: date | None = None) -> date | None:
     today = today or user_today()
+    period = str(period or "").strip()
     if period == "Today":
         return today
-    if period == "7 days":
+    if period in {"7 days", "Previous 7 days", "Past week"}:
         return today - timedelta(days=6)
-    if period == "30 days":
+    if period in {"30 days", "Previous 30 days", "Past month"}:
         return today - timedelta(days=29)
+    if period == "Past 3 months":
+        return add_months_to_date(today, -3) + timedelta(days=1)
+    if period == "Past 6 months":
+        return add_months_to_date(today, -6) + timedelta(days=1)
+    if period == "Past year":
+        return add_months_to_date(today, -12) + timedelta(days=1)
+    if period == "Past 2 years":
+        return add_months_to_date(today, -24) + timedelta(days=1)
     return None
 
 
@@ -18000,6 +18060,7 @@ def stats_date_range_selection_in_progress() -> bool:
         ("stats_period", "stats_custom_range"),
         ("stats_sent_reminders_period", "stats_sent_reminders_custom_range"),
         ("stats_successes_period", "stats_successes_custom_range"),
+        ("reminders_actioned_period", "reminders_actioned_custom_range"),
     )
     return any(
         st.session_state.get(period_key) == "Custom"
@@ -18024,6 +18085,92 @@ def stats_sent_export_period_label(selected_period: str, custom_range: tuple[dat
         start_date, end_date = custom_range
         return f"custom-{start_date.isoformat()}-to-{end_date.isoformat()}"
     return selected_period
+
+
+def date_range_label(custom_range: tuple[date, date] | None) -> str:
+    if custom_range is None:
+        return ""
+    start_date, end_date = custom_range
+    if start_date == end_date:
+        return start_date.strftime("%d %b %Y")
+    return f"{start_date:%d %b %Y} to {end_date:%d %b %Y}"
+
+
+def stats_calendar_dataset_start(today: date | None = None) -> date:
+    today = today or user_today()
+    dmin, _dmax = get_dataset_date_range(st.session_state.get("working_df"))
+    if dmin is None or pd.isna(dmin):
+        return today.replace(month=1, day=1)
+    return pd.Timestamp(dmin).date()
+
+
+def stats_calendar_year_options(today: date | None = None) -> list[int]:
+    today = today or user_today()
+    start = stats_calendar_dataset_start(today)
+    return list(range(start.year, today.year + 1))
+
+
+def stats_calendar_month_options(year: int, today: date | None = None) -> list[int]:
+    today = today or user_today()
+    start = stats_calendar_dataset_start(today)
+    first_month = start.month if year == start.year else 1
+    last_month = today.month if year == today.year else 12
+    if year < start.year or year > today.year or first_month > last_month:
+        return []
+    return list(range(first_month, last_month + 1))
+
+
+def stats_calendar_quarter_options(year: int, today: date | None = None) -> list[int]:
+    today = today or user_today()
+    start = stats_calendar_dataset_start(today)
+    options = []
+    for quarter in range(1, 5):
+        quarter_start = date(year, ((quarter - 1) * 3) + 1, 1)
+        quarter_end_month = quarter * 3
+        quarter_end = date(year, quarter_end_month, calendar.monthrange(year, quarter_end_month)[1])
+        if quarter_end < start or quarter_start > today:
+            continue
+        options.append(quarter)
+    return options
+
+
+def stats_calendar_range(
+    year: int,
+    period_type: str,
+    period_value: int | None = None,
+    today: date | None = None,
+) -> tuple[date, date]:
+    today = today or user_today()
+    start_bound = stats_calendar_dataset_start(today)
+    if period_type == "Month":
+        month = int(period_value or 1)
+        start_date = date(year, month, 1)
+        end_date = date(year, month, calendar.monthrange(year, month)[1])
+    elif period_type == "Quarter":
+        quarter = int(period_value or 1)
+        start_month = ((quarter - 1) * 3) + 1
+        end_month = quarter * 3
+        start_date = date(year, start_month, 1)
+        end_date = date(year, end_month, calendar.monthrange(year, end_month)[1])
+    else:
+        start_date = date(year, 1, 1)
+        end_date = date(year, 12, 31)
+    return max(start_date, start_bound), min(end_date, today)
+
+
+def normalize_stats_period_selection(value: str | None, default_period: str) -> str:
+    legacy = {
+        "Previous 7 days": "Past week",
+        "Previous 30 days": "Past month",
+        "7 days": "Past week",
+        "30 days": "Past month",
+        "All time": "All-time",
+    }
+    current = legacy.get(str(value or "").strip(), str(value or "").strip())
+    valid = {*STATS_SENT_REMINDER_PERIODS, *STATS_MORE_ROLLING_PERIODS}
+    if current in valid:
+        return current
+    return default_period if default_period in STATS_SENT_REMINDER_PERIODS else "All-time"
 
 
 def render_stats_sent_reminders_period_selector() -> tuple[str, tuple[date, date] | None]:
@@ -18070,16 +18217,15 @@ def render_stats_period_selector(
     on_change,
     default_period: str = "All-time",
 ) -> tuple[str, tuple[date, date] | None]:
-    current = st.session_state.get(filter_key, default_period)
-    if current not in STATS_SENT_REMINDER_PERIODS:
-        current = default_period if default_period in STATS_SENT_REMINDER_PERIODS else "All-time"
+    current = normalize_stats_period_selection(st.session_state.get(filter_key, default_period), default_period)
+    control_current = "More" if current in STATS_MORE_ROLLING_PERIODS else current
 
     if hasattr(st, "segmented_control"):
         selected_period = st.segmented_control(
             label,
             STATS_SENT_REMINDER_PERIODS,
             selection_mode="single",
-            default=current,
+            default=control_current,
             key=filter_key,
             label_visibility="collapsed",
             on_change=on_change,
@@ -18088,15 +18234,95 @@ def render_stats_period_selector(
         selected_period = st.radio(
             label,
             STATS_SENT_REMINDER_PERIODS,
-            index=STATS_SENT_REMINDER_PERIODS.index(current),
+            index=STATS_SENT_REMINDER_PERIODS.index(control_current),
             horizontal=True,
             key=filter_key,
             label_visibility="collapsed",
             on_change=on_change,
         )
-    selected_period = selected_period or current
+    selected_period = selected_period or control_current
     custom_range = None
-    if selected_period == "Custom":
+    if selected_period == "More":
+        more_key = f"{filter_key}_rolling_more"
+        more_current = st.session_state.get(more_key, current if current in STATS_MORE_ROLLING_PERIODS else STATS_MORE_ROLLING_PERIODS[0])
+        if more_current not in STATS_MORE_ROLLING_PERIODS:
+            more_current = STATS_MORE_ROLLING_PERIODS[0]
+        selected_period = st.selectbox(
+            "Rolling period",
+            STATS_MORE_ROLLING_PERIODS,
+            index=STATS_MORE_ROLLING_PERIODS.index(more_current),
+            key=more_key,
+            label_visibility="collapsed",
+            on_change=on_change,
+        )
+    elif selected_period == "Calendar":
+        today_value = user_today()
+        year_options = stats_calendar_year_options(today_value)
+        year_key = f"{filter_key}_calendar_year"
+        stored_year = st.session_state.get(year_key, year_options[-1])
+        if stored_year not in year_options:
+            stored_year = year_options[-1]
+        year_col, period_col, value_col = st.columns([1, 1, 1.4], gap="small")
+        with year_col:
+            selected_year = st.selectbox(
+                "Year",
+                year_options,
+                index=year_options.index(stored_year),
+                key=year_key,
+                label_visibility="collapsed",
+                on_change=on_change,
+            )
+        period_key = f"{filter_key}_calendar_period"
+        stored_period_type = st.session_state.get(period_key, "Month")
+        if stored_period_type not in STATS_CALENDAR_PERIOD_TYPES:
+            stored_period_type = "Month"
+        with period_col:
+            period_type = st.selectbox(
+                "Calendar period",
+                STATS_CALENDAR_PERIOD_TYPES,
+                index=STATS_CALENDAR_PERIOD_TYPES.index(stored_period_type),
+                key=period_key,
+                label_visibility="collapsed",
+                on_change=on_change,
+            )
+        period_value = None
+        with value_col:
+            if period_type == "Month":
+                month_options = stats_calendar_month_options(selected_year, today_value)
+                month_key = f"{filter_key}_calendar_month"
+                stored_month = st.session_state.get(month_key, month_options[-1] if month_options else today_value.month)
+                if stored_month not in month_options and month_options:
+                    stored_month = month_options[-1]
+                period_value = st.selectbox(
+                    "Month",
+                    month_options,
+                    format_func=lambda month: calendar.month_name[int(month)],
+                    index=month_options.index(stored_month) if stored_month in month_options else 0,
+                    key=month_key,
+                    label_visibility="collapsed",
+                    on_change=on_change,
+                )
+            elif period_type == "Quarter":
+                quarter_options = stats_calendar_quarter_options(selected_year, today_value)
+                quarter_key = f"{filter_key}_calendar_quarter"
+                stored_quarter = st.session_state.get(quarter_key, quarter_options[-1] if quarter_options else 1)
+                if stored_quarter not in quarter_options and quarter_options:
+                    stored_quarter = quarter_options[-1]
+                period_value = st.selectbox(
+                    "Quarter",
+                    quarter_options,
+                    format_func=lambda quarter: f"Q{int(quarter)}",
+                    index=quarter_options.index(stored_quarter) if stored_quarter in quarter_options else 0,
+                    key=quarter_key,
+                    label_visibility="collapsed",
+                    on_change=on_change,
+                )
+            else:
+                st.markdown("<div class='stats-calendar-full-year'>Full year</div>", unsafe_allow_html=True)
+        custom_range = stats_calendar_range(selected_year, period_type, period_value, today=today_value)
+        st.caption(f"Showing {date_range_label(custom_range)}")
+        selected_period = "Custom"
+    elif selected_period == "Custom":
         today_value = user_today()
         storage_key = stats_custom_range_storage_key(range_key)
         stored_range = normalize_stats_sent_custom_range(st.session_state.get(storage_key))

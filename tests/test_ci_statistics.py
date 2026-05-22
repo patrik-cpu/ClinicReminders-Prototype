@@ -1596,6 +1596,9 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("stats_sent_reminders_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
         self.assertIn("stats_successes_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
         self.assertIn("reminders_actioned_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
+        self.assertIn("stats_period_calendar_year", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
+        self.assertIn("stats_period_rolling_more", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
+        self.assertIn("reminders_actioned_period_calendar_month", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
 
     def test_stats_shared_custom_range_selection_in_progress(self):
         self.app.st.session_state["stats_period"] = "Custom"
@@ -1606,6 +1609,87 @@ class StatisticsTests(unittest.TestCase):
         self.app.st.session_state["stats_custom_range"] = (date(2026, 5, 20), date(2026, 5, 21))
 
         self.assertFalse(self.app.stats_date_range_selection_in_progress())
+
+    def test_stats_calendar_options_run_from_uploaded_start_year_to_today(self):
+        state = self.app.st.session_state
+        state["working_df"] = pd.DataFrame({
+            "ChargeDate": pd.to_datetime(["2024-01-01", "2025-08-15"]),
+        })
+
+        with mock.patch.object(self.app, "user_today", return_value=date(2026, 5, 22)):
+            years = self.app.stats_calendar_year_options()
+            months_2026 = self.app.stats_calendar_month_options(2026)
+            quarters_2026 = self.app.stats_calendar_quarter_options(2026)
+            q1_range = self.app.stats_calendar_range(2026, "Quarter", 1)
+            may_range = self.app.stats_calendar_range(2025, "Month", 5)
+
+        self.assertEqual(years, [2024, 2025, 2026])
+        self.assertEqual(months_2026, [1, 2, 3, 4, 5])
+        self.assertEqual(quarters_2026, [1, 2])
+        self.assertEqual(q1_range, (date(2026, 1, 1), date(2026, 3, 31)))
+        self.assertEqual(may_range, (date(2025, 5, 1), date(2025, 5, 31)))
+
+    def test_stats_calendar_range_clips_start_and_current_year_to_available_window(self):
+        state = self.app.st.session_state
+        state["working_df"] = pd.DataFrame({
+            "ChargeDate": pd.to_datetime(["2024-03-15", "2025-08-15"]),
+        })
+
+        with mock.patch.object(self.app, "user_today", return_value=date(2026, 5, 22)):
+            first_year = self.app.stats_calendar_range(2024, "Year")
+            current_year = self.app.stats_calendar_range(2026, "Year")
+            month_options_2024 = self.app.stats_calendar_month_options(2024)
+
+        self.assertEqual(first_year, (date(2024, 3, 15), date(2024, 12, 31)))
+        self.assertEqual(current_year, (date(2026, 1, 1), date(2026, 5, 22)))
+        self.assertEqual(month_options_2024, list(range(3, 13)))
+
+    def test_stats_period_start_supports_expanded_rolling_presets(self):
+        today = date(2026, 5, 22)
+
+        self.assertEqual(self.app.statistics_period_start("Past week", today), date(2026, 5, 16))
+        self.assertEqual(self.app.statistics_period_start("Past month", today), date(2026, 4, 23))
+        self.assertEqual(self.app.statistics_period_start("Past 3 months", today), date(2026, 2, 23))
+        self.assertEqual(self.app.statistics_period_start("Past 6 months", today), date(2025, 11, 23))
+        self.assertEqual(self.app.statistics_period_start("Past year", today), date(2025, 5, 23))
+        self.assertEqual(self.app.statistics_period_start("Past 2 years", today), date(2024, 5, 23))
+
+    def test_stats_calendar_selector_returns_custom_range(self):
+        class FakeColumn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        state = self.app.st.session_state
+        state["working_df"] = pd.DataFrame({
+            "ChargeDate": pd.to_datetime(["2024-01-01", "2025-08-15"]),
+        })
+        state["stats_period_calendar_year"] = 2025
+        state["stats_period_calendar_period"] = "Month"
+        state["stats_period_calendar_month"] = 5
+
+        def fake_selectbox(label, options, index=0, **kwargs):
+            return options[index]
+
+        with (
+            mock.patch.object(self.app, "user_today", return_value=date(2026, 5, 22)),
+            mock.patch.object(self.app.st, "segmented_control", return_value="Calendar"),
+            mock.patch.object(self.app.st, "columns", return_value=[FakeColumn(), FakeColumn(), FakeColumn()]),
+            mock.patch.object(self.app.st, "selectbox", side_effect=fake_selectbox),
+            mock.patch.object(self.app.st, "caption") as caption,
+        ):
+            selected_period, custom_range = self.app.render_stats_period_selector(
+                label="Stats period",
+                filter_key="stats_period",
+                range_key="stats_custom_range",
+                on_change=lambda: None,
+            )
+
+        self.assertEqual(selected_period, "Custom")
+        self.assertEqual(custom_range, (date(2025, 5, 1), date(2025, 5, 31)))
+        caption.assert_called_once_with("Showing 01 May 2025 to 31 May 2025")
 
     def test_stats_period_reset_callbacks_keep_stats_main_tab_active(self):
         self.app.st.session_state["main_section_tab"] = "Reminders"
