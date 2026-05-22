@@ -14159,8 +14159,15 @@ def render_table(
         record_slow_render_performance("reminders_table_render", render_started, rows=len(df), source=key_prefix)
         return
 
+    filtered_df = df
+    active_df = df
+    if not df.empty:
+        filtered_df = apply_reminder_exclusion_filters(df, rules)
+        active_df = filter_hidden_reminders(filtered_df) if not filtered_df.empty else filtered_df
+
+    active_visible_count = len(active_df) if isinstance(active_df, pd.DataFrame) else 0
     render_reminders_caught_up_banner(
-        active_count=caught_up_active_count,
+        active_count=active_visible_count,
         lookback_days=caught_up_lookback_days,
     )
     render_auto_hidden_reminder_summary()
@@ -14171,8 +14178,7 @@ def render_table(
         render_whatsapp_tools(key_prefix, msg_key)
         record_slow_render_performance("reminders_table_render", render_started, rows=0, source=key_prefix)
         return
-    df = apply_reminder_exclusion_filters(df, rules)
-    if df.empty:
+    if filtered_df.empty:
         st.info("All reminders in this view are hidden by exclusions. Review Exclude if this looks wrong.")
         render_whatsapp_tools(key_prefix, msg_key)
         record_slow_render_performance("reminders_table_render", render_started, rows=0, source=key_prefix)
@@ -14180,11 +14186,10 @@ def render_table(
 
     show_pending_recent_reminder_warning()
 
-    active_df = filter_hidden_reminders(df)
     if not active_df.empty:
         render_table_with_buttons(active_df, key_prefix, msg_key, hidden_index=get_hidden_reminders_index())
     render_whatsapp_tools(key_prefix, msg_key)
-    record_slow_render_performance("reminders_table_render", render_started, rows=len(df), source=key_prefix)
+    record_slow_render_performance("reminders_table_render", render_started, rows=len(filtered_df), source=key_prefix)
 
 
 def render_sender_name_input(key_suffix: str):
