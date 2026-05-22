@@ -604,6 +604,16 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         save_settings.assert_not_called()
 
+    def test_reminder_filter_render_pass_does_not_write_widget_owned_keys(self):
+        source = Path("reminders_app_v3.py").read_text(encoding="utf-8")
+        helper_source = source[
+            source.index("def persist_reminder_int_setting_if_changed")
+            : source.index("def persist_reminder_filter_controls_if_changed")
+        ]
+
+        self.assertNotIn("save_reminder_int_setting(", helper_source)
+        self.assertNotIn("st.session_state[key] = value", helper_source)
+
     def test_outcome_window_callback_skips_save_when_value_is_unchanged(self):
         self.app.st.session_state["outcome_due_date_window_days"] = 14
         self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = 14

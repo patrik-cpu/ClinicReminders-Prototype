@@ -12695,7 +12695,14 @@ def save_reminder_warning_days() -> None:
 def persist_reminder_int_setting_if_changed(key: str, dirty_key: str, loaded_key: str, normalizer) -> None:
     if loaded_key not in st.session_state and not st.session_state.get(dirty_key):
         return
-    save_reminder_int_setting(key, dirty_key, loaded_key, normalizer)
+    value = normalizer()
+    if numeric_setting_is_clean_and_unchanged(key, loaded_key, dirty_key, value, normalizer):
+        return
+    st.session_state[dirty_key] = True
+    if save_settings_quietly():
+        st.session_state[dirty_key] = False
+        st.session_state[loaded_key] = value
+        st.session_state[f"{loaded_key}_recent_local_save"] = value
 
 
 def persist_reminder_filter_controls_if_changed() -> None:
