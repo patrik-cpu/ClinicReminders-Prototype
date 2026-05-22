@@ -2931,7 +2931,7 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(outcomes.iloc[0]["Outcome"], "Pending")
         self.assertEqual(str(outcomes.iloc[0]["Sent Date"].date()), "2025-04-01")
 
-    def test_reminder_outcomes_prefers_sent_days_over_base_rule_days_for_quantity_rules(self):
+    def test_reminder_outcomes_uses_configured_rule_days_for_quantity_rules(self):
         actions = [
             {
                 "Reminder Date": "16 Jun 2025",
@@ -2975,7 +2975,7 @@ class StatisticsTests(unittest.TestCase):
 
         row = outcomes.iloc[0]
         self.assertEqual(row["Outcome"], "Reminder Success")
-        self.assertEqual(int(row["Desired Gap Days"]), 180)
+        self.assertEqual(int(row["Desired Gap Days"]), 90)
         self.assertEqual(int(row["Success Gap Days"]), 180)
 
     def test_reminder_outcomes_counts_first_future_purchase_gap_as_success(self):

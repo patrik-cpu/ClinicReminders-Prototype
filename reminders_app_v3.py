@@ -16289,15 +16289,6 @@ def outcome_desired_gap_days(
     original_charge_date: date | None,
     rules: dict | None = None,
 ) -> int | None:
-    direct_days = positive_int_or_none(record.get("Days", ""))
-    if direct_days is not None:
-        return direct_days
-
-    for detail in normalize_reminder_details_for_storage(record.get("ReminderDetails", [])):
-        detail_days = positive_int_or_none(detail.get("Days", ""))
-        if detail_days is not None:
-            return detail_days
-
     normalized_rules = {
         normalize_outcome_item_text(rule): settings
         for rule, settings in (rules or {}).items()
@@ -16309,6 +16300,15 @@ def outcome_desired_gap_days(
             rule_days = positive_int_or_none(settings.get("days", ""))
             if rule_days is not None:
                 return rule_days
+
+    direct_days = positive_int_or_none(record.get("Days", ""))
+    if direct_days is not None:
+        return direct_days
+
+    for detail in normalize_reminder_details_for_storage(record.get("ReminderDetails", [])):
+        detail_days = positive_int_or_none(detail.get("Days", ""))
+        if detail_days is not None:
+            return detail_days
 
     date_gap = days_between_dates(original_charge_date, due_date)
     if date_gap is not None and date_gap > 0:
