@@ -42,3 +42,21 @@ Date started: 2026-05-22
 - Tests added/updated:
   - `tests.test_ci_streamlit_navigation_smoke.StreamlitNavigationSmokeTests.test_authenticated_main_tabs_render_without_uncaught_exception`
 - Remaining risks: This is Streamlit component-level coverage, not a full real-browser Playwright/Selenium journey. It does not verify actual browser back/forward behavior, mobile viewport rendering, clipboard/WhatsApp deep links, or live Google persistence.
+
+## P1-003: Shared Google Sheets/Drive Tenancy Is Application-Enforced
+
+- Status: Partially fixed.
+- Summary of change: Added helper-level tenant guards for saved dataset pointer reads and action tracker loads. A caller asking for another clinic's dataset pointer now fails before sheet access, and action tracker loading returns no records before tracker access when the requested clinic is not the authenticated clinic. This keeps existing storage architecture but makes two shared-backend helper boundaries safer by default.
+- Files changed:
+  - `reminders_app_v3.py`
+  - `tests/test_ci_audit_characterization.py`
+  - `fix_log.md`
+- Validation performed:
+  - `python -m unittest tests.test_ci_audit_characterization.AuditCharacterizationTests.test_dataset_pointer_read_requires_current_tenant_before_sheet_access tests.test_ci_audit_characterization.AuditCharacterizationTests.test_action_tracker_load_fails_closed_for_other_tenant_before_sheet_access`
+  - `python -m unittest tests.test_ci_dataset_update tests.test_ci_settings_save_state`
+  - `python -m py_compile reminders_app_v3.py settings_pointer_utils.py auth_password_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py`
+  - `bash scripts/bug_lint_check.sh`
+- Tests added/updated:
+  - `tests.test_ci_audit_characterization.AuditCharacterizationTests.test_dataset_pointer_read_requires_current_tenant_before_sheet_access`
+  - `tests.test_ci_audit_characterization.AuditCharacterizationTests.test_action_tracker_load_fails_closed_for_other_tenant_before_sheet_access`
+- Remaining risks: Tenant isolation is still application-enforced over shared Google resources. Stronger storage boundaries or a central repository layer remain deferred; this pass only hardens confirmed helper boundaries.

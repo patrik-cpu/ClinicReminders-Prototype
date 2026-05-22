@@ -357,6 +357,26 @@ class AuditCharacterizationTests(unittest.TestCase):
         self.assertEqual(skipped.batch_updates, [])
         self.assertNotIn("_settings_row_cache", self.app.st.session_state)
 
+    def test_dataset_pointer_read_requires_current_tenant_before_sheet_access(self):
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+
+        with patch.object(self.app, "_get_settings_row_for_clinic") as get_row:
+            with self.assertRaises(self.app.TenantAuthorizationError):
+                self.app.get_existing_dataset_pointer("Clinic B")
+
+        get_row.assert_not_called()
+
+    def test_action_tracker_load_fails_closed_for_other_tenant_before_sheet_access(self):
+        self.app.st.session_state["logged_in"] = True
+        self.app.st.session_state["clinic_id"] = "Clinic A"
+
+        with patch.object(self.app, "get_or_create_tracker_sheet") as get_sheet:
+            records = self.app.load_action_tracker_records_for_clinic("Clinic B")
+
+        self.assertEqual(records, [])
+        get_sheet.assert_not_called()
+
     def test_update_clinic_profile_validates_input_and_renames_dataset_pointer_when_clinic_changes(self):
         old_row = {
             "ClinicID": "Clinic A",

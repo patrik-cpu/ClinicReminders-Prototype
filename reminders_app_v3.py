@@ -4355,6 +4355,7 @@ def get_existing_dataset_pointer(clinic_id: str) -> tuple[str, str]:
     """
     Returns (existing_file_id, existing_filename) using a single row read.
     """
+    clinic_id = require_authenticated_tenant_access(clinic_id)
     try:
         sheet, headers, row_idx = _get_settings_row_for_clinic(clinic_id)
         headers = ensure_settings_sheet_columns(sheet, headers, SETTINGS_REQUIRED_COLUMNS)
@@ -6294,8 +6295,9 @@ def action_records_to_wa_log(records: list[dict]) -> list[dict]:
 
 
 def load_action_tracker_records_for_clinic(clinic_id: str) -> list[dict]:
-    clinic_id = str(clinic_id or "").strip()
-    if not clinic_id:
+    try:
+        clinic_id = require_authenticated_tenant_access(clinic_id)
+    except TenantAuthorizationError:
         return []
     clinic_key = clinic_id.lower()
     timezone_key = user_timezone_name()
