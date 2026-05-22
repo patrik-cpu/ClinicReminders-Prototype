@@ -257,6 +257,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("width: 4.75rem !important;", source)
         self.assertIn("justify-content: center !important;", source)
         self.assertIn("max-width: 15rem !important;", source)
+        self.assertIn("st.columns([0.86, 0.86, 0.86, 4.42]", source)
         self.assertIn('"Sent reminders period"', source)
         self.assertNotIn("filtered by Sent Date", source)
         self.assertNotIn("filtered by Success Date", source)

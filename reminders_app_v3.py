@@ -18470,7 +18470,7 @@ def render_stats_period_selector(
         stored_year = st.session_state.get(year_key, year_options[-1])
         if stored_year not in year_options:
             stored_year = year_options[-1]
-        year_col, period_col, value_col, _calendar_spacer = st.columns([0.82, 0.82, 0.94, 4.42], gap="small")
+        year_col, period_col, value_col, _calendar_spacer = st.columns([0.86, 0.86, 0.86, 4.42], gap="small")
         with year_col:
             selected_year = st.selectbox(
                 "Year",
