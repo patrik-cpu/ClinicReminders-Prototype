@@ -1774,7 +1774,7 @@ class StatisticsTests(unittest.TestCase):
 
         self.assertEqual(selected_period, "Custom")
         self.assertEqual(custom_range, (date(2025, 5, 1), date(2025, 5, 31)))
-        caption.assert_called_once_with("Showing 01 May 2025 to 31 May 2025")
+        caption.assert_not_called()
 
     def test_stats_period_reset_callbacks_keep_stats_main_tab_active(self):
         self.app.st.session_state["main_section_tab"] = "Reminders"
@@ -1848,6 +1848,22 @@ class StatisticsTests(unittest.TestCase):
             "    st.markdown(\"<div class='stats-section-divider' aria-hidden='true'></div>\", unsafe_allow_html=True)",
             render_stats_source,
         )
+        self.assertIn("stats-active-period-label", source)
+        self.assertIn("stats_period_display_label(selected_stats_period, stats_custom_range)", render_stats_source)
+        self.assertLess(
+            render_stats_source.index("selected_stats_period, stats_custom_range = render_shared_stats_period_selector()"),
+            render_stats_source.index("stats_period_display_label(selected_stats_period, stats_custom_range)"),
+        )
+
+    def test_stats_period_display_label_formats_custom_ranges(self):
+        self.assertEqual(
+            self.app.stats_period_display_label(
+                "Custom",
+                (date(2026, 5, 1), date(2026, 5, 22)),
+            ),
+            "01 May 2026 to 22 May 2026",
+        )
+        self.assertEqual(self.app.stats_period_display_label("Past month", None), "Past month")
 
     def test_stats_items_shared_custom_filter_uses_scheduled_reminder_date(self):
         generated = pd.DataFrame(

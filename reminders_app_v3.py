@@ -1917,6 +1917,13 @@ st.markdown(
         justify-content: center;
         min-height: 2.55rem;
     }
+    .stats-active-period-label {
+        color: var(--cr-text);
+        font-size: 1rem;
+        font-weight: 700;
+        line-height: 1.25;
+        margin: -0.25rem 0 0.7rem;
+    }
     .stats-calendar-full-year {
         align-items: center;
         border: 1px solid var(--cr-border);
@@ -18170,6 +18177,12 @@ def date_range_label(custom_range: tuple[date, date] | None) -> str:
     return f"{start_date:%d %b %Y} to {end_date:%d %b %Y}"
 
 
+def stats_period_display_label(period: str, custom_range: tuple[date, date] | None = None) -> str:
+    if custom_range is not None:
+        return date_range_label(custom_range)
+    return str(period or "All-time").strip() or "All-time"
+
+
 def stats_calendar_dataset_start(today: date | None = None) -> date:
     today = today or user_today()
     dmin, _dmax = get_dataset_date_range(st.session_state.get("working_df"))
@@ -18421,7 +18434,6 @@ def render_stats_period_selector(
             else:
                 st.markdown("<div class='stats-calendar-full-year'>Full year</div>", unsafe_allow_html=True)
         custom_range = stats_calendar_range(selected_year, period_type, period_value, today=today_value)
-        st.caption(f"Showing {date_range_label(custom_range)}")
         selected_period = "Custom"
     elif selected_period == "Custom":
         today_value = user_today()
@@ -18706,6 +18718,10 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
         stats_outcome_rows,
         selected_stats_period,
         custom_range=stats_custom_range,
+    )
+    st.markdown(
+        f"<div class='stats-active-period-label'>Showing {html_lib.escape(stats_period_display_label(selected_stats_period, stats_custom_range))}</div>",
+        unsafe_allow_html=True,
     )
     stats_sender_period_frame = build_outcome_group_frame(
         stats_summary_rows,
