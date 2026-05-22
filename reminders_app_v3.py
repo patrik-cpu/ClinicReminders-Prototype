@@ -14916,7 +14916,7 @@ def render_table_with_buttons(df, key_prefix, msg_key, hidden_index=None):
         decline_key = f"{key_prefix}_decline_{idx}"
         rendered_rows.append((idx, row_data, vals, hidden_action, wa_key, sent_key, decline_key))
     listed_rows = [row_data for _, row_data, *_ in rendered_rows]
-    col_widths = [2.3, 2, 2, 5, 3, 4, 1, 1, 2, 2, 2]
+    col_widths = [2.3, 2, 2, 4.25, 3.75, 4, 1, 1, 2, 2, 2]
     headers = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days", "WhatsApp", "Sent", "Decline"]
     safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
     st.markdown(
