@@ -148,6 +148,9 @@ class GetStartedBadgeTests(unittest.TestCase):
     def test_reset_get_started_checklist_clears_manual_and_review_progress(self):
         state = self.app.st.session_state
         state["working_df"] = pd.DataFrame({"ChargeDate": pd.to_datetime(["2026-05-01"])})
+        state["patient_exclusions"] = [{"client": "Client A", "patient": "Pet A"}]
+        state["outcome_due_date_window_days"] = 30
+        state["outcome_post_reminder_window_days"] = 10
         state[self.app.GET_STARTED_MANUAL_DONE_KEY] = {
             "review_search_terms": True,
             "add_search_term": True,
@@ -165,6 +168,22 @@ class GetStartedBadgeTests(unittest.TestCase):
                 for module in self.app.get_setup_checklist_modules()
                 for item in module["items"]
                 if item["id"] == "review_search_terms"
+            )["done"]
+        )
+        self.assertTrue(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "add_patient_exclusion"
+            )["done"]
+        )
+        self.assertTrue(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "test_success_windows"
             )["done"]
         )
 
@@ -191,6 +210,41 @@ class GetStartedBadgeTests(unittest.TestCase):
                 for module in self.app.get_setup_checklist_modules()
                 for item in module["items"]
                 if item["id"] == "review_top_unreminded_items"
+            )["done"]
+        )
+        self.assertFalse(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "add_patient_exclusion"
+            )["done"]
+        )
+        self.assertFalse(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "test_success_windows"
+            )["done"]
+        )
+
+        state["patient_exclusions"].append({"client": "Client B", "patient": "Pet B"})
+        state["outcome_due_date_window_days"] = 45
+        self.assertTrue(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "add_patient_exclusion"
+            )["done"]
+        )
+        self.assertTrue(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "test_success_windows"
             )["done"]
         )
 

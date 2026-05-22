@@ -10400,6 +10400,8 @@ def reset_get_started_checklist_state() -> None:
     st.session_state[GET_STARTED_VISITED_TABS_KEY] = []
     st.session_state["search_terms_reviewed"] = False
     st.session_state["wa_template_reviewed"] = False
+    st.session_state["_get_started_reset_patient_exclusion_token"] = str(combined_patient_exclusions())
+    st.session_state["_get_started_reset_success_window_token"] = get_started_success_window_token()
 
     for module in get_setup_checklist_modules():
         for entry in module["items"]:
@@ -10471,6 +10473,13 @@ def has_get_started_rule_reminder_timing(rules: dict | None = None) -> bool:
     return get_started_rule_reminder_timing_token(rules) != "[]"
 
 
+def get_started_success_window_token() -> str:
+    return (
+        f"{st.session_state.get('outcome_due_date_window_days', '')}|"
+        f"{st.session_state.get('outcome_post_reminder_window_days', '')}"
+    )
+
+
 def get_setup_checklist_modules() -> list[dict]:
     df_w = st.session_state.get("working_df")
     has_data = df_w is not None and not getattr(df_w, "empty", True)
@@ -10487,6 +10496,18 @@ def get_setup_checklist_modules() -> list[dict]:
     reset_at = _parse_reminder_log_time(st.session_state.get("get_started_reset_at", ""))
     reminder_timing_token = get_started_rule_reminder_timing_token()
     has_reminder_timing = has_get_started_rule_reminder_timing()
+    patient_exclusion_token = str(combined_patient_exclusions())
+    success_window_token = get_started_success_window_token()
+    reset_patient_exclusion_token = str(st.session_state.get("_get_started_reset_patient_exclusion_token", ""))
+    reset_success_window_token = str(st.session_state.get("_get_started_reset_success_window_token", ""))
+    has_patient_exclusion_after_reset = has_patient_exclusion and patient_exclusion_token != reset_patient_exclusion_token
+    has_success_window_after_reset = (
+        (
+            st.session_state.get("outcome_due_date_window_days") != DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
+            or st.session_state.get("outcome_post_reminder_window_days") != DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS
+        )
+        and success_window_token != reset_success_window_token
+    )
 
     def happened_after_reset(timestamp: str) -> bool:
         if not reset_at:
@@ -10585,7 +10606,7 @@ def get_setup_checklist_modules() -> list[dict]:
             "copy": "Hide reminders that should not be contacted.",
             "items": [
                 item("add_client_exclusion", "Add a Client exclusion", has_client_exclusion, str(st.session_state.get("client_exclusions", []))),
-                item("add_patient_exclusion", "Add a Patient exclusion", has_patient_exclusion, str(combined_patient_exclusions())),
+                item("add_patient_exclusion", "Add a Patient exclusion", has_patient_exclusion_after_reset, patient_exclusion_token),
                 item("add_item_exclusion", "Add a General Item exclusion", has_item_exclusion, str(st.session_state.get("exclusions", []))),
                 item("add_client_item_exclusion", "Add a Client-Specific Item exclusion", has_client_item_exclusion, str(st.session_state.get("client_item_exclusions", []))),
                 item("review_death_keywords", "Review automatic death keywords", reviewed_passaway_keywords, str(passaway_keywords)),
@@ -10598,11 +10619,8 @@ def get_setup_checklist_modules() -> list[dict]:
                 item(
                     "test_success_windows",
                     "Adjust a success window",
-                    (
-                        st.session_state.get("outcome_due_date_window_days") != DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
-                        or st.session_state.get("outcome_post_reminder_window_days") != DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS
-                    ),
-                    f"{st.session_state.get('outcome_due_date_window_days', '')}|{st.session_state.get('outcome_post_reminder_window_days', '')}",
+                    has_success_window_after_reset,
+                    success_window_token,
                 ),
                 item("review_tracking_metrics", "Review headline tracking metrics", main_section_tab_visited("Stats"), str(main_section_tab_visited("Stats"))),
                 item("review_tracking_filters", "Review date filters", main_section_tab_visited("Stats"), str(main_section_tab_visited("Stats"))),
