@@ -1074,6 +1074,7 @@ class StatisticsTests(unittest.TestCase):
 
     def test_stats_summary_cards_have_user_friendly_tooltips(self):
         expected_labels = [
+            "Potential Annual Revenue Lift",
             "Reminded Items",
             "Reminder Successes",
             "Success Rate",
@@ -1099,6 +1100,30 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("Unique reminded item purchase cycles", html)
         self.assertNotIn("Total Reminded Items", html)
         self.assertNotIn(">Sent<", html)
+
+    def test_potential_annual_revenue_lift_total_sums_all_time_item_frame(self):
+        item_frame = pd.DataFrame(
+            [
+                {"Item": "Rabies", "Capturable Revenue per Year": 300},
+                {"Item": "Dental", "Capturable Revenue per Year": "125.5"},
+                {"Item": "Nails", "Capturable Revenue per Year": None},
+            ]
+        )
+
+        self.assertEqual(self.app.potential_annual_revenue_lift_total(item_frame), 425.5)
+
+    def test_potential_annual_revenue_lift_metric_is_first_and_all_time(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        metrics_start = source.index("metrics = [")
+        metrics_end = source.index("metric_cols = st.columns", metrics_start)
+        metrics_source = source[metrics_start:metrics_end]
+
+        self.assertLess(
+            metrics_source.index('"Potential Annual Revenue Lift"'),
+            metrics_source.index('"Reminded Items"'),
+        )
+        self.assertIn("potential_annual_revenue_lift_total(stats_item_outcome_frame)", metrics_source)
+        self.assertNotIn("potential_annual_revenue_lift_total(stats_summary_rows)", metrics_source)
 
     def test_statistics_display_frame_renames_generated_and_adds_actioning_rates(self):
         frame = pd.DataFrame([{"Generated": 4, "Actioned": 2, "Sent": 1, "Declined": 1}])

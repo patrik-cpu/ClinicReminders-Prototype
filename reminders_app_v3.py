@@ -15037,6 +15037,7 @@ OUTCOME_DISPLAY_COLUMN_WIDTHS = {
     "Captured Revenue %": "small",
 }
 STATS_SUMMARY_CARD_HELP = {
+    "Potential Annual Revenue Lift": "Estimated annual revenue still available across all items. This all-time opportunity metric is not affected by the selected reporting period.",
     "Reminded Items": "Unique reminded item purchase cycles included in outcome matching. Multiple reminder steps for the same item cycle count once.",
     "Reminder Successes": "Reminded items with a matching repeat purchase in either success window.",
     "Success Rate": "Reminder successes divided by total reminded items.",
@@ -17579,6 +17580,15 @@ def ensure_stats_revenue_display_columns(frame: pd.DataFrame) -> pd.DataFrame:
     return revenue_frame
 
 
+def potential_annual_revenue_lift_total(item_outcome_frame: pd.DataFrame) -> float:
+    if item_outcome_frame is None or getattr(item_outcome_frame, "empty", True):
+        return 0.0
+    if "Capturable Revenue per Year" not in item_outcome_frame.columns:
+        return 0.0
+    values = pd.to_numeric(item_outcome_frame["Capturable Revenue per Year"], errors="coerce").fillna(0)
+    return float(values.sum())
+
+
 def build_stats_items_display_frame(item_actioning_frame: pd.DataFrame, item_outcome_frame: pd.DataFrame) -> pd.DataFrame:
     action_display = prepare_statistics_display_frame(item_actioning_frame)
     if action_display is None or getattr(action_display, "empty", True):
@@ -18705,6 +18715,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     )
     summary = summarize_outcomes(stats_summary_rows)
     metrics = [
+        ("Potential Annual Revenue Lift", format_outcome_currency(potential_annual_revenue_lift_total(stats_item_outcome_frame))),
         ("Reminded Items", f"{summary['sent']:,}"),
         ("Reminder Successes", f"{summary['successes']:,}"),
         ("Success Rate", f"{summary['success_rate']:.0%}"),
