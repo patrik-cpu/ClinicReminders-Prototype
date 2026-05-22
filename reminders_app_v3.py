@@ -8969,6 +8969,8 @@ def create_clinic_account(clinic_id: str, country: str, password: str):
     password = str(password or "")
     if not clinic_id:
         raise ValueError("Enter a clinic name.")
+    if not country:
+        raise ValueError("Choose a country.")
     validate_password_policy(password, clinic_id)
 
     sheet = get_settings_sheet()
@@ -9016,6 +9018,8 @@ def create_google_clinic_account(clinic_id: str, country: str, google_user: dict
     email = normalize_email(google_user.get("email", ""))
     if not clinic_id:
         raise ValueError("Enter a clinic name.")
+    if not country:
+        raise ValueError("Choose a country.")
     if not email:
         raise ValueError("Google did not return an email address. Please try again.")
 
@@ -9205,6 +9209,7 @@ def get_clinic_profile(clinic_id: str) -> dict:
         "clinic_id": str(row.get("ClinicID") or clinic_id or "").strip(),
         "email": normalize_email(row.get(SHEET_COL_GOOGLE_EMAIL, "")),
         "auth_provider": str(row.get(SHEET_COL_AUTH_PROVIDER, "")).strip(),
+        "country": str(row.get(SHEET_COL_COUNTRY, "")).strip(),
     }
 
 
@@ -9640,6 +9645,12 @@ def render_profile_dialog():
         google_profile = profile.get("auth_provider") == GOOGLE_AUTH_PROVIDER
         with st.form("profile_form"):
             new_clinic_id = st.text_input("Clinic name", value=profile.get("clinic_id", ""))
+            st.text_input(
+                "Country (read-only)",
+                value=profile.get("country", "") or st.session_state.get("user_country", ""),
+                disabled=True,
+                help="Country is set when the clinic account is created and cannot be changed here.",
+            )
             google_email = profile.get("email", "")
             new_email = st.text_input(
                 "Google sign-in email (read-only)" if google_profile else "Email",
@@ -10486,8 +10497,10 @@ else:
     with top_account_slot.container():
         with st.popover("Account", use_container_width=False):
             safe_clinic_id = html_lib.escape(str(clinic_id or ""))
+            safe_country = html_lib.escape(str(st.session_state.get("user_country", "") or ""))
+            country_line = f"<br><span>Country: <strong>{safe_country}</strong></span>" if safe_country else ""
             st.markdown(
-                f"<div class='cr-account-login-context'>Logged in to Clinic:<br><strong>{safe_clinic_id}</strong></div>",
+                f"<div class='cr-account-login-context'>Logged in to Clinic:<br><strong>{safe_clinic_id}</strong>{country_line}</div>",
                 unsafe_allow_html=True,
             )
             signed_in_with_staff_access = st.session_state.get("auth_provider") == CLINIC_ACCESS_AUTH_PROVIDER

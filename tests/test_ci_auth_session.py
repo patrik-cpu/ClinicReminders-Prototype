@@ -389,6 +389,28 @@ class AuthSessionTests(unittest.TestCase):
         get_row.assert_not_called()
         get_sheet.assert_not_called()
 
+    def test_clinic_creation_requires_country_before_writing(self):
+        with patch.object(self.app, "get_settings_sheet") as get_sheet:
+            with self.assertRaisesRegex(ValueError, "Choose a country"):
+                self.app.create_clinic_account(
+                    "Clinic New",
+                    "",
+                    "better-random-passphrase-2026",
+                )
+
+        get_sheet.assert_not_called()
+
+    def test_google_clinic_creation_requires_country_before_writing(self):
+        with patch.object(self.app, "get_settings_sheet") as get_sheet:
+            with self.assertRaisesRegex(ValueError, "Choose a country"):
+                self.app.create_google_clinic_account(
+                    "Clinic Google",
+                    "",
+                    {"email": "owner@example.com", "subject": "google-subject"},
+                )
+
+        get_sheet.assert_not_called()
+
     def test_update_clinic_password_rejects_weak_password_before_writing(self):
         with patch.object(self.app, "_get_settings_row_for_clinic") as get_row:
             with self.assertRaisesRegex(ValueError, "clinic name"):
@@ -982,6 +1004,17 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn('key="signup_confirm_password"', signup_form)
         self.assertIn('key="signup_country"', signup_form)
 
+    def test_google_signup_collects_country_in_onboarding(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        onboarding_start = source.index('with st.form("google_onboarding_form")')
+        onboarding_end = source.index("google_submitted = st.form_submit_button", onboarding_start)
+        onboarding_form = source[onboarding_start:onboarding_end]
+
+        self.assertIn('"Country"', onboarding_form)
+        self.assertIn("COUNTRY_OPTIONS", onboarding_form)
+        self.assertIn('key="google_onboarding_country"', onboarding_form)
+        self.assertIn("create_google_clinic_account(google_clinic, google_country, google_user)", source)
+
     def test_password_login_submit_is_handled_before_signup_can_render(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
         login_form_start = source.index('with st.form("clinic_login_form")')
@@ -1141,6 +1174,21 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn("Google sign-in email is read-only here", html)
         self.assertIn("managed by Google", html)
         self.assertIn("cannot be changed", html)
+
+    def test_profile_and_account_area_show_country_as_read_only(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        profile_start = source.index("def render_profile_dialog")
+        profile_end = source.index("def render_delete_account_dialog", profile_start)
+        profile_source = source[profile_start:profile_end]
+        account_start = source.index('with st.popover("Account"')
+        account_end = source.index('if st.button("Logout"', account_start)
+        account_source = source[account_start:account_end]
+
+        self.assertIn('"Country (read-only)"', profile_source)
+        self.assertIn("disabled=True", profile_source)
+        self.assertIn("cannot be changed here", profile_source)
+        self.assertIn('Country: <strong>{safe_country}</strong>', account_source)
+        self.assertIn('st.session_state.get("user_country"', account_source)
 
     def test_profile_dialog_clears_state_when_dismissed(self):
         source = Path("reminders_app_v3.py").read_text()
