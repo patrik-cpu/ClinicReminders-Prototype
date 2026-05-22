@@ -75,6 +75,7 @@ class VisualThemeCssTests(unittest.TestCase):
         for selector in [
             ".auto-death-keyword-panel-title",
             ".auto-death-keyword-panel-copy",
+            ".auto-death-keyword-reset-spacer",
             ".auto-death-keyword-chip",
             ".auto-death-patient-section-title",
             '[class*="st-key-del_passaway_keyword_"] button',
@@ -207,6 +208,7 @@ class VisualThemeCssTests(unittest.TestCase):
 
         self.assertIn("auto-death-keyword-chip", source)
         self.assertIn("auto_death_keyword_row_", source)
+        self.assertIn("keyword_header_cols = st.columns([4, 1], gap=\"small\")", source)
         self.assertIn("Reset keywords", source)
         self.assertIn("chip_cols = st.columns([1.1, 0.16, 6.74], gap=\"small\")", source)
         self.assertIn('[class*="st-key-auto_death_keyword_row_"]', source)
@@ -216,6 +218,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertNotIn("cols = st.columns([1, 0.12], gap=\"small\")", source)
         self.assertNotIn("max-width: min(100%, 42rem);", source)
         self.assertNotIn("st.columns([0.58, 0.18, 6.84]", source)
+        self.assertNotIn("reset_cols = st.columns([4, 1], gap=\"small\")", source)
         self.assertNotIn('", ".join(f"`{keyword}`"', source)
 
     def test_login_google_button_sits_above_staff_and_signup_buttons(self):

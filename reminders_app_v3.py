@@ -2928,6 +2928,9 @@ st.markdown(
         font-size: 0.9rem;
         margin-bottom: 0.65rem;
     }
+    .auto-death-keyword-reset-spacer {
+        height: 0.2rem;
+    }
     .auto-death-keyword-chip {
         display: flex;
         align-items: center;
@@ -20316,34 +20319,36 @@ if st.session_state.get("logged_in", False):
             keyword_panel = st.container()
 
         with keyword_panel:
-            st.markdown(
-                """
-                <div class="auto-death-keyword-panel-title">Upload-check keywords</div>
-                <div class="auto-death-keyword-panel-copy">These words trigger automatic patient exclusions when they appear in uploaded item text.</div>
-                """,
-                unsafe_allow_html=True,
-            )
+            keyword_header_cols = st.columns([4, 1], gap="small")
+            with keyword_header_cols[0]:
+                st.markdown(
+                    """
+                    <div class="auto-death-keyword-panel-title">Upload-check keywords</div>
+                    <div class="auto-death-keyword-panel-copy">These words trigger automatic patient exclusions when they appear in uploaded item text.</div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            with keyword_header_cols[1]:
+                st.markdown("<div class='auto-death-keyword-reset-spacer'></div>", unsafe_allow_html=True)
+                if st.session_state["patient_passaway_keywords"] and st.button(
+                    "Reset keywords",
+                    key=f"reset_passaway_keywords_{row_id}",
+                    help="Restore the default automatic death exclusion keywords.",
+                ):
+                    st.session_state["patient_passaway_keywords"] = PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()
+                    save_settings_quietly()
+                    record_settings_audit_event(
+                        "exclusion_keyword_reset",
+                        "exclusions",
+                        "automatic patient death keywords",
+                        "patient_passaway_keyword",
+                        "",
+                        st.session_state["patient_passaway_keywords"],
+                        "exclusions_tab",
+                    )
+                    st.rerun()
 
             if st.session_state["patient_passaway_keywords"]:
-                reset_cols = st.columns([4, 1], gap="small")
-                with reset_cols[1]:
-                    if st.button(
-                        "Reset keywords",
-                        key=f"reset_passaway_keywords_{row_id}",
-                        help="Restore the default automatic death exclusion keywords.",
-                    ):
-                        st.session_state["patient_passaway_keywords"] = PATIENT_PASSAWAY_KEYWORDS_DEFAULT.copy()
-                        save_settings_quietly()
-                        record_settings_audit_event(
-                            "exclusion_keyword_reset",
-                            "exclusions",
-                            "automatic patient death keywords",
-                            "patient_passaway_keyword",
-                            "",
-                            st.session_state["patient_passaway_keywords"],
-                            "exclusions_tab",
-                        )
-                        st.rerun()
                 for keyword in st.session_state["patient_passaway_keywords"]:
                     safe_keyword = re.sub(r'[^a-zA-Z0-9_-]', '_', keyword)
                     with st.container(key=f"auto_death_keyword_row_{safe_keyword}"):
