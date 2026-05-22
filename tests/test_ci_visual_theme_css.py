@@ -254,6 +254,8 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("stats-period-to-label", source)
         self.assertIn("Choose your reporting window:", source)
         self.assertIn("padding-left: 0.55rem !important;", source)
+        self.assertIn("width: 4.75rem !important;", source)
+        self.assertIn("justify-content: center !important;", source)
         self.assertIn("max-width: 15rem !important;", source)
         self.assertIn('"Sent reminders period"', source)
         self.assertNotIn("filtered by Sent Date", source)

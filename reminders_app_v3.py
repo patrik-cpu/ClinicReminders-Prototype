@@ -18288,8 +18288,11 @@ def render_stats_period_selector(
           }}
           .st-key-{safe_filter_key} button,
           .st-key-{safe_filter_key} [role="radio"] {{
+            box-sizing: border-box !important;
+            justify-content: center !important;
             padding-left: 0.55rem !important;
             padding-right: 0.55rem !important;
+            width: 4.75rem !important;
           }}
           .st-key-{safe_filter_key}_rolling_more,
           .st-key-{safe_filter_key}_calendar_year,
