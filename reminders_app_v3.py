@@ -14192,6 +14192,23 @@ def render_actioned_reminders_tab(key_prefix: str):
         on_change=lambda: st.session_state.__setitem__(f"{key_prefix}_actioned_reminders_page", 0),
         default_period="Today",
     )
+    safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
+    st.markdown(
+        f"""
+        <style>
+          .st-key-{safe_key_prefix}_actioned_reminder_outcomes {{
+            display: flex !important;
+            justify-content: flex-end !important;
+          }}
+          .st-key-{safe_key_prefix}_actioned_reminder_outcomes button {{
+            min-height: 2.15rem !important;
+            padding: 0.25rem 0.7rem !important;
+            width: fit-content !important;
+          }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     _outcomes_spacer, outcomes_col = st.columns([4, 1.2], gap="small")
     with outcomes_col:
         st.button(
@@ -14199,7 +14216,7 @@ def render_actioned_reminders_tab(key_prefix: str):
             key=f"{key_prefix}_actioned_reminder_outcomes",
             help="Open Identify & Track to review sent reminder outcomes, pending status, and successes.",
             on_click=open_reminder_outcomes_tab,
-            use_container_width=True,
+            use_container_width=False,
         )
 
     rows = get_actioned_reminders_for_period(selected_period, custom_range=custom_range)
@@ -14228,7 +14245,6 @@ def render_actioned_reminders_tab(key_prefix: str):
     ]
     labels = {**REMINDER_TABLE_HEADER_LABELS, "Actioned Date": "Actioned Date", "Actioned By": "Actioned By"}
     col_widths = [2, 3, 2.3, 2, 2, 4, 3, 4, 1.5, 1.8]
-    safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
     st.markdown(
         f"""
         <style>
