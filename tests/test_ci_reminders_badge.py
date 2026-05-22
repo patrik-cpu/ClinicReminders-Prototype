@@ -338,6 +338,84 @@ class RemindersBadgeTests(unittest.TestCase):
         due_df = mock_bundle.call_args.args[0]
         self.assertEqual(list(due_df["Client Name"]), ["Client A", "Client B"])
 
+    def test_active_reminders_nav_uses_cached_badge_without_expensive_count(self):
+        class FakeColumn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        button_labels = []
+
+        def fake_button(label, *args, **kwargs):
+            button_labels.append(label)
+            return False
+
+        with (
+            mock.patch.object(self.app, "cached_upload_data_needs_initial_upload", return_value=False),
+            mock.patch.object(self.app, "get_cached_active_reminder_badge_count", return_value=4),
+            mock.patch.object(self.app, "get_active_reminder_badge_count", side_effect=AssertionError("active nav should not derive badge")),
+            mock.patch.object(self.app, "get_started_incomplete_count", return_value=0),
+            mock.patch.object(self.app, "cached_upload_data_badge_count", return_value=0),
+            mock.patch.object(self.app.st, "markdown"),
+            mock.patch.object(self.app.st, "columns", return_value=[FakeColumn() for _ in self.app.MAIN_SECTION_TABS]),
+            mock.patch.object(self.app.st, "button", side_effect=fake_button),
+        ):
+            self.app.render_main_section_nav("Reminders")
+
+        self.assertTrue(any("4 active reminders in the look-back window" in label for label in button_labels))
+
+    def test_badge_count_can_be_derived_and_cached_from_visible_window(self):
+        today_row = {
+            "Reminder Date": "16 May 2026",
+            "Due Date": "16 May 2026",
+            "Client Name": "Client A",
+            "Animal Name": "Pet A",
+            "Plan Item": "Rabies",
+        }
+        lookback_row = {
+            "Reminder Date": "14 May 2026",
+            "Due Date": "14 May 2026",
+            "Client Name": "Client B",
+            "Animal Name": "Pet B",
+            "Plan Item": "Dental",
+        }
+        future_row = {
+            "Reminder Date": "18 May 2026",
+            "Due Date": "18 May 2026",
+            "Client Name": "Client C",
+            "Animal Name": "Pet C",
+            "Plan Item": "Annual Exam",
+        }
+        actioned_row = {
+            "Reminder Date": "15 May 2026",
+            "Due Date": "15 May 2026",
+            "Client Name": "Client D",
+            "Animal Name": "Pet D",
+            "Plan Item": "Librela",
+        }
+        grouped = pd.DataFrame([today_row, lookback_row, future_row, actioned_row])
+        rules = {"rabies": {"days": 365}}
+        state = self.app.st.session_state
+        state["working_df"] = pd.DataFrame({"row": [1]})
+        state["reminder_lookback_days"] = 2
+        state["client_group_days"] = 1
+        state["deleted_reminders"] = [
+            {**actioned_row, "Action": self.app.REMINDER_ACTION_SENT, "ActionedAt": "2026-05-16T10:00:00"},
+        ]
+
+        count = self.app.derive_active_reminder_badge_count_from_window(
+            grouped,
+            date(2026, 5, 14),
+            date(2026, 5, 16),
+        )
+        self.app.cache_active_reminder_badge_count(count, date(2026, 5, 16), rules)
+
+        self.assertEqual(count, 2)
+        with mock.patch.object(self.app, "get_applied_reminder_rules", return_value=rules):
+            self.assertEqual(self.app.get_cached_active_reminder_badge_count(date(2026, 5, 16)), 2)
+
     def test_caught_up_banner_copy_only_when_notification_count_is_zero(self):
         self.assertIsNone(self.app.reminders_caught_up_banner_copy(active_count=2, lookback_days=5))
 

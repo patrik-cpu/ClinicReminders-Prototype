@@ -107,3 +107,29 @@ python -m py_compile reminders_app_v3.py settings_pointer_utils.py scripts/*.py
 ```
 
 Remaining risk: outcome logic is still complex and should stay covered by focused regression tests for new edge cases. This specific later-sent-step success case is covered.
+
+## P1: Reminder Badge/Window Work Can Duplicate Table Derivation
+
+Status: fixed.
+
+Files changed:
+
+- `reminders_app_v3.py`
+- `tests/test_ci_reminders_badge.py`
+
+Tests added:
+
+- `tests.test_ci_reminders_badge.RemindersBadgeTests.test_active_reminders_nav_uses_cached_badge_without_expensive_count`
+- `tests.test_ci_reminders_badge.RemindersBadgeTests.test_badge_count_can_be_derived_and_cached_from_visible_window`
+
+Commands run:
+
+```bash
+python -m unittest tests.test_ci_reminders_badge.RemindersBadgeTests.test_active_reminders_nav_uses_cached_badge_without_expensive_count tests.test_ci_reminders_badge.RemindersBadgeTests.test_badge_count_can_be_derived_and_cached_from_visible_window tests.test_ci_reminders_badge.RemindersBadgeTests.test_badge_count_includes_lookback_days_and_excludes_actioned_rows tests.test_ci_reminders_badge.RemindersBadgeTests.test_badge_count_reuses_grouped_window_after_action_state_changes
+python -m unittest tests.test_ci_reminders_badge
+python -m py_compile reminders_app_v3.py settings_pointer_utils.py scripts/*.py
+python -m unittest discover -s tests -p "test_ci_*.py"
+git diff --check
+```
+
+Remaining risk: when the selected Reminders date is not today, the notification badge still needs its separate today-anchored derivation. The active Reminders nav now uses cached badge data only, so a cold active-tab render may show no nav badge until the body computes and caches the current count.

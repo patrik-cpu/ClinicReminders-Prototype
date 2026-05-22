@@ -10859,7 +10859,7 @@ def render_main_section_nav(active_tab: str) -> None:
     for tab_name in MAIN_SECTION_TABS:
         count = main_section_tab_badge_count(
             tab_name,
-            allow_expensive_counts=(tab_name == active_tab),
+            allow_expensive_counts=tab_name == active_tab and not (tab_name == "Reminders" and active_tab == "Reminders"),
         )
         tab_badge_counts[tab_name] = count
         display_tab_name = MAIN_SECTION_TAB_DISPLAY_LABELS.get(tab_name, tab_name)
@@ -12445,6 +12445,27 @@ def active_reminder_badge_cache_key(today: date, rules: dict) -> tuple:
     )
 
 
+def cache_active_reminder_badge_count(count: int, today: date, rules: dict) -> None:
+    st.session_state["_active_reminder_badge_cache"] = {
+        "key": active_reminder_badge_cache_key(today, rules),
+        "count": max(0, int(count or 0)),
+    }
+
+
+def derive_active_reminder_badge_count_from_window(
+    grouped: pd.DataFrame,
+    lookback_start_date: date,
+    today: date,
+) -> int:
+    if grouped is None or grouped.empty:
+        return 0
+    grouped_badge_range = grouped[
+        [reminder_row_in_date_range(row, lookback_start_date, today) for row in grouped.to_dict("records")]
+    ].copy()
+    active_badge_range = filter_hidden_reminders(grouped_badge_range)
+    return len(active_badge_range.index)
+
+
 def get_active_reminder_badge_count(today: date | None = None) -> int:
     working_df = st.session_state.get("working_df")
     if working_df is None or getattr(working_df, "empty", True):
@@ -12468,14 +12489,10 @@ def get_active_reminder_badge_count(today: date | None = None) -> int:
             normalized_reminder_group_days(),
         )
         if grouped.empty:
-            st.session_state["_active_reminder_badge_cache"] = {"key": cache_key, "count": 0}
+            cache_active_reminder_badge_count(0, today, rules)
             return 0
-        grouped_badge_range = grouped[
-            [reminder_row_in_date_range(row, lookback_start_date, today) for row in grouped.to_dict("records")]
-        ].copy()
-        active_badge_range = filter_hidden_reminders(grouped_badge_range)
-        count = len(active_badge_range.index)
-        st.session_state["_active_reminder_badge_cache"] = {"key": cache_key, "count": count}
+        count = derive_active_reminder_badge_count_from_window(grouped, lookback_start_date, today)
+        cache_active_reminder_badge_count(count, today, rules)
         return count
     except Exception:
         return 0
@@ -19139,14 +19156,6 @@ if st.session_state.get("logged_in", False):
                 # st.cache_data.clear()
                 st.rerun()
 
-            active_reminder_count = get_active_reminder_badge_count(today=user_today())
-            render_reminders_caught_up_banner(
-                active_count=active_reminder_count,
-                lookback_days=reminder_lookback_days,
-            )
-
-            render_search_criteria_refresh_notice()
-
             grouped, reminders_before_exclusions = build_active_reminder_window(
                 prepared,
                 applied_rules,
@@ -19154,6 +19163,23 @@ if st.session_state.get("logged_in", False):
                 end_date,
                 group_days,
             )
+            today = user_today()
+            if start_date == today and end_date >= today:
+                active_reminder_count = derive_active_reminder_badge_count_from_window(
+                    grouped,
+                    today - timedelta(days=reminder_lookback_days),
+                    today,
+                )
+                cache_active_reminder_badge_count(active_reminder_count, today, applied_rules)
+            else:
+                active_reminder_count = get_active_reminder_badge_count(today=today)
+
+            render_reminders_caught_up_banner(
+                active_count=active_reminder_count,
+                lookback_days=reminder_lookback_days,
+            )
+
+            render_search_criteria_refresh_notice()
 
             if not grouped.empty:
                 render_table(grouped, f"{lookback_start_date} to {end_date}", "weekly", "weekly_message", applied_rules)
