@@ -5107,6 +5107,7 @@ STATS_PAST_PERIODS = ["Past week", "Past month", "Past 3 months", "Past 6 months
 STATS_MORE_ROLLING_PERIODS = STATS_PAST_PERIODS
 STATS_CALENDAR_PERIOD_TYPES = ["Year", "Quarter", "Month"]
 PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY = "period_window_preferences"
+PERIOD_WINDOW_PREFERENCES_SETTING_KEY = PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY
 PERIOD_WINDOW_PREFERENCES_SAVE_PENDING_KEY = "_period_window_preferences_save_pending"
 PERIOD_WINDOW_PREFERENCE_SPECS = (
     ("stats_period", "stats_custom_range", "All-time"),

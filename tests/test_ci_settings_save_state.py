@@ -592,6 +592,22 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertEqual(preferences["reminders_actioned_period"], "Past")
         self.assertEqual(preferences["reminders_actioned_period_rolling_more"], "Past 6 months")
 
+    def test_period_window_preference_key_alias_preserves_get_started_reset_save(self):
+        self.assertEqual(
+            self.app.PERIOD_WINDOW_PREFERENCES_SETTING_KEY,
+            self.app.PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY,
+        )
+        self.app.cache_remote_settings("Clinic Save State", {})
+        self.app.st.session_state["stats_period"] = "Custom"
+        self.app.st.session_state["stats_custom_range"] = (date(2026, 5, 1), date(2026, 5, 22))
+        self.app.reset_get_started_checklist_state()
+
+        saved = self.run_save_with_remote({})
+
+        self.assertIn(self.app.PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY, saved)
+        self.assertEqual(saved[self.app.GET_STARTED_MANUAL_DONE_KEY], {})
+        self.assertEqual(saved[self.app.GET_STARTED_VISITED_TABS_KEY], [])
+
     def test_load_settings_restores_period_window_preferences(self):
         headers = ["ClinicID", "PlainPassword", "PasswordHash", "SettingsJSON", "UpdatedAt"]
         sheet = FakeSettingsSheet({
