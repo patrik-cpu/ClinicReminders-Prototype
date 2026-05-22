@@ -803,6 +803,12 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "stats_successes_period_calendar_period",
     "stats_successes_period_calendar_month",
     "stats_successes_period_calendar_quarter",
+    "stats_custom_range_start",
+    "stats_custom_range_end",
+    "stats_sent_reminders_custom_range_start",
+    "stats_sent_reminders_custom_range_end",
+    "stats_successes_custom_range_start",
+    "stats_successes_custom_range_end",
     "reminders_active_subtab",
     "reminders_actioned_period",
     "reminders_actioned_custom_range",
@@ -812,6 +818,8 @@ ACCOUNT_SCOPED_SESSION_KEYS = [
     "reminders_actioned_period_calendar_period",
     "reminders_actioned_period_calendar_month",
     "reminders_actioned_period_calendar_quarter",
+    "reminders_actioned_custom_range_start",
+    "reminders_actioned_custom_range_end",
     "_hidden_reminders_index_cache",
     "pending_google_signup",
     "google_onboarding_mode",
@@ -1886,6 +1894,19 @@ st.markdown(
         border-top: 1px solid var(--cr-border);
         height: 0;
         margin: 1rem 0;
+    }
+    .stats-period-selector-title {
+        color: var(--cr-text);
+        font-size: 0.92rem;
+        font-weight: 700;
+        line-height: 1.2;
+        margin-bottom: 0.12rem;
+    }
+    .stats-period-selector-copy {
+        color: var(--cr-muted);
+        font-size: 0.82rem;
+        line-height: 1.25;
+        margin: 0 0 0.45rem;
     }
     .stats-calendar-full-year {
         align-items: center;
@@ -14778,8 +14799,9 @@ STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
 STATISTICS_GENERATED_COLUMNS = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
 STATISTICS_SCHEDULED_REMINDERS_LABEL = "Scheduled reminders"
 OUTCOME_PERIODS = ["Today", "7 days", "30 days", "All time"]
-STATS_SENT_REMINDER_PERIODS = ["Today", "Past week", "Past month", "Past year", "All-time", "More", "Calendar", "Custom"]
-STATS_MORE_ROLLING_PERIODS = ["Past 3 months", "Past 6 months", "Past 2 years"]
+STATS_SENT_REMINDER_PERIODS = ["Today", "Past", "All-time", "Calendar", "Custom"]
+STATS_PAST_PERIODS = ["Past week", "Past month", "Past 3 months", "Past 6 months", "Past year", "Past 2 years"]
+STATS_MORE_ROLLING_PERIODS = STATS_PAST_PERIODS
 STATS_CALENDAR_PERIOD_TYPES = ["Year", "Quarter", "Month"]
 STATS_SENT_REMINDER_PERIOD_MAP = {
     "Today": "Today",
@@ -18198,6 +18220,7 @@ def normalize_stats_period_selection(value: str | None, default_period: str) -> 
         "7 days": "Past week",
         "30 days": "Past month",
         "All time": "All-time",
+        "More": "Past",
     }
     current = legacy.get(str(value or "").strip(), str(value or "").strip())
     valid = {*STATS_SENT_REMINDER_PERIODS, *STATS_MORE_ROLLING_PERIODS}
@@ -18251,7 +18274,26 @@ def render_stats_period_selector(
     default_period: str = "All-time",
 ) -> tuple[str, tuple[date, date] | None]:
     current = normalize_stats_period_selection(st.session_state.get(filter_key, default_period), default_period)
-    control_current = "More" if current in STATS_MORE_ROLLING_PERIODS else current
+    control_current = "Past" if current in STATS_PAST_PERIODS else current
+    safe_filter_key = re.sub(r"[^a-zA-Z0-9_-]", "_", filter_key)
+    st.markdown(
+        f"""
+        <style>
+          .st-key-{safe_filter_key} [data-baseweb="button-group"],
+          .st-key-{safe_filter_key} [role="radiogroup"] {{
+            width: fit-content !important;
+          }}
+          .st-key-{safe_filter_key} button,
+          .st-key-{safe_filter_key} [role="radio"] {{
+            padding-left: 0.75rem !important;
+            padding-right: 0.75rem !important;
+          }}
+        </style>
+        <div class="stats-period-selector-title">{html_lib.escape(label)}</div>
+        <p class="stats-period-selector-copy">Choose the reporting window for this view.</p>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if hasattr(st, "segmented_control"):
         selected_period = st.segmented_control(
@@ -18275,15 +18317,15 @@ def render_stats_period_selector(
         )
     selected_period = selected_period or control_current
     custom_range = None
-    if selected_period == "More":
+    if selected_period == "Past":
         more_key = f"{filter_key}_rolling_more"
-        more_current = st.session_state.get(more_key, current if current in STATS_MORE_ROLLING_PERIODS else STATS_MORE_ROLLING_PERIODS[0])
-        if more_current not in STATS_MORE_ROLLING_PERIODS:
-            more_current = STATS_MORE_ROLLING_PERIODS[0]
+        more_current = st.session_state.get(more_key, current if current in STATS_PAST_PERIODS else STATS_PAST_PERIODS[0])
+        if more_current not in STATS_PAST_PERIODS:
+            more_current = STATS_PAST_PERIODS[0]
         selected_period = st.selectbox(
-            "Rolling period",
-            STATS_MORE_ROLLING_PERIODS,
-            index=STATS_MORE_ROLLING_PERIODS.index(more_current),
+            "Past period",
+            STATS_PAST_PERIODS,
+            index=STATS_PAST_PERIODS.index(more_current),
             key=more_key,
             label_visibility="collapsed",
             on_change=on_change,
@@ -18361,19 +18403,32 @@ def render_stats_period_selector(
         stored_range = normalize_stats_sent_custom_range(st.session_state.get(storage_key))
         current_value = st.session_state.get(range_key)
         current_range = normalize_stats_sent_custom_range(current_value)
-        current_range_is_partial = stats_custom_range_selection_in_progress(current_value)
-        if range_key not in st.session_state:
-            st.session_state[range_key] = stored_range or (today_value, today_value)
-        elif current_range is None and not current_range_is_partial and stored_range is not None:
-            st.session_state[range_key] = stored_range
-        custom_range_value = st.date_input(
-            "Custom date range",
-            value=st.session_state[range_key],
-            key=range_key,
-            label_visibility="collapsed",
-            on_change=on_change,
-        )
-        custom_range = normalize_stats_sent_custom_range(custom_range_value)
+        start_key = f"{range_key}_start"
+        end_key = f"{range_key}_end"
+        initial_start, initial_end = current_range or stored_range or (today_value, today_value)
+        if start_key not in st.session_state:
+            st.session_state[start_key] = initial_start
+        if end_key not in st.session_state:
+            st.session_state[end_key] = initial_end
+        start_col, end_col, _custom_spacer = st.columns([1, 1, 4], gap="small")
+        with start_col:
+            start_value = st.date_input(
+                "Start date",
+                value=st.session_state[start_key],
+                key=start_key,
+                label_visibility="collapsed",
+                on_change=on_change,
+            )
+        with end_col:
+            end_value = st.date_input(
+                "End date",
+                value=st.session_state[end_key],
+                key=end_key,
+                label_visibility="collapsed",
+                on_change=on_change,
+            )
+        custom_range = normalize_stats_sent_custom_range((start_value, end_value))
+        st.session_state[range_key] = custom_range
         if custom_range is not None:
             st.session_state[storage_key] = custom_range
     return selected_period, custom_range

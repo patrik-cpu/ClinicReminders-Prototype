@@ -1487,7 +1487,7 @@ class StatisticsTests(unittest.TestCase):
         selector_end = source.index("def stats_sent_rows_for_render", selector_start)
 
         self.assertIn("stats_custom_range_storage_key(range_key)", source[selector_start:selector_end])
-        self.assertIn("stored_range or (today_value, today_value)", source[selector_start:selector_end])
+        self.assertIn("current_range or stored_range or (today_value, today_value)", source[selector_start:selector_end])
         self.assertIn("st.session_state[storage_key] = custom_range", source[selector_start:selector_end])
 
     def test_stats_custom_range_keeps_new_completed_widget_range(self):
@@ -1522,9 +1522,10 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(custom_range, new_widget_range)
         self.assertEqual(self.app.st.session_state[range_key], new_widget_range)
         self.assertEqual(self.app.st.session_state[storage_key], new_widget_range)
-        self.assertEqual(date_input.call_args.kwargs["value"], new_widget_range)
+        self.assertEqual(date_input.call_args_list[0].kwargs["value"], new_widget_range[0])
+        self.assertEqual(date_input.call_args_list[1].kwargs["value"], new_widget_range[1])
 
-    def test_stats_custom_range_keeps_partial_widget_range_while_selecting(self):
+    def test_stats_custom_range_replaces_partial_widget_range_with_saved_range(self):
         range_key = "stats_successes_custom_range"
         storage_key = self.app.stats_custom_range_storage_key(range_key)
         partial_widget_range = (date(2026, 5, 20),)
@@ -1553,10 +1554,41 @@ class StatisticsTests(unittest.TestCase):
             )
 
         self.assertEqual(selected_period, "Custom")
-        self.assertIsNone(custom_range)
-        self.assertEqual(self.app.st.session_state[range_key], partial_widget_range)
+        self.assertEqual(custom_range, saved_range)
+        self.assertEqual(self.app.st.session_state[range_key], saved_range)
         self.assertEqual(self.app.st.session_state[storage_key], saved_range)
-        self.assertEqual(date_input.call_args.kwargs["value"], partial_widget_range)
+        self.assertEqual(date_input.call_args_list[0].kwargs["value"], saved_range[0])
+        self.assertEqual(date_input.call_args_list[1].kwargs["value"], saved_range[1])
+
+    def test_stats_custom_range_uses_start_end_widget_values(self):
+        range_key = "stats_successes_custom_range"
+        storage_key = self.app.stats_custom_range_storage_key(range_key)
+        saved_range = (date(2026, 5, 10), date(2026, 5, 15))
+        selected_range = (date(2026, 5, 12), date(2026, 5, 18))
+        self.app.st.session_state["stats_successes_period"] = "Custom"
+        self.app.st.session_state[storage_key] = saved_range
+        self.app.st.session_state[f"{range_key}_start"] = selected_range[0]
+        self.app.st.session_state[f"{range_key}_end"] = selected_range[1]
+
+        with (
+            mock.patch.object(self.app.st, "segmented_control", return_value="Custom"),
+            mock.patch.object(
+                self.app.st,
+                "date_input",
+                side_effect=lambda *_args, value=None, **_kwargs: value,
+            ),
+        ):
+            selected_period, custom_range = self.app.render_stats_period_selector(
+                label="Successes period",
+                filter_key="stats_successes_period",
+                range_key=range_key,
+                on_change=lambda: None,
+            )
+
+        self.assertEqual(selected_period, "Custom")
+        self.assertEqual(custom_range, selected_range)
+        self.assertEqual(self.app.st.session_state[range_key], selected_range)
+        self.assertEqual(self.app.st.session_state[storage_key], selected_range)
 
     def test_stats_custom_range_rehydrates_last_completed_range_when_missing(self):
         range_key = "reminders_actioned_custom_range"
@@ -1588,7 +1620,8 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(selected_period, "Custom")
         self.assertEqual(custom_range, saved_range)
         self.assertEqual(self.app.st.session_state[range_key], saved_range)
-        self.assertEqual(date_input.call_args.kwargs["value"], saved_range)
+        self.assertEqual(date_input.call_args_list[0].kwargs["value"], saved_range[0])
+        self.assertEqual(date_input.call_args_list[1].kwargs["value"], saved_range[1])
 
     def test_stats_custom_range_storage_keys_are_account_scoped(self):
         self.assertIn("stats_period", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
@@ -1599,7 +1632,10 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("reminders_actioned_custom_range_last_complete", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
         self.assertIn("stats_period_calendar_year", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
         self.assertIn("stats_period_rolling_more", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
+        self.assertIn("stats_custom_range_start", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
+        self.assertIn("stats_custom_range_end", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
         self.assertIn("reminders_actioned_period_calendar_month", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
+        self.assertIn("reminders_actioned_custom_range_start", self.app.ACCOUNT_SCOPED_SESSION_KEYS)
 
     def test_stats_shared_custom_range_selection_in_progress(self):
         self.app.st.session_state["stats_period"] = "Custom"
@@ -1654,6 +1690,24 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(self.app.statistics_period_start("Past 6 months", today), date(2025, 11, 23))
         self.assertEqual(self.app.statistics_period_start("Past year", today), date(2025, 5, 23))
         self.assertEqual(self.app.statistics_period_start("Past 2 years", today), date(2024, 5, 23))
+
+    def test_stats_past_selector_uses_single_dropdown_for_all_past_periods(self):
+        self.app.st.session_state["stats_period_rolling_more"] = "Past 6 months"
+
+        with (
+            mock.patch.object(self.app.st, "segmented_control", return_value="Past"),
+            mock.patch.object(self.app.st, "selectbox", return_value="Past 6 months") as selectbox,
+        ):
+            selected_period, custom_range = self.app.render_stats_period_selector(
+                label="Stats period",
+                filter_key="stats_period",
+                range_key="stats_custom_range",
+                on_change=lambda: None,
+            )
+
+        self.assertEqual(selected_period, "Past 6 months")
+        self.assertIsNone(custom_range)
+        self.assertEqual(selectbox.call_args.args[1], self.app.STATS_PAST_PERIODS)
 
     def test_stats_calendar_selector_returns_custom_range(self):
         class FakeColumn:
