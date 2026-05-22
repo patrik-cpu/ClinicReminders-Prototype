@@ -1699,7 +1699,7 @@ class StatisticsTests(unittest.TestCase):
             mock.patch.object(self.app.st, "selectbox", return_value="Past 6 months") as selectbox,
         ):
             selected_period, custom_range = self.app.render_stats_period_selector(
-                label="Stats period",
+                label="Period",
                 filter_key="stats_period",
                 range_key="stats_custom_range",
                 on_change=lambda: None,
@@ -1731,12 +1731,16 @@ class StatisticsTests(unittest.TestCase):
         with (
             mock.patch.object(self.app, "user_today", return_value=date(2026, 5, 22)),
             mock.patch.object(self.app.st, "segmented_control", return_value="Calendar"),
-            mock.patch.object(self.app.st, "columns", return_value=[FakeColumn(), FakeColumn(), FakeColumn()]),
+            mock.patch.object(
+                self.app.st,
+                "columns",
+                return_value=[FakeColumn(), FakeColumn(), FakeColumn(), FakeColumn()],
+            ),
             mock.patch.object(self.app.st, "selectbox", side_effect=fake_selectbox),
             mock.patch.object(self.app.st, "caption") as caption,
         ):
             selected_period, custom_range = self.app.render_stats_period_selector(
-                label="Stats period",
+                label="Period",
                 filter_key="stats_period",
                 range_key="stats_custom_range",
                 on_change=lambda: None,

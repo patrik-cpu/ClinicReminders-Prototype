@@ -1908,6 +1908,15 @@ st.markdown(
         line-height: 1.25;
         margin: 0 0 0.45rem;
     }
+    .stats-period-to-label {
+        align-items: center;
+        color: var(--cr-muted);
+        display: flex;
+        font-size: 0.9rem;
+        font-weight: 700;
+        justify-content: center;
+        min-height: 2.55rem;
+    }
     .stats-calendar-full-year {
         align-items: center;
         border: 1px solid var(--cr-border);
@@ -18258,7 +18267,7 @@ def reset_stats_shared_period_pages() -> None:
 
 def render_shared_stats_period_selector() -> tuple[str, tuple[date, date] | None]:
     return render_stats_period_selector(
-        label="Stats period",
+        label="Period",
         filter_key="stats_period",
         range_key="stats_custom_range",
         on_change=reset_stats_shared_period_pages,
@@ -18288,9 +18297,16 @@ def render_stats_period_selector(
             padding-left: 0.75rem !important;
             padding-right: 0.75rem !important;
           }}
+          .st-key-{safe_filter_key}_rolling_more,
+          .st-key-{safe_filter_key}_calendar_year,
+          .st-key-{safe_filter_key}_calendar_period,
+          .st-key-{safe_filter_key}_calendar_month,
+          .st-key-{safe_filter_key}_calendar_quarter {{
+            max-width: 18rem !important;
+          }}
         </style>
         <div class="stats-period-selector-title">{html_lib.escape(label)}</div>
-        <p class="stats-period-selector-copy">Choose the reporting window for this view.</p>
+        <p class="stats-period-selector-copy">Choose your reporting window:</p>
         """,
         unsafe_allow_html=True,
     )
@@ -18337,7 +18353,7 @@ def render_stats_period_selector(
         stored_year = st.session_state.get(year_key, year_options[-1])
         if stored_year not in year_options:
             stored_year = year_options[-1]
-        year_col, period_col, value_col = st.columns([1, 1, 1.4], gap="small")
+        year_col, period_col, value_col, _calendar_spacer = st.columns([1, 1, 1.15, 3.85], gap="small")
         with year_col:
             selected_year = st.selectbox(
                 "Year",
@@ -18410,7 +18426,7 @@ def render_stats_period_selector(
             st.session_state[start_key] = initial_start
         if end_key not in st.session_state:
             st.session_state[end_key] = initial_end
-        start_col, end_col, _custom_spacer = st.columns([1, 1, 4], gap="small")
+        start_col, to_col, end_col, _custom_spacer = st.columns([1, 0.18, 1, 3.82], gap="small")
         with start_col:
             start_value = st.date_input(
                 "Start date",
@@ -18419,6 +18435,8 @@ def render_stats_period_selector(
                 label_visibility="collapsed",
                 on_change=on_change,
             )
+        with to_col:
+            st.markdown('<div class="stats-period-to-label">to</div>', unsafe_allow_html=True)
         with end_col:
             end_value = st.date_input(
                 "End date",
