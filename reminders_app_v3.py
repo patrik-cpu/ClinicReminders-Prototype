@@ -18304,15 +18304,15 @@ def render_stats_period_selector(
           }}
           .st-key-{safe_filter_key} button,
           .st-key-{safe_filter_key} [role="radio"] {{
-            padding-left: 0.75rem !important;
-            padding-right: 0.75rem !important;
+            padding-left: 0.55rem !important;
+            padding-right: 0.55rem !important;
           }}
           .st-key-{safe_filter_key}_rolling_more,
           .st-key-{safe_filter_key}_calendar_year,
           .st-key-{safe_filter_key}_calendar_period,
           .st-key-{safe_filter_key}_calendar_month,
           .st-key-{safe_filter_key}_calendar_quarter {{
-            max-width: 18rem !important;
+            max-width: 15rem !important;
           }}
         </style>
         <div class="stats-period-selector-title">{html_lib.escape(label)}</div>
@@ -18363,7 +18363,7 @@ def render_stats_period_selector(
         stored_year = st.session_state.get(year_key, year_options[-1])
         if stored_year not in year_options:
             stored_year = year_options[-1]
-        year_col, period_col, value_col, _calendar_spacer = st.columns([1, 1, 1.15, 3.85], gap="small")
+        year_col, period_col, value_col, _calendar_spacer = st.columns([0.82, 0.82, 0.94, 4.42], gap="small")
         with year_col:
             selected_year = st.selectbox(
                 "Year",
