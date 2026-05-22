@@ -19250,7 +19250,7 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     if search_criteria_have_pending_changes():
         st.warning("Search terms have changed. Click Refresh Track to apply the latest rules here.")
 
-    controls = st.columns([0.8, 0.8, 3.4], gap="large")
+    controls = st.columns([0.95, 0.95, 3.1], gap="large")
     with controls[0]:
         render_field_label(
             st,

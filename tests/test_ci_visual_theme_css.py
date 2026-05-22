@@ -156,7 +156,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("Success window after sent date", source)
         self.assertIn("In Track, a reminder is successful", source)
         self.assertIn("In Track, this also counts", source)
-        self.assertIn("st.columns([0.8, 0.8, 3.4]", source)
+        self.assertIn("st.columns([0.95, 0.95, 3.1]", source)
         self.assertIn("within this many days before or after the due date", source)
         self.assertIn("within this many days after the reminder is sent", source)
         self.assertIn("In Track, a reminder is successful when the matching sale is within this many days before or after the due date.", source)
