@@ -1163,7 +1163,7 @@ class AuthSessionTests(unittest.TestCase):
         self.assertEqual(sheet.get_all_values_calls, 1)
         self.assertEqual(sheet.get_all_records_calls, 0)
 
-    def test_google_profile_copy_makes_email_read_only(self):
+    def test_google_profile_copy_says_email_is_google_managed(self):
         html = self.app.profile_dialog_html(
             {
                 "auth_provider": self.app.GOOGLE_AUTH_PROVIDER,
@@ -1171,11 +1171,11 @@ class AuthSessionTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("Google sign-in email is read-only here", html)
+        self.assertNotIn("read-only", html)
         self.assertIn("managed by Google", html)
         self.assertIn("cannot be changed", html)
 
-    def test_profile_and_account_area_show_country_as_read_only(self):
+    def test_profile_shows_country_and_google_email_as_disabled_fields_only(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
         profile_start = source.index("def render_profile_dialog")
         profile_end = source.index("def render_delete_account_dialog", profile_start)
@@ -1184,11 +1184,14 @@ class AuthSessionTests(unittest.TestCase):
         account_end = source.index('if st.button("Logout"', account_start)
         account_source = source[account_start:account_end]
 
-        self.assertIn('"Country (read-only)"', profile_source)
+        self.assertIn('"Country"', profile_source)
+        self.assertIn('"Email"', profile_source)
         self.assertIn("disabled=True", profile_source)
         self.assertIn("cannot be changed here", profile_source)
-        self.assertIn('Country: <strong>{safe_country}</strong>', account_source)
-        self.assertIn('st.session_state.get("user_country"', account_source)
+        self.assertIn("Managed by Google and cannot be changed in this profile.", profile_source)
+        self.assertNotIn("read-only", profile_source)
+        self.assertNotIn("Country:", account_source)
+        self.assertNotIn('st.session_state.get("user_country"', account_source)
 
     def test_profile_dialog_clears_state_when_dismissed(self):
         source = Path("reminders_app_v3.py").read_text()

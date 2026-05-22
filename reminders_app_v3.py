@@ -9437,7 +9437,7 @@ def profile_dialog_html(profile: dict) -> str:
     provider = str(profile.get("auth_provider", "")).strip()
     sign_in_copy = (
         "This clinic signs in with Google. Use Continue with Google next time; your Google password is never entered here. "
-        "The Google sign-in email is read-only here, managed by Google, and cannot be changed in this profile."
+        "The Google sign-in email is managed by Google and cannot be changed in this profile."
         if provider == GOOGLE_AUTH_PROVIDER
         else "This clinic can sign in with its clinic username and password."
     )
@@ -9648,19 +9648,35 @@ def render_profile_dialog():
         google_profile = profile.get("auth_provider") == GOOGLE_AUTH_PROVIDER
         with st.form("profile_form"):
             new_clinic_id = st.text_input("Clinic name", value=profile.get("clinic_id", ""))
+            render_field_label(
+                st,
+                "Country",
+                "Country is set when the clinic account is created and cannot be changed here.",
+            )
             st.text_input(
-                "Country (read-only)",
+                "Country",
                 value=profile.get("country", "") or st.session_state.get("user_country", ""),
                 disabled=True,
-                help="Country is set when the clinic account is created and cannot be changed here.",
+                label_visibility="collapsed",
             )
             google_email = profile.get("email", "")
-            new_email = st.text_input(
-                "Google sign-in email (read-only)" if google_profile else "Email",
-                value=google_email if google_profile else profile.get("email", ""),
-                disabled=google_profile,
-                help="Managed by Google and read-only in this profile." if google_profile else None,
-            )
+            if google_profile:
+                render_field_label(
+                    st,
+                    "Email",
+                    "Managed by Google and cannot be changed in this profile.",
+                )
+                new_email = st.text_input(
+                    "Email",
+                    value=google_email,
+                    disabled=True,
+                    label_visibility="collapsed",
+                )
+            else:
+                new_email = st.text_input(
+                    "Email",
+                    value=profile.get("email", ""),
+                )
             if google_profile:
                 new_email = google_email
                 st.caption("Managed by Google. Changing clinic details here will not change the Google sign-in email.")
@@ -10500,10 +10516,8 @@ else:
     with top_account_slot.container():
         with st.popover("Account", use_container_width=False):
             safe_clinic_id = html_lib.escape(str(clinic_id or ""))
-            safe_country = html_lib.escape(str(st.session_state.get("user_country", "") or ""))
-            country_line = f"<br><span>Country: <strong>{safe_country}</strong></span>" if safe_country else ""
             st.markdown(
-                f"<div class='cr-account-login-context'>Logged in to Clinic:<br><strong>{safe_clinic_id}</strong>{country_line}</div>",
+                f"<div class='cr-account-login-context'>Logged in to Clinic:<br><strong>{safe_clinic_id}</strong></div>",
                 unsafe_allow_html=True,
             )
             signed_in_with_staff_access = st.session_state.get("auth_provider") == CLINIC_ACCESS_AUTH_PROVIDER
