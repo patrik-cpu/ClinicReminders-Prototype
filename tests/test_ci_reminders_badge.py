@@ -28,10 +28,16 @@ class RemindersBadgeTests(unittest.TestCase):
         self.assertIn("3 active reminders in the look-back window", label)
         self.assertIn("data:image/svg+xml;base64", label)
 
-    def test_default_lookback_days_is_two(self):
-        self.assertEqual(self.app.DEFAULT_REMINDER_LOOKBACK_DAYS, 2)
-        self.assertEqual(self.app.normalized_reminder_lookback_days(), 2)
-        self.assertEqual(self.app.normalized_reminder_lookback_days("bad"), 2)
+    def test_default_reminder_filter_days_match_send_reminders_defaults(self):
+        self.assertEqual(self.app.DEFAULT_REMINDER_LOOKBACK_DAYS, 1)
+        self.assertEqual(self.app.DEFAULT_REMINDER_WINDOW_DAYS, 0)
+        self.assertEqual(self.app.DEFAULT_REMINDER_GROUP_DAYS, 3)
+        self.assertEqual(self.app.DEFAULT_REMINDER_WARNING_DAYS, 7)
+        self.assertEqual(self.app.normalized_reminder_lookback_days(), 1)
+        self.assertEqual(self.app.normalized_reminder_window_days(), 0)
+        self.assertEqual(self.app.normalized_reminder_group_days(), 3)
+        self.assertEqual(self.app.normalized_reminder_warning_days(), 7)
+        self.assertEqual(self.app.normalized_reminder_lookback_days("bad"), 1)
 
     def test_reminder_filter_controls_preserve_session_values(self):
         state = self.app.st.session_state
@@ -50,6 +56,28 @@ class RemindersBadgeTests(unittest.TestCase):
         self.assertEqual(state["reminder_window_days"], 8)
         self.assertEqual(state["client_group_days"], 3)
         self.assertEqual(state["reminder_warning_days"], 4)
+        self.assertEqual(state[self.app.REMINDER_LOOKBACK_DAYS_WIDGET_KEY], 9)
+        self.assertEqual(state[self.app.REMINDER_WINDOW_DAYS_WIDGET_KEY], 8)
+        self.assertEqual(state[self.app.REMINDER_GROUP_DAYS_WIDGET_KEY], 3)
+        self.assertEqual(state[self.app.REMINDER_WARNING_DAYS_WIDGET_KEY], 4)
+
+    def test_reminder_filter_controls_restore_widgets_from_durable_settings_after_tab_navigation(self):
+        state = self.app.st.session_state
+        state["reminder_lookback_days"] = 6
+        state["reminder_window_days"] = 2
+        state["client_group_days"] = 4
+        state["reminder_warning_days"] = 10
+
+        self.app.initialize_reminder_filter_controls(date(2026, 5, 18))
+
+        self.assertEqual(state["reminder_lookback_days"], 6)
+        self.assertEqual(state["reminder_window_days"], 2)
+        self.assertEqual(state["client_group_days"], 4)
+        self.assertEqual(state["reminder_warning_days"], 10)
+        self.assertEqual(state[self.app.REMINDER_LOOKBACK_DAYS_WIDGET_KEY], 6)
+        self.assertEqual(state[self.app.REMINDER_WINDOW_DAYS_WIDGET_KEY], 2)
+        self.assertEqual(state[self.app.REMINDER_GROUP_DAYS_WIDGET_KEY], 4)
+        self.assertEqual(state[self.app.REMINDER_WARNING_DAYS_WIDGET_KEY], 10)
 
     def test_today_button_updates_stable_reminder_date_keys(self):
         with mock.patch.object(self.app, "user_today", return_value=date(2026, 5, 18)):

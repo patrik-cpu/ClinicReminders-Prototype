@@ -566,6 +566,40 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertFalse(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY])
         self.assertEqual(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY], 9)
 
+    def test_reminder_filter_widget_callback_updates_durable_setting_keys(self):
+        self.app.st.session_state["reminder_lookback_days"] = 1
+        self.app.st.session_state["reminder_window_days"] = 0
+        self.app.st.session_state["client_group_days"] = 3
+        self.app.st.session_state["reminder_warning_days"] = 7
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_WIDGET_KEY] = 6
+        self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_WIDGET_KEY] = 2
+        self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_WIDGET_KEY] = 4
+        self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_WIDGET_KEY] = 10
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY] = 1
+        self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_LOADED_KEY] = 0
+        self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_LOADED_KEY] = 3
+        self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_LOADED_KEY] = 7
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY] = False
+        self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_DIRTY_KEY] = False
+        self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_DIRTY_KEY] = False
+        self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_DIRTY_KEY] = False
+
+        with patch.object(self.app, "save_settings_quietly", return_value=True) as save_settings:
+            self.app.save_reminder_lookback_days()
+            self.app.save_reminder_window_days()
+            self.app.save_reminder_group_days()
+            self.app.save_reminder_warning_days()
+
+        self.assertEqual(save_settings.call_count, 4)
+        self.assertEqual(self.app.st.session_state["reminder_lookback_days"], 6)
+        self.assertEqual(self.app.st.session_state["reminder_window_days"], 2)
+        self.assertEqual(self.app.st.session_state["client_group_days"], 4)
+        self.assertEqual(self.app.st.session_state["reminder_warning_days"], 10)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY], 6)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_LOADED_KEY], 2)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_LOADED_KEY], 4)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_LOADED_KEY], 10)
+
     def test_reminder_filter_render_pass_persists_values_changed_without_callback(self):
         self.app.st.session_state["reminder_lookback_days"] = 7
         self.app.st.session_state["reminder_window_days"] = 5
@@ -604,15 +638,22 @@ class SettingsSaveStateTests(unittest.TestCase):
 
         save_settings.assert_not_called()
 
-    def test_reminder_filter_render_pass_does_not_write_widget_owned_keys(self):
+    def test_reminder_filter_number_inputs_use_private_widget_keys(self):
         source = Path("reminders_app_v3.py").read_text(encoding="utf-8")
-        helper_source = source[
-            source.index("def persist_reminder_int_setting_if_changed")
-            : source.index("def persist_reminder_filter_controls_if_changed")
+        send_start = source.index('st.markdown("## 📅 Send Reminders")')
+        send_source = source[
+            send_start
+            : source.index("persist_reminder_filter_controls_if_changed()", send_start)
         ]
 
-        self.assertNotIn("save_reminder_int_setting(", helper_source)
-        self.assertNotIn("st.session_state[key] = value", helper_source)
+        self.assertIn("key=REMINDER_LOOKBACK_DAYS_WIDGET_KEY", send_source)
+        self.assertIn("key=REMINDER_WINDOW_DAYS_WIDGET_KEY", send_source)
+        self.assertIn("key=REMINDER_GROUP_DAYS_WIDGET_KEY", send_source)
+        self.assertIn("key=REMINDER_WARNING_DAYS_WIDGET_KEY", send_source)
+        self.assertNotIn('key="reminder_lookback_days"', send_source)
+        self.assertNotIn('key="reminder_window_days"', send_source)
+        self.assertNotIn('key="client_group_days"', send_source)
+        self.assertNotIn('key="reminder_warning_days"', send_source)
 
     def test_outcome_window_callback_skips_save_when_value_is_unchanged(self):
         self.app.st.session_state["outcome_due_date_window_days"] = 14

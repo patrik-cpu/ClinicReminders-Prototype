@@ -68,7 +68,10 @@ SESSION_BUNDLE_SCHEMA_VERSION = 1
 STATISTICS_GENERATED_SCHEMA_VERSION = 1
 PRECOMPUTE_ANALYTICS_BUNDLE = False
 UPLOAD_SUMMARY_SCHEMA_VERSION = 2
-DEFAULT_REMINDER_LOOKBACK_DAYS = 2
+DEFAULT_REMINDER_LOOKBACK_DAYS = 1
+DEFAULT_REMINDER_WINDOW_DAYS = 0
+DEFAULT_REMINDER_GROUP_DAYS = 3
+DEFAULT_REMINDER_WARNING_DAYS = 7
 MIN_VALID_CHARGE_DATE = pd.Timestamp("2000-01-01")
 HELP_ICON_HTML = (
     "<svg class='column-help-svg' viewBox='-24 -24 560 560' aria-hidden='true' focusable='false'>"
@@ -143,6 +146,10 @@ REMINDER_GROUP_DAYS_DIRTY_KEY = "_client_group_days_dirty"
 REMINDER_GROUP_DAYS_LOADED_KEY = "_client_group_days_loaded"
 REMINDER_WARNING_DAYS_DIRTY_KEY = "_reminder_warning_days_dirty"
 REMINDER_WARNING_DAYS_LOADED_KEY = "_reminder_warning_days_loaded"
+REMINDER_LOOKBACK_DAYS_WIDGET_KEY = "_reminder_lookback_days_widget"
+REMINDER_WINDOW_DAYS_WIDGET_KEY = "_reminder_window_days_widget"
+REMINDER_GROUP_DAYS_WIDGET_KEY = "_client_group_days_widget"
+REMINDER_WARNING_DAYS_WIDGET_KEY = "_reminder_warning_days_widget"
 _SETTING_MISSING = object()
 E2E_SEARCH_TERMS_LAYOUT_MODE = os.environ.get("CLINIC_REMINDERS_E2E_SEARCH_TERMS_LAYOUT") == "1"
 
@@ -5023,11 +5030,11 @@ def load_outcome_post_reminder_window_days(settings: dict) -> None:
 
 
 def normalized_reminder_window_days(value=None) -> int:
-    value = st.session_state.get("reminder_window_days", 1) if value is None else value
+    value = st.session_state.get("reminder_window_days", DEFAULT_REMINDER_WINDOW_DAYS) if value is None else value
     try:
         return min(30, max(0, int(value)))
     except (TypeError, ValueError):
-        return 1
+        return DEFAULT_REMINDER_WINDOW_DAYS
 
 
 def normalized_reminder_lookback_days(value=None) -> int:
@@ -5039,19 +5046,19 @@ def normalized_reminder_lookback_days(value=None) -> int:
 
 
 def normalized_reminder_group_days(value=None) -> int:
-    value = st.session_state.get("client_group_days", 1) if value is None else value
+    value = st.session_state.get("client_group_days", DEFAULT_REMINDER_GROUP_DAYS) if value is None else value
     try:
         return max(0, int(value))
     except (TypeError, ValueError):
-        return 1
+        return DEFAULT_REMINDER_GROUP_DAYS
 
 
 def normalized_reminder_warning_days(value=None) -> int:
-    value = st.session_state.get("reminder_warning_days", 0) if value is None else value
+    value = st.session_state.get("reminder_warning_days", DEFAULT_REMINDER_WARNING_DAYS) if value is None else value
     try:
         return max(0, int(value))
     except (TypeError, ValueError):
-        return 0
+        return DEFAULT_REMINDER_WARNING_DAYS
 
 
 def load_reminder_int_setting(
@@ -5101,7 +5108,7 @@ def load_reminder_filter_settings(settings: dict) -> None:
     load_reminder_int_setting(
         settings,
         "client_group_days",
-        1,
+        DEFAULT_REMINDER_GROUP_DAYS,
         REMINDER_GROUP_DAYS_DIRTY_KEY,
         REMINDER_GROUP_DAYS_LOADED_KEY,
         normalized_reminder_group_days,
@@ -5109,7 +5116,7 @@ def load_reminder_filter_settings(settings: dict) -> None:
     load_reminder_int_setting(
         settings,
         "reminder_window_days",
-        1,
+        DEFAULT_REMINDER_WINDOW_DAYS,
         REMINDER_WINDOW_DAYS_DIRTY_KEY,
         REMINDER_WINDOW_DAYS_LOADED_KEY,
         normalized_reminder_window_days,
@@ -5125,7 +5132,7 @@ def load_reminder_filter_settings(settings: dict) -> None:
     load_reminder_int_setting(
         settings,
         "reminder_warning_days",
-        0,
+        DEFAULT_REMINDER_WARNING_DAYS,
         REMINDER_WARNING_DAYS_DIRTY_KEY,
         REMINDER_WARNING_DAYS_LOADED_KEY,
         normalized_reminder_warning_days,
@@ -5781,10 +5788,10 @@ def save_settings(track_user: bool = True, refresh_remote: bool = True):
         "user_template": current_template_for_save,
         "wa_templates": templates_for_save,
         "current_wa_template_name": current_template_name_for_save,
-        "client_group_days": max(0, int_setting_for_save("client_group_days", 1)),
-        "reminder_window_days": max(0, int_setting_for_save("reminder_window_days", 1)),
+        "client_group_days": max(0, int_setting_for_save("client_group_days", DEFAULT_REMINDER_GROUP_DAYS)),
+        "reminder_window_days": max(0, int_setting_for_save("reminder_window_days", DEFAULT_REMINDER_WINDOW_DAYS)),
         "reminder_lookback_days": max(0, int_setting_for_save("reminder_lookback_days", DEFAULT_REMINDER_LOOKBACK_DAYS)),
-        "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", 0)),
+        "reminder_warning_days": max(0, int_setting_for_save("reminder_warning_days", DEFAULT_REMINDER_WARNING_DAYS)),
         "outcome_due_date_window_days": normalized_outcome_due_date_window_days(
             int_setting_for_save("outcome_due_date_window_days", outcome_due_date_window_default)
         ),
@@ -6444,7 +6451,7 @@ def remove_actioned_reminder(row) -> None:
 
 
 def get_recent_reminder_warning(client_name: str, now: datetime | None = None, sync_remote: bool = False) -> str | None:
-    warning_days = int(st.session_state.get("reminder_warning_days", 0) or 0)
+    warning_days = int(st.session_state.get("reminder_warning_days", DEFAULT_REMINDER_WARNING_DAYS) or 0)
     if warning_days <= 0:
         return None
 
@@ -8958,10 +8965,10 @@ def default_settings_for_country(country: str = "") -> dict:
         "user_template": DEFAULT_WA_TEMPLATE,
         "wa_templates": {DEFAULT_WA_TEMPLATE_NAME: DEFAULT_WA_TEMPLATE},
         "current_wa_template_name": DEFAULT_WA_TEMPLATE_NAME,
-        "client_group_days": 1,
-        "reminder_window_days": 1,
+        "client_group_days": DEFAULT_REMINDER_GROUP_DAYS,
+        "reminder_window_days": DEFAULT_REMINDER_WINDOW_DAYS,
         "reminder_lookback_days": DEFAULT_REMINDER_LOOKBACK_DAYS,
-        "reminder_warning_days": 0,
+        "reminder_warning_days": DEFAULT_REMINDER_WARNING_DAYS,
         "outcome_due_date_window_days": DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS,
         "outcome_post_reminder_window_days": DEFAULT_OUTCOME_POST_REMINDER_WINDOW_DAYS,
         "clinic_access_code_hash": "",
@@ -12845,8 +12852,24 @@ def numeric_setting_is_clean_and_unchanged(key: str, loaded_key: str, dirty_key:
     return value == loaded_value
 
 
+def reminder_filter_widget_key_for_setting(key: str) -> str:
+    return {
+        "reminder_lookback_days": REMINDER_LOOKBACK_DAYS_WIDGET_KEY,
+        "reminder_window_days": REMINDER_WINDOW_DAYS_WIDGET_KEY,
+        "client_group_days": REMINDER_GROUP_DAYS_WIDGET_KEY,
+        "reminder_warning_days": REMINDER_WARNING_DAYS_WIDGET_KEY,
+    }.get(key, key)
+
+
+def reminder_filter_widget_value(key: str, normalizer) -> int:
+    widget_key = reminder_filter_widget_key_for_setting(key)
+    if widget_key in st.session_state:
+        return normalizer(st.session_state.get(widget_key))
+    return normalizer()
+
+
 def save_reminder_int_setting(key: str, dirty_key: str, loaded_key: str, normalizer) -> None:
-    value = normalizer()
+    value = reminder_filter_widget_value(key, normalizer)
     st.session_state[key] = value
     if numeric_setting_is_clean_and_unchanged(key, loaded_key, dirty_key, value, normalizer):
         return
@@ -12896,7 +12919,8 @@ def save_reminder_warning_days() -> None:
 def persist_reminder_int_setting_if_changed(key: str, dirty_key: str, loaded_key: str, normalizer) -> None:
     if loaded_key not in st.session_state and not st.session_state.get(dirty_key):
         return
-    value = normalizer()
+    value = reminder_filter_widget_value(key, normalizer)
+    st.session_state[key] = value
     if numeric_setting_is_clean_and_unchanged(key, loaded_key, dirty_key, value, normalizer):
         return
     st.session_state[dirty_key] = True
@@ -13005,6 +13029,10 @@ def initialize_reminder_filter_controls(default_start: date | None = None) -> da
     st.session_state["reminder_lookback_days"] = normalized_reminder_lookback_days()
     st.session_state["client_group_days"] = normalized_reminder_group_days()
     st.session_state["reminder_warning_days"] = normalized_reminder_warning_days()
+    st.session_state[REMINDER_WINDOW_DAYS_WIDGET_KEY] = st.session_state["reminder_window_days"]
+    st.session_state[REMINDER_LOOKBACK_DAYS_WIDGET_KEY] = st.session_state["reminder_lookback_days"]
+    st.session_state[REMINDER_GROUP_DAYS_WIDGET_KEY] = st.session_state["client_group_days"]
+    st.session_state[REMINDER_WARNING_DAYS_WIDGET_KEY] = st.session_state["reminder_warning_days"]
     return st.session_state[REMINDERS_START_DATE_INPUT_KEY]
 
 
@@ -15963,11 +15991,11 @@ def build_statistics_generated_rows(
 ) -> pd.DataFrame:
     if prepared is None or getattr(prepared, "empty", True):
         return empty_statistics_generated_frame()
-    group_days = st.session_state.get("client_group_days", 1) if group_days is None else group_days
+    group_days = st.session_state.get("client_group_days", DEFAULT_REMINDER_GROUP_DAYS) if group_days is None else group_days
     try:
         group_days = max(0, int(group_days))
     except (TypeError, ValueError):
-        group_days = 1
+        group_days = DEFAULT_REMINDER_GROUP_DAYS
     prepared_period = filter_prepared_for_statistics_period(prepared, period, today)
     if prepared_period is None or getattr(prepared_period, "empty", True):
         return empty_statistics_generated_frame()
@@ -19291,9 +19319,9 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     outcomes_as_of_date = stats_outcome_as_of_date(sales_df)
     stats_period = "All time"
     try:
-        statistics_group_days = max(0, int(st.session_state.get("client_group_days", 1) or 0))
+        statistics_group_days = max(0, int(st.session_state.get("client_group_days", DEFAULT_REMINDER_GROUP_DAYS) or 0))
     except (TypeError, ValueError):
-        statistics_group_days = 1
+        statistics_group_days = DEFAULT_REMINDER_GROUP_DAYS
     try:
         statistics_data_version = int(st.session_state.get("data_version", 0) or 0)
     except (TypeError, ValueError):
@@ -20108,7 +20136,7 @@ if st.session_state.get("logged_in", False):
                 min_value=0,
                 max_value=30,
                 step=1,
-                key="reminder_lookback_days",
+                key=REMINDER_LOOKBACK_DAYS_WIDGET_KEY,
                 on_change=save_reminder_lookback_days,
                 label_visibility="collapsed",
             )
@@ -20124,7 +20152,7 @@ if st.session_state.get("logged_in", False):
                 min_value=0,
                 max_value=30,
                 step=1,
-                key="reminder_window_days",
+                key=REMINDER_WINDOW_DAYS_WIDGET_KEY,
                 on_change=save_reminder_window_days,
                 label_visibility="collapsed",
             )
@@ -20139,7 +20167,7 @@ if st.session_state.get("logged_in", False):
                 "Group same-client reminders",
                 min_value=0,
                 step=1,
-                key="client_group_days",
+                key=REMINDER_GROUP_DAYS_WIDGET_KEY,
                 on_change=save_reminder_group_days,
                 label_visibility="collapsed",
             )
@@ -20154,7 +20182,7 @@ if st.session_state.get("logged_in", False):
                 "Repeat warning days",
                 min_value=0,
                 step=1,
-                key="reminder_warning_days",
+                key=REMINDER_WARNING_DAYS_WIDGET_KEY,
                 on_change=save_reminder_warning_days,
                 label_visibility="collapsed",
             )
