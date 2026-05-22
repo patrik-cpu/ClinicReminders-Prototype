@@ -18786,22 +18786,8 @@ def build_identify_item_opportunity_frame(
 def render_identify_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict):
     render_started = time.perf_counter()
     st.markdown("<div id='identify' class='anchor-offset'></div>", unsafe_allow_html=True)
-    title_col, refresh_col = st.columns([4, 1], gap="large")
-    with title_col:
-        st.markdown("## 🔎 Identify")
-    with refresh_col:
-        st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
-        st.button(
-            "Refresh Identify",
-            key="identify_refresh_results",
-            type="primary",
-            use_container_width=True,
-            help="Apply the latest search terms and recalculate identify opportunities.",
-            on_click=refresh_identify_results_action,
-        )
+    st.markdown("## 🔎 Identify")
     st.session_state.pop("_outcomes_refresh_success", None)
-    if search_criteria_have_pending_changes():
-        st.warning("Search terms have changed. Click Refresh Identify to apply the latest rules here.")
 
     try:
         statistics_data_version = int(st.session_state.get("data_version", 0) or 0)
@@ -19668,6 +19654,8 @@ has_working_df = st.session_state.get("working_df") is not None
 if st.session_state.get("logged_in", False):
     needs_working_df = active_main_section in {"Reminders", "Identify", "Stats"}
     needs_prepared_df = active_main_section in {"Identify", "Stats"}
+    if active_main_section == "Identify" and search_criteria_have_pending_changes():
+        apply_search_criteria_changes(show_notice=False)
     df = st.session_state["working_df"].copy() if has_working_df and needs_working_df else pd.DataFrame()
     applied_rules = get_applied_reminder_rules() if needs_working_df else {}
     prepared = (

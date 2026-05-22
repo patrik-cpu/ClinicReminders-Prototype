@@ -1961,6 +1961,21 @@ class StatisticsTests(unittest.TestCase):
         self.assertIn("group_days=IDENTIFY_OPPORTUNITY_GROUP_DAYS", identify_source)
         self.assertNotIn("client_group_days", identify_source)
 
+    def test_identify_tab_auto_applies_search_changes_without_refresh_button(self):
+        source = Path(self.app.__file__).read_text(encoding="utf-8")
+        main_start = source.index('if st.session_state.get("logged_in", False):')
+        main_end = source.index('    if active_main_section == "Reminders":', main_start)
+        main_setup_source = source[main_start:main_end]
+        render_start = source.index("def render_identify_tab")
+        render_end = source.index("def render_stats_tab", render_start)
+        render_identify_source = source[render_start:render_end]
+
+        self.assertIn('active_main_section == "Identify" and search_criteria_have_pending_changes()', main_setup_source)
+        self.assertIn("apply_search_criteria_changes(show_notice=False)", main_setup_source)
+        self.assertNotIn('"Refresh Identify"', render_identify_source)
+        self.assertNotIn("identify_refresh_results", render_identify_source)
+        self.assertNotIn("Click Refresh Identify", render_identify_source)
+
     def test_stats_header_sections_are_visually_separated(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
         render_start = source.index("def render_stats_tab")
