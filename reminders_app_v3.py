@@ -5143,6 +5143,151 @@ def load_reminder_filter_settings(settings: dict) -> None:
     )
 
 
+STATS_SENT_REMINDER_PERIODS = ["Today", "Past", "All-time", "Calendar", "Custom"]
+STATS_PAST_PERIODS = ["Past week", "Past month", "Past 3 months", "Past 6 months", "Past year", "Past 2 years"]
+STATS_MORE_ROLLING_PERIODS = STATS_PAST_PERIODS
+STATS_CALENDAR_PERIOD_TYPES = ["Year", "Quarter", "Month"]
+PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY = "period_window_preferences"
+PERIOD_WINDOW_PREFERENCES_SAVE_PENDING_KEY = "_period_window_preferences_save_pending"
+PERIOD_WINDOW_PREFERENCE_SPECS = (
+    ("stats_period", "stats_custom_range", "All-time"),
+    ("reminders_actioned_period", "reminders_actioned_custom_range", "Today"),
+)
+
+
+def normalize_stats_sent_custom_range(value) -> tuple[date, date] | None:
+    if isinstance(value, tuple) and len(value) == 2:
+        start_date, end_date = value
+    elif isinstance(value, list) and len(value) == 2:
+        start_date, end_date = value
+    else:
+        return None
+    if not isinstance(start_date, date) or not isinstance(end_date, date):
+        return None
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+    return start_date, end_date
+
+
+def stats_custom_range_storage_key(range_key: str) -> str:
+    return f"{range_key}_last_complete"
+
+
+def normalize_stats_period_selection(value: str | None, default_period: str) -> str:
+    legacy = {
+        "Previous 7 days": "Past week",
+        "Previous 30 days": "Past month",
+        "7 days": "Past week",
+        "30 days": "Past month",
+        "All time": "All-time",
+        "More": "Past",
+    }
+    current = legacy.get(str(value or "").strip(), str(value or "").strip())
+    valid = {*STATS_SENT_REMINDER_PERIODS, *STATS_MORE_ROLLING_PERIODS}
+    if current in valid:
+        return current
+    return default_period if default_period in STATS_SENT_REMINDER_PERIODS else "All-time"
+
+
+def period_window_preference_keys(period_key: str, range_key: str) -> tuple[str, ...]:
+    return (
+        period_key,
+        range_key,
+        stats_custom_range_storage_key(range_key),
+        f"{period_key}_rolling_more",
+        f"{period_key}_calendar_year",
+        f"{period_key}_calendar_period",
+        f"{period_key}_calendar_month",
+        f"{period_key}_calendar_quarter",
+        f"{range_key}_start",
+        f"{range_key}_end",
+    )
+
+
+def serialize_period_window_value(key: str, value):
+    if key.endswith("_custom_range") or key.endswith("_custom_range_last_complete"):
+        custom_range = normalize_stats_sent_custom_range(value)
+        return [custom_range[0].isoformat(), custom_range[1].isoformat()] if custom_range else None
+    if key.endswith("_start") or key.endswith("_end"):
+        return value.isoformat() if isinstance(value, date) else None
+    return value if isinstance(value, (str, int, bool)) or value is None else str(value)
+
+
+def parse_period_window_date(value) -> date | None:
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def parse_period_window_range(value) -> tuple[date, date] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    start_date = parse_period_window_date(value[0])
+    end_date = parse_period_window_date(value[1])
+    if start_date is None or end_date is None:
+        return None
+    return normalize_stats_sent_custom_range((start_date, end_date))
+
+
+def period_window_preferences_for_save(existing_preferences=None) -> dict:
+    preferences = dict(existing_preferences) if isinstance(existing_preferences, dict) else {}
+    for period_key, range_key, _default_period in PERIOD_WINDOW_PREFERENCE_SPECS:
+        for key in period_window_preference_keys(period_key, range_key):
+            if key not in st.session_state:
+                continue
+            serialized_value = serialize_period_window_value(key, st.session_state.get(key))
+            if serialized_value is None:
+                preferences.pop(key, None)
+            else:
+                preferences[key] = serialized_value
+    return preferences
+
+
+def load_period_window_preferences(settings: dict) -> None:
+    preferences = settings.get(PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY, {})
+    if not isinstance(preferences, dict):
+        return
+    for period_key, range_key, default_period in PERIOD_WINDOW_PREFERENCE_SPECS:
+        st.session_state[period_key] = normalize_stats_period_selection(preferences.get(period_key), default_period)
+        rolling_key = f"{period_key}_rolling_more"
+        if preferences.get(rolling_key) in STATS_PAST_PERIODS:
+            st.session_state[rolling_key] = preferences[rolling_key]
+        period_type_key = f"{period_key}_calendar_period"
+        if preferences.get(period_type_key) in STATS_CALENDAR_PERIOD_TYPES:
+            st.session_state[period_type_key] = preferences[period_type_key]
+        for numeric_key in (
+            f"{period_key}_calendar_year",
+            f"{period_key}_calendar_month",
+            f"{period_key}_calendar_quarter",
+        ):
+            try:
+                if numeric_key in preferences:
+                    st.session_state[numeric_key] = int(preferences[numeric_key])
+            except (TypeError, ValueError):
+                pass
+        storage_key = stats_custom_range_storage_key(range_key)
+        saved_range = parse_period_window_range(preferences.get(range_key)) or parse_period_window_range(preferences.get(storage_key))
+        if saved_range is not None:
+            st.session_state[range_key] = saved_range
+            st.session_state[storage_key] = saved_range
+        for date_key in (f"{range_key}_start", f"{range_key}_end"):
+            saved_date = parse_period_window_date(preferences.get(date_key))
+            if saved_date is not None:
+                st.session_state[date_key] = saved_date
+
+
+def persist_period_window_preferences_if_pending() -> None:
+    if not st.session_state.pop(PERIOD_WINDOW_PREFERENCES_SAVE_PENDING_KEY, False):
+        return
+    if not save_settings_quietly():
+        st.session_state[PERIOD_WINDOW_PREFERENCES_SAVE_PENDING_KEY] = True
+
+
 def load_settings(load_action_history: bool = True):
     """Load settings for the current clinic from the Google Sheet."""
     clinic_id = st.session_state.get("clinic_id")
@@ -14824,10 +14969,6 @@ STATISTICS_PERIODS = ["Today", "7 days", "30 days", "All time"]
 STATISTICS_GENERATED_COLUMNS = ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
 STATISTICS_SCHEDULED_REMINDERS_LABEL = "Scheduled reminders"
 OUTCOME_PERIODS = ["Today", "7 days", "30 days", "All time"]
-STATS_SENT_REMINDER_PERIODS = ["Today", "Past", "All-time", "Calendar", "Custom"]
-STATS_PAST_PERIODS = ["Past week", "Past month", "Past 3 months", "Past 6 months", "Past year", "Past 2 years"]
-STATS_MORE_ROLLING_PERIODS = STATS_PAST_PERIODS
-STATS_CALENDAR_PERIOD_TYPES = ["Year", "Quarter", "Month"]
 STATS_SENT_REMINDER_PERIOD_MAP = {
     "Today": "Today",
     "Past week": "7 days",
@@ -18124,131 +18265,6 @@ def render_stats_subtab_selector() -> str:
     return current
 
 
-def normalize_stats_sent_custom_range(value) -> tuple[date, date] | None:
-    if isinstance(value, tuple) and len(value) == 2:
-        start_date, end_date = value
-    elif isinstance(value, list) and len(value) == 2:
-        start_date, end_date = value
-    else:
-        return None
-    if not isinstance(start_date, date) or not isinstance(end_date, date):
-        return None
-    if end_date < start_date:
-        start_date, end_date = end_date, start_date
-    return start_date, end_date
-
-
-def stats_custom_range_storage_key(range_key: str) -> str:
-    return f"{range_key}_last_complete"
-
-
-PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY = "period_window_preferences"
-PERIOD_WINDOW_PREFERENCES_SAVE_PENDING_KEY = "_period_window_preferences_save_pending"
-PERIOD_WINDOW_PREFERENCE_SPECS = (
-    ("stats_period", "stats_custom_range", "All-time"),
-    ("reminders_actioned_period", "reminders_actioned_custom_range", "Today"),
-)
-
-
-def period_window_preference_keys(period_key: str, range_key: str) -> tuple[str, ...]:
-    return (
-        period_key,
-        range_key,
-        stats_custom_range_storage_key(range_key),
-        f"{period_key}_rolling_more",
-        f"{period_key}_calendar_year",
-        f"{period_key}_calendar_period",
-        f"{period_key}_calendar_month",
-        f"{period_key}_calendar_quarter",
-        f"{range_key}_start",
-        f"{range_key}_end",
-    )
-
-
-def serialize_period_window_value(key: str, value):
-    if key.endswith("_custom_range") or key.endswith("_custom_range_last_complete"):
-        custom_range = normalize_stats_sent_custom_range(value)
-        return [custom_range[0].isoformat(), custom_range[1].isoformat()] if custom_range else None
-    if key.endswith("_start") or key.endswith("_end"):
-        return value.isoformat() if isinstance(value, date) else None
-    return value if isinstance(value, (str, int, bool)) or value is None else str(value)
-
-
-def parse_period_window_date(value) -> date | None:
-    if isinstance(value, date):
-        return value
-    if isinstance(value, str):
-        try:
-            return date.fromisoformat(value)
-        except ValueError:
-            return None
-    return None
-
-
-def parse_period_window_range(value) -> tuple[date, date] | None:
-    if not isinstance(value, (list, tuple)) or len(value) != 2:
-        return None
-    start_date = parse_period_window_date(value[0])
-    end_date = parse_period_window_date(value[1])
-    if start_date is None or end_date is None:
-        return None
-    return normalize_stats_sent_custom_range((start_date, end_date))
-
-
-def period_window_preferences_for_save(existing_preferences=None) -> dict:
-    preferences = dict(existing_preferences) if isinstance(existing_preferences, dict) else {}
-    for period_key, range_key, _default_period in PERIOD_WINDOW_PREFERENCE_SPECS:
-        for key in period_window_preference_keys(period_key, range_key):
-            if key not in st.session_state:
-                continue
-            serialized_value = serialize_period_window_value(key, st.session_state.get(key))
-            if serialized_value is None:
-                preferences.pop(key, None)
-            else:
-                preferences[key] = serialized_value
-    return preferences
-
-
-def load_period_window_preferences(settings: dict) -> None:
-    preferences = settings.get(PERIOD_WINDOW_PREFERENCES_SETTINGS_KEY, {})
-    if not isinstance(preferences, dict):
-        return
-    for period_key, range_key, default_period in PERIOD_WINDOW_PREFERENCE_SPECS:
-        st.session_state[period_key] = normalize_stats_period_selection(preferences.get(period_key), default_period)
-        rolling_key = f"{period_key}_rolling_more"
-        if preferences.get(rolling_key) in STATS_PAST_PERIODS:
-            st.session_state[rolling_key] = preferences[rolling_key]
-        period_type_key = f"{period_key}_calendar_period"
-        if preferences.get(period_type_key) in STATS_CALENDAR_PERIOD_TYPES:
-            st.session_state[period_type_key] = preferences[period_type_key]
-        for numeric_key in (
-            f"{period_key}_calendar_year",
-            f"{period_key}_calendar_month",
-            f"{period_key}_calendar_quarter",
-        ):
-            try:
-                if numeric_key in preferences:
-                    st.session_state[numeric_key] = int(preferences[numeric_key])
-            except (TypeError, ValueError):
-                pass
-        storage_key = stats_custom_range_storage_key(range_key)
-        saved_range = parse_period_window_range(preferences.get(range_key)) or parse_period_window_range(preferences.get(storage_key))
-        if saved_range is not None:
-            st.session_state[range_key] = saved_range
-            st.session_state[storage_key] = saved_range
-        for date_key in (f"{range_key}_start", f"{range_key}_end"):
-            saved_date = parse_period_window_date(preferences.get(date_key))
-            if saved_date is not None:
-                st.session_state[date_key] = saved_date
-
-
-def persist_period_window_preferences_if_pending() -> None:
-    if not st.session_state.pop(PERIOD_WINDOW_PREFERENCES_SAVE_PENDING_KEY, False):
-        return
-    if not save_settings_quietly():
-        st.session_state[PERIOD_WINDOW_PREFERENCES_SAVE_PENDING_KEY] = True
-
-
 def stats_custom_range_selection_in_progress(value) -> bool:
     return isinstance(value, (tuple, list)) and len(value) == 1 and isinstance(value[0], date)
 
@@ -18360,22 +18376,6 @@ def stats_calendar_range(
         start_date = date(year, 1, 1)
         end_date = date(year, 12, 31)
     return max(start_date, start_bound), min(end_date, today)
-
-
-def normalize_stats_period_selection(value: str | None, default_period: str) -> str:
-    legacy = {
-        "Previous 7 days": "Past week",
-        "Previous 30 days": "Past month",
-        "7 days": "Past week",
-        "30 days": "Past month",
-        "All time": "All-time",
-        "More": "Past",
-    }
-    current = legacy.get(str(value or "").strip(), str(value or "").strip())
-    valid = {*STATS_SENT_REMINDER_PERIODS, *STATS_MORE_ROLLING_PERIODS}
-    if current in valid:
-        return current
-    return default_period if default_period in STATS_SENT_REMINDER_PERIODS else "All-time"
 
 
 def render_stats_sent_reminders_period_selector() -> tuple[str, tuple[date, date] | None]:

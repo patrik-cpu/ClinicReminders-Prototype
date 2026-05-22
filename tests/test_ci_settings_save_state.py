@@ -765,6 +765,14 @@ class SettingsSaveStateTests(unittest.TestCase):
             source.index("def load_settings"),
         )
         self.assertLess(
+            source.index("def load_period_window_preferences"),
+            source.index("def load_settings"),
+        )
+        self.assertLess(
+            source.index("def period_window_preferences_for_save"),
+            source.index("def save_settings"),
+        )
+        self.assertLess(
             source.index("DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS = 14"),
             source.index("def load_settings"),
         )
