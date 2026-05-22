@@ -167,6 +167,13 @@ def canonical_main_section_tab(tab_name: str) -> str:
 def set_main_section_tab(tab_name: str):
     tab_name = canonical_main_section_tab(tab_name)
     if tab_name in MAIN_SECTION_TABS:
+        persist_reminder_filters = globals().get("persist_reminder_filter_controls_if_changed")
+        if (
+            callable(persist_reminder_filters)
+            and st.session_state.get("main_section_tab") == "Reminders"
+            and tab_name != "Reminders"
+        ):
+            persist_reminder_filters()
         visited_tabs = list(st.session_state.get(GET_STARTED_VISITED_TABS_KEY, []))
         if tab_name not in visited_tabs:
             st.session_state[GET_STARTED_VISITED_TABS_KEY] = [*visited_tabs, tab_name]
@@ -12868,6 +12875,26 @@ def reminder_filter_widget_value(key: str, normalizer) -> int:
     return normalizer()
 
 
+def sync_reminder_filter_widgets_to_durable_settings() -> bool:
+    changed = False
+    specs = [
+        ("reminder_lookback_days", REMINDER_LOOKBACK_DAYS_WIDGET_KEY, normalized_reminder_lookback_days),
+        ("reminder_window_days", REMINDER_WINDOW_DAYS_WIDGET_KEY, normalized_reminder_window_days),
+        ("client_group_days", REMINDER_GROUP_DAYS_WIDGET_KEY, normalized_reminder_group_days),
+        ("reminder_warning_days", REMINDER_WARNING_DAYS_WIDGET_KEY, normalized_reminder_warning_days),
+    ]
+    for key, widget_key, normalizer in specs:
+        if widget_key not in st.session_state:
+            continue
+        widget_value = normalizer(st.session_state.get(widget_key))
+        current_value = normalizer()
+        st.session_state[widget_key] = widget_value
+        if key not in st.session_state or widget_value != current_value:
+            st.session_state[key] = widget_value
+            changed = True
+    return changed
+
+
 def save_reminder_int_setting(key: str, dirty_key: str, loaded_key: str, normalizer) -> None:
     value = reminder_filter_widget_value(key, normalizer)
     st.session_state[key] = value
@@ -13010,6 +13037,7 @@ def normalized_reminders_start_date(value=None, default_date: date | None = None
 
 def initialize_reminder_filter_controls(default_start: date | None = None) -> date:
     default_start = default_start or user_today()
+    sync_reminder_filter_widgets_to_durable_settings()
     if st.session_state.pop("_reminders_start_date_today_requested", False):
         st.session_state["reminders_start_date"] = default_start
         st.session_state[REMINDERS_START_DATE_INPUT_KEY] = default_start
@@ -14285,50 +14313,50 @@ def mark_reminder_sent_action(row_data: dict, key_prefix: str, msg_key: str, idx
 def mark_all_listed_reminders_sent_action(rows: list[dict], key_prefix: str, msg_key: str):
     st.session_state[f"{key_prefix}_send_all_confirm"] = False
     st.session_state.pop(f"{key_prefix}_send_all_rows", None)
-    with busy_overlay("Marking reminders as sent", "Saving the listed reminders and updating action history."):
-        set_main_section_tab("Reminders")
-        now = utc_now()
-        rows_to_send = []
-        messages_by_key = {}
-        tracker_rows = []
+    set_main_section_tab("Reminders")
+    now = utc_now()
+    rows_to_send = []
+    messages_by_key = {}
+    tracker_rows = []
 
-        for row_data in rows or []:
-            if not isinstance(row_data, dict):
-                continue
-            hidden_record = get_hidden_reminder_record(row_data)
-            hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
-            if hidden_action == REMINDER_ACTION_SENT:
-                continue
-            message = build_whatsapp_message_for_row(row_data)
-            tracker_rows.append(
-                action_tracker_row_values(
-                    row_data,
-                    REMINDER_ACTION_SENT,
-                    message=message,
-                    source=f"{key_prefix}_send_all",
-                    now=now,
-                )
+    for row_data in rows or []:
+        if not isinstance(row_data, dict):
+            continue
+        hidden_record = get_hidden_reminder_record(row_data)
+        hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
+        if hidden_action == REMINDER_ACTION_SENT:
+            continue
+        message = build_whatsapp_message_for_row(row_data)
+        tracker_rows.append(
+            action_tracker_row_values(
+                row_data,
+                REMINDER_ACTION_SENT,
+                message=message,
+                source=f"{key_prefix}_send_all",
+                now=now,
             )
-            rows_to_send.append(row_data)
-            messages_by_key[hidden_reminder_key(row_data)] = message
+        )
+        rows_to_send.append(row_data)
+        messages_by_key[hidden_reminder_key(row_data)] = message
 
-        if not rows_to_send:
-            st.session_state["_bulk_sent_success"] = "No active reminders needed marking as sent."
-            hide_revealed_reminders_after_action(key_prefix)
-            return
-
-        if not append_tracker_rows(ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS, tracker_rows):
-            remember_action_tracker_save_failure()
-            return
-
-        for row_data in rows_to_send:
-            message = messages_by_key.get(hidden_reminder_key(row_data), "")
-            st.session_state[msg_key] = message
-            record_wa_reminder_click(row_data.get("Client Name", ""), now=now, row=row_data, save=False)
-            upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
-
-        st.session_state["_bulk_sent_success"] = f"Marked {len(rows_to_send)} reminder{'s' if len(rows_to_send) != 1 else ''} as sent."
+    if not rows_to_send:
+        st.session_state["_bulk_sent_success"] = "No active reminders needed marking as sent."
         hide_revealed_reminders_after_action(key_prefix)
+        return
+
+    if not append_tracker_rows(ACTION_TRACKER_WORKSHEET, ACTION_TRACKER_HEADERS, tracker_rows):
+        remember_action_tracker_save_failure()
+        return
+
+    for row_data in rows_to_send:
+        message = messages_by_key.get(hidden_reminder_key(row_data), "")
+        st.session_state[msg_key] = message
+        record_wa_reminder_click(row_data.get("Client Name", ""), now=now, row=row_data, save=False)
+        upsert_hidden_reminder(row_data, REMINDER_ACTION_SENT, message=message, now=now)
+
+    save_settings_quietly()
+    st.session_state["_bulk_sent_success"] = f"Marked {len(rows_to_send)} reminder{'s' if len(rows_to_send) != 1 else ''} as sent."
+    hide_revealed_reminders_after_action(key_prefix)
 
 
 def decline_reminder_action(row_data: dict, key_prefix: str):

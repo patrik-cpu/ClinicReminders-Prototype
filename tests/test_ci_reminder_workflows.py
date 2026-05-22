@@ -106,10 +106,12 @@ class ReminderWorkflowTests(unittest.TestCase):
             patch.object(self.app, "append_tracker_rows", side_effect=capture_rows) as append_rows,
             patch.object(self.app, "build_whatsapp_message_for_row", return_value="Reminder message"),
             patch.object(self.app, "utc_now", return_value=datetime(2026, 5, 16, 12, 0, 0)),
+            patch.object(self.app, "save_settings_quietly", return_value=True) as save_settings,
         ):
             self.app.mark_all_listed_reminders_sent_action(rows, "daily", "wa_message")
 
         append_rows.assert_called_once()
+        save_settings.assert_called_once()
         records = [
             self.app.action_tracker_values_to_record(self.app.ACTION_TRACKER_HEADERS, values)
             for values in captured_rows
@@ -125,6 +127,16 @@ class ReminderWorkflowTests(unittest.TestCase):
         self.assertEqual(state["wa_message"], "Reminder message")
         self.assertEqual(state["_bulk_sent_success"], "Marked 2 reminders as sent.")
         self.assertFalse(state["daily_reveal_hidden_reminders"])
+
+    def test_send_all_does_not_render_busy_overlay_inside_dialog_callback(self):
+        source = Path("reminders_app_v3.py").read_text(encoding="utf-8")
+        helper_source = source[
+            source.index("def mark_all_listed_reminders_sent_action")
+            : source.index("def decline_reminder_action")
+        ]
+
+        self.assertNotIn("busy_overlay(", helper_source)
+        self.assertIn("save_settings_quietly()", helper_source)
 
     def test_send_all_does_not_update_local_state_when_tracker_write_fails(self):
         rows = [sample_reminder_row()]

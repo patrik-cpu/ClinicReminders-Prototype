@@ -655,6 +655,39 @@ class SettingsSaveStateTests(unittest.TestCase):
         self.assertNotIn('key="client_group_days"', send_source)
         self.assertNotIn('key="reminder_warning_days"', send_source)
 
+    def test_leaving_reminders_tab_persists_unsaved_filter_widget_values(self):
+        self.app.st.session_state["main_section_tab"] = "Reminders"
+        self.app.st.session_state["reminder_lookback_days"] = 1
+        self.app.st.session_state["reminder_window_days"] = 0
+        self.app.st.session_state["client_group_days"] = 3
+        self.app.st.session_state["reminder_warning_days"] = 7
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_WIDGET_KEY] = 6
+        self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_WIDGET_KEY] = 2
+        self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_WIDGET_KEY] = 4
+        self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_WIDGET_KEY] = 10
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY] = 1
+        self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_LOADED_KEY] = 0
+        self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_LOADED_KEY] = 3
+        self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_LOADED_KEY] = 7
+        self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_DIRTY_KEY] = False
+        self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_DIRTY_KEY] = False
+        self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_DIRTY_KEY] = False
+        self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_DIRTY_KEY] = False
+
+        with patch.object(self.app, "save_settings_quietly", return_value=True) as save_settings:
+            self.app.set_main_section_tab("Search Terms")
+
+        self.assertEqual(save_settings.call_count, 4)
+        self.assertEqual(self.app.st.session_state["main_section_tab"], "Search Terms")
+        self.assertEqual(self.app.st.session_state["reminder_lookback_days"], 6)
+        self.assertEqual(self.app.st.session_state["reminder_window_days"], 2)
+        self.assertEqual(self.app.st.session_state["client_group_days"], 4)
+        self.assertEqual(self.app.st.session_state["reminder_warning_days"], 10)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_LOOKBACK_DAYS_LOADED_KEY], 6)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_WINDOW_DAYS_LOADED_KEY], 2)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_GROUP_DAYS_LOADED_KEY], 4)
+        self.assertEqual(self.app.st.session_state[self.app.REMINDER_WARNING_DAYS_LOADED_KEY], 10)
+
     def test_outcome_window_callback_skips_save_when_value_is_unchanged(self):
         self.app.st.session_state["outcome_due_date_window_days"] = 14
         self.app.st.session_state[self.app.OUTCOME_DUE_DATE_WINDOW_LOADED_KEY] = 14
