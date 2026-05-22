@@ -18745,7 +18745,7 @@ def build_identify_item_opportunity_frame(
     if isinstance(identify_cache, dict) and identify_cache.get("signature") == cache_signature:
         return identify_cache.get("item_frame", pd.DataFrame(columns=OUTCOME_ITEM_GROUP_COLUMNS))
 
-    with busy_overlay("Calculating identify opportunities", "Finding all current remindable item revenue opportunities."):
+    with busy_overlay("Calculating revenue opportunities", "Finding all current remindable item revenue opportunities."):
         generated_df = cached_statistics_generated_rows(
             prepared,
             rules,
