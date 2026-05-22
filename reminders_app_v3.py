@@ -18922,6 +18922,7 @@ def render_search_terms_editor():
         invalidate_reminder_rule_cache()
         st.rerun()
 
+    st.divider()
     render_top_unreminded_items_section()
 
     st.divider()

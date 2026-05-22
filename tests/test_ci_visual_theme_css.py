@@ -288,6 +288,7 @@ class VisualThemeCssTests(unittest.TestCase):
         reset_block = source[reset_block_start:section_end]
 
         self.assertLess(top_unreminded_start, reset_block_start)
+        self.assertIn("st.divider()", source[top_unreminded_start - 80:top_unreminded_start])
         self.assertIn("st.divider()", source[reset_block_start - 80:reset_block_start])
         self.assertIn("Warning: resetting will remove all added search terms and settings.", reset_block)
         self.assertIn('"Reset all Configurations"', reset_block)
