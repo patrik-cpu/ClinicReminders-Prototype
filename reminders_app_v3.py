@@ -14489,7 +14489,7 @@ def render_whatsapp_tools(key_prefix: str, msg_key: str):
         )
     comp_main, comp_tip = st.columns([4, 1])
     with comp_main:
-        st.write("### WhatsApp Composer")
+        st.write("### 🖊️ WhatsApp Composer")
         st.caption("Review and edit the prepared message before opening WhatsApp.")
 
         templates = normalize_wa_templates(

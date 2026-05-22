@@ -368,6 +368,12 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn("width: fit-content !important;", source)
         self.assertIn("Exclude all 10", source)
 
+    def test_whatsapp_composer_heading_has_pen_icon(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn('st.write("### 🖊️ WhatsApp Composer")', source)
+        self.assertIn('st.markdown("### 🧩 WhatsApp Template Editor")', source)
+
     def test_search_term_categories_render_as_wrapped_button_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
