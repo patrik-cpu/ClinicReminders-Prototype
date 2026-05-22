@@ -60,3 +60,20 @@ Date started: 2026-05-22
   - `tests.test_ci_audit_characterization.AuditCharacterizationTests.test_dataset_pointer_read_requires_current_tenant_before_sheet_access`
   - `tests.test_ci_audit_characterization.AuditCharacterizationTests.test_action_tracker_load_fails_closed_for_other_tenant_before_sheet_access`
 - Remaining risks: Tenant isolation is still application-enforced over shared Google resources. Stronger storage boundaries or a central repository layer remain deferred; this pass only hardens confirmed helper boundaries.
+
+## P1-004: Multi-Step Google Mutations Are Non-Transactional
+
+- Status: Partially fixed.
+- Summary of change: Added operation-level tracking to saved-upload removal. The remove flow now records a `started` event before remote mutation, records a structured `error` event with the failing stage when a Drive/settings write fails, and waits until the dataset pointer update succeeds before mutating local session dataset state. This improves support repairability and avoids showing a locally removed upload when the saved clinic pointer update failed.
+- Files changed:
+  - `reminders_app_v3.py`
+  - `tests/test_ci_dataset_update.py`
+  - `fix_log.md`
+- Validation performed:
+  - `python -m unittest tests.test_ci_dataset_update.DatasetUpdateTests.test_remove_upload_records_pointer_failure_before_local_state_changes tests.test_ci_dataset_update.DatasetUpdateTests.test_remove_overlapping_upload_keeps_rows_covered_by_remaining_history tests.test_ci_dataset_update.DatasetUpdateTests.test_remove_last_upload_clears_stale_uploader_selection tests.test_ci_dataset_update.DatasetUpdateTests.test_remove_last_upload_clears_undated_leftover_rows`
+  - `python -m unittest tests.test_ci_dataset_update`
+  - `python -m py_compile reminders_app_v3.py settings_pointer_utils.py auth_password_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py`
+  - `bash scripts/bug_lint_check.sh`
+- Tests added/updated:
+  - `tests.test_ci_dataset_update.DatasetUpdateTests.test_remove_upload_records_pointer_failure_before_local_state_changes`
+- Remaining risks: This is not a full transaction/rollback framework. If Drive upsert mutates an existing file and the settings pointer write fails, the app now records the failing operation clearly, but it cannot automatically restore the prior Drive file contents. A larger versioned-dataset or two-phase publish design remains deferred.

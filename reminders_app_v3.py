@@ -7913,6 +7913,10 @@ def make_dataset_publish_operation_id() -> str:
     return f"dataset-publish-{uuid.uuid4().hex[:12]}"
 
 
+def make_dataset_remove_operation_id() -> str:
+    return f"dataset-remove-{uuid.uuid4().hex[:12]}"
+
+
 def record_error_tracker_event(
     event: str,
     stage: str = "",
@@ -11602,73 +11606,108 @@ def remove_dataset_upload_at_index(remove_idx: int):
 
     target = rows[remove_idx]
     remaining_history = history[:remove_idx] + history[remove_idx + 1:] if using_history else []
+    operation_id = make_dataset_remove_operation_id()
+    tracker_context = {
+        "file_name": target.get("file_name", ""),
+        "pms": target.get("pms", ""),
+        "rows": target.get("rows", ""),
+        "from_date": target.get("from", ""),
+        "to_date": target.get("to", ""),
+        "source": "remove_dataset_upload",
+        "operation_id": operation_id,
+    }
+    record_dataset_tracker_event(
+        "dataset_file_removed",
+        "started",
+        message=f"stage=load_pointer; remaining_saved_ranges={len(remaining_history)}",
+        **tracker_context,
+    )
 
-    existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+    stage = "load_pointer"
+    existing_file_id = ""
+    existing_name = ""
+    new_file_id = ""
+    out_name = ""
 
-    current_df = st.session_state.get("working_df")
-    if (current_df is None or getattr(current_df, "empty", True)) and existing_file_id:
-        current_df = load_existing_shared_df(existing_file_id, existing_name, clinic_id=clinic_id)
+    try:
+        existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
+        current_df = st.session_state.get("working_df")
+        if (current_df is None or getattr(current_df, "empty", True)) and existing_file_id:
+            stage = "load_existing_dataset"
+            current_df = load_existing_shared_df(existing_file_id, existing_name, clinic_id=clinic_id)
 
-    remaining_df = pd.DataFrame()
-    target_start = parse_history_date(target.get("from"))
-    target_end = parse_history_date(target.get("to"))
-    if (
-        current_df is not None
-        and not getattr(current_df, "empty", True)
-        and "ChargeDate" in current_df.columns
-        and (not using_history or bool(remaining_history))
-    ):
-        source_df = current_df.copy()
-        charge_dates = parse_dates(source_df["ChargeDate"])
-        if target_start is not None and target_end is not None:
-            target_mask = (charge_dates >= target_start) & (charge_dates <= target_end)
-            covered_by_remaining_upload = date_mask_covered_by_history(charge_dates, remaining_history)
-            keep_mask = charge_dates.isna() | ~target_mask | (target_mask & covered_by_remaining_upload)
+        remaining_df = pd.DataFrame()
+        target_start = parse_history_date(target.get("from"))
+        target_end = parse_history_date(target.get("to"))
+        if (
+            current_df is not None
+            and not getattr(current_df, "empty", True)
+            and "ChargeDate" in current_df.columns
+            and (not using_history or bool(remaining_history))
+        ):
+            source_df = current_df.copy()
+            charge_dates = parse_dates(source_df["ChargeDate"])
+            if target_start is not None and target_end is not None:
+                target_mask = (charge_dates >= target_start) & (charge_dates <= target_end)
+                covered_by_remaining_upload = date_mask_covered_by_history(charge_dates, remaining_history)
+                keep_mask = charge_dates.isna() | ~target_mask | (target_mask & covered_by_remaining_upload)
+            else:
+                keep_mask = pd.Series(bool(remaining_history), index=source_df.index)
+            remaining_df = source_df.loc[keep_mask].copy()
+
+        if remaining_df.empty:
+            stage = "clear_dataset_pointer"
+            clear_clinic_dataset_pointer(clinic_id)
+            st.session_state.pop("working_df", None)
+            st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
+            st.session_state["shared_dataset_loaded"] = False
+            st.session_state["shared_dataset_name"] = None
+            st.session_state["shared_dataset_updated_at"] = ""
+            st.session_state.pop("_shared_dataset_loaded_for", None)
         else:
-            keep_mask = pd.Series(bool(remaining_history), index=source_df.index)
-        remaining_df = source_df.loc[keep_mask].copy()
+            out_name = existing_name or f"{clinic_id}_shared_dataset.csv"
+            out_bytes = dataframe_to_csv_bytes(remaining_df.drop(columns=["_ChargeDate_raw"], errors="ignore"))
+            stage = "drive_upsert"
+            new_file_id = drive_upsert_csv_bytes(
+                file_bytes=out_bytes,
+                filename=out_name,
+                folder_id=DATASETS_FOLDER_ID,
+                existing_file_id=(existing_file_id or None),
+                clinic_id=clinic_id,
+            )
+            stage = "settings_pointer_update"
+            updated_at = update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
+            st.session_state["working_df"] = sanitize_working_df(remaining_df)
+            st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
+            st.session_state["shared_dataset_loaded"] = True
+            st.session_state["shared_dataset_name"] = out_name
+            st.session_state["shared_dataset_updated_at"] = updated_at
+            remember_shared_dataset_loaded_for_current_pointer(clinic_id)
 
-    if remaining_df.empty:
-        clear_clinic_dataset_pointer(clinic_id)
-        st.session_state.pop("working_df", None)
-        st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-        st.session_state["shared_dataset_loaded"] = False
-        st.session_state["shared_dataset_name"] = None
-        st.session_state["shared_dataset_updated_at"] = ""
-        st.session_state.pop("_shared_dataset_loaded_for", None)
-    else:
-        out_name = existing_name or f"{clinic_id}_shared_dataset.csv"
-        out_bytes = dataframe_to_csv_bytes(remaining_df.drop(columns=["_ChargeDate_raw"], errors="ignore"))
-        new_file_id = drive_upsert_csv_bytes(
-            file_bytes=out_bytes,
-            filename=out_name,
-            folder_id=DATASETS_FOLDER_ID,
-            existing_file_id=(existing_file_id or None),
-            clinic_id=clinic_id,
+        st.session_state["dataset_upload_history"] = remaining_history
+        reset_file_uploader_selection()
+        save_settings_quietly()
+    except Exception as e:
+        record_dataset_tracker_event(
+            "dataset_file_removed",
+            "error",
+            drive_file_id=new_file_id or existing_file_id,
+            drive_file_name=out_name or existing_name,
+            message=(
+                f"stage={stage}; remaining_saved_ranges={len(remaining_history)}; "
+                f"{sanitize_diagnostic_message(str(e))}"
+            ),
+            **tracker_context,
         )
-        updated_at = update_clinic_dataset_pointer(clinic_id, new_file_id, out_name)
-        st.session_state["working_df"] = sanitize_working_df(remaining_df)
-        st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-        st.session_state["shared_dataset_loaded"] = True
-        st.session_state["shared_dataset_name"] = out_name
-        st.session_state["shared_dataset_updated_at"] = updated_at
-        remember_shared_dataset_loaded_for_current_pointer(clinic_id)
+        raise
 
-    st.session_state["dataset_upload_history"] = remaining_history
-    reset_file_uploader_selection()
-    save_settings_quietly()
     record_dataset_tracker_event(
         "dataset_file_removed",
         "success",
-        file_name=target.get("file_name", ""),
-        pms=target.get("pms", ""),
-        rows=target.get("rows", ""),
-        from_date=target.get("from", ""),
-        to_date=target.get("to", ""),
-        drive_file_id=existing_file_id,
-        drive_file_name=existing_name,
+        drive_file_id=new_file_id or existing_file_id,
+        drive_file_name=out_name or existing_name,
         message=f"Remaining saved ranges: {len(remaining_history)}",
-        source="remove_dataset_upload",
+        **tracker_context,
     )
 
 def consume_dataset_upload_removal():

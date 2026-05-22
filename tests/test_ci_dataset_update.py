@@ -812,6 +812,64 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertNotIn("last_saved_upload_key", state)
         self.assertGreater(state["file_uploader_reset_version"], 3)
 
+    def test_remove_upload_records_pointer_failure_before_local_state_changes(self):
+        state = self.app.st.session_state
+        for key in list(state.keys()):
+            del state[key]
+        state["clinic_id"] = "Clinic Remove Failure"
+        state["logged_in"] = True
+        state["dataset_upload_history"] = [
+            {
+                "file_name": "january.csv",
+                "pms": "CSV",
+                "rows": 1,
+                "from": "2025-01-01",
+                "to": "2025-01-01",
+                "status": "Saved",
+            },
+            {
+                "file_name": "february.csv",
+                "pms": "CSV",
+                "rows": 1,
+                "from": "2025-02-01",
+                "to": "2025-02-01",
+                "status": "Saved",
+            },
+        ]
+        original_df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01", "2025-02-01"]),
+                "Client Name": ["Client A", "Client B"],
+                "Animal Name": ["Pet A", "Pet B"],
+                "Item Name": ["Rabies", "Dental"],
+                "Qty": [1, 1],
+                "Amount": [10, 20],
+            }
+        )
+        state["working_df"] = original_df.copy()
+        tracker_events = []
+
+        def capture_tracker(event, status, **kwargs):
+            tracker_events.append({"event": event, "status": status, **kwargs})
+            return True
+
+        with (
+            patch.object(self.app, "make_dataset_remove_operation_id", return_value="remove-op-123"),
+            patch.object(self.app, "get_existing_dataset_pointer", return_value=("file-id", "clinic_shared_dataset.csv")),
+            patch.object(self.app, "drive_upsert_csv_bytes", return_value="file-id"),
+            patch.object(self.app, "update_clinic_dataset_pointer", side_effect=RuntimeError("sheet unavailable")),
+            patch.object(self.app, "save_settings_quietly", return_value=True),
+            patch.object(self.app, "record_dataset_tracker_event", side_effect=capture_tracker),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "sheet unavailable"):
+                self.app.remove_dataset_upload_at_index(0)
+
+        self.assertEqual([event["status"] for event in tracker_events], ["started", "error"])
+        self.assertEqual({event["operation_id"] for event in tracker_events}, {"remove-op-123"})
+        self.assertIn("stage=settings_pointer_update", tracker_events[1]["message"])
+        self.assertEqual([row["file_name"] for row in state["dataset_upload_history"]], ["january.csv", "february.csv"])
+        pd.testing.assert_frame_equal(state["working_df"], original_df)
+
     def test_upload_reset_clears_calculation_caches(self):
         state = self.app.st.session_state
         for key in list(state.keys()):
