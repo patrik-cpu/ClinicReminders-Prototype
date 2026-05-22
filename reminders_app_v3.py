@@ -13770,7 +13770,7 @@ if active_main_section == "Upload Data":
             # Grab current pointer so we can optionally trash it
             try:
                 existing_file_id, existing_name = get_existing_dataset_pointer(clinic_id)
-            except Exception as e:
+            except Exception:
                 existing_file_id, existing_name = "", ""
                 st.warning("Could not check the saved data file, but the clinic data will still be cleared.")
 

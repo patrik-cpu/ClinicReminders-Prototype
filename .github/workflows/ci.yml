@@ -23,12 +23,25 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: Dependency consistency
         run: python -m pip check
 
       - name: Compile check
-        run: python -m py_compile reminders_app_v3.py settings_pointer_utils.py
+        run: python -m py_compile reminders_app_v3.py settings_pointer_utils.py auth_password_utils.py scripts/live_google_smoke_check.py scripts/auth_legacy_audit.py
+
+      - name: Bug lint
+        run: bash scripts/bug_lint_check.sh
+
+      - name: Dependency security audit
+        run: bash scripts/dependency_security_audit.sh
 
       - name: Unit tests
         run: python -m unittest discover -s tests -p "test_ci_*.py"
+
+      - name: Pointer wrapper tests
+        run: python -m unittest tests.test_settings_pointer_helpers tests.test_reminders_pointer_wrapper
+
+      - name: Pilot release local gate
+        run: bash scripts/pilot_release_check.sh
