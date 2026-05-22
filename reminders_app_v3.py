@@ -19523,7 +19523,7 @@ if st.session_state.get("logged_in", False):
 
     if active_main_section == "Reminders":
         st.markdown("<div id='reminders' class='anchor-offset'></div>", unsafe_allow_html=True)
-        st.markdown("## 📅 Reminders")
+        st.markdown("## 📅 Send Reminders")
 
         sender_col, _sender_spacer = st.columns([2, 3], gap="large")
         with sender_col:
