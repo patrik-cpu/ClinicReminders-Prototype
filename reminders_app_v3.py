@@ -10658,7 +10658,11 @@ def reset_get_started_checklist_state() -> None:
     st.session_state[GET_STARTED_VISITED_TABS_KEY] = []
     st.session_state["search_terms_reviewed"] = False
     st.session_state["wa_template_reviewed"] = False
+    st.session_state["_get_started_reset_client_exclusion_token"] = str(st.session_state.get("client_exclusions", []))
     st.session_state["_get_started_reset_patient_exclusion_token"] = str(combined_patient_exclusions())
+    st.session_state["_get_started_reset_item_exclusion_token"] = str(st.session_state.get("exclusions", []))
+    st.session_state["_get_started_reset_client_item_exclusion_token"] = str(st.session_state.get("client_item_exclusions", []))
+    st.session_state["_get_started_reset_death_keywords_token"] = str(normalize_passaway_keywords(st.session_state.get("patient_passaway_keywords", PATIENT_PASSAWAY_KEYWORDS_DEFAULT)))
     st.session_state["_get_started_reset_success_window_token"] = get_started_success_window_token()
 
     for module in get_setup_checklist_modules():
@@ -10754,11 +10758,25 @@ def get_setup_checklist_modules() -> list[dict]:
     reset_at = _parse_reminder_log_time(st.session_state.get("get_started_reset_at", ""))
     reminder_timing_token = get_started_rule_reminder_timing_token()
     has_reminder_timing = has_get_started_rule_reminder_timing()
+    client_exclusion_token = str(st.session_state.get("client_exclusions", []))
     patient_exclusion_token = str(combined_patient_exclusions())
+    item_exclusion_token = str(st.session_state.get("exclusions", []))
+    client_item_exclusion_token = str(st.session_state.get("client_item_exclusions", []))
+    death_keywords_token = str(passaway_keywords)
     success_window_token = get_started_success_window_token()
+    reset_client_exclusion_token = str(st.session_state.get("_get_started_reset_client_exclusion_token", ""))
     reset_patient_exclusion_token = str(st.session_state.get("_get_started_reset_patient_exclusion_token", ""))
+    reset_item_exclusion_token = str(st.session_state.get("_get_started_reset_item_exclusion_token", ""))
+    reset_client_item_exclusion_token = str(st.session_state.get("_get_started_reset_client_item_exclusion_token", ""))
+    reset_death_keywords_token = str(st.session_state.get("_get_started_reset_death_keywords_token", ""))
     reset_success_window_token = str(st.session_state.get("_get_started_reset_success_window_token", ""))
+    has_client_exclusion_after_reset = has_client_exclusion and client_exclusion_token != reset_client_exclusion_token
     has_patient_exclusion_after_reset = has_patient_exclusion and patient_exclusion_token != reset_patient_exclusion_token
+    has_item_exclusion_after_reset = has_item_exclusion and item_exclusion_token != reset_item_exclusion_token
+    has_client_item_exclusion_after_reset = (
+        has_client_item_exclusion and client_item_exclusion_token != reset_client_item_exclusion_token
+    )
+    reviewed_passaway_keywords_after_reset = reviewed_passaway_keywords and death_keywords_token != reset_death_keywords_token
     has_success_window_after_reset = (
         (
             st.session_state.get("outcome_due_date_window_days") != DEFAULT_OUTCOME_DUE_DATE_WINDOW_DAYS
@@ -10864,11 +10882,11 @@ def get_setup_checklist_modules() -> list[dict]:
             "tab": "Exclusions",
             "copy": "Hide reminders that should not be contacted.",
             "items": [
-                item("add_client_exclusion", "Add a Client exclusion", has_client_exclusion, str(st.session_state.get("client_exclusions", []))),
+                item("add_client_exclusion", "Add a Client exclusion", has_client_exclusion_after_reset, client_exclusion_token),
                 item("add_patient_exclusion", "Add a Patient exclusion", has_patient_exclusion_after_reset, patient_exclusion_token),
-                item("add_item_exclusion", "Add a General Item exclusion", has_item_exclusion, str(st.session_state.get("exclusions", []))),
-                item("add_client_item_exclusion", "Add a Client-Specific Item exclusion", has_client_item_exclusion, str(st.session_state.get("client_item_exclusions", []))),
-                item("review_death_keywords", "Review automatic death keywords", reviewed_passaway_keywords, str(passaway_keywords)),
+                item("add_item_exclusion", "Add a General Item exclusion", has_item_exclusion_after_reset, item_exclusion_token),
+                item("add_client_item_exclusion", "Add a Client-Specific Item exclusion", has_client_item_exclusion_after_reset, client_item_exclusion_token),
+                item("review_death_keywords", "Review automatic death keywords", reviewed_passaway_keywords_after_reset, death_keywords_token),
             ],
         },
         {
