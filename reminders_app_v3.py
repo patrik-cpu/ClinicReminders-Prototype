@@ -13684,11 +13684,13 @@ def render_table(
     if df.empty:
         if empty_message:
             st.info(empty_message)
+        render_whatsapp_tools(key_prefix, msg_key)
         record_slow_render_performance("reminders_table_render", render_started, rows=0, source=key_prefix)
         return
     df = apply_reminder_exclusion_filters(df, rules)
     if df.empty:
         st.info("All reminders in this view are hidden by exclusions. Review Exclusions if this looks wrong.")
+        render_whatsapp_tools(key_prefix, msg_key)
         record_slow_render_performance("reminders_table_render", render_started, rows=0, source=key_prefix)
         return
 

@@ -242,6 +242,14 @@ class ReminderWorkflowTests(unittest.TestCase):
             active_branch.index("if df.empty:"),
         )
         self.assertIn("render_whatsapp_tools(key_prefix, msg_key)", active_branch)
+        self.assertLess(
+            active_branch.index("if df.empty:"),
+            active_branch.index("record_slow_render_performance(\"reminders_table_render\", render_started, rows=0"),
+        )
+        empty_branch = active_branch.split("if df.empty:", 1)[1].split("return", 1)[0]
+        hidden_branch = active_branch.split("if df.empty:", 2)[2].split("return", 1)[0]
+        self.assertIn("render_whatsapp_tools(key_prefix, msg_key)", empty_branch)
+        self.assertIn("render_whatsapp_tools(key_prefix, msg_key)", hidden_branch)
         actioned_branch = active_branch.split('if selected_reminders_subtab != "Active Reminders":', 1)[1].split("return", 1)[0]
         self.assertNotIn("render_whatsapp_tools", actioned_branch)
         self.assertNotIn("render_reminders_caught_up_banner", actioned_branch)
