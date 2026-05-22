@@ -1005,6 +1005,7 @@ class StatisticsTests(unittest.TestCase):
     def test_stats_tabs_separate_all_time_revenue_from_period_tabs(self):
         self.assertEqual(self.app.STATS_REVENUE_SUBTAB, "Revenue")
         self.assertEqual(self.app.stats_subtab_display_label("Revenue"), "Revenue (All-time only)")
+        self.assertEqual(self.app.stats_subtab_display_label("Reminders"), "Reminder Outcomes")
         self.assertEqual(self.app.STATS_PERIOD_FILTERED_SUBTABS, ["Items", "Successes", "Reminders", "Team"])
         self.assertEqual(self.app.STATS_SUBTABS, ["Revenue", "Items", "Successes", "Reminders", "Team"])
 
@@ -1709,6 +1710,15 @@ class StatisticsTests(unittest.TestCase):
         self.app.st.session_state["main_section_tab"] = "Reminders"
 
         self.app.set_active_stats_subtab("Reminders")
+
+        self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
+        self.assertEqual(self.app.st.session_state["stats_active_subtab"], "Reminders")
+
+    def test_open_reminder_outcomes_tab_sets_stats_subtab(self):
+        self.app.st.session_state["main_section_tab"] = "Reminders"
+        self.app.st.session_state["stats_active_subtab"] = "Items"
+
+        self.app.open_reminder_outcomes_tab()
 
         self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
         self.assertEqual(self.app.st.session_state["stats_active_subtab"], "Reminders")

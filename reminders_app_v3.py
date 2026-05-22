@@ -14176,6 +14176,10 @@ def sort_actioned_reminders(rows: list[dict], key_prefix: str) -> list[dict]:
     )
 
 
+def open_reminder_outcomes_tab() -> None:
+    set_active_stats_subtab("Reminders")
+
+
 def render_actioned_reminders_tab(key_prefix: str):
     filter_key = "reminders_actioned_period"
     legacy_periods = {"Daily": "Today", "Weekly": "Previous 7 days", "Monthly": "Previous 30 days", "All": "All-time"}
@@ -14188,6 +14192,15 @@ def render_actioned_reminders_tab(key_prefix: str):
         on_change=lambda: st.session_state.__setitem__(f"{key_prefix}_actioned_reminders_page", 0),
         default_period="Today",
     )
+    _outcomes_spacer, outcomes_col = st.columns([4, 1.2], gap="small")
+    with outcomes_col:
+        st.button(
+            "Reminder Outcomes",
+            key=f"{key_prefix}_actioned_reminder_outcomes",
+            help="Open Identify & Track to review sent reminder outcomes, pending status, and successes.",
+            on_click=open_reminder_outcomes_tab,
+            use_container_width=True,
+        )
 
     rows = get_actioned_reminders_for_period(selected_period, custom_range=custom_range)
     if not rows:
@@ -14776,6 +14789,7 @@ STATS_PERIOD_FILTERED_SUBTABS = ["Items", "Successes", "Reminders", "Team"]
 STATS_SUBTABS = [STATS_REVENUE_SUBTAB, *STATS_PERIOD_FILTERED_SUBTABS]
 STATS_SUBTAB_LABELS = {
     STATS_REVENUE_SUBTAB: STATS_REVENUE_SUBTAB_LABEL,
+    "Reminders": "Reminder Outcomes",
 }
 OUTCOME_TABLE_COLUMNS = [
     "Charge Date",

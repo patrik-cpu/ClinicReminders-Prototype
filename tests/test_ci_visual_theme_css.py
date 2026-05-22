@@ -238,6 +238,7 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertIn('st.markdown("## 📊 Stats")', source)
         self.assertIn('STATS_REVENUE_SUBTAB = "Revenue"', source)
         self.assertIn('STATS_PERIOD_FILTERED_SUBTABS = ["Items", "Successes", "Reminders", "Team"]', source)
+        self.assertIn('"Reminders": "Reminder Outcomes"', source)
         self.assertIn("STATS_SUBTABS = [STATS_REVENUE_SUBTAB, *STATS_PERIOD_FILTERED_SUBTABS]", source)
         self.assertIn("def render_stats_subtab_selector", source)
         self.assertIn("def stats_subtab_button_key", source)
