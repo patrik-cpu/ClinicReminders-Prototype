@@ -1074,10 +1074,10 @@ class StatisticsTests(unittest.TestCase):
 
     def test_stats_summary_cards_have_user_friendly_tooltips(self):
         expected_labels = [
-            "Total Reminded Items",
-            "Total Reminder Successes",
-            "Total Success Rate",
-            "Total Revenue from Successes",
+            "Reminded Items",
+            "Reminder Successes",
+            "Success Rate",
+            "Revenue from Successes",
             "Top Team Member",
         ]
 
@@ -1088,15 +1088,16 @@ class StatisticsTests(unittest.TestCase):
 
         with mock.patch.object(self.app.st, "markdown") as markdown:
             self.app.render_statistics_metric_card(
-                "Total Reminded Items",
+                "Reminded Items",
                 "879",
-                self.app.STATS_SUMMARY_CARD_HELP["Total Reminded Items"],
+                self.app.STATS_SUMMARY_CARD_HELP["Reminded Items"],
             )
 
         html = markdown.call_args.args[0]
-        self.assertIn("Total Reminded Items", html)
+        self.assertIn("Reminded Items", html)
         self.assertIn("column-help", html)
         self.assertIn("Unique reminded item purchase cycles", html)
+        self.assertNotIn("Total Reminded Items", html)
         self.assertNotIn(">Sent<", html)
 
     def test_statistics_display_frame_renames_generated_and_adds_actioning_rates(self):

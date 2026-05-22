@@ -15037,10 +15037,10 @@ OUTCOME_DISPLAY_COLUMN_WIDTHS = {
     "Captured Revenue %": "small",
 }
 STATS_SUMMARY_CARD_HELP = {
-    "Total Reminded Items": "Unique reminded item purchase cycles included in outcome matching. Multiple reminder steps for the same item cycle count once.",
-    "Total Reminder Successes": "Reminded items with a matching repeat purchase in either success window.",
-    "Total Success Rate": "Reminder successes divided by total reminded items.",
-    "Total Revenue from Successes": "Revenue from matching repeat purchases that counted as reminder successes.",
+    "Reminded Items": "Unique reminded item purchase cycles included in outcome matching. Multiple reminder steps for the same item cycle count once.",
+    "Reminder Successes": "Reminded items with a matching repeat purchase in either success window.",
+    "Success Rate": "Reminder successes divided by total reminded items.",
+    "Revenue from Successes": "Revenue from matching repeat purchases that counted as reminder successes.",
     "Top Team Member": "Team member with the highest revenue from successful reminders.",
 }
 OUTCOME_SENT_DISPLAY_COLUMNS = [
@@ -18705,10 +18705,10 @@ def render_stats_tab(sales_df: pd.DataFrame, prepared: pd.DataFrame, rules: dict
     )
     summary = summarize_outcomes(stats_summary_rows)
     metrics = [
-        ("Total Reminded Items", f"{summary['sent']:,}"),
-        ("Total Reminder Successes", f"{summary['successes']:,}"),
-        ("Total Success Rate", f"{summary['success_rate']:.0%}"),
-        ("Total Revenue from Successes", format_outcome_currency(summary["revenue"])),
+        ("Reminded Items", f"{summary['sent']:,}"),
+        ("Reminder Successes", f"{summary['successes']:,}"),
+        ("Success Rate", f"{summary['success_rate']:.0%}"),
+        ("Revenue from Successes", format_outcome_currency(summary["revenue"])),
         ("Top Team Member", format_top_team_member_metric(stats_sender_period_frame)),
     ]
     metric_cols = st.columns(len(metrics))
