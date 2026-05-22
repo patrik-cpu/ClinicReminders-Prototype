@@ -10347,6 +10347,19 @@ def get_started_manual_item_done(item_id: str) -> bool:
     return bool(get_started_manual_done().get(item_id))
 
 
+def reset_get_started_checklist_state() -> None:
+    st.session_state["get_started_reset_at"] = user_now().isoformat()
+    st.session_state[GET_STARTED_MANUAL_DONE_KEY] = {}
+    st.session_state[GET_STARTED_MANUAL_OFF_KEY] = {}
+    st.session_state[GET_STARTED_VISITED_TABS_KEY] = []
+    st.session_state["search_terms_reviewed"] = False
+    st.session_state["wa_template_reviewed"] = False
+
+    for module in get_setup_checklist_modules():
+        for entry in module["items"]:
+            st.session_state.pop(f"get_started_done_{entry['id']}", None)
+
+
 def update_get_started_manual_item(item_id: str, auto_done: bool = False) -> None:
     widget_value = bool(st.session_state.get(f"get_started_done_{item_id}", False))
     manual_done = get_started_manual_done()
@@ -11338,12 +11351,7 @@ def render_setup_checklist():
 
         with st.container(key="get_started_reset_row"):
             if st.button("↻ Reset", key="reset_get_started_checklist", help="Reset only this guide. Clinic data and settings are not deleted."):
-                st.session_state["get_started_reset_at"] = user_now().isoformat()
-                st.session_state[GET_STARTED_MANUAL_DONE_KEY] = {}
-                st.session_state[GET_STARTED_MANUAL_OFF_KEY] = {}
-                for module in modules:
-                    for entry in module["items"]:
-                        st.session_state.pop(f"get_started_done_{entry['id']}", None)
+                reset_get_started_checklist_state()
                 save_settings_quietly()
                 st.success("Get Started guide reset.")
                 st.rerun()

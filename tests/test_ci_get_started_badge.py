@@ -145,6 +145,55 @@ class GetStartedBadgeTests(unittest.TestCase):
             )["done"]
         )
 
+    def test_reset_get_started_checklist_clears_manual_and_review_progress(self):
+        state = self.app.st.session_state
+        state["working_df"] = pd.DataFrame({"ChargeDate": pd.to_datetime(["2026-05-01"])})
+        state[self.app.GET_STARTED_MANUAL_DONE_KEY] = {
+            "review_search_terms": True,
+            "add_search_term": True,
+        }
+        state[self.app.GET_STARTED_MANUAL_OFF_KEY] = {"upload_data": "2026-05-01T10:00:00"}
+        state[self.app.GET_STARTED_VISITED_TABS_KEY] = ["Search Terms", "Stats", "Upload Data"]
+        state["search_terms_reviewed"] = True
+        state["wa_template_reviewed"] = True
+        state["get_started_done_review_search_terms"] = True
+        state["get_started_done_review_top_unreminded_items"] = True
+
+        self.assertTrue(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "review_search_terms"
+            )["done"]
+        )
+
+        self.app.reset_get_started_checklist_state()
+
+        self.assertEqual(state[self.app.GET_STARTED_MANUAL_DONE_KEY], {})
+        self.assertEqual(state[self.app.GET_STARTED_MANUAL_OFF_KEY], {})
+        self.assertEqual(state[self.app.GET_STARTED_VISITED_TABS_KEY], [])
+        self.assertFalse(state["search_terms_reviewed"])
+        self.assertFalse(state["wa_template_reviewed"])
+        self.assertNotIn("get_started_done_review_search_terms", state)
+        self.assertNotIn("get_started_done_review_top_unreminded_items", state)
+        self.assertFalse(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "review_search_terms"
+            )["done"]
+        )
+        self.assertFalse(
+            next(
+                item
+                for module in self.app.get_setup_checklist_modules()
+                for item in module["items"]
+                if item["id"] == "review_top_unreminded_items"
+            )["done"]
+        )
+
     def test_stats_tab_shows_identify_and_track_without_new_badge(self):
         label = self.app.main_section_tab_label("Stats")
 
