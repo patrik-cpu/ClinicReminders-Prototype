@@ -355,6 +355,15 @@ class VisualThemeCssTests(unittest.TestCase):
         self.assertNotIn(">?</span>", source)
         self.assertNotIn(">i</span>", source)
 
+    def test_top_unreminded_bulk_exclude_buttons_have_button_affordance(self):
+        source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
+
+        self.assertIn('[class*="st-key-top_unreminded_"][class*="_exclude_all"] button', source)
+        self.assertIn("border: 1px solid rgba(217, 45, 32, 0.36) !important;", source)
+        self.assertIn("border-radius: 8px !important;", source)
+        self.assertIn("font-size: 0.78rem !important;", source)
+        self.assertIn("Exclude all 10", source)
+
     def test_search_term_categories_render_as_wrapped_button_tabs(self):
         source = (REPO_ROOT / "reminders_app_v3.py").read_text(encoding="utf-8")
 
