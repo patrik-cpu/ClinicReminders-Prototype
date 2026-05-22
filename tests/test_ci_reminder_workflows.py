@@ -218,13 +218,10 @@ class ReminderWorkflowTests(unittest.TestCase):
         actioned_end = source.index("headers = [", actioned_start)
 
         self.assertIn("render_stats_period_selector(", source[actioned_start:actioned_end])
+        self.assertIn('label="Period"', source[actioned_start:actioned_end])
         self.assertIn('range_key="reminders_actioned_custom_range"', source[actioned_start:actioned_end])
         self.assertIn('default_period="Today"', source[actioned_start:actioned_end])
-        self.assertIn('"Reminder Outcomes"', source[actioned_start:actioned_end])
-        self.assertIn("on_click=open_reminder_outcomes_tab", source[actioned_start:actioned_end])
-        self.assertIn("justify-content: flex-end !important;", source[actioned_start:actioned_end])
-        self.assertIn("width: fit-content !important;", source[actioned_start:actioned_end])
-        self.assertIn("use_container_width=False", source[actioned_start:actioned_end])
+        self.assertNotIn('"Reminder Outcomes"', source[actioned_start:actioned_end])
 
     def test_actioned_reminders_hide_whatsapp_tools(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")

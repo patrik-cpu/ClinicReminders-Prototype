@@ -14213,48 +14213,19 @@ def sort_actioned_reminders(rows: list[dict], key_prefix: str) -> list[dict]:
     )
 
 
-def open_reminder_outcomes_tab() -> None:
-    set_active_stats_subtab("Reminders")
-
-
 def render_actioned_reminders_tab(key_prefix: str):
     filter_key = "reminders_actioned_period"
     legacy_periods = {"Daily": "Today", "Weekly": "Previous 7 days", "Monthly": "Previous 30 days", "All": "All-time"}
     if st.session_state.get(filter_key) in legacy_periods:
         st.session_state[filter_key] = legacy_periods[st.session_state[filter_key]]
     selected_period, custom_range = render_stats_period_selector(
-        label="Actioned reminder period",
+        label="Period",
         filter_key=filter_key,
         range_key="reminders_actioned_custom_range",
         on_change=lambda: st.session_state.__setitem__(f"{key_prefix}_actioned_reminders_page", 0),
         default_period="Today",
     )
     safe_key_prefix = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
-    st.markdown(
-        f"""
-        <style>
-          .st-key-{safe_key_prefix}_actioned_reminder_outcomes {{
-            display: flex !important;
-            justify-content: flex-end !important;
-          }}
-          .st-key-{safe_key_prefix}_actioned_reminder_outcomes button {{
-            min-height: 2.15rem !important;
-            padding: 0.25rem 0.7rem !important;
-            width: fit-content !important;
-          }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    _outcomes_spacer, outcomes_col = st.columns([4, 1.2], gap="small")
-    with outcomes_col:
-        st.button(
-            "Reminder Outcomes",
-            key=f"{key_prefix}_actioned_reminder_outcomes",
-            help="Open Identify & Track to review sent reminder outcomes, pending status, and successes.",
-            on_click=open_reminder_outcomes_tab,
-            use_container_width=False,
-        )
 
     rows = get_actioned_reminders_for_period(selected_period, custom_range=custom_range)
     if not rows:

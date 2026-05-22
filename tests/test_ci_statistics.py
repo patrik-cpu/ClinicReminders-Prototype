@@ -1636,7 +1636,7 @@ class StatisticsTests(unittest.TestCase):
             ) as date_input,
         ):
             selected_period, custom_range = self.app.render_stats_period_selector(
-                label="Actioned reminder period",
+                label="Period",
                 filter_key="reminders_actioned_period",
                 range_key=range_key,
                 on_change=lambda: None,
@@ -1794,15 +1794,6 @@ class StatisticsTests(unittest.TestCase):
         self.app.st.session_state["main_section_tab"] = "Reminders"
 
         self.app.set_active_stats_subtab("Reminders")
-
-        self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
-        self.assertEqual(self.app.st.session_state["stats_active_subtab"], "Reminders")
-
-    def test_open_reminder_outcomes_tab_sets_stats_subtab(self):
-        self.app.st.session_state["main_section_tab"] = "Reminders"
-        self.app.st.session_state["stats_active_subtab"] = "Items"
-
-        self.app.open_reminder_outcomes_tab()
 
         self.assertEqual(self.app.st.session_state["main_section_tab"], "Stats")
         self.assertEqual(self.app.st.session_state["stats_active_subtab"], "Reminders")
