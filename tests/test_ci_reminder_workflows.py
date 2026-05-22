@@ -223,6 +223,13 @@ class ReminderWorkflowTests(unittest.TestCase):
         self.assertIn('default_period="Today"', source[actioned_start:actioned_end])
         self.assertNotIn('"Reminder Outcomes"', source[actioned_start:actioned_end])
 
+    def test_reminder_qty_display_hides_decimal_for_whole_numbers(self):
+        self.assertEqual(self.app.format_reminder_qty(1.0), "1")
+        self.assertEqual(self.app.format_reminder_qty("3.0"), "3")
+        self.assertEqual(self.app.format_reminder_qty(1.5), "1.5")
+        self.assertEqual(self.app.format_reminder_qty("NA"), "NA")
+        self.assertEqual(self.app.format_reminder_table_cell("Qty", 2.0), "2")
+
     def test_actioned_reminders_hide_whatsapp_tools(self):
         source = Path(self.app.__file__).read_text(encoding="utf-8")
         render_start = source.index("def render_table(")

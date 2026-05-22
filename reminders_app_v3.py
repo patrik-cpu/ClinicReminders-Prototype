@@ -14349,6 +14349,24 @@ def render_actioned_reminders_tab(key_prefix: str):
         )
 
 
+def format_reminder_qty(value) -> str:
+    if value is None or value == "":
+        return ""
+    if str(value).strip().upper() == "NA":
+        return "NA"
+    numeric_value = pd.to_numeric(value, errors="coerce")
+    if pd.isna(numeric_value):
+        return str(value)
+    numeric_value = float(numeric_value)
+    return str(int(numeric_value)) if numeric_value.is_integer() else f"{numeric_value:g}"
+
+
+def format_reminder_table_cell(column: str, value) -> str:
+    if column == "Qty":
+        return format_reminder_qty(value)
+    return str(value if value is not None else "")
+
+
 def render_table_with_buttons(df, key_prefix, msg_key, hidden_index=None):
     render_started = time.perf_counter()
     df = sort_reminder_table(df, key_prefix)
@@ -14356,7 +14374,10 @@ def render_table_with_buttons(df, key_prefix, msg_key, hidden_index=None):
     rendered_rows = []
     for idx, row in df.iterrows():
         row_data = row.to_dict()
-        vals = {h: str(row.get(h, "")) for h in ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]}
+        vals = {
+            h: format_reminder_table_cell(h, row.get(h, ""))
+            for h in ["Reminder Date", "Due Date", "Charge Date", "Client Name", "Animal Name", "Plan Item", "Qty", "Days"]
+        }
         hidden_record = get_hidden_reminder_record(row_data, hidden_index=hidden_index)
         hidden_action = str((hidden_record or {}).get("Action", "")).strip().lower()
         wa_key = f"{key_prefix}_wa_{idx}"
