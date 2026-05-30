@@ -7536,6 +7536,16 @@ CSV_UPLOAD_CHUNK_BYTES_THRESHOLD = 100 * 1024 * 1024
 CSV_UPLOAD_CHUNK_ROWS = 50_000
 
 
+def upload_cell_value(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
+
+
 def _dataframe_from_csv_chunks(reader, filename: str, max_rows: int | None = None) -> pd.DataFrame:
     chunks = []
     total_rows = 0
@@ -7620,6 +7630,55 @@ def read_csv_upload(file_bytes, filename: str, max_rows: int | None = None) -> p
     return df
 
 
+def read_xlsx_upload(file_bytes, filename: str, max_rows: int | None = None) -> pd.DataFrame:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(
+        BytesIO(file_bytes),
+        read_only=True,
+        data_only=True,
+    )
+    try:
+        if not workbook.worksheets:
+            return pd.DataFrame()
+
+        worksheet = workbook.worksheets[0]
+        rows = worksheet.iter_rows(values_only=True)
+        try:
+            header_row = next(rows)
+        except StopIteration:
+            return pd.DataFrame()
+
+        columns = [upload_cell_value(value) for value in header_row]
+        if len(columns) > MAX_UPLOAD_COLUMNS:
+            raise UploadResourceLimitError(
+                f"{filename} has too many columns. Maximum is "
+                f"{MAX_UPLOAD_COLUMNS:,} columns."
+            )
+
+        data_rows = []
+        total_rows = 0
+        for row in rows:
+            if all(value is None for value in row):
+                continue
+            values = [upload_cell_value(value) for value in row]
+            if len(values) < len(columns):
+                values.extend([""] * (len(columns) - len(values)))
+            elif len(values) > len(columns):
+                values = values[:len(columns)]
+
+            data_rows.append(values)
+            total_rows += 1
+            if max_rows is not None and total_rows > max_rows:
+                raise UploadResourceLimitError(
+                    f"{filename} has too many rows. Maximum is {max_rows:,} rows."
+                )
+
+        return pd.DataFrame(data_rows, columns=columns)
+    finally:
+        workbook.close()
+
+
 @st.cache_data(show_spinner=False, max_entries=8)
 def process_file(file_bytes, filename, saved_dataset: bool = False):
     """
@@ -7639,7 +7698,9 @@ def process_file(file_bytes, filename, saved_dataset: bool = False):
     # --- 1️⃣ Load file ---
     if lowerfn.endswith(".csv"):
         df = read_csv_upload(file_bytes, filename, max_rows=max_rows)
-    elif lowerfn.endswith((".xls", ".xlsx")):
+    elif lowerfn.endswith(".xlsx"):
+        df = read_xlsx_upload(file_bytes, filename, max_rows=max_rows)
+    elif lowerfn.endswith(".xls"):
         df = pd.read_excel(file, dtype=str)
     else:
         raise ValueError("Unsupported file type")

@@ -1007,6 +1007,26 @@ class AuditCharacterizationTests(unittest.TestCase):
         self.assertEqual(len(df), 3)
         self.assertEqual(pms_name, "Canonical CSV")
 
+    def test_xlsx_upload_uses_streaming_reader_not_pandas_read_excel(self):
+        from io import BytesIO
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.append(["ChargeDate", "Client Name", "Animal Name", "Item Name", "Qty", "Amount"])
+        worksheet.append(["2026-01-01", "Client A", "Pet A", "Rabies", "1", "100"])
+        worksheet.append(["2026-01-02", "Client B", "Pet B", "Dental", "1", "200"])
+        output = BytesIO()
+        workbook.save(output)
+        workbook.close()
+
+        with patch.object(self.app.pd, "read_excel", side_effect=AssertionError("read_excel should not be used")):
+            df, pms_name, _amount_col = self.app.process_file(output.getvalue(), "large.xlsx")
+
+        self.assertEqual(len(df), 2)
+        self.assertEqual(pms_name, "Canonical CSV")
+        self.assertEqual(df["Client Name"].tolist(), ["Client A", "Client B"])
+
     def test_upload_validation_user_message_avoids_internal_column_names(self):
         message = self.app.upload_validation_user_message()
 
