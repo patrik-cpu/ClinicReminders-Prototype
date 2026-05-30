@@ -7346,9 +7346,11 @@ class UploadResourceLimitError(UploadValidationError):
 
 
 REQUIRED_UPLOAD_COLUMNS = ["ChargeDate", "Client Name", "Animal Name", "Item Name"]
-MAX_UPLOAD_FILES = 5
-MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024
-MAX_UPLOAD_ROWS = 250_000
+MAX_UPLOAD_FILES = 12
+MAX_UPLOAD_FILE_BYTES = 150 * 1024 * 1024
+MAX_UPLOAD_BATCH_BYTES = 300 * 1024 * 1024
+MAX_UPLOAD_ROWS = 300_000
+MAX_UPLOAD_BATCH_ROWS = 300_000
 MAX_UPLOAD_COLUMNS = 200
 USER_FACING_COLUMN_LABELS = {
     "ChargeDate": "Billed Date",
@@ -7402,8 +7404,16 @@ def validate_upload_file_collection(file_blobs) -> None:
         raise UploadResourceLimitError(
             f"Upload at most {MAX_UPLOAD_FILES} files at a time."
         )
+    total_size = 0
     for fb in file_blobs or []:
-        validate_upload_file_size(fb.get("bytes", b""), fb.get("name", "upload"))
+        file_bytes = fb.get("bytes", b"")
+        validate_upload_file_size(file_bytes, fb.get("name", "upload"))
+        total_size += len(file_bytes or b"")
+    if total_size > MAX_UPLOAD_BATCH_BYTES:
+        raise UploadResourceLimitError(
+            "This upload batch is too large. Maximum total upload size is "
+            f"{format_file_size(MAX_UPLOAD_BATCH_BYTES)}."
+        )
 
 
 def validate_upload_dataframe_limits(df: pd.DataFrame, filename: str) -> None:
@@ -7417,6 +7427,13 @@ def validate_upload_dataframe_limits(df: pd.DataFrame, filename: str) -> None:
         raise UploadResourceLimitError(
             f"{filename} has too many columns. Maximum is "
             f"{MAX_UPLOAD_COLUMNS:,} columns."
+        )
+
+
+def validate_upload_batch_row_limit(row_count: int) -> None:
+    if row_count > MAX_UPLOAD_BATCH_ROWS:
+        raise UploadResourceLimitError(
+            f"This upload batch has too many rows. Maximum is {MAX_UPLOAD_BATCH_ROWS:,} rows."
         )
 
 
@@ -10195,9 +10212,12 @@ def finish_authenticated_session(
 def summarize_uploads(file_blobs, cache_version: int = UPLOAD_SUMMARY_SCHEMA_VERSION):
     validate_upload_file_collection(file_blobs)
     datasets, summary_rows = [], []
+    total_rows = 0
     for fb in file_blobs:
         df, pms_name, amount_col = process_file(fb["bytes"], fb["name"])
         validate_upload_dataframe(df, fb["name"])
+        total_rows += len(df.index)
+        validate_upload_batch_row_limit(total_rows)
         pms_name = pms_name or "Canonical CSV"
         charge_dates = normalized_charge_dates(df["ChargeDate"])
         from_date = charge_dates.min()

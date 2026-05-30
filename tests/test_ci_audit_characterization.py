@@ -899,8 +899,8 @@ class AuditCharacterizationTests(unittest.TestCase):
             self.app.process_file(b"not relevant", "upload.txt")
 
     def test_oversized_upload_is_rejected_before_csv_parser_runs(self):
-        self.assertEqual(self.app.MAX_UPLOAD_FILE_BYTES, 50 * 1024 * 1024)
-        self.assertEqual(self.app.format_file_size(self.app.MAX_UPLOAD_FILE_BYTES), "50 MB")
+        self.assertEqual(self.app.MAX_UPLOAD_FILE_BYTES, 150 * 1024 * 1024)
+        self.assertEqual(self.app.format_file_size(self.app.MAX_UPLOAD_FILE_BYTES), "150 MB")
         oversized = b"x" * (self.app.MAX_UPLOAD_FILE_BYTES + 1)
 
         with patch.object(self.app.pd, "read_csv") as read_csv:
@@ -944,6 +944,55 @@ class AuditCharacterizationTests(unittest.TestCase):
             "Upload at most",
         ):
             self.app.validate_upload_file_collection(too_many_files)
+
+    def test_upload_file_collection_limits_total_batch_size(self):
+        with patch.object(self.app, "MAX_UPLOAD_FILE_BYTES", 10):
+            with patch.object(self.app, "MAX_UPLOAD_BATCH_BYTES", 15):
+                oversized_batch = [
+                    {"name": "january.csv", "bytes": b"x" * 8},
+                    {"name": "february.csv", "bytes": b"y" * 8},
+                ]
+
+                with self.assertRaisesRegex(
+                    self.app.UploadResourceLimitError,
+                    "batch is too large",
+                ):
+                    self.app.validate_upload_file_collection(oversized_batch)
+
+    def test_upload_batch_row_limit_allows_year_target_and_rejects_excess(self):
+        self.app.validate_upload_batch_row_limit(240_000)
+
+        with self.assertRaisesRegex(
+            self.app.UploadResourceLimitError,
+            "too many rows",
+        ):
+            self.app.validate_upload_batch_row_limit(self.app.MAX_UPLOAD_BATCH_ROWS + 1)
+
+    def test_summarize_uploads_rejects_cumulative_rows_over_batch_limit(self):
+        first = pd.DataFrame({
+            "ChargeDate": pd.to_datetime(["2026-01-01", "2026-01-02"]),
+            "Client Name": ["Client A", "Client B"],
+            "Animal Name": ["Pet A", "Pet B"],
+            "Item Name": ["Rabies", "Dental"],
+        })
+        second = pd.DataFrame({
+            "ChargeDate": pd.to_datetime(["2026-01-03"]),
+            "Client Name": ["Client C"],
+            "Animal Name": ["Pet C"],
+            "Item Name": ["Groom"],
+        })
+        file_blobs = (
+            {"name": "january.csv", "bytes": b"jan"},
+            {"name": "february.csv", "bytes": b"feb"},
+        )
+
+        with patch.object(self.app, "MAX_UPLOAD_BATCH_ROWS", 2):
+            with patch.object(self.app, "process_file", side_effect=[(first, "Canonical CSV", None), (second, "Canonical CSV", None)]):
+                with self.assertRaisesRegex(
+                    self.app.UploadResourceLimitError,
+                    "too many rows",
+                ):
+                    self.app.summarize_uploads(file_blobs, self.app.UPLOAD_SUMMARY_SCHEMA_VERSION)
 
     def test_finish_authenticated_session_sets_session_and_invokes_external_side_effects(self):
         state = self.app.st.session_state

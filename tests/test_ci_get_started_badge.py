@@ -89,7 +89,8 @@ class GetStartedBadgeTests(unittest.TestCase):
         ]
         self.assertTrue(declined_item()["done"])
 
-        self.app.reset_get_started_checklist_state()
+        with mock.patch.object(self.app, "user_now", return_value=pd.Timestamp("2026-05-22T09:00:00")):
+            self.app.reset_get_started_checklist_state()
         self.assertFalse(declined_item()["done"])
 
         state["deleted_reminders"].append(
