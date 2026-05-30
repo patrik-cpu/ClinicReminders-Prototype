@@ -899,8 +899,8 @@ class AuditCharacterizationTests(unittest.TestCase):
             self.app.process_file(b"not relevant", "upload.txt")
 
     def test_oversized_upload_is_rejected_before_csv_parser_runs(self):
-        self.assertEqual(self.app.MAX_UPLOAD_FILE_BYTES, 150 * 1024 * 1024)
-        self.assertEqual(self.app.format_file_size(self.app.MAX_UPLOAD_FILE_BYTES), "150 MB")
+        self.assertEqual(self.app.MAX_UPLOAD_FILE_BYTES, 300 * 1024 * 1024)
+        self.assertEqual(self.app.format_file_size(self.app.MAX_UPLOAD_FILE_BYTES), "300 MB")
         oversized = b"x" * (self.app.MAX_UPLOAD_FILE_BYTES + 1)
 
         with patch.object(self.app.pd, "read_csv") as read_csv:
@@ -967,6 +967,45 @@ class AuditCharacterizationTests(unittest.TestCase):
             "too many rows",
         ):
             self.app.validate_upload_batch_row_limit(self.app.MAX_UPLOAD_BATCH_ROWS + 1)
+
+    def test_saved_dataset_uses_larger_lifetime_row_limit(self):
+        csv_bytes = (
+            "ChargeDate,Client Name,Animal Name,Item Name,Qty,Amount\n"
+            "2026-01-01,Client A,Pet A,Rabies,1,100\n"
+            "2026-01-02,Client B,Pet B,Dental,1,200\n"
+        ).encode("utf-8")
+
+        with patch.object(self.app, "MAX_UPLOAD_ROWS", 1):
+            with patch.object(self.app, "MAX_SAVED_DATASET_ROWS", 2):
+                with self.assertRaisesRegex(
+                    self.app.UploadResourceLimitError,
+                    "too many rows",
+                ):
+                    self.app.process_file(csv_bytes, "upload.csv")
+
+                df, pms_name, _amount_col = self.app.process_file(
+                    csv_bytes,
+                    "saved.csv",
+                    saved_dataset=True,
+                )
+
+        self.assertEqual(len(df), 2)
+        self.assertEqual(pms_name, "Canonical CSV")
+
+    def test_large_csv_upload_can_be_read_in_chunks(self):
+        csv_bytes = (
+            "ChargeDate,Client Name,Animal Name,Item Name,Qty,Amount\n"
+            "2026-01-01,Client A,Pet A,Rabies,1,100\n"
+            "2026-01-02,Client B,Pet B,Dental,1,200\n"
+            "2026-01-03,Client C,Pet C,Groom,1,50\n"
+        ).encode("utf-8")
+
+        with patch.object(self.app, "CSV_UPLOAD_CHUNK_BYTES_THRESHOLD", 1):
+            with patch.object(self.app, "CSV_UPLOAD_CHUNK_ROWS", 1):
+                df, pms_name, _amount_col = self.app.process_file(csv_bytes, "large.csv")
+
+        self.assertEqual(len(df), 3)
+        self.assertEqual(pms_name, "Canonical CSV")
 
     def test_upload_validation_user_message_avoids_internal_column_names(self):
         message = self.app.upload_validation_user_message()

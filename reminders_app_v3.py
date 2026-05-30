@@ -4056,7 +4056,7 @@ def load_shared_dataset_for_clinic():
             # Reuse your existing pipeline so schema normalization still happens
             # Filename is just for detect logic; use stored name if present, else default
             filename = rec.get(SHEET_COL_DATASET_FILE_NAME, "shared_dataset.csv") or "shared_dataset.csv"
-            df, pms_name, amount_col = process_file(file_bytes, filename)
+            df, pms_name, amount_col = process_file(file_bytes, filename, saved_dataset=True)
 
             st.session_state["working_df"] = sanitize_working_df(df)
             st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1  # invalidate downstream caches
@@ -4410,7 +4410,7 @@ def load_existing_shared_df(file_id: str, filename: str, clinic_id: str | None =
     existing_bytes = drive_download_bytes(file_id, clinic_id=clinic_id, current_file_id=file_id)
 
     # Normalize through your pipeline to guarantee canonical columns
-    df_existing, _, _ = process_file(existing_bytes, filename or "shared_dataset.csv")
+    df_existing, _, _ = process_file(existing_bytes, filename or "shared_dataset.csv", saved_dataset=True)
     df_existing = sanitize_working_df(df_existing)
 
     # Optional: drop debug columns if present
@@ -4554,7 +4554,7 @@ def merge_dataset_upload_history(
             continue
         seen_keys.add(key)
         deduped.append(row)
-    return list(reversed(deduped))
+    return list(reversed(deduped))[-MAX_UPLOAD_HISTORY_ENTRIES:]
 
 def dataset_history_date_bounds(rows: list[dict]) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
     starts = [parse_history_date(row.get("from")) for row in rows]
@@ -7347,10 +7347,13 @@ class UploadResourceLimitError(UploadValidationError):
 
 REQUIRED_UPLOAD_COLUMNS = ["ChargeDate", "Client Name", "Animal Name", "Item Name"]
 MAX_UPLOAD_FILES = 12
-MAX_UPLOAD_FILE_BYTES = 150 * 1024 * 1024
-MAX_UPLOAD_BATCH_BYTES = 300 * 1024 * 1024
-MAX_UPLOAD_ROWS = 300_000
-MAX_UPLOAD_BATCH_ROWS = 300_000
+MAX_UPLOAD_FILE_BYTES = 300 * 1024 * 1024
+MAX_UPLOAD_BATCH_BYTES = 600 * 1024 * 1024
+MAX_UPLOAD_ROWS = 500_000
+MAX_UPLOAD_BATCH_ROWS = 500_000
+MAX_SAVED_DATASET_FILE_BYTES = 1024 * 1024 * 1024
+MAX_SAVED_DATASET_ROWS = 1_000_000
+MAX_UPLOAD_HISTORY_ENTRIES = 120
 MAX_UPLOAD_COLUMNS = 200
 USER_FACING_COLUMN_LABELS = {
     "ChargeDate": "Billed Date",
@@ -7390,12 +7393,13 @@ def format_file_size(num_bytes: int) -> str:
     return f"{mb:.0f} MB" if mb >= 10 else f"{mb:.1f} MB"
 
 
-def validate_upload_file_size(file_bytes, filename: str) -> None:
+def validate_upload_file_size(file_bytes, filename: str, max_bytes: int | None = None) -> None:
+    max_bytes = MAX_UPLOAD_FILE_BYTES if max_bytes is None else max_bytes
     size = len(file_bytes or b"")
-    if size > MAX_UPLOAD_FILE_BYTES:
+    if size > max_bytes:
         raise UploadResourceLimitError(
             f"{filename} is too large. Maximum upload size is "
-            f"{format_file_size(MAX_UPLOAD_FILE_BYTES)} per file."
+            f"{format_file_size(max_bytes)} per file."
         )
 
 
@@ -7416,12 +7420,13 @@ def validate_upload_file_collection(file_blobs) -> None:
         )
 
 
-def validate_upload_dataframe_limits(df: pd.DataFrame, filename: str) -> None:
+def validate_upload_dataframe_limits(df: pd.DataFrame, filename: str, max_rows: int | None = None) -> None:
+    max_rows = MAX_UPLOAD_ROWS if max_rows is None else max_rows
     row_count = len(df.index)
     column_count = len(df.columns)
-    if row_count > MAX_UPLOAD_ROWS:
+    if row_count > max_rows:
         raise UploadResourceLimitError(
-            f"{filename} has too many rows. Maximum is {MAX_UPLOAD_ROWS:,} rows."
+            f"{filename} has too many rows. Maximum is {max_rows:,} rows."
         )
     if column_count > MAX_UPLOAD_COLUMNS:
         raise UploadResourceLimitError(
@@ -7491,8 +7496,8 @@ def filter_merlin_item_rows(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[item_text.ne("")].copy().reset_index(drop=True)
 
 
-def validate_upload_dataframe(df: pd.DataFrame, filename: str):
-    validate_upload_dataframe_limits(df, filename)
+def validate_upload_dataframe(df: pd.DataFrame, filename: str, max_rows: int | None = None):
+    validate_upload_dataframe_limits(df, filename, max_rows=max_rows)
     missing = [col for col in REQUIRED_UPLOAD_COLUMNS if col not in df.columns]
     if missing:
         raise UploadValidationError(
@@ -7514,10 +7519,10 @@ def has_readable_canonical_upload_schema(df: pd.DataFrame) -> bool:
     return parse_dates(df["ChargeDate"]).notna().sum() > 0
 
 
-def finalize_processed_upload_df(df: pd.DataFrame, filename: str) -> pd.DataFrame:
+def finalize_processed_upload_df(df: pd.DataFrame, filename: str, max_rows: int | None = None) -> pd.DataFrame:
     df = sanitize_working_df(df)
-    validate_upload_dataframe_limits(df, filename)
-    validate_upload_dataframe(df, filename)
+    validate_upload_dataframe_limits(df, filename, max_rows=max_rows)
+    validate_upload_dataframe(df, filename, max_rows=max_rows)
     df["_client_lower"] = df["Client Name"].astype(str).str.lower()
     df["_animal_lower"] = df["Animal Name"].astype(str).str.lower()
     df["_item_lower"] = df["Item Name"].astype(str).str.lower()
@@ -7527,42 +7532,96 @@ def finalize_processed_upload_df(df: pd.DataFrame, filename: str) -> pd.DataFram
 # File processing (decoupled from rules)
 # --------------------------------
 CSV_UPLOAD_ENCODINGS = ("utf-8-sig", "utf-8", "utf-16", "cp1252", "latin1")
+CSV_UPLOAD_CHUNK_BYTES_THRESHOLD = 100 * 1024 * 1024
+CSV_UPLOAD_CHUNK_ROWS = 50_000
 
 
-def _read_csv_upload_with_encoding(file_bytes, read_kwargs: dict, sep=None) -> pd.DataFrame:
+def _dataframe_from_csv_chunks(reader, filename: str, max_rows: int | None = None) -> pd.DataFrame:
+    chunks = []
+    total_rows = 0
+    for chunk in reader:
+        chunks.append(chunk)
+        total_rows += len(chunk.index)
+        validate_upload_dataframe_limits(chunk, filename, max_rows=max_rows)
+        if max_rows is not None and total_rows > max_rows:
+            raise UploadResourceLimitError(
+                f"{filename} has too many rows. Maximum is {max_rows:,} rows."
+            )
+    if not chunks:
+        return pd.DataFrame()
+    return pd.concat(chunks, ignore_index=True)
+
+
+def _read_csv_upload_with_encoding(
+    file_bytes,
+    read_kwargs: dict,
+    sep=None,
+    chunksize: int | None = None,
+    filename: str = "upload",
+    max_rows: int | None = None,
+) -> pd.DataFrame:
     last_decode_error = None
     parser_kwargs = dict(read_kwargs)
     if sep is not None:
         parser_kwargs["sep"] = sep
+    if chunksize:
+        parser_kwargs["chunksize"] = chunksize
     for encoding in CSV_UPLOAD_ENCODINGS:
         try:
-            return pd.read_csv(BytesIO(file_bytes), encoding=encoding, **parser_kwargs)
+            parsed = pd.read_csv(BytesIO(file_bytes), encoding=encoding, **parser_kwargs)
+            if chunksize:
+                return _dataframe_from_csv_chunks(parsed, filename, max_rows=max_rows)
+            return parsed
         except (UnicodeDecodeError, UnicodeError) as exc:
             last_decode_error = exc
             continue
     if last_decode_error is not None:
         raise last_decode_error
-    return pd.read_csv(BytesIO(file_bytes), **parser_kwargs)
+    parsed = pd.read_csv(BytesIO(file_bytes), **parser_kwargs)
+    if chunksize:
+        return _dataframe_from_csv_chunks(parsed, filename, max_rows=max_rows)
+    return parsed
 
 
-def read_csv_upload(file_bytes, filename: str) -> pd.DataFrame:
+def read_csv_upload(file_bytes, filename: str, max_rows: int | None = None) -> pd.DataFrame:
     read_kwargs = {
         "dtype": str,
         "keep_default_na": False,
         "index_col": False,
         "skip_blank_lines": True,
     }
+    chunksize = CSV_UPLOAD_CHUNK_ROWS if len(file_bytes or b"") >= CSV_UPLOAD_CHUNK_BYTES_THRESHOLD else None
     try:
-        df = _read_csv_upload_with_encoding(file_bytes, read_kwargs)
+        df = _read_csv_upload_with_encoding(
+            file_bytes,
+            read_kwargs,
+            chunksize=chunksize,
+            filename=filename,
+            max_rows=max_rows,
+        )
     except pd.errors.ParserError:
-        df = _read_csv_upload_with_encoding(file_bytes, read_kwargs, sep="\t")
+        df = _read_csv_upload_with_encoding(
+            file_bytes,
+            read_kwargs,
+            sep="\t",
+            chunksize=chunksize,
+            filename=filename,
+            max_rows=max_rows,
+        )
     if len(df.columns) == 1 and "\t" in str(df.columns[0]):
-        df = _read_csv_upload_with_encoding(file_bytes, read_kwargs, sep="\t")
+        df = _read_csv_upload_with_encoding(
+            file_bytes,
+            read_kwargs,
+            sep="\t",
+            chunksize=chunksize,
+            filename=filename,
+            max_rows=max_rows,
+        )
     return df
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
-def process_file(file_bytes, filename):
+def process_file(file_bytes, filename, saved_dataset: bool = False):
     """
     Load and normalize uploaded data files across supported PMS types.
     Automatically detects PMS and applies schema normalization.
@@ -7571,18 +7630,20 @@ def process_file(file_bytes, filename):
     """
 
     from io import BytesIO
-    validate_upload_file_size(file_bytes, filename)
+    max_file_bytes = MAX_SAVED_DATASET_FILE_BYTES if saved_dataset else MAX_UPLOAD_FILE_BYTES
+    max_rows = MAX_SAVED_DATASET_ROWS if saved_dataset else MAX_UPLOAD_ROWS
+    validate_upload_file_size(file_bytes, filename, max_bytes=max_file_bytes)
     file = BytesIO(file_bytes)
     lowerfn = filename.lower()
 
     # --- 1️⃣ Load file ---
     if lowerfn.endswith(".csv"):
-        df = read_csv_upload(file_bytes, filename)
+        df = read_csv_upload(file_bytes, filename, max_rows=max_rows)
     elif lowerfn.endswith((".xls", ".xlsx")):
         df = pd.read_excel(file, dtype=str)
     else:
         raise ValueError("Unsupported file type")
-    validate_upload_dataframe_limits(df, filename)
+    validate_upload_dataframe_limits(df, filename, max_rows=max_rows)
     
     # Drop rows that are completely empty or whitespace-only
     df = df.replace(r"^\s*$", "", regex=True)
@@ -7600,7 +7661,7 @@ def process_file(file_bytes, filename):
     df = apply_generic_upload_alias_columns(df)
 
     if has_readable_canonical_upload_schema(df):
-        return finalize_processed_upload_df(df, filename), "Canonical CSV", None
+        return finalize_processed_upload_df(df, filename, max_rows=max_rows), "Canonical CSV", None
 
     # --- 4️⃣ Detect PMS ---
     pms_name = detect_pms(df)
@@ -7701,7 +7762,7 @@ def process_file(file_bytes, filename):
         df["ChargeDate"] = pd.NaT
 
     # --- 11️⃣ Add lowercase helper columns for search and reminders ---
-    df = finalize_processed_upload_df(df, filename)
+    df = finalize_processed_upload_df(df, filename, max_rows=max_rows)
 
     # --- ✅ Return normalized data ---
     return df, pms_name, amount_col
