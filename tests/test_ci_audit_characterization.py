@@ -992,6 +992,22 @@ class AuditCharacterizationTests(unittest.TestCase):
         self.assertEqual(len(df), 2)
         self.assertEqual(pms_name, "Canonical CSV")
 
+    def test_session_working_df_for_view_returns_new_shallow_frame(self):
+        working_df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2026-01-01"]),
+                "Client Name": ["Client A"],
+            }
+        )
+        self.app.st.session_state["working_df"] = working_df
+
+        view_df = self.app.session_working_df_for_view(True)
+        empty_df = self.app.session_working_df_for_view(False)
+
+        self.assertIsNot(view_df, working_df)
+        self.assertTrue(view_df.equals(working_df))
+        self.assertTrue(empty_df.empty)
+
     def test_large_csv_upload_can_be_read_in_chunks(self):
         csv_bytes = (
             "ChargeDate,Client Name,Animal Name,Item Name,Qty,Amount\n"

@@ -4831,6 +4831,7 @@ def publish_dataset_for_clinic(
         new_df=new_df,
         replace_overlapping_dates=replace_overlapping_dates,
     )
+    validate_upload_dataframe_limits(merged_df, f"{clinic_id}_shared_dataset.csv", max_rows=MAX_SAVED_DATASET_ROWS)
 
     # 4) Upload merged dataset to Drive
     out_name  = f"{clinic_id}_shared_dataset.csv"
@@ -18736,6 +18737,15 @@ def render_stats_csv_export(
     )
 
 
+def session_working_df_for_view(needs_working_df: bool) -> pd.DataFrame:
+    if not needs_working_df:
+        return pd.DataFrame()
+    working_df = st.session_state.get("working_df")
+    if working_df is None:
+        return pd.DataFrame()
+    return working_df.copy(deep=False)
+
+
 def stats_item_actioning_column_config() -> dict:
     return {
         "Item": st.column_config.TextColumn("Item", help=STATS_ITEM_ACTIONING_COLUMN_HELP["Item"]),
@@ -20250,7 +20260,7 @@ if st.session_state.get("logged_in", False):
     needs_prepared_df = active_main_section in {"Identify", "Stats"}
     if active_main_section == "Identify" and search_criteria_have_pending_changes():
         apply_search_criteria_changes(show_notice=False)
-    df = st.session_state["working_df"].copy() if has_working_df and needs_working_df else pd.DataFrame()
+    df = session_working_df_for_view(has_working_df and needs_working_df)
     applied_rules = get_applied_reminder_rules() if needs_working_df else {}
     prepared = (
         get_prepared_df(df, applied_rules)

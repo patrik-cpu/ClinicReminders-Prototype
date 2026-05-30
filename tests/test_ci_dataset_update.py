@@ -311,6 +311,35 @@ class DatasetUpdateTests(unittest.TestCase):
         self.assertIn("csv_bytes=", tracker_events[1]["message"])
         self.assertEqual(tracker_events[1]["drive_file_id"], "new-drive-file")
 
+    def test_publish_dataset_rejects_rows_over_saved_limit_before_drive_upload(self):
+        state = self.app.st.session_state
+        state["clinic_id"] = "Clinic A"
+        state["logged_in"] = True
+        new_df = pd.DataFrame(
+            {
+                "ChargeDate": pd.to_datetime(["2025-01-01", "2025-01-02"]),
+                "Client Name": ["Client A", "Client B"],
+                "Animal Name": ["Pet A", "Pet B"],
+                "Item Name": ["Rabies", "Dental"],
+            }
+        )
+
+        with (
+            patch.object(self.app, "MAX_SAVED_DATASET_ROWS", 1),
+            patch.object(self.app, "drive_upsert_csv_bytes") as drive_upload,
+        ):
+            with self.assertRaisesRegex(self.app.UploadResourceLimitError, "too many rows"):
+                self.app.publish_dataset_for_clinic(
+                    "Clinic A",
+                    new_df,
+                    "datasets-folder",
+                    existing_file_id="",
+                    existing_name="",
+                    existing_df=pd.DataFrame(),
+                )
+
+        drive_upload.assert_not_called()
+
     def test_update_clinic_dataset_pointer_uses_cached_row_without_fresh_readback(self):
         headers = list(self.app.SETTINGS_REQUIRED_COLUMNS)
         dataset_file_id_col = self.app.SHEET_COL_DATASET_FILE_ID
