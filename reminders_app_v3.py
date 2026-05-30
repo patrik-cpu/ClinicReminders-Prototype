@@ -7437,6 +7437,15 @@ def validate_upload_batch_row_limit(row_count: int) -> None:
         )
 
 
+def upload_validation_user_message() -> str:
+    return (
+        "This upload does not look like a supported PMS invoice-lines or sales line-items export. "
+        "Please choose the invoice or sales line export from the clinic system, not a product list, "
+        "inventory export, client list, or summary report. It should contain one row per billed item "
+        "or invoice line."
+    )
+
+
 def find_column_ci(columns, candidates):
     normalized = {str(c).strip().lower(): c for c in columns}
     for candidate in candidates:
@@ -13838,11 +13847,7 @@ if active_main_section == "Upload Data":
                     source="file_uploader",
                 )
                 st.toast("Upload needs a different format.")
-                st.warning(
-                    "This upload does not look like a supported sales export. "
-                    + str(e)
-                    + " Please upload a file with client, patient, item, sales amount or quantity, and date fields."
-                )
+                st.warning(upload_validation_user_message())
                 st.stop()
             except Exception as e:
                 record_dataset_tracker_event(

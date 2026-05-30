@@ -968,6 +968,16 @@ class AuditCharacterizationTests(unittest.TestCase):
         ):
             self.app.validate_upload_batch_row_limit(self.app.MAX_UPLOAD_BATCH_ROWS + 1)
 
+    def test_upload_validation_user_message_avoids_internal_column_names(self):
+        message = self.app.upload_validation_user_message()
+
+        self.assertIn("invoice-lines", message)
+        self.assertIn("sales line-items", message)
+        self.assertIn("not a product list", message)
+        self.assertNotIn("Client Name", message)
+        self.assertNotIn("Animal Name", message)
+        self.assertNotIn("Billed Date", message)
+
     def test_summarize_uploads_rejects_cumulative_rows_over_batch_limit(self):
         first = pd.DataFrame({
             "ChargeDate": pd.to_datetime(["2026-01-01", "2026-01-02"]),
